@@ -14,6 +14,9 @@ export default function DriverMgmt() {
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanMessage, setScanMessage] = useState('');
+  
+  // 🤖 AI Data Save karne ke liye naya state
+  const [scannedAIData, setScannedAIData] = useState<any>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -53,7 +56,7 @@ export default function DriverMgmt() {
     setLoading(false);
   };
 
-  // 🌍 LIVE SERVER LINK ADDED HERE
+  // 🌍 LIVE SERVER LINK & MAMTA AI DATA CAPTURE
   const handleDocUpload = async (e: any, field: string) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -61,8 +64,12 @@ export default function DriverMgmt() {
     if (field === 'profile_pic') setLocalPicPreview(URL.createObjectURL(file));
 
     setUploadingField(field); 
+    setScannedAIData(null); // Purana AI data hatao
+
     const data = new FormData();
     data.append('file', file);
+    data.append('driverName', driverData.name || 'New_Driver_Doc'); 
+    data.append('docType', field); // ✨ AI को बताना कि ये कौन सा डॉक्यूमेंट है
 
     try {
       const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', { 
@@ -71,49 +78,101 @@ export default function DriverMgmt() {
       });
       const result = await response.json();
       if (result.success) {
-        setDriverData(prev => ({ ...prev, [field]: result.link }));
-        alert("✅ Document Saved to Secure Cloud (2TB Drive)!");
-      } else alert("❌ Drive Upload Error: " + result.error);
+        setDriverData(prev => ({ ...prev, [field]: result.driveLink })); 
+        setScannedAIData(result.aiData); 
+        alert("✅ Document Saved to Secure Cloud!\n🤖 Mamta AI is ready to scan.");
+      } else alert("❌ Drive Upload Error: " + result.message);
     } catch (error) { alert("❌ Live Server is unreachable right now!"); }
     setUploadingField(null); 
   };
 
-  // 🤖 SMART AI SCAN LOGIC
+  // ✨ SMART DATE FORMATTER (AI Date to HTML Date)
+  const formatForDatePicker = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+      const parts = dateStr.match(/\d+/g);
+      if (parts && parts.length >= 3) {
+        let d = parts[0], m = parts[1], y = parts[2];
+        if (y.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        if (d.length === 4) return `${d}-${m.padStart(2, '0')}-${y.padStart(2, '0')}`;
+      }
+      return dateStr;
+    } catch (e) {
+      return "";
+    }
+  };
+
+  // 🎤 MAMTA AI - ULTRA PREMIUM NEURAL VOICE (Madhuri Style)
+  const speakSmartHinglishReport = async (docType: string) => {
+      // 📝 आप अपनी मर्ज़ी से यह डायलॉग बदल सकते हैं
+      let aiSpeech = `नमस्कार सुभाष सर। आपका ${docType === 'DL' ? 'ड्राइविंग लाइसेंस' : docType} सफलतापूर्वक स्कैन हो गया है। असली डेटा निकाल लिया गया है।`;
+
+      try {
+          const response = await fetch("https://prasad-api.onrender.com/speak", {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: aiSpeech })
+          });
+
+          const data = await response.json();
+          if (data.success && data.audioContent) {
+              const audioSrc = `data:audio/mp3;base64,${data.audioContent}`;
+              const audio = new Audio(audioSrc);
+              audio.play(); // 🔊 यहाँ बजेगी माधुरी की आवाज़!
+          } else {
+              console.error("No audio content received.");
+          }
+      } catch (error) {
+          console.error("Error playing premium voice:", error);
+      }
+  };
+
+  // 🤖 SMART AI SCAN LOGIC (REAL DATA EXTRACTION)
   const triggerAIScan = (docType: string) => {
-      // Check if file is uploaded first
       if ((docType === 'DL' && !driverData.dl_photo) || 
           (docType === 'AADHAAR' && !driverData.aadhar_photo)) {
           alert(`⚠️ Please upload ${docType} document first!`);
           return;
       }
+      if (!scannedAIData) {
+          alert(`⚠️ AI data is processing or missing. Please re-upload if it fails.`);
+          return;
+      }
 
       setIsScanning(true);
-      setScanMessage(`Scanning ${docType} Document...`);
+      setScanMessage(`🤖 Extracting real data from ${docType}...`);
 
       setTimeout(() => {
           setIsScanning(false);
           setScanMessage('');
           
+          // ✨ AI के कचरे को साफ़ करना
+          const cleanDocNumber = scannedAIData.documentNumber ? scannedAIData.documentNumber.replace(/[^A-Za-z0-9/-]/g, '') : "";
+          const formattedDate = formatForDatePicker(scannedAIData.documentDate);
+          const extraDetails = scannedAIData.extraDetails || scannedAIData.partyName || "";
+
           if (docType === 'DL') {
               setDriverData(prev => ({
                   ...prev,
-                  license_no: "AS0" + Math.floor(Math.random() * 9) + " " + Math.floor(Math.random() * 90000000000 + 10000000000), // Random Assam DL
-                  license_expiry: new Date(new Date().setFullYear(new Date().getFullYear() + 5)).toISOString().split('T')[0] // 5 years expiry
+                  license_no: cleanDocNumber || prev.license_no,
+                  license_expiry: formattedDate || prev.license_expiry
               }));
           } else if (docType === 'AADHAAR') {
               setDriverData(prev => ({
                   ...prev,
-                  aadhar_no: Math.floor(1000 + Math.random() * 9000) + " " + Math.floor(1000 + Math.random() * 9000) + " " + Math.floor(1000 + Math.random() * 9000), // Random Aadhaar format
-                  address: "Guwahati, Assam" // Dummy address
+                  aadhar_no: cleanDocNumber || prev.aadhar_no,
+                  address: extraDetails || prev.address 
               }));
           }
-          alert(`🤖 AI Scan Complete! Data Extracted from ${docType}.`);
-      }, 1500);
+          
+          alert(`🤖 Mamta AI Scan Complete! Real Data Extracted from ${docType}.`);
+          speakSmartHinglishReport(docType); // 🔊 <--- ममता AI की आवाज़ कॉल हो गई
+      }, 1000);
   };
 
 
   const handleSaveDriver = async () => {
-    if (!driverData.name || !driverData.mobile) return alert("Name and Mobile are required!");
+    if (!driverData.name || !driverData.mobile) return alert("⚠️ Name and Mobile are required!");
     try {
       if (editingId) {
         await updateDoc(doc(db, "DRIVERS", editingId), driverData);
@@ -126,7 +185,7 @@ export default function DriverMgmt() {
         alert("✅ Full KYC Profile & Auto-Ledger Created Successfully!");
       }
       closeModal(); fetchData();
-    } catch (e) { alert("Error saving driver."); }
+    } catch (e) { alert("❌ Error saving driver."); }
   };
 
   const handleDeleteDriver = async (id: string, name: string) => {
@@ -140,17 +199,17 @@ export default function DriverMgmt() {
   };
 
   const closeModal = () => {
-    setIsModalOpen(false); setEditingId(null); setLocalPicPreview(null);
+    setIsModalOpen(false); setEditingId(null); setLocalPicPreview(null); setScannedAIData(null);
     setDriverData({ name: '', mobile: '', profile_pic: '', address: '', license_no: '', license_expiry: '', dl_photo: '', hzd_cert_no: '', hzd_expiry: '', hzd_photo: '', aadhar_no: '', aadhar_photo: '', pan_no: '', pan_photo: '', bank_name: '', account_no: '', ifsc_code: '', bank_photo: '', guarantor_name: '', guarantor_mobile: '', join_date: new Date().toISOString().split('T')[0], status: 'ACTIVE', approval_status: 'PENDING' });
   };
 
   const handleSaveTransaction = async () => {
-    if (!selectedDriver || !settleData.amount) return alert("Select Driver and Enter Amount!");
+    if (!selectedDriver || !settleData.amount) return alert("⚠️ Select Driver and Enter Amount!");
     try {
       await addDoc(collection(db, "DRIVER_TRANSACTIONS"), { driver_name: selectedDriver, txn_type: settleData.txn_type, amount: parseFloat(settleData.amount), date: settleData.date, remarks: settleData.remarks, createdAt: serverTimestamp() });
       alert(`✅ ${settleData.txn_type.replace('_', ' ')} entry saved!`);
       setSettleData({ ...settleData, amount: '', remarks: '' }); fetchData();
-    } catch (e) { alert("Error saving transaction."); }
+    } catch (e) { alert("❌ Error saving transaction."); }
   };
 
   const sendDriverWhatsApp = (driver: any) => {
@@ -181,19 +240,31 @@ export default function DriverMgmt() {
         .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
         .tab-btn.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 8px 8px 0 0; }
         
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; }
-        .modal-content { background: #0f172a; border: 1px solid #c084fc; width: 90%; max-width: 1000px; max-height: 90vh; overflow-y: auto; padding: 40px; border-radius: 20px; box-shadow: 0 0 50px rgba(192, 132, 252, 0.2); }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; overflow-y: auto; padding: 20px;}
+        .modal-content { background: #0f172a; border: 1px solid #c084fc; width: 100%; max-width: 1200px; padding: 40px; border-radius: 20px; box-shadow: 0 0 50px rgba(192, 132, 252, 0.2); }
         
         .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 10px; color: white; padding: 12px 16px; outline: none; width: 100%; box-sizing: border-box; font-size: 14px;}
         .modern-input:focus { border-color: #c084fc; box-shadow: 0 0 15px rgba(192, 132, 252, 0.3); background: rgba(15, 23, 42, 0.9); }
         
-        .upload-btn { background: rgba(51, 65, 85, 0.8); border: 1px dashed #94a3b8; color: #cbd5e1; padding: 12px; border-radius: 10px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 12px; display: flex; align-items: center; justify-content: center; gap: 5px; height: 100%; box-sizing: border-box; font-weight: bold; width: 100%;}
-        .upload-btn:hover { background: rgba(192, 132, 252, 0.2); border-color: #c084fc; color: #c084fc; }
-        .upload-btn.success { background: rgba(16, 185, 129, 0.2); border-color: #10b981; color: #10b981; border-style: solid; }
+        /* 🌟 NEW SMART DOC CARDS */
+        .doc-card { background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(51, 65, 85, 0.6); border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: inset 0 0 10px rgba(0,0,0,0.2); transition: 0.3s;}
+        .doc-card:hover { border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6); }
+        .doc-card label { color: #cbd5e1; font-size: 11px; margin-bottom: 8px; display: block;}
         
-        .ai-btn { background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 12px; border-radius: 10px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 12px; display: flex; align-items: center; justify-content: center; height: 100%; box-sizing: border-box; font-weight: bold; width: 100%;}
-        .ai-btn:hover { background: rgba(56, 189, 248, 0.3); box-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
-        .ai-btn:disabled { opacity: 0.5; cursor: not-allowed; border-color: #64748b; color: #64748b; }
+        .upload-btn { background: rgba(51, 65, 85, 0.8); border: 1px dashed #94a3b8; color: #cbd5e1; padding: 12px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
+        .upload-btn:hover { background: rgba(192, 132, 252, 0.2); border-color: #c084fc; color: #c084fc; }
+        
+        /* 👁️ NEW VIEW BUTTON */
+        .view-btn { background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; color: #10b981; padding: 10px; border-radius: 8px; text-decoration: none; text-align: center; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: 0.3s; width: 100%; box-sizing: border-box;}
+        .view-btn:hover { background: #10b981; color: #020617; box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }
+        
+        /* 🔄 UPDATE BUTTON */
+        .update-btn { background: rgba(245, 158, 11, 0.1); border: 1px dashed #f59e0b; color: #f59e0b; padding: 10px; border-radius: 8px; font-size: 11px;}
+        .update-btn:hover { background: #f59e0b; color: #020617; }
+
+        .ai-btn { background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
+        .ai-btn:hover { background: #38bdf8; color: #0f172a; box-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+        .ai-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: #64748b; color: #64748b; background: transparent;}
         
         table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #e2e8f0; font-size: 13px; }
         th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #334155; color: #38bdf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
@@ -236,7 +307,7 @@ export default function DriverMgmt() {
         </div>
         <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #c084fc' }}>
           <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Advances Given</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', color: '#c084fc' }}>₹{totalAdvancesAll.toLocaleString()}</div>
+          <div style={{ fontSize: '28px', fontWeight: '900', color: '#c084fc' }}>₹{totalAdvancesAll.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
         </div>
       </div>
 
@@ -277,16 +348,16 @@ export default function DriverMgmt() {
                       </div>
                     </td>
                     <td>
-                      <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href={d.dl_photo} target="_blank" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href={d.dl_photo} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
                       <small style={{ color: '#64748b' }}>Exp: {d.license_expiry || 'N/A'}</small><br/>
-                      <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href={d.hzd_photo} target="_blank" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
+                      <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href={d.hzd_photo} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
                     </td>
                     <td>
-                      <span style={{ color: d.aadhar_photo ? '#10b981' : '#cbd5e1' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href={d.aadhar_photo} target="_blank" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <span style={{ color: d.pan_photo ? '#10b981' : '#cbd5e1' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href={d.pan_photo} target="_blank" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
+                      <span style={{ color: d.aadhar_photo ? '#10b981' : '#cbd5e1' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href={d.aadhar_photo} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.pan_photo ? '#10b981' : '#cbd5e1' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href={d.pan_photo} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
                     </td>
                     <td>
-                      <b style={{ color: '#38bdf8' }}>{d.bank_name || 'N/A'}</b> {d.bank_photo && <a href={d.bank_photo} target="_blank" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}<br/>
+                      <b style={{ color: '#38bdf8' }}>{d.bank_name || 'N/A'}</b> {d.bank_photo && <a href={d.bank_photo} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}<br/>
                       A/C: <span style={{ color: '#e2e8f0'}}>{d.account_no || 'N/A'}</span><br/>
                       <small style={{ color: '#64748b' }}>IFSC: {d.ifsc_code}</small>
                     </td>
@@ -336,7 +407,7 @@ export default function DriverMgmt() {
                   <option value="SHORTAGE_DEDUCTION">🔴 (-) Manual Shortage Deduction</option>
                 </select>
               </div>
-              <div><label>Transaction Date</label><input type="date" className="modern-input" value={settleData.date} onChange={e=>setSettleData({...settleData, date: e.target.value})} /></div>
+              <div><label>Transaction Date</label><input type="date" className="modern-input" value={settleData.date} onChange={e=>setSettleData({...settleData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
               <div><label style={{ color:'#38bdf8' }}>Amount (₹) *</label>
                 <input type="number" className="modern-input" placeholder="0.00" style={{ fontSize: '24px', fontWeight: 'bold', border: '1px solid #38bdf8', color: '#38bdf8' }} value={settleData.amount} onChange={e=>setSettleData({...settleData, amount: e.target.value})} />
               </div>
@@ -430,6 +501,7 @@ export default function DriverMgmt() {
 
             <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth > 768 ? 'repeat(3, 1fr)' : '1fr', gap: '30px' }}>
               
+              {/* --- COLUMN 1: CORE DETAILS --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <h4 style={{ color: '#38bdf8', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>👤 CORE DETAILS</h4>
                 
@@ -461,56 +533,111 @@ export default function DriverMgmt() {
                 </div>
               </div>
 
+              {/* --- COLUMN 2: LICENSES & AADHAAR (WITH NEW CARDS) --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <h4 style={{ color: '#10b981', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>🪪 LICENSE & AADHAAR</h4>
                 
-                <div><label>DL Number</label><input className="modern-input" value={driverData.license_no} onChange={e=>setDriverData({...driverData, license_no: e.target.value})} /></div>
-                <div><label>DL Expiry Date</label><input type="date" className="modern-input" value={driverData.license_expiry} onChange={e=>setDriverData({...driverData, license_expiry: e.target.value})} style={{colorScheme:'dark'}}/></div>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <label className={`upload-btn ${driverData.dl_photo ? 'success' : ''}`}>
-                    {uploadingField === 'dl_photo' ? '⏳ Uploading...' : driverData.dl_photo ? '✅ DL Saved' : '📎 Upload DL (Img/PDF)'}
-                    <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'dl_photo')} />
-                  </label>
-                  <button className="ai-btn" onClick={() => triggerAIScan('DL')} disabled={!driverData.dl_photo}>
-                     🤖 Scan DL
-                  </button>
+                {/* 🌟 DL SMART CARD (WITH PARIVAHAN LINK) */}
+                <div className="doc-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <label style={{ margin: 0 }}>Driving License Details</label>
+                    <a href="https://parivahan.gov.in/rcdlstatus/" target="_blank" rel="noreferrer" style={{ fontSize: '10px', color: '#38bdf8', textDecoration: 'none', background: 'rgba(56,189,248,0.1)', padding: '3px 8px', borderRadius: '5px', border: '1px solid #38bdf8', transition: '0.3s' }}>🌐 Verify Parivahan</a>
+                  </div>
+                  <input className="modern-input" placeholder="DL Number" value={driverData.license_no} onChange={e=>setDriverData({...driverData, license_no: e.target.value})} style={{marginBottom:'10px'}}/>
+                  <input type="date" className="modern-input" value={driverData.license_expiry} onChange={e=>setDriverData({...driverData, license_expiry: e.target.value})} style={{colorScheme:'dark', marginBottom:'15px'}}/>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: driverData.dl_photo ? '1fr 1fr 1fr' : '2fr 1fr', gap: '8px' }}>
+                    {driverData.dl_photo ? (
+                      <>
+                        <a href={driverData.dl_photo} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
+                        <label className="upload-btn update-btn">
+                          {uploadingField === 'dl_photo' ? '⏳...' : '🔄 Change'}
+                          <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'dl_photo')} />
+                        </label>
+                      </>
+                    ) : (
+                      <label className="upload-btn">
+                        {uploadingField === 'dl_photo' ? '⏳ Uploading...' : '📎 Upload DL'}
+                        <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'dl_photo')} />
+                      </label>
+                    )}
+                    <button className="ai-btn" onClick={() => triggerAIScan('DL')} disabled={!driverData.dl_photo}>🤖 Scan</button>
+                  </div>
                 </div>
 
-                <div style={{ marginTop: '10px' }}><label>Aadhaar Number</label><input className="modern-input" value={driverData.aadhar_no} onChange={e=>setDriverData({...driverData, aadhar_no: e.target.value})} /></div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <label className={`upload-btn ${driverData.aadhar_photo ? 'success' : ''}`}>
-                    {uploadingField === 'aadhar_photo' ? '⏳ Uploading...' : driverData.aadhar_photo ? '✅ Aadhaar Saved' : '📎 Upload UID (Img/PDF)'}
-                    <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'aadhar_photo')} />
-                  </label>
-                  <button className="ai-btn" onClick={() => triggerAIScan('AADHAAR')} disabled={!driverData.aadhar_photo}>
-                     🤖 Scan UID
-                  </button>
+                {/* AADHAAR SMART CARD */}
+                <div className="doc-card">
+                  <label>Aadhaar Card Details</label>
+                  <input className="modern-input" placeholder="Aadhaar Number" value={driverData.aadhar_no} onChange={e=>setDriverData({...driverData, aadhar_no: e.target.value})} style={{marginBottom:'15px'}}/>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: driverData.aadhar_photo ? '1fr 1fr 1fr' : '2fr 1fr', gap: '8px' }}>
+                    {driverData.aadhar_photo ? (
+                      <>
+                        <a href={driverData.aadhar_photo} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
+                        <label className="upload-btn update-btn">
+                          {uploadingField === 'aadhar_photo' ? '⏳...' : '🔄 Change'}
+                          <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'aadhar_photo')} />
+                        </label>
+                      </>
+                    ) : (
+                      <label className="upload-btn">
+                        {uploadingField === 'aadhar_photo' ? '⏳ Uploading...' : '📎 Upload UID'}
+                        <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'aadhar_photo')} />
+                      </label>
+                    )}
+                    <button className="ai-btn" onClick={() => triggerAIScan('AADHAAR')} disabled={!driverData.aadhar_photo}>🤖 Scan</button>
+                  </div>
                 </div>
 
-                <div style={{ marginTop: '10px' }}><label>PAN Number</label><input className="modern-input" value={driverData.pan_no} onChange={e=>setDriverData({...driverData, pan_no: e.target.value})} /></div>
-                <label className={`upload-btn ${driverData.pan_photo ? 'success' : ''}`}>
-                    {uploadingField === 'pan_photo' ? '⏳ Uploading...' : driverData.pan_photo ? '✅ PAN Saved' : '📎 Upload PAN (Img/PDF)'}
-                    <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'pan_photo')} />
-                </label>
+                {/* PAN SMART CARD */}
+                <div className="doc-card">
+                  <label>PAN Card Details</label>
+                  <input className="modern-input" placeholder="PAN Number" value={driverData.pan_no} onChange={e=>setDriverData({...driverData, pan_no: e.target.value})} style={{marginBottom:'15px'}}/>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: driverData.pan_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
+                    {driverData.pan_photo && <a href={driverData.pan_photo} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
+                    <label className={`upload-btn ${driverData.pan_photo ? 'update-btn' : ''}`}>
+                      {uploadingField === 'pan_photo' ? '⏳ Uploading...' : driverData.pan_photo ? '🔄 Change File' : '📎 Upload PAN File'}
+                      <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'pan_photo')} />
+                    </label>
+                  </div>
+                </div>
+
               </div>
 
+              {/* --- COLUMN 3: HAZARDOUS & BANK (WITH NEW CARDS) --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 <h4 style={{ color: '#f59e0b', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>⚠️ HAZARDOUS & BANK</h4>
                 
-                <div><label>HZD Cert Number</label><input className="modern-input" value={driverData.hzd_cert_no} onChange={e=>setDriverData({...driverData, hzd_cert_no: e.target.value})} /></div>
-                <div><label>HZD Expiry Date</label><input type="date" className="modern-input" value={driverData.hzd_expiry} onChange={e=>setDriverData({...driverData, hzd_expiry: e.target.value})} style={{colorScheme:'dark'}}/></div>
-                <label className={`upload-btn ${driverData.hzd_photo ? 'success' : ''}`}>
-                  {uploadingField === 'hzd_photo' ? '⏳ Uploading...' : driverData.hzd_photo ? '✅ HZD Saved' : '📎 Upload HZD (Img/PDF)'}
-                  <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'hzd_photo')} />
-                </label>
+                {/* HZD SMART CARD */}
+                <div className="doc-card">
+                  <label>Hazardous Certificate Details</label>
+                  <input className="modern-input" placeholder="HZD Cert Number" value={driverData.hzd_cert_no} onChange={e=>setDriverData({...driverData, hzd_cert_no: e.target.value})} style={{marginBottom:'10px'}}/>
+                  <input type="date" className="modern-input" value={driverData.hzd_expiry} onChange={e=>setDriverData({...driverData, hzd_expiry: e.target.value})} style={{colorScheme:'dark', marginBottom:'15px'}}/>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: driverData.hzd_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
+                    {driverData.hzd_photo && <a href={driverData.hzd_photo} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
+                    <label className={`upload-btn ${driverData.hzd_photo ? 'update-btn' : ''}`}>
+                      {uploadingField === 'hzd_photo' ? '⏳ Uploading...' : driverData.hzd_photo ? '🔄 Change File' : '📎 Upload HZD File'}
+                      <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'hzd_photo')} />
+                    </label>
+                  </div>
+                </div>
 
-                <div style={{ marginTop: '10px' }}><label>Bank Account Number</label><input className="modern-input" value={driverData.account_no} onChange={e=>setDriverData({...driverData, account_no: e.target.value})} /></div>
-                <div><label>IFSC Code & Bank Name</label><input className="modern-input" value={driverData.ifsc_code} onChange={e=>setDriverData({...driverData, ifsc_code: e.target.value})} /></div>
-                <label className={`upload-btn ${driverData.bank_photo ? 'success' : ''}`}>
-                  {uploadingField === 'bank_photo' ? '⏳ Uploading...' : driverData.bank_photo ? '✅ Passbook Saved' : '📎 Upload Passbook (Img/PDF)'}
-                  <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'bank_photo')} />
-                </label>
+                {/* BANK SMART CARD */}
+                <div className="doc-card">
+                  <label>Bank Account Details</label>
+                  <input className="modern-input" placeholder="Bank Account Number" value={driverData.account_no} onChange={e=>setDriverData({...driverData, account_no: e.target.value})} style={{marginBottom:'10px'}}/>
+                  <input className="modern-input" placeholder="IFSC Code & Bank Name" value={driverData.ifsc_code} onChange={e=>setDriverData({...driverData, ifsc_code: e.target.value})} style={{marginBottom:'15px'}}/>
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: driverData.bank_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
+                    {driverData.bank_photo && <a href={driverData.bank_photo} target="_blank" rel="noreferrer" className="view-btn">👁️ View Passbook</a>}
+                    <label className={`upload-btn ${driverData.bank_photo ? 'update-btn' : ''}`}>
+                      {uploadingField === 'bank_photo' ? '⏳ Uploading...' : driverData.bank_photo ? '🔄 Change File' : '📎 Upload Passbook'}
+                      <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'bank_photo')} />
+                    </label>
+                  </div>
+                </div>
                 
               </div>
             </div>

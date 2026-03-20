@@ -13,14 +13,12 @@ interface SidebarProps {
 
 export default function SIDEBAR({ activeComponent, setActiveComponent, activeModule, setActiveModule, isMobile, isOpen, onClose }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
     if (!isMobile && window.innerWidth < 1024) {
       setIsExpanded(false);
     }
-    
     const savedUser = localStorage.getItem('prasad_user');
     if (savedUser) {
       setUser(JSON.parse(savedUser));
@@ -29,153 +27,101 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
 
   const handleMenuClick = (component: string) => {
     setActiveComponent(component);
-    if (isMobile) {
-      onClose();
-    }
+    if (isMobile) onClose();
   };
 
   const hasPermission = (itemId: string, module: string) => {
     if (!user) return false;
-    if (user.role === 'ADMIN') return true; 
-
-    // 🌟 AI Letter Pad को सबको देखने की परमिशन दे दी है (या आप इसे सिर्फ एडमिन तक सीमित कर सकते हैं)
-    if (itemId === 'AI_DOCS') return true; 
+    if (user.role === 'ADMIN' || user.role === 'Super Admin') return true; 
+    
+    // स्पेशल टूल्स - सबको एक्सेस
+    if (['AI_DOCS', 'WHATSAPP', 'AI_SETTINGS', 'WEB_SETTINGS'].includes(itemId)) return true;
 
     const perms = user.permissions || [];
-    const checkView = (permName: string) => {
-      const p = perms.find((x: any) => x.name === permName);
-      return p ? p.view : false;
-    };
+    const checkView = (name: string) => perms.find((x: any) => x.name === name)?.view;
 
     if (module === 'OPERATION') {
-      if (itemId === 'DASHBOARD') return checkView('Operations Dashboard');
-      if (itemId === 'VEHICLE') return checkView('Vehicle Fleet');
-      if (itemId === 'DRIVER') return checkView('Driver Master');
-      if (itemId === 'TRIP') return checkView('Trip Management');
-      if (itemId === 'FUEL' || itemId === 'MAINTENANCE' || itemId === 'TYRE' || itemId === 'DOCS') return checkView('Fuel & Maintenance');
-      if (itemId === 'LOADING' || itemId === 'UNLOADING') return checkView('Loading / Unloading');
-      if (itemId === 'LOCATION_RTKM') return checkView('Trip Management'); 
+      if (['DASHBOARD', 'TRIP', 'LOCATION_RTKM'].includes(itemId)) return true;
+      return true; // ऑपरेशंस के लिए फिलहाल सब ओपन रखें
     }
     
-    if (module === 'ACCOUNTS') {
-      if (itemId === 'DASHBOARD' || itemId === 'PNL' || itemId === 'COMPANY' || itemId === 'VENDOR' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'UGER') return checkView('User & Role Mgmt');
-      if (itemId === 'BILLING') return checkView('Billing & Invoicing');
-      if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
-      if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
-      if (itemId === 'LOCATION_RTKM') return checkView('Finance Hub'); 
-    }
-    
-    if (module === 'CRM') {
-      if (itemId === 'DASHBOARD' || itemId === 'INBOX') return checkView('CRM Dashboard');
-      if (itemId === 'CUSTOMER') return checkView('Customer Master');
-    }
-    
-    return false;
-  };
-
-  const sidebarStyle: React.CSSProperties = {
-    width: isMobile ? '260px' : (isExpanded ? '260px' : '80px'),
-    background: '#0f172a',
-    borderRight: '1px solid #1e293b',
-    height: '100vh',
-    color: 'white',
-    transition: 'all 0.3s ease',
-    display: 'flex',
-    flexDirection: 'column',
-    position: isMobile ? 'fixed' : 'relative',
-    top: 0,
-    left: isMobile ? (isOpen ? '0' : '-100%') : '0',
-    zIndex: 1000,
-    overflowY: 'auto'
+    return true; 
   };
 
   const getMenuItems = () => {
-    let items = [];
-    
     if (activeModule === 'OPERATION') {
-      items = [
+      return [
         { id: 'DASHBOARD', label: 'Dashboard', icon: '🖥️' },
-        { id: 'AI_DOCS', label: 'AI Letter & Docs', icon: '📝' }, // 🌟 यहाँ जुड़ गया!
+        { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
+        { id: 'LOADING', label: 'Loading Details', icon: '📦' },
+        { id: 'UNLOADING', label: 'Unloading Details', icon: '📥' },
         { id: 'VEHICLE', label: 'Vehicle Fleet', icon: '🚛' },
         { id: 'DRIVER', label: 'Driver Master', icon: '👨‍✈️' },
-        { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
-        { id: 'LOCATION_RTKM', label: 'Route & RTKM', icon: '📍' }, 
+        { id: 'LOCATION_RTKM', label: 'Route & RTKM', icon: '📍' },
         { id: 'FUEL', label: 'Fuel (HSD) Mgmt', icon: '⛽' },
-        { id: 'LOADING', label: 'Loading Details', icon: '📦' },
-        { id: 'UNLOADING', label: 'Unloading Details', icon: '🛢️' },
         { id: 'DOCS', label: 'Vehicle Documents', icon: '📄' },
         { id: 'TYRE', label: 'Tyre Management', icon: '🛞' },
-        { id: 'MAINTENANCE', label: 'Workshop & Maint.', icon: '🛠️' }
+        { id: 'MAINTENANCE', label: 'Workshop/Maint.', icon: '🛠️' },
+        { id: 'AI_DOCS', label: 'AI Letter Pad', icon: '📝' },
       ];
     } else if (activeModule === 'ACCOUNTS') {
-      items = [
+      return [
         { id: 'DASHBOARD', label: 'Finance Hub', icon: '💰' },
-        { id: 'AI_DOCS', label: 'AI Letter & Docs', icon: '📝' }, // 🌟 यहाँ भी जुड़ गया!
-        { id: 'UGER', label: 'User & Role Mgmt', icon: '👥' },
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
-        { id: 'LEDGER', label: 'Ledgers & Trial Bal', icon: '⚖️' },
-        { id: 'PNL', label: 'Final Accounts', icon: '📊' },
+        { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
+        { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
-        { id: 'LOCATION_RTKM', label: 'RTKM Route Master', icon: '📍' },
-        { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '🏦' },
+        { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },
         { id: 'TOLL', label: 'Toll & Fastag', icon: '🛣️' },
         { id: 'GST', label: 'GST Management', icon: '🏛️' },
         { id: 'TDS', label: 'TDS Management', icon: '✂️' },
         { id: 'VENDOR', label: 'Vendor Master', icon: '🤝' },
-        { id: 'COMPANY', label: 'Company Master', icon: '🏢' }
+        { id: 'UGER', label: 'User & Role Mgmt', icon: '👥' },
       ];
-    } else if (activeModule === 'CRM') {
-      items = [
+    } else { // 🤝 CRM MODULE
+      return [
         { id: 'DASHBOARD', label: 'CRM Dashboard', icon: '📈' },
-        { id: 'INBOX', label: 'Company Webmail & AI', icon: '📧' },
-        { id: 'AI_DOCS', label: 'AI Letter & Docs', icon: '📝' }, // 🌟 और यहाँ भी जुड़ गया!
-        { id: 'CUSTOMER', label: 'Customer Master', icon: '🏢' }
+        { id: 'WHATSAPP', label: 'WhatsApp CRM', icon: '💬' },
+        { id: 'INBOX', label: 'Super CRM/Inbox', icon: '📧' },
+        { id: 'AI_SETTINGS', label: 'AI Brain Control', icon: '🧠' },
+        { id: 'WEB_SETTINGS', label: 'Website Builder', icon: '🌐' },
+        { id: 'CUSTOMER', label: 'Customer Master', icon: '🏢' },
+        { id: 'AI_DOCS', label: 'AI Letter Pad', icon: '📝' },
       ];
     }
-    
-    return items.filter(item => hasPermission(item.id, activeModule));
   };
 
   return (
-    <div style={sidebarStyle} className="hide-scrollbar">
+    <div style={{ width: isMobile ? '260px' : (isExpanded ? '260px' : '80px'), background: '#0f172a', borderRight: '1px solid #1e293b', height: '100vh', display: 'flex', flexDirection: 'column', position: isMobile ? 'fixed' : 'relative', left: isMobile ? (isOpen ? '0' : '-100%') : '0', zIndex: 1000, transition: 'all 0.3s ease' }}>
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .menu-item:hover { background: rgba(56, 189, 248, 0.1) !important; color: #38bdf8 !important; }
+        .menu-item { border-radius: 8px; margin: 2px 10px; transition: 0.2s; cursor: pointer; display: flex; align-items: center; gap: 15px; color: #cbd5e1; padding: 12px 15px; }
+        .menu-item:hover { background: rgba(56, 189, 248, 0.1); transform: translateX(5px); color: #fff; }
+        .active-item { background: rgba(56, 189, 248, 0.2) !important; color: #38bdf8 !important; border-left: 4px solid #38bdf8 !important; }
       `}</style>
-
-      <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', background: '#020617' }}>
-        <h2 style={{ margin: 0, color: '#38bdf8', fontSize: isExpanded || isMobile ? '24px' : '14px', textAlign: 'center', width: '100%', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+      
+      <div style={{ padding: '20px', background: '#020617', textAlign: 'center', borderBottom: '1px solid #1e293b' }}>
+        <h2 style={{ margin: 0, color: '#38bdf8', fontSize: isExpanded || isMobile ? '22px' : '14px', fontWeight: '900' }}>
           {isExpanded || isMobile ? 'PRASAD ERP' : 'ERP'}
         </h2>
-        {isMobile && (
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
-        )}
       </div>
 
-      <ul style={{ listStyle: 'none', padding: '10px 0', margin: 0, flex: 1 }}>
-        {getMenuItems().map(item => (
-          <li 
+      <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }} className="hide-scrollbar">
+        {getMenuItems().filter(item => hasPermission(item.id, activeModule)).map(item => (
+          <div 
             key={item.id}
-            className="menu-item"
-            onClick={() => handleMenuClick(item.id)} 
-            style={{ 
-              padding: '15px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '15px', 
-              background: activeComponent === item.id ? 'linear-gradient(90deg, rgba(56,189,248,0.2), transparent)' : 'transparent', 
-              borderLeft: activeComponent === item.id ? '4px solid #38bdf8' : '4px solid transparent', 
-              transition: '0.3s', color: activeComponent === item.id ? '#38bdf8' : '#cbd5e1', fontWeight: activeComponent === item.id ? 'bold' : 'normal'
-            }}
+            className={`menu-item ${activeComponent === item.id ? 'active-item' : ''}`}
+            onClick={() => handleMenuClick(item.id)}
           >
-            <span style={{ fontSize: '18px' }}>{item.icon}</span> 
+            <span style={{ fontSize: '18px' }}>{item.icon}</span>
             {(isExpanded || isMobile) && <span style={{ fontSize: '14px', whiteSpace: 'nowrap' }}>{item.label}</span>}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
 
       {!isMobile && (
-        <div onClick={() => setIsExpanded(!isExpanded)} style={{ padding: '15px', textAlign: 'center', cursor: 'pointer', background: '#020617', borderTop: '1px solid #1e293b', color: '#94a3b8' }}>
-          {isExpanded ? '◀ Collapse' : '▶'}
+        <div onClick={() => setIsExpanded(!isExpanded)} style={{ padding: '15px', textAlign: 'center', cursor: 'pointer', borderTop: '1px solid #1e293b', color: '#94a3b8', fontSize: '12px' }}>
+          {isExpanded ? '◀ COLLAPSE' : '▶'}
         </div>
       )}
     </div>

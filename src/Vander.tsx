@@ -42,7 +42,7 @@ export default function Vander() {
 
   // 📝 SAVE VENDOR MASTER & CREATE AUTO LEDGER
   const handleSaveVendor = async () => {
-    if (!formData.vendor_name || !formData.mobile_no) return alert("Name & Mobile required!");
+    if (!formData.vendor_name || !formData.mobile_no) return alert("⚠️ Name & Mobile required!");
     try {
       if (editingId) {
         await updateDoc(doc(db, "VENDORS", editingId), formData);
@@ -53,8 +53,8 @@ export default function Vander() {
         await addDoc(collection(db, "LEDGERS"), {
           ledger_name: formData.vendor_name,         
           group_head: "Sundry Creditors",            
-          opening_balance: parseFloat(formData.opening_balance || 0), 
-          current_balance: parseFloat(formData.opening_balance || 0),
+          opening_balance: parseFloat(formData.opening_balance || '0'), 
+          current_balance: parseFloat(formData.opening_balance || '0'),
           creation_type: "AUTO_SYSTEM",
           linked_module: "VENDOR",
           linked_id: docRef.id,
@@ -64,23 +64,25 @@ export default function Vander() {
         alert("✅ New Vendor Saved & Sundry Creditors Ledger Created!");
       }
       setIsVendorModalOpen(false); fetchVendors();
-    } catch (e) { alert("Error saving vendor."); }
+    } catch (e) { alert("❌ Error saving vendor."); }
   };
 
   // 💰 SAVE VENDOR TRANSACTION & UPDATE BALANCE
   const handleSaveTxn = async () => {
-    if (!txnData.vendor_id || !txnData.amount) return alert("Select Vendor and enter Amount!");
+    if (!txnData.vendor_id || !txnData.amount) return alert("⚠️ Select Vendor and enter Amount!");
     
+    const txnAmt = parseFloat(txnData.amount);
+    if (isNaN(txnAmt) || txnAmt <= 0) return alert("⚠️ Please enter a valid amount greater than 0!");
+
     try {
       const vendorRef = doc(db, "VENDORS", txnData.vendor_id);
       const selectedVendor = vendors.find(v => v.id === txnData.vendor_id);
       let currentBal = parseFloat(selectedVendor.current_balance || '0');
-      const txnAmt = parseFloat(txnData.amount);
 
       if (txnData.txn_type === 'BILL_RECEIVED') {
-        currentBal += txnAmt; 
+        currentBal += txnAmt; // Liability increases
       } else {
-        currentBal -= txnAmt;
+        currentBal -= txnAmt; // Liability decreases
       }
 
       await addDoc(collection(db, "VENDOR_TXNS"), { ...txnData, createdAt: serverTimestamp() });
@@ -90,7 +92,7 @@ export default function Vander() {
       setIsTxnModalOpen(false);
       setTxnData({ vendor_id: '', vendor_name: '', txn_date: new Date().toISOString().split('T')[0], txn_type: 'PAYMENT_GIVEN', amount: '', payment_mode: 'Bank Transfer', remarks: '' });
       fetchVendors();
-    } catch (e) { alert("Transaction failed."); console.error(e); }
+    } catch (e) { alert("❌ Transaction failed."); console.error(e); }
   };
 
   const openVendorModal = (vendor: any = null) => {
@@ -100,7 +102,16 @@ export default function Vander() {
   };
 
   const openTxnModal = (vendor: any = null) => {
-    if (vendor) { setTxnData({ ...txnData, vendor_id: vendor.id, vendor_name: vendor.vendor_name }); }
+    // ✅ BUG FIX: Purana amount form me na rahe isliye form reset kiya, sirf vendor select rakha
+    setTxnData({
+      vendor_id: vendor ? vendor.id : '',
+      vendor_name: vendor ? vendor.vendor_name : '',
+      txn_date: new Date().toISOString().split('T')[0],
+      txn_type: 'PAYMENT_GIVEN',
+      amount: '',
+      payment_mode: 'Bank Transfer',
+      remarks: ''
+    });
     setIsTxnModalOpen(true);
   };
 
@@ -132,7 +143,7 @@ export default function Vander() {
   const filteredVendors = vendors.filter(v => v.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase()));
   
   // Stats Calculation
-  const totalOutstanding = vendors.reduce((acc, curr) => acc + parseFloat(curr.current_balance || 0), 0);
+  const totalOutstanding = vendors.reduce((acc, curr) => acc + (parseFloat(curr.current_balance || '0') || 0), 0);
 
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
@@ -172,7 +183,7 @@ export default function Vander() {
       <input className="modern-input" placeholder="🔍 Search Vendor by Name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ marginBottom: '20px' }} />
 
       {/* 📋 Vendor Cards Grid */}
-      {loading ? <p style={{ color: '#10b981' }}>Loading...</p> : (
+      {loading ? <p style={{ color: '#10b981' }}>Loading Database...</p> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
           {filteredVendors.map(v => (
             <div key={v.id} className="glass-card" style={{ padding: '20px', position: 'relative' }}>
@@ -300,7 +311,7 @@ export default function Vander() {
                 </select>
               </div>
 
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Date</label><input type="date" className="modern-input" value={txnData.txn_date} onChange={e=>setTxnData({...txnData, txn_date: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Date</label><input type="date" className="modern-input" value={txnData.txn_date} onChange={e=>setTxnData({...txnData, txn_date: e.target.value})} style={{ colorScheme: 'dark' }} /></div>
               
               <div>
                 <label style={{ fontSize:'12px', color: '#f59e0b', fontWeight: 'bold' }}>Amount (₹) *</label>

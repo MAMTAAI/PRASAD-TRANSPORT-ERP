@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "prasad-transport-grup"
-  }
+  },
+  "targets": {
+    "prasad-transport-grup": {
+      "hosting": {
+        "prasad-transport-erp": [
+          "prasad-transport-erp"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }

@@ -14,9 +14,12 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('TRIPS');
 
+  // ⏳ Uploading State for UI
+  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
+
   // 🔐 1. HIGH-SECURITY DRIVER LOGIN (DEVICE BINDING)
   const handleLogin = async () => {
-    if (!mobileNo) return alert("Please enter mobile number!");
+    if (!mobileNo) return alert("⚠️ Please enter mobile number!");
     setLoading(true);
     try {
       const q = query(collection(db, "DRIVERS"), where("mobile", "==", mobileNo));
@@ -66,26 +69,60 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
     }
   };
 
-  const handleTripImageUpload = (e: any, tripId: string, fieldType: string) => {
+  // 🌍 LIVE SERVER UPLOAD LOGIC FOR TRIPS (CHALLAN / RECEIPT)
+  const handleTripImageUpload = async (e: any, tripId: string, fieldType: string) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateTripData(tripId, fieldType, reader.result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setUploadingDoc(`${tripId}_${fieldType}`);
+    const data = new FormData();
+    data.append('file', file);
+    data.append('driverName', driver?.name || 'Driver_Trip_Upload');
+
+    try {
+      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
+        method: 'POST',
+        body: data,
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        updateTripData(tripId, fieldType, result.driveLink);
+      } else {
+        alert("❌ Upload Error: " + result.message);
+      }
+    } catch (error) {
+      alert("❌ Live Server is unreachable right now!");
     }
+    setUploadingDoc(null);
   };
 
-  const handleDriverDocumentUpload = (e: any, fieldType: string) => {
+  // 🌍 LIVE SERVER UPLOAD LOGIC FOR KYC (AADHAAR/DL)
+  const handleDriverDocumentUpload = async (e: any, fieldType: string) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        updateDriverKYC(fieldType, reader.result);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setUploadingDoc(fieldType);
+    const data = new FormData();
+    data.append('file', file);
+    data.append('driverName', driver?.name || 'Driver_KYC_Upload');
+
+    try {
+      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
+        method: 'POST',
+        body: data,
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        updateDriverKYC(fieldType, result.driveLink);
+      } else {
+        alert("❌ Upload Error: " + result.message);
+      }
+    } catch (error) {
+      alert("❌ Live Server is unreachable right now!");
     }
+    setUploadingDoc(null);
   };
 
   const updateTripData = async (tripId: string, fieldName: string, value: any) => {
@@ -160,11 +197,11 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ position: 'relative' }}>
             <img 
-              src={driver.profile_photo || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} 
+              src={driver.profile_photo || driver.profile_pic || 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png'} 
               alt="Profile" 
               style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #38bdf8', background: '#1e293b' }} 
             />
-            {driver.office_kyc_approved && <span style={{ position: 'absolute', bottom: -5, right: -5, background: '#10b981', borderRadius: '50%', padding: '2px', fontSize: '10px' }}>✅</span>}
+            {driver.approval_status === 'APPROVED' && <span style={{ position: 'absolute', bottom: -5, right: -5, background: '#10b981', borderRadius: '50%', padding: '2px', fontSize: '10px' }}>✅</span>}
           </div>
           <div>
             <h2 style={{ color: '#fff', margin: 0, fontSize: '18px' }}>👋 {driver.name}</h2>
@@ -218,7 +255,10 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                         {!trip.office_approved_loading && <button onClick={() => updateTripData(trip.id, 'driver_loading_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px', fontWeight: 'bold' }}>✕ Retake</button>}
                       </div>
                     ) : (
-                      <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_loading_photo')} disabled={trip.office_approved_loading} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#38bdf8', borderRadius: '5px', border: '1px dashed #38bdf8', boxSizing: 'border-box' }} />
+                      <div style={{ position: 'relative' }}>
+                        <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_loading_photo')} disabled={trip.office_approved_loading || uploadingDoc === `${trip.id}_driver_loading_photo`} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#38bdf8', borderRadius: '5px', border: '1px dashed #38bdf8', boxSizing: 'border-box' }} />
+                        {uploadingDoc === `${trip.id}_driver_loading_photo` && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading to Server...</div>}
+                      </div>
                     )}
                   </div>
 
@@ -239,7 +279,10 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                         {!trip.office_approved_unloading && <button onClick={() => updateTripData(trip.id, 'driver_unloading_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px', fontWeight: 'bold' }}>✕ Retake</button>}
                       </div>
                     ) : (
-                      <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_unloading_photo')} disabled={trip.office_approved_unloading} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#10b981', borderRadius: '5px', border: '1px dashed #10b981', boxSizing: 'border-box' }} />
+                      <div style={{ position: 'relative' }}>
+                        <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_unloading_photo')} disabled={trip.office_approved_unloading || uploadingDoc === `${trip.id}_driver_unloading_photo`} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#10b981', borderRadius: '5px', border: '1px dashed #10b981', boxSizing: 'border-box' }} />
+                        {uploadingDoc === `${trip.id}_driver_unloading_photo` && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading to Server...</div>}
+                      </div>
                     )}
                   </div>
 
@@ -254,72 +297,88 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
           <div style={{ background: '#1e293b', padding: '20px', borderRadius: '15px' }}>
              <h3 style={{ color: '#fff', margin: '0 0 15px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                <span>Profile & Documents</span>
-               {driver.office_kyc_approved && <span style={{ color: '#10b981', fontSize: '10px', background: 'rgba(16,185,129,0.1)', padding: '5px 8px', borderRadius: '5px', border: '1px solid #10b981' }}>✅ VERIFIED</span>}
+               {driver.approval_status === 'APPROVED' && <span style={{ color: '#10b981', fontSize: '10px', background: 'rgba(16,185,129,0.1)', padding: '5px 8px', borderRadius: '5px', border: '1px solid #10b981' }}>✅ VERIFIED</span>}
              </h3>
 
-             {driver.office_kyc_approved && (
+             {driver.approval_status === 'APPROVED' && (
                <div style={{ padding: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', fontSize: '12px', borderRadius: '8px', marginBottom: '20px', border: '1px solid rgba(245,158,11,0.3)' }}>
                  ⚠️ Your account is fully verified. Contact Office Admin to make changes.
                </div>
              )}
 
+             {/* Profile Photo */}
              <div style={{ background: '#0f172a', padding: '20px', borderRadius: '10px', marginBottom: '15px', textAlign: 'center', border: '1px dashed #c084fc' }}>
                 <label style={{ color: '#c084fc', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>📸 My Profile Photo (Selfie)</label>
-                {driver.profile_photo ? (
+                {driver.profile_photo || driver.profile_pic ? (
                   <div style={{ position: 'relative', display: 'inline-block' }}>
-                    <img src={driver.profile_photo} alt="Profile" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '50%', border: '4px solid #c084fc', boxShadow: '0 0 15px rgba(192, 132, 252, 0.4)' }} />
-                    {!driver.office_kyc_approved && <button onClick={() => updateDriverKYC('profile_photo', null)} style={{ position: 'absolute', top: 0, right: -10, background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>}
+                    <img src={driver.profile_photo || driver.profile_pic} alt="Profile" style={{ width: '120px', height: '120px', objectFit: 'cover', borderRadius: '50%', border: '4px solid #c084fc', boxShadow: '0 0 15px rgba(192, 132, 252, 0.4)' }} />
+                    {driver.approval_status !== 'APPROVED' && <button onClick={() => updateDriverKYC(driver.profile_photo ? 'profile_photo' : 'profile_pic', null)} style={{ position: 'absolute', top: 0, right: -10, background: '#ef4444', color: 'white', border: 'none', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>}
                   </div>
                 ) : (
-                  <input type="file" accept="image/*" capture="user" onChange={(e) => handleDriverDocumentUpload(e, 'profile_photo')} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#c084fc', borderRadius: '5px', boxSizing: 'border-box' }} />
+                  <div>
+                    <input type="file" accept="image/*" capture="user" onChange={(e) => handleDriverDocumentUpload(e, 'profile_pic')} disabled={driver.approval_status === 'APPROVED' || uploadingDoc === 'profile_pic'} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#c084fc', borderRadius: '5px', boxSizing: 'border-box' }} />
+                    {uploadingDoc === 'profile_pic' && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading...</div>}
+                  </div>
                 )}
              </div>
 
+             {/* DL Photo */}
              <div style={{ background: '#0f172a', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
                 <label style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>🪪 Driving License (DL) Photo</label>
                 {driver.dl_photo ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={driver.dl_photo} alt="Driving License" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.office_kyc_approved ? 0.6 : 1 }} />
-                    {!driver.office_kyc_approved && <button onClick={() => updateDriverKYC('dl_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
+                    <img src={driver.dl_photo} alt="Driving License" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.approval_status === 'APPROVED' ? 0.6 : 1 }} />
+                    {driver.approval_status !== 'APPROVED' && <button onClick={() => updateDriverKYC('dl_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
                   </div>
                 ) : (
-                  <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'dl_photo')} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                  <div>
+                    <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'dl_photo')} disabled={driver.approval_status === 'APPROVED' || uploadingDoc === 'dl_photo'} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                    {uploadingDoc === 'dl_photo' && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading...</div>}
+                  </div>
                 )}
              </div>
 
+             {/* Bank Passbook */}
              <div style={{ background: '#0f172a', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
                 <label style={{ color: '#10b981', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>🏦 Bank Passbook / Cheque Photo</label>
-                {driver.bank_passbook_photo ? (
+                {driver.bank_photo ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={driver.bank_passbook_photo} alt="Bank Passbook" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.office_kyc_approved ? 0.6 : 1 }} />
-                    {!driver.office_kyc_approved && <button onClick={() => updateDriverKYC('bank_passbook_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
+                    <img src={driver.bank_photo} alt="Bank Passbook" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.approval_status === 'APPROVED' ? 0.6 : 1 }} />
+                    {driver.approval_status !== 'APPROVED' && <button onClick={() => updateDriverKYC('bank_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
                   </div>
                 ) : (
-                  <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'bank_passbook_photo')} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                  <div>
+                    <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'bank_photo')} disabled={driver.approval_status === 'APPROVED' || uploadingDoc === 'bank_photo'} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                    {uploadingDoc === 'bank_photo' && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading...</div>}
+                  </div>
                 )}
              </div>
 
+             {/* Aadhaar Photo */}
              <div style={{ background: '#0f172a', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
                 <label style={{ color: '#f59e0b', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>📄 Aadhar Card Photo</label>
                 {driver.aadhar_photo ? (
                   <div style={{ position: 'relative' }}>
-                    <img src={driver.aadhar_photo} alt="Aadhar Card" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.office_kyc_approved ? 0.6 : 1 }} />
-                    {!driver.office_kyc_approved && <button onClick={() => updateDriverKYC('aadhar_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
+                    <img src={driver.aadhar_photo} alt="Aadhar Card" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', opacity: driver.approval_status === 'APPROVED' ? 0.6 : 1 }} />
+                    {driver.approval_status !== 'APPROVED' && <button onClick={() => updateDriverKYC('aadhar_photo', null)} style={{ position: 'absolute', top: 5, right: 5, background: 'rgba(239,68,68,0.9)', color: 'white', border: 'none', borderRadius: '5px', padding: '5px 10px' }}>✕ Retake</button>}
                   </div>
                 ) : (
-                  <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'aadhar_photo')} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                  <div>
+                    <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, 'aadhar_photo')} disabled={driver.approval_status === 'APPROVED' || uploadingDoc === 'aadhar_photo'} style={{ width: '100%', padding: '10px', background: '#1e293b', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+                    {uploadingDoc === 'aadhar_photo' && <div style={{ color: '#f59e0b', fontSize: '12px', marginTop: '5px', fontWeight: 'bold' }}>⏳ Uploading...</div>}
+                  </div>
                 )}
              </div>
 
              <div style={{ marginTop: '20px', borderTop: '1px dashed #334155', paddingTop: '15px' }}>
                <label style={{ color: '#94a3b8', fontSize: '12px' }}>Aadhar Number</label>
-               <input type="text" defaultValue={driver.aadhar_no || ''} onBlur={(e) => updateDriverKYC('aadhar_no', e.target.value)} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.office_kyc_approved ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+               <input type="text" defaultValue={driver.aadhar_no || ''} onBlur={(e) => updateDriverKYC('aadhar_no', e.target.value)} disabled={driver.approval_status === 'APPROVED'} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.approval_status === 'APPROVED' ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
 
                <label style={{ color: '#94a3b8', fontSize: '12px' }}>Bank Account Number</label>
-               <input type="text" defaultValue={driver.account_no || ''} onBlur={(e) => updateDriverKYC('account_no', e.target.value)} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.office_kyc_approved ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+               <input type="text" defaultValue={driver.account_no || ''} onBlur={(e) => updateDriverKYC('account_no', e.target.value)} disabled={driver.approval_status === 'APPROVED'} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.approval_status === 'APPROVED' ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
 
                <label style={{ color: '#94a3b8', fontSize: '12px' }}>Bank IFSC Code</label>
-               <input type="text" defaultValue={driver.ifsc_code || ''} onBlur={(e) => updateDriverKYC('ifsc_code', e.target.value)} disabled={driver.office_kyc_approved} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.office_kyc_approved ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
+               <input type="text" defaultValue={driver.ifsc_code || ''} onBlur={(e) => updateDriverKYC('ifsc_code', e.target.value)} disabled={driver.approval_status === 'APPROVED'} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: driver.approval_status === 'APPROVED' ? '#334155' : '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '5px', boxSizing: 'border-box' }} />
              </div>
           </div>
         )}

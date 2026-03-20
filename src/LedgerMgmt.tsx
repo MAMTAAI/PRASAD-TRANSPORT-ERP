@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
 export default function LedgerMgmt() {
@@ -94,12 +94,24 @@ export default function LedgerMgmt() {
         created_at: Timestamp.now()
       });
       alert(`✅ Ledger [${formData.name}] created successfully in ${selectedCompany}!`);
-      setFormData({ ...formData, name: '', op_balance: '0' });
+      setFormData({ ...formData, name: '', op_balance: '0' }); // Reset form but keep last selected group & Dr/Cr
       fetchLedgers();
     } catch (error) {
       alert("❌ Error saving ledger!");
     }
     setLoading(false);
+  };
+
+  // 🗑️ DELETE LEDGER
+  const handleDeleteLedger = async (id: string, name: string) => {
+    if (window.confirm(`⚠️ Are you sure you want to delete the ledger [${name}]?\nThis might affect Trial Balance if entries exist.`)) {
+      try {
+        await deleteDoc(doc(db, "LEDGERS", id));
+        fetchLedgers();
+      } catch (error) {
+        alert("❌ Error deleting ledger.");
+      }
+    }
   };
 
   // 🧮 FILTER LEDGERS FOR SELECTED COMPANY
@@ -108,21 +120,21 @@ export default function LedgerMgmt() {
     (selectedBranch === 'ALL' || l.branch === selectedBranch || !l.branch)
   );
 
-  // ⚖️ CALCULATE LIVE TRIAL BALANCE (From Opening Balances + Future DB Logic)
+  // ⚖️ CALCULATE LIVE TRIAL BALANCE
   let totalDr = 0;
   let totalCr = 0;
   filteredLedgers.forEach(l => {
-    if (l.dr_cr.includes('Dr')) totalDr += parseFloat(l.op_balance) || 0;
+    if (l.dr_cr && l.dr_cr.includes('Dr')) totalDr += parseFloat(l.op_balance) || 0;
     else totalCr += parseFloat(l.op_balance) || 0;
   });
 
   return (
-    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px' }}>
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: '30px' }}>
       
       {/* HEADER SECTION */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '28px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <h2 style={{ margin: 0, fontSize: '32px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
             ⚖️ Ledgers & Trial Balance
           </h2>
           <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>Chart of Accounts & Live Dr/Cr Summaries</p>
@@ -148,10 +160,10 @@ export default function LedgerMgmt() {
 
       {/* MODULE TABS */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
-        <button onClick={() => setActiveTab('CREATE')} style={{ padding: '10px 20px', background: activeTab === 'CREATE' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'CREATE' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'CREATE' ? '3px solid #38bdf8' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: '0.3s' }}>
+        <button onClick={() => setActiveTab('CREATE')} style={{ padding: '10px 20px', background: activeTab === 'CREATE' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'CREATE' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'CREATE' ? '3px solid #38bdf8' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: '0.3s', borderRadius: '8px 8px 0 0' }}>
           📂 CREATE LEDGER (COA)
         </button>
-        <button onClick={() => setActiveTab('TRIAL')} style={{ padding: '10px 20px', background: activeTab === 'TRIAL' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: activeTab === 'TRIAL' ? '#10b981' : '#94a3b8', border: 'none', borderBottom: activeTab === 'TRIAL' ? '3px solid #10b981' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: '0.3s' }}>
+        <button onClick={() => setActiveTab('TRIAL')} style={{ padding: '10px 20px', background: activeTab === 'TRIAL' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: activeTab === 'TRIAL' ? '#10b981' : '#94a3b8', border: 'none', borderBottom: activeTab === 'TRIAL' ? '3px solid #10b981' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: '0.3s', borderRadius: '8px 8px 0 0' }}>
           ⚖️ TRIAL BALANCE (LIVE)
         </button>
       </div>
@@ -188,7 +200,7 @@ export default function LedgerMgmt() {
               </div>
             </div>
 
-            <button onClick={handleSaveLedger} style={{ width: '100%', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', color: '#fff', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', boxShadow: '0 5px 15px rgba(99,102,241,0.4)' }}>
+            <button onClick={handleSaveLedger} style={{ width: '100%', background: 'linear-gradient(135deg, #38bdf8, #2563eb)', color: '#fff', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', boxShadow: '0 5px 15px rgba(56,189,248,0.4)' }}>
               {loading ? 'Saving...' : '✅ Save Ledger'}
             </button>
           </div>
@@ -207,16 +219,20 @@ export default function LedgerMgmt() {
                     <th style={{ padding: '12px 15px' }}>Ledger Name</th>
                     <th style={{ padding: '12px 15px' }}>Group</th>
                     <th style={{ padding: '12px 15px', textAlign: 'right' }}>Opening Bal.</th>
+                    <th style={{ padding: '12px 15px', textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLedgers.length === 0 ? <tr><td colSpan={3} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No Ledgers Created for {selectedCompany}.</td></tr> : 
+                  {filteredLedgers.length === 0 ? <tr><td colSpan={4} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No Ledgers Created for {selectedCompany}.</td></tr> : 
                     filteredLedgers.map(l => (
                     <tr key={l.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '14px' }}>
                       <td style={{ padding: '12px 15px', fontWeight: 'bold', color: '#fff' }}>{l.name}</td>
                       <td style={{ padding: '12px 15px', fontSize: '12px' }}>{l.group}</td>
-                      <td style={{ padding: '12px 15px', textAlign: 'right', color: l.dr_cr.includes('Dr') ? '#38bdf8' : '#f59e0b', fontWeight: 'bold' }}>
-                        {parseFloat(l.op_balance).toLocaleString('en-IN')} <span style={{ fontSize: '10px' }}>{l.dr_cr.includes('Dr') ? 'Dr' : 'Cr'}</span>
+                      <td style={{ padding: '12px 15px', textAlign: 'right', color: (l.dr_cr || '').includes('Dr') ? '#38bdf8' : '#f59e0b', fontWeight: 'bold' }}>
+                        {parseFloat(l.op_balance).toLocaleString('en-IN')} <span style={{ fontSize: '10px' }}>{(l.dr_cr || '').includes('Dr') ? 'Dr' : 'Cr'}</span>
+                      </td>
+                      <td style={{ padding: '12px 15px', textAlign: 'center' }}>
+                         <span onClick={() => handleDeleteLedger(l.id, l.name)} style={{ cursor: 'pointer', color: '#ef4444', fontSize: '16px' }} title="Delete Ledger">🗑️</span>
                       </td>
                     </tr>
                   ))}
@@ -233,49 +249,51 @@ export default function LedgerMgmt() {
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
              <h3 style={{ color: '#fff', margin: 0 }}>⚖️ Live Trial Balance</h3>
-             <span style={{ fontSize: '12px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '5px 15px', borderRadius: '20px', fontWeight: 'bold' }}>Company: {selectedCompany}</span>
+             <span style={{ fontSize: '12px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '5px 15px', borderRadius: '20px', fontWeight: 'bold', border: '1px solid #10b981' }}>Company: {selectedCompany}</span>
           </div>
 
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-            <thead style={{ background: '#0f172a', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>
-              <tr>
-                <th style={{ padding: '15px 20px' }}>Particulars (Ledger Heads)</th>
-                <th style={{ padding: '15px 20px', textAlign: 'right', color: '#38bdf8' }}>Debit (Dr) ₹</th>
-                <th style={{ padding: '15px 20px', textAlign: 'right', color: '#f59e0b' }}>Credit (Cr) ₹</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredLedgers.length === 0 ? <tr><td colSpan={3} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No Data Available for Trial Balance.</td></tr> : 
-                filteredLedgers.map(l => (
-                <tr key={l.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '14px' }}>
-                  <td style={{ padding: '15px 20px' }}>
-                    <div style={{ fontWeight: 'bold', color: '#fff' }}>{l.name}</div>
-                    <div style={{ fontSize: '11px', color: '#64748b' }}>{l.group}</div>
-                  </td>
-                  <td style={{ padding: '15px 20px', textAlign: 'right', fontWeight: 'bold', color: '#38bdf8' }}>
-                    {l.dr_cr.includes('Dr') && parseFloat(l.op_balance) > 0 ? parseFloat(l.op_balance).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}
-                  </td>
-                  <td style={{ padding: '15px 20px', textAlign: 'right', fontWeight: 'bold', color: '#f59e0b' }}>
-                    {l.dr_cr.includes('Cr') && parseFloat(l.op_balance) > 0 ? parseFloat(l.op_balance).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot style={{ background: '#020617', color: '#fff', fontWeight: '900', fontSize: '18px' }}>
-              <tr>
-                <td style={{ padding: '20px', textAlign: 'right' }}>GRAND TOTAL :</td>
-                <td style={{ padding: '20px', textAlign: 'right', color: '#38bdf8' }}>₹ {totalDr.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                <td style={{ padding: '20px', textAlign: 'right', color: '#f59e0b' }}>₹ {totalCr.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-              </tr>
-              {totalDr !== totalCr && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead style={{ background: '#0f172a', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase' }}>
                 <tr>
-                  <td colSpan={3} style={{ padding: '10px', textAlign: 'center', color: '#ef4444', fontSize: '12px', background: 'rgba(239,68,68,0.1)' }}>
-                    ⚠️ Warning: Trial Balance is not tallied. Difference: ₹ {Math.abs(totalDr - totalCr).toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                  </td>
+                  <th style={{ padding: '15px 20px' }}>Particulars (Ledger Heads)</th>
+                  <th style={{ padding: '15px 20px', textAlign: 'right', color: '#38bdf8' }}>Debit (Dr) ₹</th>
+                  <th style={{ padding: '15px 20px', textAlign: 'right', color: '#f59e0b' }}>Credit (Cr) ₹</th>
                 </tr>
-              )}
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {filteredLedgers.length === 0 ? <tr><td colSpan={3} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No Data Available for Trial Balance.</td></tr> : 
+                  filteredLedgers.map(l => (
+                  <tr key={l.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '14px' }}>
+                    <td style={{ padding: '15px 20px' }}>
+                      <div style={{ fontWeight: 'bold', color: '#fff' }}>{l.name}</div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>{l.group}</div>
+                    </td>
+                    <td style={{ padding: '15px 20px', textAlign: 'right', fontWeight: 'bold', color: '#38bdf8' }}>
+                      {(l.dr_cr || '').includes('Dr') && parseFloat(l.op_balance) > 0 ? parseFloat(l.op_balance).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}
+                    </td>
+                    <td style={{ padding: '15px 20px', textAlign: 'right', fontWeight: 'bold', color: '#f59e0b' }}>
+                      {(l.dr_cr || '').includes('Cr') && parseFloat(l.op_balance) > 0 ? parseFloat(l.op_balance).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot style={{ background: '#020617', color: '#fff', fontWeight: '900', fontSize: '18px' }}>
+                <tr>
+                  <td style={{ padding: '20px', textAlign: 'right' }}>GRAND TOTAL :</td>
+                  <td style={{ padding: '20px', textAlign: 'right', color: '#38bdf8' }}>₹ {totalDr.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                  <td style={{ padding: '20px', textAlign: 'right', color: '#f59e0b' }}>₹ {totalCr.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                </tr>
+                {totalDr !== totalCr && (
+                  <tr>
+                    <td colSpan={3} style={{ padding: '15px', textAlign: 'center', color: '#ef4444', fontSize: '14px', background: 'rgba(239,68,68,0.1)', borderTop: '2px dashed #ef4444' }}>
+                      ⚠️ Warning: Trial Balance is not tallied. Difference: <b>₹ {Math.abs(totalDr - totalCr).toLocaleString('en-IN', {minimumFractionDigits: 2})}</b>
+                    </td>
+                  </tr>
+                )}
+              </tfoot>
+            </table>
+          </div>
         </div>
       )}
 

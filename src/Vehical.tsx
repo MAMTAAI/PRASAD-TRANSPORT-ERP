@@ -55,13 +55,15 @@ export default function Vehical() {
     } catch (e) { console.error(e); }
   };
 
-  // 🌍 LIVE SERVER LINK ADDED HERE
+  // 🌍 LIVE SERVER LINK & MAMTA AI AUTO-FILL
   const handleRCUpload = async () => {
     if (!rcFile) return alert("⚠️ Please select an RC photo first!");
     
     setUploadingRC(true);
     const data = new FormData();
     data.append('file', rcFile);
+    // Drive me folder ka naam gadi ke number se banega
+    data.append('driverName', formData.vehicle_no || 'New_Vehicle_RC'); 
 
     try {
       const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
@@ -71,10 +73,18 @@ export default function Vehical() {
 
       const result = await response.json();
       if (result.success) {
-        alert("✅ RC Scanned & Saved to Secure Drive!");
-        setFormData({ ...formData, rc_photo_url: result.link });
+        alert("✅ RC Scanned & Saved to Secure Drive!\n🤖 Mamta AI is extracting details...");
+        
+        // 🌟 AI NE JO PADHA WO AUTO-FILL KARO
+        const aiData = result.aiData || {};
+        setFormData(prev => ({ 
+            ...prev, 
+            rc_photo_url: result.driveLink, // ✅ Fix: link se driveLink kiya
+            vehicle_no: aiData.vehicleNumber || prev.vehicle_no,
+            reg_date: aiData.documentDate || prev.reg_date
+        }));
       } else {
-        alert("❌ Drive Upload Error: " + result.error);
+        alert("❌ Drive Upload Error: " + result.message);
       }
     } catch (error) {
       console.error(error);
@@ -100,8 +110,8 @@ export default function Vehical() {
         await addDoc(collection(db, "LEDGERS"), {
           ledger_name: isOwn ? formData.vehicle_no : formData.owner_name,
           group_head: isOwn ? "Fixed Assets" : "Sundry Creditors",
-          opening_balance: isOwn ? parseFloat(formData.vehicle_value || 0) : 0, 
-          current_balance: isOwn ? parseFloat(formData.vehicle_value || 0) : 0,
+          opening_balance: isOwn ? parseFloat(formData.vehicle_value || '0') : 0, 
+          current_balance: isOwn ? parseFloat(formData.vehicle_value || '0') : 0,
           creation_type: "AUTO_SYSTEM",
           linked_module: "VEHICLE",
           linked_id: docRef.id,
@@ -164,7 +174,7 @@ export default function Vehical() {
         </button>
       </div>
 
-      {/* 🔍 स्मार्ट फ़िल्टरिंग सेक्शन (नया फीचर) */}
+      {/* 🔍 स्मार्ट फ़िल्टरिंग सेक्शन */}
       <div style={{ display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap', background: 'rgba(30, 41, 59, 0.3)', padding: '15px', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ flex: 1, minWidth: '250px', position: 'relative' }}>
           <input placeholder="Search Vehicle or Driver..." className="modern-input" style={{ paddingLeft: '40px' }} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -313,7 +323,7 @@ export default function Vehical() {
                   <input type="file" onChange={(e) => setRcFile(e.target.files ? e.target.files[0] : null)} style={{ color: 'white', marginBottom: '10px', fontSize: '12px', width: '100%' }} />
                   
                   <button onClick={handleRCUpload} disabled={!rcFile || uploadingRC} style={{ width: '100%', padding: '10px', background: rcFile ? '#3b82f6' : '#334155', color: 'white', border: 'none', borderRadius: '8px', cursor: rcFile ? 'pointer' : 'not-allowed', fontWeight: 'bold' }}>
-                    {uploadingRC ? '🚀 SCANNING & UPLOADING...' : '📤 SCAN TO DRIVE'}
+                    {uploadingRC ? '🚀 SCANNING AI...' : '📤 SCAN TO DRIVE & AUTO-FILL'}
                   </button>
                   
                   {formData.rc_photo_url && (

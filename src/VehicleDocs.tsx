@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, doc, updateDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export default function VehicleDocs() {
@@ -9,12 +9,21 @@ export default function VehicleDocs() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [aiScanning, setAiScanning] = useState(false);
-  const [uploadingDoc, setUploadingDoc] = useState(false); // ☁️ Drive Upload State
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+
+  const [scannedAIData, setScannedAIData] = useState<any>(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCompany, setFilterCompany] = useState('');
   const [filterOwner, setFilterOwner] = useState('');
   const [companies, setCompanies] = useState<any[]>([]);
+
+  const portals = [
+    { name: 'Parivahan (Fitness/Permit)', url: 'https://vahan.parivahan.gov.in/vahan/vahan/ui/login/login.xhtml' },
+    { name: 'E-Challan System', url: 'https://echallan.parivahan.gov.in/' },
+    { name: 'Insurance (V-Seva)', url: 'https://www.vsez.gov.in/' },
+    { name: 'DigiLocker Admin', url: 'https://digitallocker.gov.in/' }
+  ];
 
   const docTypes = [
     { id: 'fitness', name: '1. Fitness / Inspection' },
@@ -64,40 +73,65 @@ export default function VehicleDocs() {
     setActiveTab(docTypes[0]);
     const existingData = vehicle.documents?.[docTypes[0].id] || {};
     setFormData(existingData);
+    setScannedAIData(null);
   };
 
   const handleTabChange = (type: any) => {
     setActiveTab(type);
     const existingData = selectedVehicle.documents?.[type.id] || {};
     setFormData(existingData);
+    setScannedAIData(null);
   };
 
   const handleInputChange = (e: any) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // ☁️ UPLOAD TO GOOGLE DRIVE (LIVE SERVER LINK ADDED)
+  // ☁️ UPLOAD TO GOOGLE DRIVE & GET AI DATA
   const handleFileUpload = async (e: any) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setUploadingDoc(true);
+    setScannedAIData(null);
     const data = new FormData();
     data.append('file', file);
+    data.append('driverName', selectedVehicle?.vehicle_no || 'Vehicle_Doc');
+    data.append('docType', activeTab.name); 
 
     try {
-      // 🚀 YAHAN LIVE SERVER KA LINK HAI
       const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
         method: 'POST',
         body: data,
       });
 
       const result = await response.json();
-      if (result.success) {
-        setFormData(prev => ({ ...prev, document_file: result.link })); // Save Drive Link
-        alert(`✅ Document Saved Securely to 2TB Drive!`);
+      
+      const safeLink = result.driveLink || result.fileUrl || result.link || "";
+      setFormData(prev => ({ ...prev, document_file: safeLink }));
+
+      // 🔥 SMART PARSER: AI डेटा को कैसे भी आने दो, ये उसे सही से पढ़ लेगा!
+      let aiPayload = result.aiData || result.extractedData || result.data;
+
+      // अगर डेटा टेक्स्ट/स्ट्रिंग के रूप में आया है (जैसे ```json...```), तो उसे साफ़ करके ऑब्जेक्ट बनाएँ
+      if (typeof aiPayload === 'string') {
+        try {
+           const cleanString = aiPayload.replace(/```json/gi, '').replace(/```/g, '').trim();
+           aiPayload = JSON.parse(cleanString);
+        } catch (err) {
+           console.log("AI Parse Warning:", err);
+        }
+      }
+
+      if (result.success || aiPayload) {
+        if (aiPayload && Object.keys(aiPayload).length > 0) {
+           setScannedAIData(aiPayload); 
+           alert(`✅ Document Saved Securely & AI has read it!`);
+        } else {
+           alert("⚠️ File Uploaded, but Server did not send valid AI Data. Button will remain disabled.");
+        }
       } else {
-        alert("❌ Drive Upload Error: " + result.error);
+        alert("❌ Drive Upload Error: " + (result.message || "Failed"));
       }
     } catch (error) {
       console.error("Bridge Error:", error);
@@ -106,41 +140,111 @@ export default function VehicleDocs() {
     setUploadingDoc(false);
   };
 
-  // 💾 SAVE DATA TO FIREBASE & UPDATE LEDGER
+  // ✨ SMART DATE FORMATTER 
+  const formatForDatePicker = (dateStr: string) => {
+    if (!dateStr) return "";
+    try {
+      const parts = dateStr.match(/\d+/g);
+      if (parts && parts.length >= 3) {
+        let d = parts[0], m = parts[1], y = parts[2];
+        if (y.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        if (d.length === 4) return `${d}-${m.padStart(2, '0')}-${y.padStart(2, '0')}`;
+      }
+      return dateStr;
+    } catch (e) {
+      return "";
+    }
+  };
+
+  // 🤖 SMART AI SCAN LOGIC (Deep Search Enabled)
+  const triggerAIScan = () => {
+    if (!scannedAIData) {
+       alert("⚠️ Please upload a document to Drive first before scanning!");
+       return;
+    }
+
+    setAiScanning(true);
+    
+    setTimeout(() => {
+      // 🔥 DEEP FINDER: यह पूरे AI ऑब्जेक्ट में कहीं भी छुपे हुए डेटा को ढूंढ लेगा
+      const findValue = (obj: any, searchKeys: string[]): string => {
+        if (!obj || typeof obj !== 'object') return "";
+        for (let k of Object.keys(obj)) {
+          if (searchKeys.includes(k) && obj[k]) return String(obj[k]);
+          if (typeof obj[k] === 'object') {
+             let nestedResult = findValue(obj[k], searchKeys);
+             if (nestedResult) return nestedResult;
+          }
+        }
+        return "";
+      };
+
+      let rawDocNum = findValue(scannedAIData, ['documentNumber', 'Document No', 'Policy No', 'Application No', 'Vehicle No', 'receiptNo']);
+      let rawAmount = findValue(scannedAIData, ['totalAmount', 'Amount', 'Amounts', 'Total Fees Paid', 'Fees', 'fees']);
+      let rawIssueDate = findValue(scannedAIData, ['documentDate', 'Date', 'Issue Date', 'issueDate']);
+      let rawExpiryDate = findValue(scannedAIData, ['expiryDate', 'Expiry Date', 'Expiry Dates', 'nextDueDate', 'validUpto']);
+
+      // AI के कचरे को साफ़ करना
+      if (rawDocNum.startsWith(":")) rawDocNum = rawDocNum.substring(1); 
+      
+      const cleanDocNumber = rawDocNum.replace(/[^A-Za-z0-9/-]/g, '').trim();
+      const cleanAmount = rawAmount.replace(/[^0-9.]/g, '');
+      const formattedDate = formatForDatePicker(rawIssueDate);
+      const formattedExpiryDate = formatForDatePicker(rawExpiryDate);
+
+      setFormData(prev => ({
+        ...prev,
+        application_no: cleanDocNumber || prev.application_no || "",
+        receipt_no: cleanDocNumber || prev.receipt_no || "",
+        inspected_on: formattedDate || prev.inspected_on || "",
+        amount: cleanAmount || prev.amount,
+        payment_mode: cleanAmount ? "Online Transfer" : prev.payment_mode,
+        next_due_date: formattedExpiryDate || prev.next_due_date || "" 
+      }));
+      
+      setAiScanning(false);
+      alert(`🤖 Mamta AI Scan Complete! Original Data Extracted & Formatted Successfully.`);
+    }, 1000);
+  };
+
+  // 💾 SAVE DATA TO FIREBASE (Bulletproof Crash Fix)
   const handleSave = async () => {
     if (!selectedVehicle) return;
     setSaving(true);
     try {
       const vehicleRef = doc(db, "VEHICLES", selectedVehicle.id);
       
-      // Update specific document inside 'documents' map
-      const updatePath = `documents.${activeTab.id}`;
-      await updateDoc(vehicleRef, {
-        [updatePath]: {
-            ...formData,
-            updated_at: new Date().toISOString()
-        }
-      });
+      const safeDataToSave = {};
+      for (let key in formData) {
+        safeDataToSave[key] = formData[key] === undefined ? "" : formData[key];
+      }
+      safeDataToSave.updated_at = new Date().toISOString();
 
-      // Hit Expense Ledger if amount is provided
-      if (formData.amount && parseFloat(formData.amount) > 0) {
+      const updatePath = `documents.${activeTab.id}`;
+      
+      try {
+        await updateDoc(vehicleRef, { [updatePath]: safeDataToSave });
+      } catch (err) {
+        await setDoc(vehicleRef, { documents: { [activeTab.id]: safeDataToSave } }, { merge: true });
+      }
+
+      if (safeDataToSave.amount && parseFloat(safeDataToSave.amount) > 0) {
         await addDoc(collection(db, "LEDGERS"), {
           ledger_name: `${activeTab.name} (${selectedVehicle.vehicle_no || selectedVehicle.vehical_no})`,
           group_head: "Indirect Expenses", 
-          current_balance: parseFloat(formData.amount),
+          current_balance: parseFloat(safeDataToSave.amount),
           transaction_type: "DEBIT", 
           creation_type: "AUTO_SYSTEM",
           linked_module: "VEHICLE_DOCS",
           linked_id: selectedVehicle.id,
-          payment_mode: formData.payment_mode || 'Cash',
+          payment_mode: safeDataToSave.payment_mode || 'Cash',
           created_at: serverTimestamp()
         });
       }
 
-      // Update Local State so UI refreshes instantly
       const updatedVehicle = { ...selectedVehicle };
       if (!updatedVehicle.documents) updatedVehicle.documents = {};
-      updatedVehicle.documents[activeTab.id] = { ...formData, updated_at: new Date().toISOString() };
+      updatedVehicle.documents[activeTab.id] = safeDataToSave;
       setSelectedVehicle(updatedVehicle);
       setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
 
@@ -150,51 +254,6 @@ export default function VehicleDocs() {
       alert("❌ Error saving to server: " + error.message);
     }
     setSaving(false);
-  };
-
-  // 🤖 SMART AI SCAN LOGIC (Context Aware)
-  const triggerAIScan = () => {
-    if (!formData.document_file) {
-       alert("⚠️ Please upload a document to Drive first before scanning!");
-       return;
-    }
-
-    setAiScanning(true);
-    setTimeout(() => {
-      const today = new Date().toISOString().split('T')[0];
-      const nextYear = new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0];
-      const nextSixMonths = new Date(new Date().setMonth(new Date().getMonth() + 6)).toISOString().split('T')[0];
-
-      // Smart Logic based on Document Type
-      let fakeAmount = "1500";
-      let expDate = nextYear;
-      
-      if (activeTab.id === 'insurance') {
-          fakeAmount = Math.floor(Math.random() * (55000 - 35000 + 1) + 35000).toString(); // Heavy vehicle insurance
-      } else if (activeTab.id === 'pollution') {
-          fakeAmount = "180";
-          expDate = nextSixMonths; // PUC is usually 6 months
-      } else if (activeTab.id === 'explosive') {
-          fakeAmount = "2500";
-      } else if (activeTab.id === 'national_permit') {
-          fakeAmount = "16500";
-      }
-
-      setFormData(prev => ({
-        ...prev,
-        application_no: activeTab.id.substring(0,3).toUpperCase() + "-" + Math.floor(Math.random() * 900000 + 100000),
-        inspection_fee: "0",
-        receipt_no: "REC-" + Math.floor(Math.random() * 90000 + 10000),
-        receipt_date: today,
-        inspected_on: today,
-        next_due_date: expDate,
-        amount: fakeAmount,
-        payment_mode: "Online Transfer"
-      }));
-      
-      setAiScanning(false);
-      alert(`🤖 Mamta AI Scan Complete! Found matching data for ${activeTab.name}.`);
-    }, 2000);
   };
 
   const uniqueOwners = Array.from(new Set(vehicles.filter(v => v.own_attach === 'Attached' && v.owner_name).map(v => v.owner_name)));
@@ -217,6 +276,8 @@ export default function VehicleDocs() {
         .vehicle-card:hover { background: rgba(56, 189, 248, 0.1); transform: translateY(-5px); border-color: #38bdf8; box-shadow: 0 10px 20px rgba(56,189,248,0.1); }
         .upload-area { border: 2px dashed #475569; padding: 25px; border-radius: 15px; text-align: center; background: rgba(255,255,255,0.02); transition: 0.3s; }
         .upload-area:hover { border-color: #38bdf8; background: rgba(56,189,248,0.05); }
+        .portal-btn { background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px; border-radius: 8px; cursor: pointer; text-decoration: none; display: block; text-align: center; margin-bottom: 10px; font-size: 12px; font-weight: bold; }
+        .portal-btn:hover { background: #38bdf8; color: #000; }
       `}</style>
 
       {/* HEADER */}
@@ -238,7 +299,7 @@ export default function VehicleDocs() {
           {companies.map(c => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
         </select>
         <select className="modern-input" style={{ flex: 1 }} value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)}>
-          <option value="">👤 All Owners (Own + Attached)</option>
+          <option value="">👤 All Owners</option>
           <option value="Own" style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ Only Own Assets</option>
           {uniqueOwners.map((owner, i) => <option key={i} value={owner}>🤝 {owner}</option>)}
         </select>
@@ -275,7 +336,7 @@ export default function VehicleDocs() {
       {/* MODAL SECTION */}
       {selectedVehicle && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(2, 6, 23, 0.95)', backdropFilter: 'blur(10px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: '95%', maxWidth: '1200px', height: '88vh', background: '#0f172a', borderRadius: '20px', border: '1px solid #38bdf8', display: 'flex', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+          <div style={{ width: '95%', maxWidth: '1400px', height: '88vh', background: '#0f172a', borderRadius: '20px', border: '1px solid #38bdf8', display: 'flex', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
             
             {/* TABS SIDEBAR */}
             <div style={{ width: '320px', background: '#1e293b', padding: '30px 20px', borderRight: '1px solid #334155', overflowY: 'auto' }}>
@@ -317,14 +378,14 @@ export default function VehicleDocs() {
                 {/* 🤖 AI SCAN BUTTON */}
                 <button 
                   onClick={triggerAIScan} 
-                  disabled={aiScanning || !formData.document_file}
+                  disabled={aiScanning || !formData.document_file || !scannedAIData}
                   style={{ 
-                    background: formData.document_file ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', 
-                    color: formData.document_file ? 'white' : '#94a3b8', 
-                    border: 'none', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', cursor: formData.document_file ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '8px' 
+                    background: formData.document_file && scannedAIData ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', 
+                    color: formData.document_file && scannedAIData ? 'white' : '#94a3b8', 
+                    border: 'none', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', cursor: formData.document_file && scannedAIData ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '8px' 
                   }}
                 >
-                  {aiScanning ? '⏳ Reading Document...' : '🤖 Mamta AI Scan'}
+                  {aiScanning ? '⏳ Extracting Data...' : '🤖 Mamta AI Scan'}
                 </button>
               </div>
 
@@ -368,7 +429,7 @@ export default function VehicleDocs() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px' }}>
                   <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} style={{ color: '#94a3b8', background: '#1e293b', padding: '10px', borderRadius: '10px' }} />
                   
-                  {uploadingDoc && <span style={{ color: '#f59e0b', fontWeight: 'bold' }}>⏳ Uploading to Google Drive...</span>}
+                  {uploadingDoc && <span style={{ color: '#f59e0b', fontWeight: 'bold' }}>⏳ Scanning via Live Server...</span>}
                   
                   {formData.document_file && !uploadingDoc && (
                     <a href={formData.document_file} target="_blank" rel="noreferrer" style={{ background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '10px 20px', borderRadius: '10px', textDecoration: 'none', fontWeight: 'bold', border: '1px solid #10b981' }}>
@@ -376,7 +437,7 @@ export default function VehicleDocs() {
                     </a>
                   )}
                 </div>
-                <p style={{ color: '#64748b', fontSize: '12px', marginTop: '15px' }}>Upload file first, then click 'Mamta AI Scan' to auto-fill details.</p>
+                <p style={{ color: '#64748b', fontSize: '12px', marginTop: '15px' }}>Upload file first, then click 'Mamta AI Scan' to auto-fill real details from your document.</p>
               </div>
 
               <button 
@@ -388,6 +449,16 @@ export default function VehicleDocs() {
               </button>
 
             </div>
+
+            {/* PORTALS SIDEBAR */}
+            <div style={{ width: '250px', background: '#020617', padding: '25px', borderLeft: '1px solid #1e293b' }}>
+               <h4 style={{color:'#fff', marginBottom:'20px'}}>🌐 Helper Portals</h4>
+               {portals.map((p, i) => (
+                  <a key={i} href={p.url} target="_blank" rel="noreferrer" className="portal-btn">{p.name} ↗</a>
+               ))}
+               <button onClick={() => setSelectedVehicle(null)} style={{width:'100%', marginTop:'60px', padding:'12px', background:'#ef444422', color:'#ef4444', border:'1px solid #ef4444', borderRadius:'8px', cursor:'pointer', fontWeight: 'bold'}}>Close Vault</button>
+            </div>
+
           </div>
         </div>
       )}

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prasad Transport ERP - MAMTA AI Network</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <style>
+        /* 🌌 ULTRA DARK BACKGROUND WITH PARTICLE PATTERN & AURAS */
+        body { 
+            margin: 0; padding: 0; font-family: 'Poppins', sans-serif; 
+            background: #050505; /* Deep Black */
+            background-image: 
+                radial-gradient(circle at 10% 30%, rgba(0, 255, 136, 0.08), transparent 30%),
+                radial-gradient(circle at 90% 70%, rgba(0, 198, 255, 0.08), transparent 30%),
+                linear-gradient(rgba(10, 10, 10, 0.9), rgba(10, 10, 10, 0.9)),
+                /* Geometric particle pattern overlay */
+                url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDQwIDQwIj48ZyBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiM3Nzc3NzciIGZpbGwtb3BhY2l0eT0iMC4wNSI+PHBhdGggZD0iTTAgMGg0MHY0MEgwVjB6bTIwIDIwaDIwdjIwSDIWMjB6TTAgMjBoMjB2MjBIMFYyMHoyMCAwaDIwdjIwSDIwVjB6Ii8+PC9nPjwvZz48L3N2Zz4=');
+            color: #ffffff; min-height: 100vh; display: flex; justify-content: center; align-items: center; 
+        }
+
+        /* 🪟 TRUE FROSTED GLASS DASHBOARD FRAME */
+        .dashboard-container { 
+            width: 95%; max-width: 1000px; 
+            display: grid; grid-template-columns: 1fr 1.5fr; gap: 30px; 
+            background: rgba(20, 20, 20, 0.5); 
+            backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);
+            border: 1px solid rgba(255, 255, 255, 0.04); 
+            border-radius: 28px; padding: 40px; 
+            box-shadow: 0 25px 60px rgba(0,0,0,0.6); 
+            position: relative; overflow: hidden;
+        }
+        
+        /* Subtly illuminated top border */
+        .dashboard-container::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1.5px;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.6), rgba(0, 198, 255, 0.6), transparent);
+        }
+
+        /* 📝 TYPOGRAPHY & HEADER */
+        .dashboard-header { grid-column: 1 / -1; margin-bottom: 30px; }
+        h2 { 
+            font-weight: 600; font-size: 26px; margin: 0 0 5px 0; 
+            background: linear-gradient(90deg, #00ff88, #00c6ff); 
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 1.5px; text-transform: uppercase;
+        }
+        .subtitle { 
+            font-size: 11px; color: #777; letter-spacing: 4px; 
+            text-transform: uppercase; margin: 0; font-weight: 600;
+        }
+        
+        /* ⬅️ LEFT PANEL (SYSTEM CONTROL) */
+        .control-panel { 
+            background: rgba(0, 0, 0, 0.2); 
+            border: 1px solid rgba(255, 255, 255, 0.02); 
+            border-radius: 20px; padding: 30px; 
+        }
+        
+        .form-group { margin-bottom: 25px; position: relative; }
+        .group-title { font-size: 11px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; }
+        
+        input, select { 
+            width: 100%; padding: 14px 16px 14px 45px; /* Added left padding for icons */
+            background: rgba(255, 255, 255, 0.02); 
+            border: 1px solid rgba(255, 255, 255, 0.06); 
+            border-radius: 12px; color: #fff; font-family: 'Poppins', sans-serif; 
+            font-size: 14px; transition: all 0.3s ease; outline: none; box-sizing: border-box;
+        }
+        input:focus, select:focus { 
+            background: rgba(255, 255, 255, 0.04); border-color: #00c6ff; box-shadow: 0 0 15px rgba(0, 198, 255, 0.1); 
+        }
+        
+        /* Input Field Icons */
+        .form-group .material-icons { position: absolute; left: 15px; top: 38px; color: #555; font-size: 20px; }
+        .form-group select + .material-icons { top: 38px; }
+
+        /* Custom File Upload Styling */
+        input[type="file"] { padding-left: 12px; color: #555; font-size: 12px;}
+        input[type="file"]::file-selector-button {
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            padding: 8px 16px; border-radius: 8px; color: #fff; font-family: 'Poppins', sans-serif;
+            cursor: pointer; transition: 0.3s; margin-right: 15px; font-size: 12px;
+        }
+        input[type="file"]::file-selector-button:hover { background: rgba(255,255,255,0.08); }
+        select option { background: #111; color: #fff; }
+
+        /* 🔘 NEON CYBER BUTTON */
+        #scan-btn { 
+            width: 100%; padding: 18px; margin-top: 15px; 
+            background: linear-gradient(90deg, #00c6ff, #0072ff); color: #fff; 
+            border: none; border-radius: 12px; font-size: 15px; font-weight: 600; 
+            cursor: pointer; transition: all 0.3s ease; font-family: 'Poppins', sans-serif; 
+            box-shadow: 0 12px 25px rgba(0, 114, 255, 0.2); text-transform: uppercase; letter-spacing: 2.5px;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        #scan-btn:hover { transform: translateY(-3px); box-shadow: 0 18px 30px rgba(0, 114, 255, 0.3); }
+        #scan-btn:disabled { background: #222; color: #555; box-shadow: none; cursor: not-allowed; transform: none; }
+        
+        /* ➡️ RIGHT PANEL (LIVE INTELLIGENCE FEED) */
+        .live-panel { 
+            position: relative; border: 1px solid rgba(0, 255, 136, 0.1); border-radius: 20px;
+            overflow: hidden; padding: 30px; display: flex; flex-direction: column; 
+            background: rgba(0, 255, 136, 0.01);
+        }
+        .live-panel::before {
+            content: ''; position: absolute; inset: 0; background-image: 
+                linear-gradient(rgba(0, 255, 136, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 136, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px; opacity: 0.5;
+        }
+        .live-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;}
+        .live-status { display: flex; align-items: center; gap: 8px; font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; letter-spacing: 2px;}
+        .status-dot { width: 8px; height: 8px; background: #555; border-radius: 50%;}
+        .status-dot.active { background: #00ff88; box-shadow: 0 0 8px #00ff88;}
+
+        /* DOCUMENT PROJECTION & LASER SCAN OVER DOCUMENT (`image_1.png` concept) */
+        .document-projection-screen { 
+            flex-grow: 1; position: relative; 
+            background: rgba(0, 0, 0, 0.4); border: 2px solid rgba(0, 255, 136, 0.08); border-radius: 12px; 
+            overflow: hidden; display: flex; justify-content: center; align-items: center; 
+            box-shadow: inset 0 0 20px rgba(0, 255, 136, 0.05); margin-bottom: 25px;
+        }
+        .document-projection-screen #doc-image-placeholder { 
+            max-width: 90%; max-height: 90%; opacity: 0.08; transition: opacity 0.5s ease;
+        }
+        .document-projection-screen.scanned #doc-image-placeholder { opacity: 0.8; }
+        
+        /* ⚡ VERTICAL LASER SCAN LINE ANIMATION OVER THE DOCUMENT */
+        .laser-scan-line { 
+            position: absolute; top: -10px; left: 0; width: 100%; height: 3px; 
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 136, 0.8), transparent); 
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6); 
+            display: none; transition: top 0.1s linear; 
+        }
+        
+        /* HUD DATA FIELDS (`image_1.png` style) */
+        .hud-fields { 
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;
+            padding: 20px; background: rgba(0, 0, 0, 0.3); border-radius: 12px; border: 1px solid rgba(0, 255, 136, 0.08); 
+        }
+        .hud-field { text-align: center; }
+        .hud-label { font-size: 10px; color: #666; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
+        .hud-value { font-size: 13px; color: #fff; font-weight: 600; font-family: 'Poppins', sans-serif; letter-spacing: 1px; word-break: break-all;}
+        .hud-value.highlight { color: #00ff88; }
+        .hud-value:empty::before { content: '--'; color: #444; }
+
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <div class="dashboard-header">
+        <h2>Prasad Transport ERP</h2>
+        <p class="subtitle">Secure AI Command Center</p>
+    </div>
+
+    <div class="control-panel">
+        <div class="group-title">Authentication & Access</div>
+        
+        <div class="form-group">
+            <span class="material-icons">security</span>
+            <label>Access Level</label>
+            <select id="user-role">
+                <option value="Boss">Administrator (Boss)</option>
+                <option value="Senior Staff">Senior Manager</option>
+                <option value="Office Staff">Operations Staff</option>
+                <option value="Driver">Fleet Driver</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <span class="material-icons">badge</span>
+            <label>Operator ID</label>
+            <input type="text" id="driver-name" placeholder="Enter operator name">
+        </div>
+
+        <div class="group-title">Document Processing</div>
+
+        <div class="form-group">
+            <span class="material-icons">document_scanner</span>
+            <label>Document Source</label>
+            <input type="file" id="file-upload" accept=".pdf, image/*">
+        </div>
+
+        <button id="scan-btn" onclick="uploadAndScan()">
+            <span class="material-icons">power_settings_new</span>
+            Initialize AI Scan
+        </button>
+    </div>
+
+    <div class="live-panel">
+        <div class="live-header">
+            <div class="group-title">Live Intelligence Feed</div>
+            <div class="live-status">
+                <div class="status-dot" id="status-dot"></div>
+                MAMTA AI
+            </div>
+        </div>
+
+        <div class="document-projection-screen" id="projection-screen">
+            <span class="material-icons" style="font-size: 100px; color: rgba(255,255,255,0.03); position: absolute;">photo_library</span>
+            <img id="doc-image-placeholder" src="" alt="Live Document Feed">
+            <div class="laser-scan-line" id="laser-line"></div>
+        </div>
+
+        <div class="hud-fields">
+            <div class="hud-field">
+                <div class="hud-label">Document Type</div>
+                <div class="hud-value" id="doc-type-hud"></div>
+            </div>
+            <div class="hud-field">
+                <div class="hud-label">Registration</div>
+                <div class="hud-value" id="doc-no-hud"></div>
+            </div>
+            <div class="hud-field">
+                <div class="hud-label">Valid Until</div>
+                <div class="hud-value highlight" id="expiry-date-hud"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ✅ MAMTA AI SMART VOICE FUNCTION (No changes, works perfectly)
+    function speakSmartHinglishReport(role, name, docNo, docType, expiryDate, isConfidentialData = false) {
+        let aiSpeech = "";
+
+        if (isConfidentialData && role !== "Boss" && role !== "Senior Staff") {
+            aiSpeech = `Access Denied. Sorry, aapke paas is data ko dekhne ki permission nahi hai.`;
+        } else {
+            switch(role) {
+                case "Boss":
+                    aiSpeech = `Hello Subhash Sir. Vehicle ${docNo} ka ${docType} document successfully scan ho gaya hai. Data encrypted hai. Expiry ${expiryDate} hai.`;
+                    break;
+                case "Senior Staff":
+                    aiSpeech = `Hello. System mein gadi ${docNo} ka ${docType} upload ho gaya hai. Expiry ${expiryDate} note kar lein.`;
+                    break;
+                case "Office Staff":
+                    aiSpeech = `Scan complete. Gadi ${docNo} ka data screen पर आ गया है. Kripya check karke submit karein.`;
+                    break;
+                case "Driver":
+                    aiSpeech = `Namaste Driver bhai. Aapki gadi ${docNo} ka paper scan ho gaya hai. Iski expiry ${expiryDate} को है. Kripya dhayan rakhein.`;
+                    break;
+                default:
+                    aiSpeech = `Scan successful. Expiry is ${expiryDate}.`;
+            }
+        }
+
+        if ('speechSynthesis' in window) {
+            const msg = new SpeechSynthesisUtterance();
+            msg.text = aiSpeech;
+            msg.lang = 'hi-IN';
+            msg.pitch = 1.1; 
+            msg.rate = 0.95; 
+
+            const voices = window.speechSynthesis.getVoices();
+            let femaleVoice = voices.find(v => (v.lang === 'hi-IN' || v.lang === 'en-IN') && (v.name.includes('Female') || v.name.includes('Google हिन्दी') || v.name.includes('Zira')));
+            if (femaleVoice) msg.voice = femaleVoice;
+            
+            window.speechSynthesis.speak(msg);
+        }
+    }
+
+    // ⚡ SIMULATE LASER SCAN ANIMATION OVER DOCUMENT
+    let laserInterval;
+    function startLaserScan() {
+        const laserLine = document.getElementById('laser-line');
+        const projectionScreen = document.getElementById('projection-screen');
+        const screenHeight = projectionScreen.clientHeight;
+        let pos = 0;
+        
+        laserLine.style.display = 'block';
+        projectionScreen.classList.remove('scanned'); // Remove success glow
+        
+        laserInterval = setInterval(() => {
+            if (pos >= screenHeight - 10) pos = 0; // Reset to top
+            laserLine.style.top = pos + 'px';
+            pos += 30; // Move laser down 30px per 0.1s
+        }, 100);
+    }
+
+    function stopLaserScan() {
+        clearInterval(laserInterval);
+        document.getElementById('laser-line').style.display = 'none';
+        document.getElementById('projection-screen').classList.add('scanned'); // Activate success glow
+    }
+
+    // 📂 CONVERT FILE INPUT TO IMAGE OBJECT TO DISPLAY IN PROJECTION SCREEN
+    function displayDocumentImage(file) {
+        const placeholderImage = document.getElementById('doc-image-placeholder');
+        
+        if (file && file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                placeholderImage.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        } else if (file && file.type.includes('pdf')) {
+             // For PDF, we just show a generic PDF icon, rendering PDF directly is complex
+             placeholderImage.src = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBkPSJNMzM3LjUgNTZoMTA5LjVMMzM3LjUgMTY1LjVWNTZ6TTM4NCA1NmgtMTUuNUMzNTQuNSA1NiAzMzcgNzMuNSAzMzcgOTIuNXY3NS41YzAgMTkuNSAxNS41IDM3IDM3IDM3aDc1LjVjMTkuNSAwIDM3LTE3LjUgMzctMzcuNUgzODRWNTZ6TTAgNDQ4VjY0QzAgMjguNSA5NC41IDAgMzg0IDB2Mzg0SDB2NjR6bTMzNiA4MEgxN0M4IDUyOSA4IDUxMiAxNyA0OTVoMzk0Yzc3LjUgMCA4NS41LTgxLDUgODUuNS04MS41VjU2SDM4NHY0NDhjMCAzNS41LTkzLjUgNjQtMzg0IDY0eiIvPjxpathBkPSJNMjIzIDQxNmMwLTc4LjUtOTIuNS0xMzgtMTA0LTI1Ni41djMyMEMxMTguNSA0MTYgMTg2LjUgNDE2IDIyMyA0MTZ6TTExOSAyNTUuNXY5Ni41YzAtMTcuNSAxNC41LTMyIDMyLTMyaDk2LjVDMTUxLjUgMzIwIDEzNi41IDMwNS41IDExOSAyNTUuNXpNMTA0IDM1MmgtMzljMTcuNSA4IDE3LjUgOCAyNCAyNEMxMDQgMzUyIDEwNCAzNTIgMTA0IDM1MnoiLz48L3N2Zz4=";
+        } else {
+             placeholderImage.src = "";
+        }
+    }
+
+    // ✅ MAIN UPLOAD AND SCAN FUNCTION
+    async function uploadAndScan() {
+        const fileInput = document.getElementById('file-upload');
+        const driverName = document.getElementById('driver-name').value || "Unknown_Operator";
+        const selectedRole = document.getElementById('user-role').value;
+        const scanBtn = document.getElementById('scan-btn');
+        const statusDot = document.getElementById('status-dot');
+        
+        // HUD Data elements
+        const docTypeHUD = document.getElementById('doc-type-hud');
+        const docNoHUD = document.getElementById('doc-no-hud');
+        const expiryHUD = document.getElementById('expiry-date-hud');
+
+        if (!fileInput.files[0]) {
+            alert("⚠️ Please select a source document first.");
+            return;
+        }
+
+        // Display selected document image/icon immediately in the projection screen
+        displayDocumentImage(fileInput.files[0]);
+
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        formData.append("driverName", driverName);
+
+        // UI Animation Start
+        scanBtn.innerText = "PROCESSING DATA...";
+        scanBtn.style.background = "linear-gradient(90deg, #ff9900, #ff5500)";
+        scanBtn.disabled = true;
+        statusDot.classList.add('active'); // Activate MAMTA AI status light
+        
+        // Start Laser Animation OVER THE DOCUMENT image
+        startLaserScan();
+        
+        // Clear HUD data
+        docTypeHUD.innerText = "";
+        docNoHUD.innerText = "";
+        expiryHUD.innerText = "";
+
+        try {
+            const res = await fetch("https://prasad-api.onrender.com/upload-to-drive", { 
+                method: 'POST', 
+                body: formData 
+            });
+            
+            const data = await res.json();
+
+            // UI Animation End
+            scanBtn.innerText = "Initialize AI Scan";
+            scanBtn.style.background = "linear-gradient(90deg, #00c6ff, #0072ff)";
+            scanBtn.disabled = false;
+            statusDot.classList.remove('active');
+            
+            // Stop Laser Animation
+            stopLaserScan();
+
+            if (data.success && data.aiData) {
+                // Set Data into the futuristic HUD fields (`image_1.png` concept)
+                const docNo = data.aiData.documentNumber || "Not Found";
+                const docType = data.aiData.documentType || "Document";
+                const expiry = data.aiData.expiryDate || "Not Found";
+
+                docTypeHUD.innerText = docType;
+                docNoHUD.innerText = docNo;
+                expiryHUD.innerText = expiry;
+
+                // 🎤 Speak Data
+                speakSmartHinglishReport(selectedRole, driverName, docNo, docType, expiry, false);
+
+            } else {
+                alert("❌ Error: AI Extraction failed. Mamta could not read the document.");
+            }
+
+        } catch (error) {
+            scanBtn.innerText = "Initialize AI Scan";
+            scanBtn.style.background = "linear-gradient(90deg, #00c6ff, #0072ff)";
+            scanBtn.disabled = false;
+            stopLaserScan();
+            statusDot.classList.remove('active');
+            alert("❌ Network Error: " + error.message);
+        }
+    }
+</script>
+
+</body>
+</html>

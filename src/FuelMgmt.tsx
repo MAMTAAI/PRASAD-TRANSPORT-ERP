@@ -1,12 +1,12 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 
 export default function FuelMgmt() {
   const [activeTab, setActiveTab] = useState('MULTI_MEMO');
   const [vehicles, setVehicles] = useState<any[]>([]);
-  const [drivers, setDrivers] = useState<any[]>([]); // 🆕 Drivers State
+  const [drivers, setDrivers] = useState<any[]>([]); 
   const [fuelVendors, setFuelVendors] = useState<any[]>([]);
   const [fuelHistory, setFuelHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,13 +16,12 @@ export default function FuelMgmt() {
     date: new Date().toISOString().split('T')[0], 
     vehicle_no: '', 
     route_name: '', 
-    driver_name: '', // Now a dropdown
+    driver_name: '',
     fixed_hsd: '', 
     fixed_cash: '',
     memo_no: `MEMO-${Math.floor(Math.random()*10000)}`
   });
   
-  // 🆕 Added 'fuel_type' (FIXED / ADVANCE)
   const [pumps, setPumps] = useState([
     { id: 1, vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }
   ]);
@@ -43,7 +42,6 @@ export default function FuelMgmt() {
       const vSnap = await getDocs(collection(db, "VEHICLES"));
       setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 🆕 Fetch Drivers for Dropdown
       const dSnap = await getDocs(collection(db, "DRIVERS"));
       setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
@@ -59,7 +57,7 @@ export default function FuelMgmt() {
 
   // --- MULTI-PUMP LOGIC ---
   const handleAddPump = () => {
-    if (pumps.length >= 4) return alert("Maximum 4 pumps allowed per trip memo!");
+    if (pumps.length >= 4) return alert("⚠️ Maximum 4 pumps allowed per trip memo!");
     setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }]);
   };
 
@@ -90,8 +88,8 @@ export default function FuelMgmt() {
 
   // 💾 SAVE MULTI-PUMP MEMO & AUTO-POST ADVANCE TO DRIVER
   const handleSaveMultiMemo = async () => {
-    if (!memoData.vehicle_no) return alert("Select Vehicle!");
-    if (!memoData.driver_name) return alert("Select Driver! (Required for Settlement)");
+    if (!memoData.vehicle_no) return alert("⚠️ Select Vehicle!");
+    if (!memoData.driver_name) return alert("⚠️ Select Driver! (Required for Settlement)");
     
     try {
       let totalAmount = 0;
@@ -123,7 +121,7 @@ export default function FuelMgmt() {
           createdAt: serverTimestamp()
         });
 
-        // 2. Update Vendor Balance (Add Liability - Pay to pump)
+        // 2. Update Vendor Balance (Add Liability - Pay to pump safely)
         const vendor = fuelVendors.find(v => v.id === pump.vendor_id);
         if (vendor) {
           const newBal = (parseFloat(vendor.current_balance || '0') + amt).toFixed(2);
@@ -154,7 +152,7 @@ export default function FuelMgmt() {
       setMemoData({ date: new Date().toISOString().split('T')[0], vehicle_no: '', route_name: '', driver_name: '', fixed_hsd: '', fixed_cash: '', memo_no: `MEMO-${Math.floor(Math.random()*10000)}` });
       setPumps([{ id: 1, vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }]);
       fetchData();
-    } catch (e) { alert("Error saving memo."); console.error(e); }
+    } catch (e) { alert("❌ Error saving memo."); console.error(e); }
   };
 
   // --- RECONCILIATION LOGIC ---
@@ -174,7 +172,7 @@ export default function FuelMgmt() {
   };
 
   const handleMatchBill = async () => {
-    if (!vendorBillAmount) return alert("Enter the Total Amount from Physical Bill!");
+    if (!vendorBillAmount) return alert("⚠️ Enter the Total Amount from Physical Bill!");
     const selectedTotal = unbilledSlips.filter(s => selectedSlips.includes(s.id)).reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
     
     if (Math.abs(selectedTotal - parseFloat(vendorBillAmount)) > 10) {
@@ -190,7 +188,7 @@ export default function FuelMgmt() {
       alert("✅ Slips Reconciled with Physical Bill successfully!");
       handleVendorSelectRecon(reconVendor); 
       fetchData();
-    } catch (e) { alert("Error updating slips."); }
+    } catch (e) { alert("❌ Error updating slips."); }
   };
 
   const sendFuelMemoWhatsApp = (slip: any) => {
@@ -206,6 +204,16 @@ export default function FuelMgmt() {
     window.open(`https://wa.me/${phone}?text=${encodedMessage}`, '_blank');
   };
 
+  // 🗑️ DELETE FUEL SLIP LOGIC
+  const handleDeleteSlip = async (id: string, memoNo: string) => {
+    if (window.confirm(`⚠️ Are you sure you want to delete Memo No: ${memoNo}?\n\nNote: If this was an 'ADVANCE' fuel, the entry will be removed from here, but you will need to manually reverse the advance from the Driver's Ledger.`)) {
+      try {
+        await deleteDoc(doc(db, "FUEL_ENTRIES", id));
+        fetchData();
+      } catch (error) { alert("Error deleting memo"); }
+    }
+  };
+
   // 📊 CALCULATE LIVE BALANCES (ONLY DEDUCT IF 'FIXED')
   const totalSelectedAmt = unbilledSlips.filter(s => selectedSlips.includes(s.id)).reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
   
@@ -219,12 +227,13 @@ export default function FuelMgmt() {
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; }
+        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
         .glow-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
         .glow-btn:hover { box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); transform: translateY(-2px); }
         .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; }
         .tab-btn.active { color: #f59e0b; border-bottom: 3px solid #f59e0b; background: rgba(245, 158, 11, 0.1); border-radius: 8px 8px 0 0; }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; }
+        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; }
+        .modern-input:focus { border-color: #f59e0b; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; color: #cbd5e1; font-size: 13px; }
         th { background: rgba(255,255,255,0.05); padding: 12px; text-align: left; border-bottom: 2px solid #334155; color: #f59e0b; }
         td { padding: 12px; border-bottom: 1px solid #334155; }
@@ -256,11 +265,11 @@ export default function FuelMgmt() {
           </div>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px', marginBottom: '20px', background: 'rgba(255,255,255,0.02)', padding: '15px', borderRadius: '8px' }}>
-            <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Date</label><input type="date" className="modern-input" value={memoData.date} onChange={e=>setMemoData({...memoData, date: e.target.value})} /></div>
+            <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Date</label><input type="date" className="modern-input" value={memoData.date} onChange={e=>setMemoData({...memoData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
             <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Vehicle No *</label>
               <select className="modern-input" value={memoData.vehicle_no} onChange={e=>setMemoData({...memoData, vehicle_no: e.target.value})}>
                 <option value="">-- Choose Vehicle --</option>
-                {vehicles.map(v => <option key={v.id} value={v.vehicle_no}>{v.vehicle_no}</option>)}
+                {vehicles.map(v => <option key={v.id} value={v.vehicle_no || v.vehical_no}>{v.vehicle_no || v.vehical_no}</option>)}
               </select>
             </div>
             
@@ -326,7 +335,7 @@ export default function FuelMgmt() {
               <div style={{ flex: 1 }}><label style={{ fontSize:'11px', color:'#f59e0b' }}>Cash Adv (₹)</label><input type="number" className="modern-input" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} /></div>
               
               {pumps.length > 1 && (
-                <button onClick={() => handleRemovePump(pump.id)} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontSize: '20px', marginTop: '15px' }}>✕</button>
+                <button onClick={() => handleRemovePump(pump.id)} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontSize: '20px', paddingBottom: '8px' }}>✕</button>
               )}
             </div>
           ))}
@@ -363,7 +372,7 @@ export default function FuelMgmt() {
                 </h2>
               </div>
 
-              <button className="glow-btn" style={{ background: '#10b981', marginTop: '10px' }} onClick={handleMatchBill}>✅ Mark Slips as Verified</button>
+              <button className="glow-btn" style={{ background: '#10b981', marginTop: '10px', justifyContent: 'center' }} onClick={handleMatchBill}>✅ Mark Slips as Verified</button>
             </div>
           </div>
 
@@ -386,7 +395,7 @@ export default function FuelMgmt() {
                     unbilledSlips.map((s, i) => (
                     <tr key={i} style={{ background: selectedSlips.includes(s.id) ? 'rgba(16,185,129,0.05)' : 'transparent' }}>
                       <td>
-                        <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer' }} checked={selectedSlips.includes(s.id)} onChange={() => toggleSlipSelection(s.id)} />
+                        <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer', accentColor: '#10b981' }} checked={selectedSlips.includes(s.id)} onChange={() => toggleSlipSelection(s.id)} />
                       </td>
                       <td>{s.date} <br/> <small style={{ color: '#f59e0b' }}>{s.memo_no}</small></td>
                       <td style={{ fontWeight: 'bold', color: '#fff' }}>{s.vehicle_no}</td>
@@ -419,7 +428,7 @@ export default function FuelMgmt() {
                   <th>Type</th>
                   <th>Qty & Amount</th>
                   <th>Status</th>
-                  <th>Action</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -447,9 +456,20 @@ export default function FuelMgmt() {
                       </span>
                     </td>
                     <td>
-                      <button className="wa-btn" onClick={() => sendFuelMemoWhatsApp(f)}>
-                        💬 Send Memo
-                      </button>
+                      <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                        <button className="wa-btn" onClick={() => sendFuelMemoWhatsApp(f)}>
+                          💬 Send Memo
+                        </button>
+                        <span 
+                          onClick={() => handleDeleteSlip(f.id, f.memo_no)} 
+                          style={{ cursor: 'pointer', color: '#64748b', fontSize: '16px', transition: '0.2s', marginTop: '5px' }}
+                          onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
+                          onMouseOut={(e) => e.currentTarget.style.color = '#64748b'}
+                          title="Delete Memo"
+                        >
+                          🗑️
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}
