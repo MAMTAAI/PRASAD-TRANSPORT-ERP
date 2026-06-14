@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
+import { getJournal, ledgerBalances, reconcile } from './lib/accounting/journal';
 // 📊 IMPORTING CHARTS
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -38,6 +39,15 @@ export default function FinancialReports() {
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
   const [bankTxns, setBankTxns] = useState<any[]>([]);
+
+  // 📒 Live double-entry JOURNAL (single source of truth, additive — does not
+  // alter the existing P&L/Balance Sheet logic).
+  const [jBal, setJBal] = useState<any[]>([]);
+  const [jMeta, setJMeta] = useState<any>({ count: 0, balanced: true, findings: [] });
+  useEffect(() => {
+    ledgerBalances().then(setJBal).catch(() => setJBal([]));
+    reconcile().then(setJMeta).catch(() => {});
+  }, []);
 
   // 🎛️ SMART FILTERS & DATES
   const [selectedCompany, setSelectedCompany] = useState('ALL'); 
@@ -444,7 +454,42 @@ export default function FinancialReports() {
         <button onClick={() => setActiveTab('BS')} style={{ padding: '12px 25px', background: activeTab === 'BS' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(30, 41, 59, 0.5)', color: activeTab === 'BS' ? '#10b981' : '#94a3b8', border: '1px solid', borderColor: activeTab === 'BS' ? '#10b981' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: 'all 0.3s ease', borderRadius: '8px', boxShadow: activeTab === 'BS' ? '0 0 15px rgba(16, 185, 129, 0.3)' : 'none' }}>
           ⚖️ Balance Sheet Position
         </button>
+        <button onClick={() => setActiveTab('JOURNAL')} style={{ padding: '12px 25px', background: activeTab === 'JOURNAL' ? 'rgba(192, 132, 252, 0.15)' : 'rgba(30, 41, 59, 0.5)', color: activeTab === 'JOURNAL' ? '#c084fc' : '#94a3b8', border: '1px solid', borderColor: activeTab === 'JOURNAL' ? '#c084fc' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px' }}>
+          📒 Live Journal {jMeta.count > 0 && <span style={{fontSize:'11px'}}>({jMeta.count})</span>}
+        </button>
       </div>
+
+      {/* 📒 LIVE JOURNAL — single source of truth (double-entry). Additive view. */}
+      {activeTab === 'JOURNAL' && (
+        <div className="glass-panel" style={{ background: '#0f172a', borderRadius: '15px', padding: '30px', border: '1px solid #1e293b' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+            <h3 style={{ margin: 0, color: '#c084fc' }}>📒 Live Ledger Balances <span style={{ fontSize: '12px', color: '#64748b' }}>(from double-entry journal)</span></h3>
+            <span className={`pt-pill ${jMeta.balanced ? 'pt-pill--completed' : 'pt-pill--pending-unload'}`}>{jMeta.count} entries · {jMeta.balanced ? 'Balanced' : `${jMeta.findings?.length} flagged`}</span>
+          </div>
+          {jBal.length === 0 ? (
+            <p style={{ color: '#94a3b8' }}>Journal abhi khaali hai. Operations → Accounts sync chalao (backfill) tab balances yahan dikhenge.</p>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead><tr style={{ color: '#94a3b8', textAlign: 'left', borderBottom: '2px solid #334155' }}>
+                  <th style={{ padding: '10px' }}>Ledger</th><th style={{ padding: '10px', textAlign: 'right', color: '#38bdf8' }}>Debit ₹</th><th style={{ padding: '10px', textAlign: 'right', color: '#f59e0b' }}>Credit ₹</th><th style={{ padding: '10px', textAlign: 'right' }}>Balance ₹</th>
+                </tr></thead>
+                <tbody>
+                  {[...jBal].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)).map((b, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                      <td style={{ padding: '10px', color: '#e2e8f0' }}>{b.ledger}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#38bdf8' }}>{b.dr ? `₹${b.dr.toLocaleString('en-IN')}` : '-'}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', color: '#f59e0b' }}>{b.cr ? `₹${b.cr.toLocaleString('en-IN')}` : '-'}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: b.balance >= 0 ? '#10b981' : '#ef4444' }}>₹{Math.abs(b.balance).toLocaleString('en-IN')} {b.balance >= 0 ? 'Dr' : 'Cr'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p style={{ marginTop: '15px', fontSize: '12px', color: '#64748b' }}>ℹ️ Ye live double-entry journal se aate hain (idempotent, duplicate-proof). P&L/Balance Sheet upar waise ke waise — ye additive view hai.</p>
+        </div>
+      )}
 
       {/* 🖨️ PRINTABLE AREA STARTS HERE */}
       <div className="printable-area glass-panel" style={{ background: '#0f172a', borderRadius: '15px', padding: '30px', border: '1px solid #1e293b', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
