@@ -313,11 +313,26 @@ export default function UGER() {
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>MOBILE NO</label><input className="input-box" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>LOGIN EMAIL</label><input className="input-box" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>PASSWORD</label><input className="input-box" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#f59e0b'}}>SYSTEM ROLE</label>
+                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#f59e0b'}}>SYSTEM ROLE (RBAC)</label>
                   <select className="input-box" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
-                    <option>DATA ENTRY STAFF</option><option>MANAGER</option><option>ADMIN</option><option>CUSTOMER</option><option>VENDOR</option>
+                    <option>ADMIN</option><option>MANAGER</option><option>OPERATOR</option><option>ACCOUNTS</option><option>DATA ENTRY STAFF</option><option>VENDOR</option><option>CUSTOMER</option><option>DRIVER</option>
                   </select>
                 </div>
+                {/* 🔐 RBAC data scope — for external roles, restrict their data to this party. */}
+                {['VENDOR','CUSTOMER','DRIVER'].includes(String(formData.role).toUpperCase()) && (
+                  <div style={{marginBottom:'10px'}}>
+                    <label style={{fontSize:'11px', color:'#c084fc'}}>SCOPE — {String(formData.role).toUpperCase()} NAME (data restricted to this)</label>
+                    <input className="input-box" placeholder={`Exact ${formData.role} name as in records`} value={formData.scope_name || ''}
+                      onChange={e => {
+                        const v = e.target.value; const r = String(formData.role).toUpperCase();
+                        setFormData({ ...formData, scope_name: v,
+                          vendor_name: r==='VENDOR'? v : formData.vendor_name,
+                          customer_name: r==='CUSTOMER'? v : formData.customer_name,
+                          driver_name: r==='DRIVER'? v : formData.driver_name });
+                      }} />
+                    <small style={{color:'#64748b', fontSize:'10px'}}>Mamta AI + saari tables sirf isi {formData.role.toLowerCase()} ka data dikhayenge.</small>
+                  </div>
+                )}
               </div>
 
               {/* RIGHT: PERMISSIONS GRID WITH APPROVAL DROPDOWN */}
