@@ -2,8 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function FuelMgmt() {
+  // 📄 Scan a petrol-pump bill (PDF/photo) locally → auto-fill Physical Bill Amount.
+  const [scanningPump, setScanningPump] = useState(false);
+  const [scannedPumpItems, setScannedPumpItems] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('RECON');
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]); 
@@ -267,6 +271,31 @@ export default function FuelMgmt() {
   };
 
   // 🏦 FINAL BILL VERIFICATION & LEDGER POSTING
+  // 📄 Scan petrol-pump bill PDF/photo with LOCAL Gemma 4 vision → total + line items.
+  const handleScanPumpBill = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setScanningPump(true); setScannedPumpItems([]);
+    try {
+      const prompt = `This is a petrol pump fuel bill (IndianOil/HPCL/BPCL) for a transport company. Extract and reply with ONLY JSON:
+{ "pump_name": "", "invoice_no": "", "total_amount": 0, "items": [{"date":"DD-MM-YYYY","vehicle_no":"","product":"HSD/MS","qty":0,"rate":0,"amount":0}] }
+Sum all row amounts into total_amount. Empty/0 if absent.`;
+      const ai = await extractJsonFromImage(file, prompt);
+      const items = Array.isArray(ai.items) ? ai.items : [];
+      const amt = (v: any) => Number(String(v ?? '').replace(/[^0-9.]/g, '')) || 0;
+      // 🔢 LLMs are unreliable at summing — sum the line items in CODE; only
+      // fall back to the model's stated total when no items were extracted.
+      const itemSum = items.reduce((s: number, it: any) => s + amt(it.amount), 0);
+      const total = items.length ? Math.round(itemSum) : amt(ai.total_amount);
+      if (total > 0) setVendorBillAmount(String(Math.round(total)));
+      setScannedPumpItems(items);
+      alert(`✅ Pump bill scan (local Gemma): ${ai.pump_name || ''} — ${items.length} entries, total ₹${Math.round(total).toLocaleString('en-IN')}. Physical Bill Amount auto-bhar diya — verify karke Post karein.`);
+    } catch (err: any) {
+      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai.' : '❌ Bill padhi nahi gayi. Saaf PDF/photo se try karein.');
+    }
+    setScanningPump(false);
+  };
+
   const handleMatchBill = async () => {
     if (!vendorBillAmount) return alert("⚠️ Enter the Total Amount from Physical Bill!");
     if (selectedSlips.length === 0) return alert("⚠️ Please select at least one slip to verify!");
@@ -547,6 +576,24 @@ export default function FuelMgmt() {
                 </div>
               </div>
               {(reconFromDate || reconToDate) && <span onClick={() => {setReconFromDate(''); setReconToDate('');}} style={{ color: '#ef4444', fontSize: '11px', cursor: 'pointer', textAlign: 'right' }}>❌ Clear Dates</span>}
+
+              {/* 📄 Scan the pump's PDF/photo bill → auto-fill total (100% local Gemma) */}
+              <div style={{ background: 'rgba(192,132,252,0.06)', border: '1px dashed #c084fc', borderRadius: '8px', padding: '12px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'linear-gradient(135deg,#c084fc,#8b5cf6)', color: '#fff', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningPump ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
+                  {scanningPump ? '⏳ Reading bill…' : '📄 Scan Pump Bill (PDF/Photo)'}
+                  <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanPumpBill} disabled={scanningPump} />
+                </label>
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '6px', textAlign: 'center' }}>Local Gemma 4 — total + entries auto-fill, no internet</div>
+                {scannedPumpItems.length > 0 && (
+                  <div style={{ marginTop: '8px', maxHeight: '140px', overflowY: 'auto', fontSize: '11px' }}>
+                    {scannedPumpItems.map((it, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: '#cbd5e1', borderBottom: '1px solid #1e293b', padding: '3px 0' }}>
+                        <span>{it.vehicle_no || '-'} · {it.qty || 0}L</span><span style={{ color: '#10b981' }}>₹{Number(it.amount || 0).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div><label style={{ fontSize:'12px', color:'#f59e0b', fontWeight: 'bold' }}>Physical Bill Amount (₹) *</label>
                 <input type="number" className="modern-input" style={{ fontSize: '20px', fontWeight: 'bold', border: '1px solid #f59e0b', color: '#f59e0b' }} value={vendorBillAmount} onChange={e=>setVendorBillAmount(e.target.value)} placeholder="Total from PDF Bill" />
