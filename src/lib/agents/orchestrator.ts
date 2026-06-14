@@ -4,7 +4,8 @@
 import { llmChat } from '../llm';
 import type { ChatMessage } from '../llm/types';
 import { enabledTools, type AgentTool } from './tools';
-import { shouldRefuseFinancial, describeScope, REFUSAL_HI, type AppUser } from '../rbac';
+import { shouldRefuseFinancial, describeScope, REFUSAL_HI, scopeFor, type AppUser } from '../rbac';
+import { recall, remember } from '../memory';
 
 export interface AgentEvent {
   type: 'tool_call' | 'tool_result' | 'final' | 'error' | 'pending_write';
@@ -39,8 +40,16 @@ export async function runAgent(
   const emit = (e: AgentEvent) => { trace.push(e); onEvent?.(e); };
 
   const scopeNote = user ? `\nThe current user's data access is: ${describeScope(user)}. Only discuss data within this scope; politely decline anything outside it in Hindi.` : '';
+
+  // 🧠 Long-term memory recall (RBAC-scoped) injected as context.
+  let memoryNote = '';
+  try {
+    const mems = await recall({ namespace: 'mamta', query: userMessage, k: 3, user });
+    if (mems.length) memoryNote = `\nRelevant remembered facts:\n${mems.map(m => `- ${m.text}`).join('\n')}`;
+  } catch { /* memory optional */ }
+
   const messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM + scopeNote },
+    { role: 'system', content: SYSTEM + scopeNote + memoryNote },
     { role: 'user', content: userMessage },
   ];
 
@@ -49,6 +58,11 @@ export async function runAgent(
 
     if (!res.tool_calls?.length) {
       emit({ type: 'final', text: res.content });
+      // 🧠 Persist a concise outcome to long-term memory (RBAC-scoped, deduped).
+      if (res.content) {
+        const sc = user ? scopeFor(user) : { type: 'all', value: '' };
+        remember({ namespace: 'mamta', text: `Q: ${userMessage} → ${String(res.content).slice(0, 220)}`, scope: sc.type === 'all' ? 'all' : sc.value, kind: 'conversation' }).catch(() => {});
+      }
       return { answer: res.content || '(no answer)', trace };
     }
 
