@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
+import { getDrivingDistance } from './lib/maps';
 
 // 🔥 SUPER MATCH FUNCTION
 const checkMatch = (str1, str2) => {
@@ -46,6 +47,9 @@ export default function TripManagment() {
     gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '',
     trip_status: 'IN_TRANSIT', billing_status: 'PENDING',
   });
+
+  // 🗺️ Google Maps RTKM auto-calc (used when route is NOT in RTKM master)
+  const [mapsCalc, setMapsCalc] = useState({ loading: false, error: '', info: '' });
 
   const [showFuelModal, setShowFuelModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false); 
@@ -103,6 +107,49 @@ export default function TripManagment() {
       });
     } else {
       setFormData({ ...formData, consignee_name: val });
+    }
+  };
+
+  // Median HSD-per-km and Cash-per-km derived from existing RTKM master rows
+  // (robust to the many 0/blank entries). Used to estimate fixed HSD/Cash for
+  // off-master routes calculated via Google Maps.
+  const deriveRatesFromMaster = () => {
+    const hsdRates: number[] = [];
+    const cashRates: number[] = [];
+    rtkmMaster.forEach(m => {
+      const km = parseFloat(getVal(m, ['rtkmdistance', 'distance', 'rtkm']) || 0);
+      const hsd = parseFloat(getVal(m, ['fixedhsdqty', 'fixedhsd', 'hsd']) || 0);
+      const cash = parseFloat(getVal(m, ['fixedcashamt', 'fixedcash', 'cash']) || 0);
+      if (km > 0 && hsd > 0) hsdRates.push(hsd / km);
+      if (km > 0 && cash > 0) cashRates.push(cash / km);
+    });
+    const median = (arr: number[]) => {
+      if (!arr.length) return 0;
+      const s = [...arr].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    };
+    return { hsdPerKm: median(hsdRates), cashPerKm: median(cashRates) };
+  };
+
+  // 🗺️ Off-master fallback: compute RTKM via Google Maps (round-trip) and
+  // derive editable Fix HSD / Fix Cash estimates from master medians.
+  const calcRouteViaMaps = async () => {
+    setMapsCalc({ loading: true, error: '', info: '' });
+    try {
+      const { roundTripKm, oneWayKm, durationText } = await getDrivingDistance(formData.loading_point, formData.consignee_name);
+      const { hsdPerKm, cashPerKm } = deriveRatesFromMaster();
+      const estHsd = hsdPerKm ? Math.round(roundTripKm * hsdPerKm) : '';
+      const estCash = cashPerKm ? Math.round(roundTripKm * cashPerKm) : '';
+      setFormData(prev => ({
+        ...prev,
+        rtkm: String(roundTripKm),
+        fixed_hsd: estHsd === '' ? prev.fixed_hsd : String(estHsd),
+        fixed_cash: estCash === '' ? prev.fixed_cash : String(estCash),
+      }));
+      setMapsCalc({ loading: false, error: '', info: `RTKM ${roundTripKm} km (one-way ${oneWayKm} km, ~${durationText}). HSD/Cash estimated — please verify.` });
+    } catch (e: any) {
+      setMapsCalc({ loading: false, error: e?.message || 'Could not calculate route', info: '' });
     }
   };
 
@@ -635,6 +682,25 @@ export default function TripManagment() {
             <div><label style={{ color: '#10b981', fontSize: '12px' }}>Fix Cash (Auto)</label><input style={{...styles.input, borderColor: 'rgba(16, 185, 129, 0.3)', color: '#10b981'}} value={formData.fixed_cash} onChange={e=>setFormData({...formData, fixed_cash: e.target.value})} /></div>
             <div><label style={{ fontSize: '12px' }}>Freight (₹)</label><input type="number" style={styles.input} value={formData.gross_freight} onChange={e=>setFormData({...formData, gross_freight: e.target.value})} placeholder="Enter Amount" /></div>
           </div>
+
+          {/* 🗺️ Off-master route: auto-calc RTKM via Google Maps (only external API) */}
+          <div style={{ marginTop: '14px', padding: '12px 14px', background: 'rgba(56,189,248,0.05)', border: '1px dashed #334155', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <button
+                onClick={calcRouteViaMaps}
+                disabled={mapsCalc.loading}
+                className={`pt-btn pt-btn--secondary ${mapsCalc.loading ? 'is-loading' : ''}`}
+              >
+                {mapsCalc.loading ? 'Calculating…' : '🗺️ Calculate RTKM via Google Maps'}
+              </button>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                Route master mein nahi hai? Loading Point + Consignee bhar kar yeh dabaayein.
+              </span>
+            </div>
+            {mapsCalc.info && <div style={{ marginTop: '8px', fontSize: '12px', color: '#10b981' }}>✅ {mapsCalc.info}</div>}
+            {mapsCalc.error && <div style={{ marginTop: '8px', fontSize: '12px', color: '#ef4444' }}>⚠️ {mapsCalc.error}</div>}
+          </div>
+
           <button onClick={handleSaveTrip} style={{ marginTop: '20px', width: '100%', background: '#38bdf8', color: '#0f172a', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
              {editingTripId ? '💾 Save Changes' : '🚀 Start Trip Manually'}
           </button>
