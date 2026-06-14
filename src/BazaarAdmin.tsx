@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { logAudit } from './lib/audit';
 import { db } from './firebase';
 
 export default function BazaarAdmin() {
@@ -121,6 +122,7 @@ export default function BazaarAdmin() {
       try {
         await updateDoc(doc(db, "BAZAAR_LOADS", loadId), { status: 'ASSIGNED', assigned_to: vendorName, updatedAt: serverTimestamp() });
         await updateDoc(doc(db, "BAZAAR_BIDS", bidId), { status: 'ACCEPTED', updatedAt: serverTimestamp() });
+        logAudit({ action: 'BAZAAR_BID_AWARD', target: loadId, details: `Awarded to ${vendorName}` });
         alert(`✅ Load successfully assigned to ${vendorName}!`);
         fetchLoadsAndBids();
       } catch (e) { alert("Error awarding bid."); }
