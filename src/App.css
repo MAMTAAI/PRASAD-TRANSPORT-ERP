@@ -12,3 +12,61 @@ html, body, #root {
   max-width: 100%;
   overflow-x: hidden;
 }
+
+/* ============================================================
+   📱 PHASE 2 — GLOBAL MOBILE RESPONSIVE LAYER
+   The app is heavily inline-styled (media queries are not
+   possible inline), so we override the common breaking
+   patterns here. Strategy: phones = single column, tablets =
+   max 2 columns, wide tables scroll inside their own box
+   (never the page), form fields get 44px touch targets.
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ---- PHONES (≤ 600px): collapse every multi-column grid to 1 col ---- */
+@media (max-width: 600px) {
+  /* Any inline grid (auto-fit grids already collapse; fixed
+     '1fr 1fr' / repeat(N,1fr) grids are forced here). */
+  [style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Flex children that hard-pin a wide minWidth cause page
+     overflow. Let them shrink to the viewport instead. */
+  [style*="min-width: 200px"], [style*="min-width:200px"],
+  [style*="min-width: 250px"], [style*="min-width:250px"],
+  [style*="min-width: 300px"], [style*="min-width:300px"],
+  [style*="min-width: 320px"], [style*="min-width:320px"],
+  [style*="min-width: 350px"], [style*="min-width:350px"],
+  [style*="min-width: 380px"], [style*="min-width:380px"] {
+    min-width: 100% !important;
+  }
+
+  /* Wide tables scroll horizontally inside their own container,
+     never pushing the page sideways. */
+  table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Comfortable touch targets for form fields. */
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+}
+
+/* ---- TABLETS (601–1024px): cap heavy fixed grids at 2 columns ---- */
+@media (min-width: 601px) and (max-width: 1024px) {
+  [style*="repeat(3"], [style*="repeat(4"], [style*="repeat(5"],
+  [style*="repeat(6"], [style*="1fr 1fr 1fr"] {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  table { display: block; width: 100%; max-width: 100%; overflow-x: auto; }
+}

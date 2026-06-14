@@ -21,6 +21,9 @@ google-key.json
 # 🛟 Local data backups (business data — keep local only)
 backups/
 
+# 📱 Local QA screenshots
+mobile-shots/
+
 # WhatsApp Web session cache (regenerated at runtime)
 whatsapp-server/.wwebjs_auth/
 whatsapp-server/.wwebjs_cache/
