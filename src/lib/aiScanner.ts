@@ -57,6 +57,18 @@ Rules: document_number is the policy/certificate/registration number (keep lette
   return out as ExtractedDoc;
 }
 
+/**
+ * Generic: run a custom JSON-extraction prompt over an image/PDF via LOCAL
+ * Gemma 4 vision. Returns the parsed object (or {} on parse failure).
+ */
+export async function extractJsonFromImage(file: File, prompt: string): Promise<any> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const imageB64 = isPdf ? await pdfFirstPageToBase64(file) : await fileToBase64(file);
+  const res = await llmChat([{ role: 'user', content: prompt, images: [imageB64] }], { format: 'json', temperature: 0 });
+  try { return JSON.parse(res.content); }
+  catch { const m = res.content.match(/\{[\s\S]*\}/); return m ? JSON.parse(m[0]) : {}; }
+}
+
 /** Read a File as a base64 string (no data: prefix). */
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
