@@ -1,19 +1,21 @@
+// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
-// 🚀 आपका असली Firebase Config (जो आपने फोटो में दिखाया है)
+// 🔑 आपकी असली Firebase API Keys
 const firebaseConfig = {
-  apiKey: "AIzaSyBzbSLXzmb0vaQlCZKFuUcJqPLGp_a6Bv8",
+  apiKey: "AIzaSyBzbSLXzmb0VaQLCZKFuUcJqPLGp_a6Bv8",
   authDomain: "prasad-transport-grup.firebaseapp.com",
   projectId: "prasad-transport-grup",
-  storageBucket: "prasad-transport-grup.firebasestorage.app",
+  storageBucket: "prasad-transport-grup.appspot.com",
   messagingSenderId: "837828662164",
-  appId: "1:837828662164:web:e10fbd98e869f009cd3581",
-  measurementId: "G-GLLNJPS9M2"
+  appId: "1:837828662164:web:e10fbd98e869f009cd3581"
 };
 
-// Firebase को चालू करना
+// Initialize Firebase (वेबसाइट को फायरबेस से जोड़ना)
 const app = initializeApp(firebaseConfig);
 
-// Database (Firestore) को एक्सपोर्ट करना
+// Database और Storage चालू करना
 export const db = getFirestore(app);
+export const storage = getStorage(app);

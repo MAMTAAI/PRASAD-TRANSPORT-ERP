@@ -3,8 +3,8 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const textToSpeech = require("@google-cloud/text-to-speech");
 const cors = require("cors")({ origin: true });
 
-// 1. अपनी Gemini API Key यहाँ डालें
-const genAI = new GoogleGenerativeAI("***REMOVED-ROTATE-ME***PI_KEY");
+// 1. Gemini API Key — env first (set via `firebase functions:config` / GEMINI_API_KEY), fallback for local
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "***REMOVED-ROTATE-ME***");
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // 2. हमने फंक्शन का नाम बदलकर 'mamtaVoice' कर दिया है ताकि पुराना एरर न आए

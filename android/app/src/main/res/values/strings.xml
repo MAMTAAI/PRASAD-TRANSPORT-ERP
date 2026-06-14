@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Prasad Transport</string>
+    <string name="title_activity_main">Prasad Transport</string>
+    <string name="package_name">com.prasadtransport.erp</string>
+    <string name="custom_url_scheme">com.prasadtransport.erp</string>
+</resources>

@@ -7,6 +7,12 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      
+      // 👇 यहाँ हमने workbox की लिमिट बढ़ाकर 10 MB कर दी है ताकि बड़ी फाइल पर क्रैश ना हो 
+      workbox: {
+        maximumFileSizeToCacheInBytes: 10485760, 
+      },
+
       manifest: {
         name: 'PRASAD TRANSPORT ERP',
         short_name: 'PRASAD ERP',

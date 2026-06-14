@@ -69,7 +69,7 @@ Format: { "vehicle_no": "Extracted or empty", "garage_name": "Extracted name", "
         const result = await model.generateContent([{ inlineData: { data: base64Data, mimeType: file.type } }, prompt]);
         
         // 🛡️ Safe JSON Parsing (Removes Markdown backticks if AI hallucinates)
-        let cleanText = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
+        const cleanText = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
         const aiData = JSON.parse(cleanText);
         
         const vNum = (aiData.vehicle_no || '').toUpperCase();
@@ -178,7 +178,7 @@ Format: { "vehicle_no": "Extracted or empty", "garage_name": "Extracted name", "
   const vehicleWiseAccounting = Object.keys(vehicleCostMap)
     .map(v => ({ vehicle: v, cost: vehicleCostMap[v] })).sort((a, b) => b.cost - a.cost);
 
-  const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box' as 'border-box', outline: 'none' };
+  const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box' as const, outline: 'none' };
 
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: '30px' }}>

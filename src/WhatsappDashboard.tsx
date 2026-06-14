@@ -79,7 +79,8 @@ const WhatsappDashboard = () => {
 
     const checkServer = async () => { 
         try { 
-            const res = await fetch(`http://localhost:5001/api/status/${activeUser}`); 
+            // 🚨 UPDATED TO LIVE SERVER
+            const res = await fetch(`https://prasad-api.onrender.com/api/status/${activeUser}`); 
             const data = await res.json(); 
             setIsWa(data.connected); 
             setQr(data.qr); 
@@ -136,7 +137,8 @@ const WhatsappDashboard = () => {
     logActivity(`Broadcasted to ${selPhones.length} contacts.`);
     for (const p of selPhones) { 
         try { 
-            await fetch('http://localhost:5001/api/send-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg }) }); 
+            // 🚨 UPDATED TO LIVE SERVER
+            await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg }) }); 
             await new Promise(r => setTimeout(r, 2000)); 
         } catch(e) {} 
     }
@@ -166,7 +168,8 @@ const WhatsappDashboard = () => {
       const text = chatInput; 
       setChatInput(''); 
       try {
-        await fetch('http://localhost:5001/api/send-whatsapp', { 
+        // 🚨 UPDATED TO LIVE SERVER
+        await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { 
             method:'POST', headers:{'Content-Type':'application/json'}, 
             body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole }) 
         });

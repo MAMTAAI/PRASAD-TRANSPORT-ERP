@@ -1,11 +1,11 @@
-require('dotenv').config(); // ✅ Environment variables के लिए (Render/Local दोनों जगह काम करेगा)
+require('dotenv').config(); 
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { google } = require('googleapis');
 const fs = require('fs');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const axios = require('axios'); // 🎤 नया: ममता AI की आवाज़ के लिए जोड़ा गया
+const axios = require('axios'); 
 
 const app = express();
 app.use(cors());
@@ -19,146 +19,112 @@ const SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis
 const auth = new google.auth.GoogleAuth({ keyFile: KEYFILEPATH, scopes: SCOPES });
 
 // --- 2. MAMTA AI (GEMINI) SETUP ---
-// (API Key .env फाइल या Render Environment से आनी चाहिए)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// 🔑 आपकी Google Cloud TTS API Key (ममता AI की असली आवाज़ के लिए)
-const GOOGLE_TTS_API_KEY = '***REMOVED-ROTATE-ME***';
+const GOOGLE_TTS_API_KEY = '***REMOVED-ROTATE-ME***'; // Consider moving to .env
 
 // =======================================================
-// ROUTE 1: UPLOAD & EXTRACT DATA (DRIVE + AI)
+// ROUTE 1: UPLOAD & EXTRACT DATA (DRIVE + SUPER AI)
 // =======================================================
 app.post('/upload-to-drive', upload.single('file'), async (req, res) => {
-  // ✅ Check if file exists
-  if (!req.file) {
-    return res.status(400).json({ success: false, message: "No file uploaded!" });
-  }
+  if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded!" });
 
   try {
     const driveService = google.drive({ version: 'v3', auth });
-
-    // --- PART A: GOOGLE DRIVE SMART UPLOAD ---
     const driverName = req.body.driverName || "Unknown_Driver"; 
     const MAIN_FOLDER_ID = '1wxmHB_494sxqMKus7JKv8B83i67mEXer';
 
+    // --- PART A: GOOGLE DRIVE SMART UPLOAD ---
     let driverFolderId = null;
-    
-    // 1. Check if folder exists
     const folderSearch = await driveService.files.list({
       q: `name='${driverName}' and '${MAIN_FOLDER_ID}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id, name)',
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true
+      fields: 'files(id, name)', supportsAllDrives: true, includeItemsFromAllDrives: true
     });
 
     if (folderSearch.data.files && folderSearch.data.files.length > 0) {
       driverFolderId = folderSearch.data.files[0].id;
     } else {
-      // 2. Create new folder if not exists
-      const folderMetaData = {
-        name: driverName,
-        mimeType: 'application/vnd.google-apps.folder',
-        parents: [MAIN_FOLDER_ID]
-      };
       const folderResponse = await driveService.files.create({
-        resource: folderMetaData,
-        fields: 'id',
-        supportsAllDrives: true
+        resource: { name: driverName, mimeType: 'application/vnd.google-apps.folder', parents: [MAIN_FOLDER_ID] },
+        fields: 'id', supportsAllDrives: true
       });
       driverFolderId = folderResponse.data.id;
     }
 
-    // 3. Format Date & Time for File Name
     const date = new Date();
-    const formattedDate = date.toLocaleDateString('en-GB').replace(/\//g, '-'); 
-    const formattedTime = date.toLocaleTimeString('en-GB').replace(/:/g, '-'); 
-    const systemFileName = `${driverName}_${formattedDate}_${formattedTime}_${req.file.originalname}`;
-
-    // 4. Upload File to Drive
-    const fileMetaData = { name: systemFileName, parents: [driverFolderId] };
-    const media = { mimeType: req.file.mimetype, body: fs.createReadStream(req.file.path) };
+    const sysFileName = `${driverName}_${date.toLocaleDateString('en-GB').replace(/\//g, '-')}_${date.toLocaleTimeString('en-GB').replace(/:/g, '-')}_${req.file.originalname}`;
 
     const driveResponse = await driveService.files.create({
-      resource: fileMetaData,
-      media: media,
-      fields: 'id, webViewLink',
-      supportsAllDrives: true
+      resource: { name: sysFileName, parents: [driverFolderId] },
+      media: { mimeType: req.file.mimetype, body: fs.createReadStream(req.file.path) },
+      fields: 'id, webViewLink', supportsAllDrives: true
     });
 
-    // 5. Make the file visible to anyone with the link
     await driveService.permissions.create({
-      fileId: driveResponse.data.id,
-      requestBody: { role: 'reader', type: 'anyone' },
-      supportsAllDrives: true
+      fileId: driveResponse.data.id, requestBody: { role: 'reader', type: 'anyone' }, supportsAllDrives: true
     });
 
     const driveLink = driveResponse.data.webViewLink;
 
-    // --- PART B: MAMTA AI DATA EXTRACTION ---
+    // --- PART B: MAMTA AI DATA EXTRACTION (THE BRAIN UPGRADE) ---
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
     function fileToGenerativePart(filePath, mimeType) {
-        return {
-            inlineData: {
-                data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
-                mimeType
-            },
-        };
+        return { inlineData: { data: Buffer.from(fs.readFileSync(filePath)).toString("base64"), mimeType } };
     }
     const imageParts = [fileToGenerativePart(req.file.path, req.file.mimetype)];
 
+    // 🚀 THE NEW UNIVERSAL TRANSPORT PROMPT
     const prompt = `
-    You are an expert Logistics & Transport Document Analyzer for Prasad Transport ERP.
-    Analyze the uploaded image/document and automatically detect its type (e.g., IOCL Invoice, Loading/Unloading Slip, HSD Petrol Pump Bill, Driving License, Vehicle RC, Toll Receipt, etc.).
-    Extract all relevant details accurately. Even if the text is slightly faded or in a table, read it carefully. 
-    Return the output STRICTLY as a JSON object without any markdown, formatting, or extra text.
+    You are Mamta AI, an expert Logistics & Transport AI for Prasad Transport ERP.
+    Analyze the uploaded document (IOCL Invoice, Loading Slip, Challan, etc.) carefully.
+    Return the output STRICTLY as a valid JSON object. No extra text, no markdown like \`\`\`json.
 
-    If a field is not present in the document, leave its value as an empty string "".
+    CRITICAL INSTRUCTIONS:
+    1. documentNumber: ALWAYS prioritize 'SAP Entry No.' or 'Delivery No.' (usually 10 digits starting with 70, e.g., 7004468793) over the Tax Invoice number. If SAP is missing, then use Invoice/Challan No.
+    2. quantity: Find the TOTAL VOLUME / QTY of fuel. If it is in KL (e.g., 9, 3, 12.000), multiply by 1000 and return ONLY the number in LITERS (e.g., "12000"). NEVER return the Total Rupees/Amount here.
+    3. vehicleNumber: Extract the truck registration number and REMOVE ALL SPACES (e.g., "AS 26 AC 0403" must become "AS26AC0403").
+    4. consigneeName: Look for the destination party name (e.g., "COCO SHIV SHANKAR KSK").
+    5. fromLocation: Look for the loading point or depot name (e.g., "BONGAIGAON REF").
 
     Use this exact JSON structure:
     {
-      "documentType": "Detect and write type",
-      "documentNumber": "Invoice No, Bill No, DL No, or Challan No",
-      "documentDate": "Date of the document",
-      "vehicleNumber": "Vehicle/Truck Registration Number",
-      "partyName": "Name of the Petrol Pump, Client, or Person",
-      "fromLocation": "Loading point or Source",
-      "toLocation": "Unloading point or Destination",
-      "quantity": "Quantity",
-      "totalAmount": "Total bill amount or Invoice value",
-      "driverName": "Name of the driver",
-      "extraDetails": "Any other important detail"
+      "documentType": "Invoice/Challan Type",
+      "documentNumber": "70XXXXXXXX or Challan No",
+      "documentDate": "YYYY-MM-DD",
+      "vehicleNumber": "TRUCKNO",
+      "partyName": "Supplier Name",
+      "fromLocation": "Loading Point",
+      "toLocation": "Consignee Name",
+      "quantity": "Volume in Liters",
+      "totalAmount": "Total Value in Rupees",
+      "driverName": "Driver Name if any",
+      "extraDetails": ""
     }
     `;
 
     const aiResult = await model.generateContent([prompt, ...imageParts]);
-    const responseText = aiResult.response.text();
+    let responseText = aiResult.response.text();
     
-    // ✅ Clean AI JSON output safely
-    const cleanedText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    // Safety clean
+    responseText = responseText.replace(/```json/gi, "").replace(/```/g, "").trim();
+    
     let extractedData = {};
     try {
-        extractedData = JSON.parse(cleanedText);
+        extractedData = JSON.parse(responseText);
+        console.log("🤖 MAMTA AI SUCCESSFUL EXTRACTION:", extractedData);
     } catch (parseError) {
-        console.error("JSON Parse Error. Raw AI Output:", cleanedText);
-        extractedData = { error: "AI could not format data properly", rawText: cleanedText };
+        console.error("❌ JSON Parse Error. Raw AI Output:", responseText);
+        extractedData = { error: "AI Format Error", rawText: responseText };
     }
 
     // --- PART C: SEND FINAL RESULT TO WEBSITE ---
-    res.status(200).json({
-      success: true,
-      driveLink: driveLink,
-      aiData: extractedData
-    });
+    res.status(200).json({ success: true, driveLink: driveLink, aiData: extractedData });
 
   } catch (error) {
     console.error("❌ ERROR:", error);
     res.status(500).json({ success: false, message: error.message });
   } finally {
-    // ✅ SAFE CLEANUP
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
   }
 });
 
@@ -168,96 +134,45 @@ app.post('/upload-to-drive', upload.single('file'), async (req, res) => {
 app.get('/test-email', async (req, res) => {
   try {
     const keys = require('./google-key.json');
-    
-    // 🤖 Robot is taking permission to use info@prasadtransport.com
     const jwtClient = new google.auth.JWT(
-      keys.client_email,
-      null,
-      keys.private_key,
+      keys.client_email, null, keys.private_key,
       ['https://www.googleapis.com/auth/gmail.send'],
-      'info@prasadtransport.com' // Subject: The Alias email we created
+      'info@prasadtransport.com' 
     );
-
-    // Explicitly authorize the client
     await jwtClient.authorize();
 
     const gmail = google.gmail({ version: 'v1', auth: jwtClient });
-
-    const toEmail = 'jaiswalcapital1@gmail.com'; 
-    const subject = '🎉 Prasad Transport ERP - Live Test Successful!';
-    const message = 'Hello Subhash Sir,\n\nCongratulations! This is an automatic test email sent directly from your ERP System using the new info@prasadtransport.com ID. Your robot is working perfectly!\n\nRegards,\nERP Robot 🤖';
-
-    // Format email exactly as Gmail API expects
     const rawMessage = [
-      `To: ${toEmail}`,
-      'Subject: ' + subject,
+      `To: jaiswalcapital1@gmail.com`,
+      'Subject: 🎉 Prasad Transport ERP - Live Test Successful!',
       '',
-      message
+      'Hello Subhash Sir,\n\nCongratulations! This is an automatic test email sent directly from your ERP System using the new info@prasadtransport.com ID. Your robot is working perfectly!\n\nRegards,\nERP Robot 🤖'
     ].join('\n');
 
-    // Base64URL encode the message
-    const encodedMessage = Buffer.from(rawMessage)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
+    const encodedMessage = Buffer.from(rawMessage).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-    // Send Email
-    await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw: encodedMessage }
-    });
-
-    res.status(200).send(`
-      <div style="font-family: sans-serif; padding: 40px; text-align: center;">
-        <h1 style="color: #10b981;">✅ SUCCESS!</h1>
-        <h2>Test Email has been sent successfully!</h2>
-        <p>Please check the inbox of <b>jaiswalcapital1@gmail.com</b>.</p>
-        <p style="color: #64748b; font-size: 14px; margin-top: 20px;">Sent via: info@prasadtransport.com</p>
-      </div>
-    `);
-
+    await gmail.users.messages.send({ userId: 'me', requestBody: { raw: encodedMessage } });
+    res.status(200).send(`<h1 style="color: green; text-align:center;">✅ SUCCESS! Email Sent.</h1>`);
   } catch (error) {
     console.error("❌ EMAIL ERROR:", error);
-    res.status(500).send(`
-      <div style="font-family: sans-serif; padding: 40px; text-align: center;">
-        <h1 style="color: #ef4444;">❌ ERROR</h1>
-        <p style="background: #fee2e2; padding: 15px; border-radius: 8px; color: #b91c1c; display: inline-block;">
-          ${error.message}
-        </p>
-        <p>Please check your Google Workspace Admin settings for Domain-Wide Delegation.</p>
-      </div>
-    `);
+    res.status(500).send(`<h1 style="color: red; text-align:center;">❌ ERROR: ${error.message}</h1>`);
   }
 });
 
 // =======================================================
-// ROUTE 3: MAMTA AI PREMIUM VOICE (Google TTS - Madhuri Style)
+// ROUTE 3: MAMTA AI PREMIUM VOICE 
 // =======================================================
 app.post('/speak', async (req, res) => {
     try {
         const { text } = req.body;
-        
-        // Google TTS API को रिक्वेस्ट भेज रहे हैं
         const url = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`;
-
         const requestBody = {
             input: { text: text },
-            voice: { 
-                languageCode: 'hi-IN', 
-                name: 'hi-IN-Neural2-A', // 🎤 माधुरी जैसी प्रीमियम Neural आवाज़
-                ssmlGender: 'FEMALE' 
-            },
-            audioConfig: { 
-                audioEncoding: 'MP3',
-                pitch: 1.2, 
-                speakingRate: 0.95 
-            }
+            voice: { languageCode: 'hi-IN', name: 'hi-IN-Neural2-A', ssmlGender: 'FEMALE' },
+            audioConfig: { audioEncoding: 'MP3', pitch: 1.2, speakingRate: 0.95 }
         };
-
         const response = await axios.post(url, requestBody);
         res.json({ success: true, audioContent: response.data.audioContent });
-
     } catch (error) {
         console.error("TTS API Error:", error.message);
         res.status(500).json({ success: false, message: "Voice generation failed." });

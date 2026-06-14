@@ -12,6 +12,19 @@ dist
 dist-ssr
 *.local
 
+# 🔒 Secrets — NEVER commit
+**/serviceAccountKey.json
+*-firebase-adminsdk-*.json
+google-key.json
+**/google-key.json
+
+# 🛟 Local data backups (business data — keep local only)
+backups/
+
+# WhatsApp Web session cache (regenerated at runtime)
+whatsapp-server/.wwebjs_auth/
+whatsapp-server/.wwebjs_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +35,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.screenshots/
