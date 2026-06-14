@@ -306,7 +306,9 @@ const WhatsappDashboard = () => {
 
                           <div style={{padding:'20px', background:theme.inputBg, borderTop:`1px solid ${theme.border}`, display:'flex', gap:'15px'}}>
                               <input disabled={!activeChatPhoneView} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendTripChat()} placeholder={activeChatPhoneView ? `Type message for ${chatRole}...` : 'Mobile number missing...'} style={{flex:1, background:theme.bg, border:`1px solid ${theme.border}`, color:'white', padding:'15px', borderRadius:'30px', outline:'none', fontSize:'15px', opacity: activeChatPhoneView ? 1 : 0.5}} />
-                              <button disabled={!activeChatPhoneView} onClick={sendTripChat} style={{background:theme.wa, color:'black', border:'none', padding:'0 25px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'16px', opacity: activeChatPhoneView ? 1 : 0.5}}>Send 🚀</button>
+                              <button disabled={!activeChatPhoneView} onClick={sendTripChat} style={{background:theme.wa, color:'black', border:'none', padding:'0 18px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'15px', opacity: activeChatPhoneView ? 1 : 0.5}}>Send 🚀</button>
+                              {/* 📱 Free click-to-chat — opens YOUR own WhatsApp (mobile app/web) with msg + number prefilled, no server */}
+                              <button disabled={!activeChatPhoneView} title="Apne WhatsApp se bhejein (free)" onClick={() => { const num = String(activeChatPhoneView).replace(/\D/g, ''); const n = num.length === 10 ? '91' + num : num; window.open(`https://wa.me/${n}?text=${encodeURIComponent(chatInput || '')}`, '_blank'); }} style={{ background:'#25D366', color:'white', border:'none', padding:'0 16px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'14px', opacity: activeChatPhoneView ? 1 : 0.5, whiteSpace:'nowrap' }}>📱 WhatsApp</button>
                           </div>
                        </>
                    ) : (
