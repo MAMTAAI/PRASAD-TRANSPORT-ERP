@@ -6,6 +6,7 @@ import { runAgent } from './lib/agents/orchestrator';
 import { commitWrite } from './lib/agents/tools';
 import { llmHealth } from './lib/llm';
 import { speak, stopSpeaking, voiceStatus } from './lib/voice/tts';
+import { remember } from './lib/memory';
 
 const SUGGESTIONS = [
   'Kaunse trips abhi In Transit hain?',
@@ -100,6 +101,23 @@ export default function MamtaChat() {
     setBusy(false);
   };
 
+  // 👍/👎 feedback — human-in-the-loop self-improvement (Phase 14.3).
+  // 👍 reinforces a confirmed fact to long-term memory; 👎 logs for admin review.
+  // Never changes code/rules/RBAC autonomously.
+  const giveFeedback = (idx: number, good: boolean) => {
+    const a = messages[idx]; const q = messages[idx - 1];
+    if (!a || a.role !== 'assistant') return;
+    setMessages(m => m.map((msg, i) => i === idx ? { ...msg, feedback: good ? 'up' : 'down' } : msg));
+    let user: any; try { user = JSON.parse(localStorage.getItem('prasad_user') || 'null'); } catch { /* */ }
+    if (good) {
+      const sc = String(user?.role || '').toLowerCase();
+      const scope = (sc === 'vendor' || sc === 'customer' || sc === 'driver') ? (user.vendor_name || user.customer_name || user.driver_name || 'all') : 'all';
+      remember({ namespace: 'mamta', text: `Confirmed: ${q?.content || ''} → ${String(a.content).slice(0, 200)}`, scope, kind: 'confirmed' }).catch(() => {});
+    } else {
+      try { const log = JSON.parse(localStorage.getItem('mamta_feedback_log') || '[]'); log.push({ q: q?.content, a: a.content, at: Date.now() }); localStorage.setItem('mamta_feedback_log', JSON.stringify(log.slice(-100))); } catch { /* */ }
+    }
+  };
+
   const confirmWrite = async (idx: number) => {
     const pw = messages[idx]?.pendingWrite;
     if (!pw) return;
@@ -171,6 +189,18 @@ export default function MamtaChat() {
                     <div key={j} style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>• {s.text.slice(0, 120)}</div>
                   ))}
                 </details>
+              )}
+              {m.role === 'assistant' && m.content && !m.streaming && !m.pendingWrite && (
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {m.feedback ? (
+                    <span style={{ fontSize: '11px', color: m.feedback === 'up' ? '#10b981' : '#f59e0b' }}>{m.feedback === 'up' ? '👍 Yaad rakh liya' : '👎 Review ke liye logged'}</span>
+                  ) : (
+                    <>
+                      <button onClick={() => giveFeedback(i, true)} title="Sahi — yaad rakho" style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👍</button>
+                      <button onClick={() => giveFeedback(i, false)} title="Galat — review" style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👎</button>
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>
