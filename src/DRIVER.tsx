@@ -3,6 +3,27 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
+// 📅 Document expiry status -> design-system pill (valid / expiring / expired).
+const parseExpiry = (s: string): number | null => {
+  if (!s) return null;
+  const t = String(s).trim();
+  let d: Date | null = null;
+  let m = t.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);       // YYYY-MM-DD
+  if (m) d = new Date(+m[1], +m[2] - 1, +m[3]);
+  else { m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/); if (m) d = new Date(+m[3], +m[2] - 1, +m[1]); } // DD-MM-YYYY
+  if (!d || isNaN(d.getTime())) { const p = new Date(t); if (!isNaN(p.getTime())) d = p; }
+  if (!d || isNaN(d.getTime())) return null;
+  return Math.ceil((d.getTime() - Date.now()) / 86400000);
+};
+const ExpiryPill = ({ date }: { date: string }) => {
+  const days = parseExpiry(date);
+  if (days === null) return null;
+  const [cls, label] = days < 0 ? ['pt-pill--pending-unload', 'Expired']
+    : days <= 15 ? ['pt-pill--pending-load', `Expiring ${days}d`]
+    : ['pt-pill--completed', 'Valid'];
+  return <span className={`pt-pill ${cls}`} style={{ marginLeft: '6px' }}>{label}</span>;
+};
+
 // 🌟 FIX: UNIVERSAL DRIVE LINK EXTRACTOR (Bypasses Access Denied & Reads Old Data)
 const getDriveLinks = (rawLink: string) => {
   if (!rawLink) return { view: '#', download: '#' };
@@ -496,7 +517,7 @@ export default function DriverMgmt() {
                     </td>
                     <td>
                       <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href={getDriveLinks(d.dl_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <small style={{ color: '#64748b' }}>Exp: {d.license_expiry || 'N/A'}</small><br/>
+                      <small style={{ color: '#64748b' }}>Exp: {d.license_expiry || 'N/A'}</small><ExpiryPill date={d.license_expiry} /><br/>
                       <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href={getDriveLinks(d.hzd_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
                     </td>
                     <td>
