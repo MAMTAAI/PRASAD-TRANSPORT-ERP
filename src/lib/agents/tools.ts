@@ -3,13 +3,16 @@
 import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { retrieve } from '../rag';
+import { scopeFilter, type AppUser } from '../rbac';
 import type { ToolDefinition } from '../llm/types';
+
+export interface ToolCtx { user?: AppUser; }
 
 export interface AgentTool {
   agent: string;
   write: boolean;               // true => requires user confirmation (Phase 8 later)
   definition: ToolDefinition;
-  run: (args: any) => Promise<string>;
+  run: (args: any, ctx?: ToolCtx) => Promise<string>;
 }
 
 const g = (o: any, keys: string[]): string => {
@@ -45,9 +48,16 @@ export const TOOLS: AgentTool[] = [
         parameters: { type: 'object', properties: { query: { type: 'string', description: 'natural language search' } }, required: ['query'] },
       },
     },
-    run: async ({ query }) => {
-      const hits = await retrieve(String(query || ''), 8);
-      return hits.length ? hits.map((h, i) => `[${i + 1}] ${h.text}`).join('\n') : 'No matching ERP records.';
+    run: async ({ query }, ctx) => {
+      let hits = await retrieve(String(query || ''), 8);
+      // 🔐 RBAC: scoped roles only see chunks mentioning their own scope value.
+      const u: any = ctx?.user; const r = String(u?.role || '').toLowerCase();
+      if (['vendor', 'customer', 'driver'].includes(r)) {
+        const val = String(u.vendor_name || u.customer_name || u.driver_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (val) hits = hits.filter(h => h.text.toLowerCase().replace(/[^a-z0-9]/g, '').includes(val));
+        else hits = [];
+      }
+      return hits.length ? hits.map((h, i) => `[${i + 1}] ${h.text}`).join('\n') : 'No matching ERP records (within your access).';
     },
   },
   {
@@ -61,8 +71,8 @@ export const TOOLS: AgentTool[] = [
         parameters: { type: 'object', properties: {}, required: [] },
       },
     },
-    run: async () => {
-      const trips = await fetchTrips();
+    run: async (_args, ctx) => {
+      const trips = scopeFilter(ctx?.user as any, await fetchTrips());
       const counts: Record<string, number> = {};
       trips.forEach(t => {
         const label = LIFECYCLE[String(g(t, ['trip_status', 'Trip_Status'])).toUpperCase()] || 'Unknown';
@@ -83,8 +93,8 @@ export const TOOLS: AgentTool[] = [
         parameters: { type: 'object', properties: { period_days: { type: 'number', description: 'lookback window in days; 0 or omitted = all time' } }, required: [] },
       },
     },
-    run: async ({ period_days }) => {
-      const trips = await fetchTrips();
+    run: async ({ period_days }, ctx) => {
+      const trips = scopeFilter(ctx?.user as any, await fetchTrips());
       const days = Number(period_days || 0);
       const cutoff = days > 0 ? Date.now() - days * 86400000 : 0;
       const inPeriod = trips.filter(t => {

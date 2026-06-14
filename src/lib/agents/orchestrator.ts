@@ -84,7 +84,7 @@ export async function runAgent(
       emit({ type: 'tool_call', agent: tool?.agent, tool: name, args });
       let result: string;
       try {
-        result = tool ? await tool.run(args) : `Unknown tool: ${name}`;
+        result = tool ? await tool.run(args, { user }) : `Unknown tool: ${name}`;
       } catch (e: any) {
         result = `Tool error: ${e?.message || 'failed'}`;
       }
