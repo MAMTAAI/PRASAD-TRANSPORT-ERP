@@ -3,8 +3,15 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const textToSpeech = require("@google-cloud/text-to-speech");
 const cors = require("cors")({ origin: true });
 
-// 1. Gemini API Key — env first (set via `firebase functions:config` / GEMINI_API_KEY), fallback for local
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "***REMOVED-ROTATE-ME***");
+// ⚠️ DEPRECATED CLOUD PATH. The app is migrating to a 100% LOCAL voice
+// assistant (local Gemma 4 + browser SpeechSynthesis, see src/lib/voice).
+// This legacy function uses cloud Gemini + cloud TTS and is kept only for
+// backward compatibility. NO secret is hardcoded — the key must come from the
+// environment (GEMINI_API_KEY). If it's unset, the endpoint returns 503.
+// 🔐 The previously hardcoded key has been REMOVED — rotate it in Google Cloud
+//    Console (APIs & Services → Credentials) as it was exposed in git history.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const ttsClient = new textToSpeech.TextToSpeechClient();
 
 // 2. हमने फंक्शन का नाम बदलकर 'mamtaVoice' कर दिया है ताकि पुराना एरर न आए
@@ -18,6 +25,14 @@ exports.mamtaVoice = functions.https.onRequest((req, res) => {
       const userPrompt = req.body.prompt;
       if (!userPrompt) {
         return res.status(400).send("Prompt is missing");
+      }
+
+      // 🔐 No hardcoded key anymore. If the env key is unset, the legacy cloud
+      // path is disabled — the app should use the local voice engine instead.
+      if (!GEMINI_API_KEY) {
+        return res.status(503).json({
+          error: "Mamta cloud voice is disabled. The app now uses a 100% local voice engine (local Gemma 4 + on-device TTS). Set GEMINI_API_KEY only if you still need this legacy cloud path.",
+        });
       }
 
       // --- Gemini 1.5 Pro से जवाब लें ---
