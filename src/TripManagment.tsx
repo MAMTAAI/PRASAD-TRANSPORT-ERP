@@ -360,6 +360,15 @@ export default function TripManagment() {
       return matchDate && matchSearch;
   });
 
+  // 🚦 Map a raw trip_status to a design-system lifecycle pill (Phase 4)
+  const tripStatusPill = (status: string) => {
+    const s = String(status || '').toUpperCase();
+    if (s === 'COMPLETED') return { cls: 'pt-pill--completed', label: 'Completed' };
+    if (s === 'UNLOADED' || s === 'ARRIVED_DESTINATION') return { cls: 'pt-pill--pending-unload', label: 'Pending Unload' };
+    if (s === 'IN_TRANSIT' || s === 'DISPATCHED') return { cls: 'pt-pill--transit', label: 'In Transit' };
+    return { cls: 'pt-pill--pending-load', label: 'Pending Load' }; // PENDING / LOADED / default
+  };
+
   const getActiveDriverInfo = (trip) => {
     if (!trip) return null;
     return drivers.find(d => checkMatch(d.name || d.driver_name, trip.driver_name || trip.Driver_Name));
@@ -665,7 +674,9 @@ export default function TripManagment() {
                      </div>
                   </td>
                   <td style={styles.td}>
-                     <span style={{fontSize:'11px', color:'#38bdf8', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span><br/>
+                     <span style={{fontSize:'11px', color:'#38bdf8', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span>
+                     {(() => { const p = tripStatusPill(t.trip_status); return <span className={`pt-pill ${p.cls}`} style={{marginLeft:'8px'}}>{p.label}</span>; })()}
+                     <br/>
                      {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
                   </td>
                   <td style={{...styles.td, color: '#10b981'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
