@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, Timestamp, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
+import { ledgerBalances } from './lib/accounting/journal';
 
 // 📊 IMPORTING CHARTS
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -30,7 +31,10 @@ export default function LedgerMgmt() {
   const [partyLedgers, setPartyLedgers] = useState<any[]>([]); 
   const [allLedgerEntries, setAllLedgerEntries] = useState<any[]>([]);
   const [allBankTxns, setAllBankTxns] = useState<any[]>([]);
-  const [allEmiPayments, setAllEmiPayments] = useState<any[]>([]); 
+  const [allEmiPayments, setAllEmiPayments] = useState<any[]>([]);
+  // 📒 Live party outstanding from the double-entry journal (single source of truth).
+  const [jLedgers, setJLedgers] = useState<any[]>([]);
+  useEffect(() => { ledgerBalances().then(setJLedgers).catch(() => setJLedgers([])); }, []);
   const [vehicles, setVehicles] = useState<any[]>([]);
 
   const [companies, setCompanies] = useState<string[]>(['Loading Companies...']);
@@ -427,6 +431,7 @@ export default function LedgerMgmt() {
         <button onClick={() => setActiveTab('STATEMENT')} style={{ padding: '10px 20px', background: activeTab === 'STATEMENT' ? 'rgba(245, 158, 11, 0.1)' : 'transparent', color: activeTab === 'STATEMENT' ? '#f59e0b' : '#94a3b8', border: 'none', borderBottom: activeTab === 'STATEMENT' ? '3px solid #f59e0b' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px 8px 0 0', whiteSpace: 'nowrap' }}>📝 LEDGER STATEMENT</button>
         <button onClick={() => setActiveTab('CREATE')} style={{ padding: '10px 20px', background: activeTab === 'CREATE' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'CREATE' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'CREATE' ? '3px solid #38bdf8' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px 8px 0 0', whiteSpace: 'nowrap' }}>📂 MASTER (COA)</button>
         <button onClick={() => setActiveTab('TRIAL')} style={{ padding: '10px 20px', background: activeTab === 'TRIAL' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: activeTab === 'TRIAL' ? '#10b981' : '#94a3b8', border: 'none', borderBottom: activeTab === 'TRIAL' ? '3px solid #10b981' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px 8px 0 0', whiteSpace: 'nowrap' }}>⚖️ TRIAL BALANCE</button>
+        <button onClick={() => setActiveTab('JOURNAL_OS')} style={{ padding: '10px 20px', background: activeTab === 'JOURNAL_OS' ? 'rgba(192, 132, 252, 0.1)' : 'transparent', color: activeTab === 'JOURNAL_OS' ? '#c084fc' : '#94a3b8', border: 'none', borderBottom: activeTab === 'JOURNAL_OS' ? '3px solid #c084fc' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px 8px 0 0', whiteSpace: 'nowrap' }}>📒 LIVE OUTSTANDING</button>
       </div>
 
       {/* 📊 TAB 0: FINANCIAL DASHBOARD */}
@@ -583,6 +588,39 @@ export default function LedgerMgmt() {
       )}
 
       {/* ⚖️ TAB 3: SMART LIVE TRIAL BALANCE */}
+      {/* 📒 LIVE OUTSTANDING from the double-entry journal (single source of truth) */}
+      {activeTab === 'JOURNAL_OS' && (
+        <div style={{ background: '#0f172a', borderRadius: '15px', padding: '25px', border: '1px solid #1e293b' }}>
+          <h3 style={{ color: '#c084fc', marginTop: 0 }}>📒 Party Outstanding <span style={{ fontSize: '12px', color: '#64748b' }}>(live from journal — receivable from debtors, payable to creditors)</span></h3>
+          {(() => {
+            const parties = jLedgers.filter(l => /debtor|creditor/i.test(l.ledger));
+            const receivable = parties.filter(l => /debtor/i.test(l.ledger) && l.balance > 0);
+            const payable = parties.filter(l => /creditor/i.test(l.ledger) && l.balance < 0);
+            if (!parties.length) return <p style={{ color: '#94a3b8' }}>Journal abhi khaali hai — Operations → Accounts sync chalao to party balances yahan dikhenge.</p>;
+            const Section = ({ title, rows, color, sign }: any) => (
+              <div style={{ marginBottom: '20px' }}>
+                <h4 style={{ color, margin: '0 0 10px' }}>{title} <span style={{ fontSize: '12px', color: '#64748b' }}>({rows.length})</span></h4>
+                {rows.length === 0 ? <p style={{ color: '#64748b', fontSize: '13px' }}>None.</p> : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                    <tbody>{[...rows].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)).map((r, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                        <td style={{ padding: '8px', color: '#e2e8f0' }}>{r.ledger.replace(/^(Debtors|Creditors):\s*/, '')}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: 'bold', color }}>₹{Math.abs(r.balance).toLocaleString('en-IN')} {sign}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                )}
+              </div>
+            );
+            return <>
+              <Section title="🟢 Receivable (Customers owe us)" rows={receivable} color="#10b981" sign="Dr" />
+              <Section title="🔴 Payable (We owe vendors)" rows={payable} color="#ef4444" sign="Cr" />
+            </>;
+          })()}
+          <p style={{ fontSize: '12px', color: '#64748b' }}>ℹ️ Single source of truth — idempotent journal se. Existing ledger tabs untouched.</p>
+        </div>
+      )}
+
       {activeTab === 'TRIAL' && (
         <div className="no-print" style={{ background: '#1e293b', borderRadius: '15px', padding: '25px', border: '1px solid #334155' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
