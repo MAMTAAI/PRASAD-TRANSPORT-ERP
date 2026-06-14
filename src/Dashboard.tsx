@@ -143,6 +143,7 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
   const activeTransitTrips = safeTrips.filter(t => t.trip_status === 'IN_TRANSIT' || t.trip_status === 'DISPATCHED');
   const pendingLoadingTrips = safeTrips.filter(t => t.trip_status === 'PENDING' || t.trip_status === 'LOADED');
   const pendingUnloadingTrips = safeTrips.filter(t => t.trip_status === 'UNLOADED' || t.trip_status === 'ARRIVED_DESTINATION');
+  const completedTrips = safeTrips.filter(t => t.trip_status === 'COMPLETED');
 
   const generateAdScript = () => {
     if(!adProduct) return alert("Please enter a product or service!");
@@ -660,6 +661,15 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
 
       {/* ROW 1: PIPELINE */}
       {(!isCrmModule && dashConfig.showPipeline) && (
+      <>
+        {/* 🚦 Trip lifecycle status pills (Phase 4 design system) */}
+        <div className="pt-glass" style={{ padding: '14px 18px', marginBottom: '18px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <span className="pt-section-title" style={{ fontSize: '14px', margin: 0 }}>🚦 Trip Lifecycle</span>
+          <span className="pt-pill pt-pill--pending-load">Pending Load · {pendingLoadingTrips.length}</span>
+          <span className="pt-pill pt-pill--transit">In Transit · {activeTransitTrips.length}</span>
+          <span className="pt-pill pt-pill--pending-unload">Pending Unload · {pendingUnloadingTrips.length}</span>
+          <span className="pt-pill pt-pill--completed">Completed · {completedTrips.length}</span>
+        </div>
         <div className="kpi-grid">
           <div className="kpi-card" onClick={() => setDetailModal('FLEET')} style={{ background: '#0f172a', border: '1px solid rgba(56,189,248,0.2)', padding: '25px', borderRadius: '15px', borderLeft: '4px solid #38bdf8' }}>
             <div style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Fleet Vehicles</div>
@@ -678,6 +688,7 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
             <div style={{ fontSize: '42px', fontWeight: '900', color: '#fff', marginTop: '10px' }}>{pendingUnloadingTrips.length} ⏳</div>
           </div>
         </div>
+      </>
       )}
 
       {/* PERFORMANCE ANALYTICS */}

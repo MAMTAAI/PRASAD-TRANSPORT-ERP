@@ -1,0 +1,149 @@
+/* ============================================================
+   PRASAD ERP — DESIGN SYSTEM (Phase 4)
+   One source of truth for the dark + neon identity. Additive and
+   namespaced (pt-*) so it never collides with the existing per-
+   component styles; modules adopt these classes incrementally.
+   ============================================================ */
+
+:root {
+  /* ---- Brand / semantic colors (formalized from de-facto usage) ---- */
+  --pt-primary: #38bdf8;        /* sky neon — primary accent (509 uses) */
+  --pt-primary-2: #3b82f6;      /* blue — gradient partner */
+  --pt-success: #10b981;        /* emerald — active / completed */
+  --pt-warning: #f59e0b;        /* amber — pending / attention */
+  --pt-danger:  #ef4444;        /* red — error / destructive */
+  --pt-ai:      #c084fc;        /* violet — MAMTA AI surfaces */
+  --pt-info:    #6366f1;        /* indigo — secondary info */
+
+  /* ---- Neutral / surface layers (slate ramp) ---- */
+  --pt-bg-0: #020617;           /* app background (deepest) */
+  --pt-bg-1: #0f172a;           /* panel */
+  --pt-bg-2: #1e293b;           /* raised surface */
+  --pt-border: #334155;         /* hairline border */
+  --pt-text:   #f1f5f9;         /* primary text */
+  --pt-text-muted: #94a3b8;     /* secondary text */
+  --pt-text-dim:   #cbd5e1;     /* tertiary text */
+
+  /* ---- Glass ---- */
+  --pt-glass-bg: rgba(30, 41, 59, 0.45);
+  --pt-glass-border: rgba(255, 255, 255, 0.08);
+  --pt-glass-blur: 12px;
+
+  /* ---- Spacing scale (4px base) ---- */
+  --pt-space-1: 4px;  --pt-space-2: 8px;  --pt-space-3: 12px;
+  --pt-space-4: 16px; --pt-space-5: 20px; --pt-space-6: 24px;
+  --pt-space-8: 32px; --pt-space-10: 40px;
+
+  /* ---- Radius scale ---- */
+  --pt-radius-sm: 8px; --pt-radius-md: 12px;
+  --pt-radius-lg: 16px; --pt-radius-xl: 20px; --pt-radius-pill: 999px;
+
+  /* ---- Shadow scale ---- */
+  --pt-shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
+  --pt-shadow-md: 0 8px 24px rgba(0,0,0,0.35);
+  --pt-shadow-lg: 0 16px 40px rgba(0,0,0,0.45);
+  --pt-glow-primary: 0 4px 18px rgba(56,189,248,0.35);
+
+  /* ---- Type scale ---- */
+  --pt-font: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --pt-fs-xs: 11px; --pt-fs-sm: 13px; --pt-fs-md: 15px;
+  --pt-fs-lg: 18px; --pt-fs-xl: 24px; --pt-fs-2xl: 32px;
+}
+
+/* ---- Glass card ---- */
+.pt-glass {
+  background: var(--pt-glass-bg);
+  border: 1px solid var(--pt-glass-border);
+  border-radius: var(--pt-radius-xl);
+  backdrop-filter: blur(var(--pt-glass-blur));
+  -webkit-backdrop-filter: blur(var(--pt-glass-blur));
+  box-shadow: var(--pt-shadow-md);
+}
+
+/* ---- Status pills (trip lifecycle) ---- */
+.pt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--pt-radius-pill);
+  font-size: var(--pt-fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  line-height: 1.6;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.pt-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pt-pill--pending-load   { color: var(--pt-warning); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.35); }
+.pt-pill--loading        { color: var(--pt-primary); background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.35); }
+.pt-pill--transit        { color: var(--pt-info);    background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.35); }
+.pt-pill--pending-unload { color: #fb923c;           background: rgba(251,146,60,0.12); border-color: rgba(251,146,60,0.35); }
+.pt-pill--completed      { color: var(--pt-success); background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.35); }
+
+/* ---- Buttons ---- */
+.pt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--pt-radius-sm);
+  font-family: var(--pt-font);
+  font-size: var(--pt-fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .2s ease, background .2s ease, opacity .2s ease;
+  user-select: none;
+  min-height: 40px;
+}
+.pt-btn:hover { transform: translateY(-2px); }
+.pt-btn:active { transform: translateY(0); }
+.pt-btn:disabled, .pt-btn.is-loading { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.pt-btn--primary   { background: linear-gradient(135deg, var(--pt-primary), var(--pt-primary-2)); color: #fff; }
+.pt-btn--primary:hover { box-shadow: var(--pt-glow-primary); }
+.pt-btn--success   { background: linear-gradient(135deg, var(--pt-success), #059669); color: #fff; }
+.pt-btn--danger    { background: linear-gradient(135deg, var(--pt-danger), #b91c1c); color: #fff; }
+.pt-btn--ai        { background: linear-gradient(135deg, var(--pt-ai), #818cf8); color: #fff; }
+.pt-btn--secondary { background: var(--pt-bg-2); color: var(--pt-text-dim); border-color: var(--pt-border); }
+.pt-btn--secondary:hover { background: #283548; color: #fff; }
+.pt-btn--ghost     { background: transparent; color: var(--pt-text-dim); border-color: var(--pt-border); }
+.pt-btn--ghost:hover { background: rgba(255,255,255,0.04); color: #fff; }
+
+/* loading spinner shown when .is-loading is set */
+.pt-btn.is-loading::before {
+  content: '';
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: pt-spin .7s linear infinite;
+}
+@keyframes pt-spin { to { transform: rotate(360deg); } }
+
+/* ---- Section header ---- */
+.pt-section-title {
+  font-size: var(--pt-fs-lg);
+  font-weight: 800;
+  color: var(--pt-text);
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 var(--pt-space-4);
+}
+
+/* ---- Accessibility: visible keyboard focus everywhere ---- */
+.pt-btn:focus-visible,
+.pt-pill:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--pt-primary);
+  outline-offset: 2px;
+}
