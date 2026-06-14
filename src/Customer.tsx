@@ -131,6 +131,13 @@ export default function Customer() {
 
   const handleSaveCustomer = async () => {
     if (!formData.customer_name) return alert("⚠️ Customer Name is required!");
+    // 🚫 Duplicate guard — one unified customer record (name or GSTIN unique).
+    const nrm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const dup = customers.find(c => c.id !== editingId && (
+      nrm(c.customer_name) === nrm(formData.customer_name) ||
+      (formData.gst_no && nrm(c.gst_no) === nrm(formData.gst_no))
+    ));
+    if (dup) return alert(`⚠️ Yeh customer pehle se hai: "${dup.customer_name}" (same name/GSTIN). Duplicate save nahi hoga — edit karein.`);
     try {
       if (editingId) {
         await updateDoc(doc(db, "CUSTOMERS", editingId), formData);
