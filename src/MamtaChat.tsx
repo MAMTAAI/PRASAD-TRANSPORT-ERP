@@ -5,6 +5,7 @@ import { ragAnswer, buildIndex, ragStatus } from './lib/rag';
 import { runAgent } from './lib/agents/orchestrator';
 import { commitWrite } from './lib/agents/tools';
 import { llmHealth } from './lib/llm';
+import { speak, stopSpeaking, voiceStatus } from './lib/voice/tts';
 
 const SUGGESTIONS = [
   'Kaunse trips abhi In Transit hain?',
@@ -24,12 +25,19 @@ export default function MamtaChat() {
   const [progress, setProgress] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
   const [agentMode, setAgentMode] = useState(true); // 🧭 multi-agent tool-calling
+  const [speaker, setSpeaker] = useState(false);    // 🔊 local Hindi voice output
+  const [voiceName, setVoiceName] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     ragStatus().then(s => setIndexCount(s.count)).catch(() => {});
     llmHealth().then(h => setOnline(!!h?.online)).catch(() => setOnline(false));
+    voiceStatus().then(v => setVoiceName(v.available ? v.voiceName : '')).catch(() => {});
   }, []);
+
+  const toggleSpeaker = () => {
+    setSpeaker(s => { const next = !s; if (!next) stopSpeaking(); return next; });
+  };
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages]);
 
@@ -69,13 +77,18 @@ export default function MamtaChat() {
         }, rbacUser);
         if (pendingWrite) {
           // ✋ Write action — never auto-saved. Show preview + ask to confirm.
-          patchLast(msg => ({ ...msg, streaming: false, content: `Main yeh record banana chahta hoon. Confirm karein to hi save hoga:`, pendingWrite }));
+          const ask = 'Main yeh record banana chahta hoon. Confirm karein to hi save hoga:';
+          patchLast(msg => ({ ...msg, streaming: false, content: ask, pendingWrite }));
+          if (speaker) speak(ask);
         } else {
           patchLast(msg => ({ ...msg, streaming: false, content: answer }));
+          if (speaker) speak(answer);
         }
       } else {
-        const { sources } = await ragAnswer(query, (tok) => patchLast(msg => ({ ...msg, content: msg.content + tok })));
+        let full = '';
+        const { sources } = await ragAnswer(query, (tok) => { full += tok; patchLast(msg => ({ ...msg, content: msg.content + tok })); });
         patchLast(msg => ({ ...msg, streaming: false, sources }));
+        if (speaker) speak(full);
       }
     } catch (e: any) {
       const offline = e?.name === 'LLMOfflineError' || /ollama|reach|engine/i.test(e?.message || '');
@@ -115,6 +128,9 @@ export default function MamtaChat() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button onClick={toggleSpeaker} title={voiceName ? `Voice: ${voiceName}` : 'No local voice found'} className={`pt-btn ${speaker ? 'pt-btn--success' : 'pt-btn--ghost'}`} style={{ fontSize: '12px', padding: '6px 12px' }}>
+            {speaker ? '🔊 Voice On' : '🔇 Voice Off'}
+          </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
             <input type="checkbox" checked={agentMode} onChange={e => setAgentMode(e.target.checked)} />
             🧭 Agent mode
