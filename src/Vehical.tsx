@@ -10,6 +10,7 @@ export default function Vehical() {
   
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [activeVehSet, setActiveVehSet] = useState<Set<string>>(new Set()); // vehicles currently on a trip
   
   // 🔍 स्मार्ट फिल्टर्स के स्टेट्स
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,6 +71,19 @@ export default function Vehical() {
       
       const branchSnap = await getDocs(collection(db, "BRANCHES")).catch(()=>({docs:[]}));
       setBranches(branchSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+      // 🔴 Live status: which vehicles are currently on a non-completed trip.
+      const tripSnap = await getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]}));
+      const norm = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const onTrip = new Set<string>();
+      tripSnap.docs.forEach(d => {
+        const t: any = d.data();
+        if (String(t.trip_status || t.Trip_Status || '').toUpperCase() !== 'COMPLETED') {
+          const vno = norm(t.vehicle_no || t.Vehical_No);
+          if (vno) onTrip.add(vno);
+        }
+      });
+      setActiveVehSet(onTrip);
     } catch (e) { console.error(e); }
   };
 
@@ -288,7 +302,17 @@ export default function Vehical() {
                 
                 <div style={{ gridColumn: 'span 2', color: '#cbd5e1' }}>🏷️ FASTag: <b style={{color: '#38bdf8'}}>{v.fastag_id || 'Not Set'}</b></div>
                 
-                <div style={{ gridColumn: 'span 2', color: isActive ? '#10b981' : '#ef4444', fontWeight: 'bold', borderTop: '1px dashed #334155', paddingTop: '10px', marginTop: '5px' }}>Status: {v.status || 'Active'}</div>
+                <div style={{ gridColumn: 'span 2', borderTop: '1px dashed #334155', paddingTop: '10px', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {(() => {
+                    const norm = String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    const isMaint = /maint|offline|repair/i.test(String(v.status || ''));
+                    const live = isMaint ? 'maintenance' : (activeVehSet.has(norm) ? 'transit' : 'available');
+                    const cls = live === 'transit' ? 'pt-pill--transit' : live === 'maintenance' ? 'pt-pill--pending-unload' : 'pt-pill--completed';
+                    const label = live === 'transit' ? 'In Transit' : live === 'maintenance' ? 'Maintenance' : 'Available';
+                    return <span className={`pt-pill ${cls}`}>{label}</span>;
+                  })()}
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>Live status</span>
+                </div>
               </div>
               
               <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
