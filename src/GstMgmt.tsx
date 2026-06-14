@@ -2,11 +2,36 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function GstMgmt() {
   const [gstRecords, setGstRecords] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]); // 🏢 For Auto-Dropdown
   const [loading, setLoading] = useState(false);
+  const [scanningBill, setScanningBill] = useState(false);
+
+  // 📄 Scan a customer sales bill (PDF/photo) → auto-fill GST entry (100% local).
+  const handleScanBill = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setScanningBill(true);
+    try {
+      const prompt = `This is a transport company's customer sales/freight bill (IOCL/HPCL/BPCL). Extract ONLY JSON:
+{ "party_name": "", "invoice_no": "", "total_gross_amount": 0, "cgst": 0, "sgst": 0, "igst": 0 }
+total_gross_amount = the grand total taxable/gross freight (sum of all gross amounts). Numbers only, no commas.`;
+      const ai = await extractJsonFromImage(file, prompt);
+      const num = (v: any) => Number(String(v ?? '').replace(/[^0-9.]/g, '')) || 0;
+      const gross = num(ai.total_gross_amount);
+      if (gross <= 0) { alert('⚠️ Bill ka total nahi mila — saaf PDF se try karein.'); setScanningBill(false); return; }
+      setFormData(prev => ({ ...prev, Customer_Name: ai.party_name || prev.Customer_Name, Invoice_No: ai.invoice_no || prev.Invoice_No }));
+      // tax computed in code (LLM arithmetic unreliable) via the existing handler
+      handleAmountChange(String(gross), formData.GST_Rate);
+      alert(`✅ Bill scan (local Gemma): ${ai.party_name || ''} · Taxable ₹${gross.toLocaleString('en-IN')} — GST auto-calculated. Verify karke Save.`);
+    } catch (err: any) {
+      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
+      alert(offline ? '❌ Local AI (Ollama) band hai.' : '❌ Bill padhi nahi gayi.');
+    }
+    setScanningBill(false);
+  };
 
   // Form State
   const [formData, setFormData] = useState({
@@ -137,7 +162,13 @@ export default function GstMgmt() {
 
       {/* Input Form Section */}
       <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderTop: '4px solid #38bdf8' }}>
-        <h3 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '15px' }}>➕ New GST Entry</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
+          <h3 style={{ color: '#38bdf8', margin: 0 }}>➕ New GST Entry</h3>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg,#c084fc,#8b5cf6)', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningBill ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
+            {scanningBill ? '⏳ Reading…' : '📄 Scan Bill (PDF) — auto-fill'}
+            <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanBill} disabled={scanningBill} />
+          </label>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', alignItems: 'end' }}>
           
           <div style={{ gridColumn: 'span 2' }}>

@@ -2,10 +2,33 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function TdsMgmt() {
   const [tdsRecords, setTdsRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scanningBill, setScanningBill] = useState(false);
+
+  // 📄 Scan a customer bill (PDF/photo) → auto-fill TDS (party + gross freight).
+  const handleScanBill = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setScanningBill(true);
+    try {
+      const prompt = `This is a transport company's customer freight bill. Extract ONLY JSON:
+{ "party_name": "", "total_gross_amount": 0 }
+total_gross_amount = grand total gross freight amount. Numbers only, no commas.`;
+      const ai = await extractJsonFromImage(file, prompt);
+      const gross = Number(String(ai.total_gross_amount ?? '').replace(/[^0-9.]/g, '')) || 0;
+      if (gross <= 0) { alert('⚠️ Bill ka total nahi mila — saaf PDF se try karein.'); setScanningBill(false); return; }
+      setFormData(prev => ({ ...prev, Consignee_Name: ai.party_name || prev.Consignee_Name }));
+      handleAmountChange(String(gross), formData.TDS_Rate); // TDS computed in code
+      alert(`✅ Bill scan (local Gemma): ${ai.party_name || ''} · Gross ₹${gross.toLocaleString('en-IN')} — TDS ${formData.TDS_Rate}% auto-calculated. Verify karke Save.`);
+    } catch (err: any) {
+      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
+      alert(offline ? '❌ Local AI (Ollama) band hai.' : '❌ Bill padhi nahi gayi.');
+    }
+    setScanningBill(false);
+  };
 
   // Form State matching your Excel Sheet
   const [formData, setFormData] = useState({
@@ -128,7 +151,13 @@ export default function TdsMgmt() {
 
       {/* 📝 Input Form Section */}
       <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderTop: '4px solid #10b981' }}>
-        <h3 style={{ color: '#10b981', marginTop: 0, marginBottom: '15px' }}>✂️ Add TDS Deduction</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
+          <h3 style={{ color: '#10b981', margin: 0 }}>✂️ Add TDS Deduction</h3>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg,#c084fc,#8b5cf6)', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningBill ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
+            {scanningBill ? '⏳ Reading…' : '📄 Scan Bill (PDF) — auto-fill'}
+            <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanBill} disabled={scanningBill} />
+          </label>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', alignItems: 'end' }}>
           
           <div><label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>Date</label>
