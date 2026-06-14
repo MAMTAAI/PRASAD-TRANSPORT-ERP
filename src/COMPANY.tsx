@@ -56,6 +56,10 @@ export default function CompanyMgmt() {
 
   const handleSave = async () => {
     if (!formData.company_name || !formData.gstin) return alert("Company Name & GSTIN are required!");
+    // 🚫 Duplicate guard — one company record (name or GSTIN unique).
+    const nrm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const dup = companies.find(c => c.id !== editingId && (nrm(c.company_name) === nrm(formData.company_name) || nrm(c.gstin) === nrm(formData.gstin)));
+    if (dup) return alert(`⚠️ Yeh company pehle se hai: "${dup.company_name}" (same name/GSTIN). Duplicate save nahi hoga.`);
     try {
       if (editingId) {
         await updateDoc(doc(db, "COMPANIES", editingId), formData);
