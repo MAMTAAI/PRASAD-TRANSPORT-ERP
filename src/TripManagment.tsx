@@ -43,8 +43,9 @@ export default function TripManagment() {
   const [formData, setFormData] = useState({
     trip_id: 'TRP-' + Math.floor(Math.random() * 90000 + 10000),
     vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '',
-    customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0], 
+    customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0],
     gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '',
+    operating_company: '',
     trip_status: 'IN_TRANSIT', billing_status: 'PENDING',
   });
 
@@ -153,6 +154,21 @@ export default function TripManagment() {
     }
   };
 
+  // 💡 Suggest a customer's most recent freight rate from their past trips.
+  const getLastCustomerRate = (cust: string) => {
+    if (!cust || cust.trim().length < 2) return null;
+    const matches = trips
+      .filter(t => checkMatch(t.customer_name || t.Customer || t.Registered_Assessee, cust))
+      .filter(t => parseFloat(t.gross_freight || t.Gross_Freight || t.Rate || 0) > 0);
+    if (!matches.length) return null;
+    matches.sort((a, b) => String(b.start_date || b.Loading_Date || '').localeCompare(String(a.start_date || a.Loading_Date || '')));
+    const last = matches[0];
+    return {
+      rate: String(last.gross_freight || last.Gross_Freight || last.Rate),
+      route: last.consignee_name || last.Consignee_Name || '',
+    };
+  };
+
   const handleVehicleChange = (vNo: string) => {
       const selectedVeh = vehicles.find(v => checkMatch(v.vehicle_no || v.vehical_no || v.registration_no, vNo));
       let dName = '';
@@ -167,7 +183,10 @@ export default function TripManagment() {
          if (drv) dMob = drv.mobile_no || drv.mobile || drv.phone || '';
       }
 
-      setFormData({...formData, vehicle_no: vNo, driver_name: dName, driver_mobil_no: dMob});
+      // Operating company (and branch) follow the vehicle.
+      const opCo = selectedVeh ? (selectedVeh.company_name || selectedVeh.owner_name || selectedVeh.operating_company || '') : '';
+
+      setFormData({...formData, vehicle_no: vNo, driver_name: dName, driver_mobil_no: dMob, operating_company: opCo});
   };
 
   const handleDriverSelect = (e: any) => {
@@ -670,7 +689,17 @@ export default function TripManagment() {
             <div><label style={{ fontSize: '12px' }}>Challan / Invoice No *</label><input type="text" style={styles.input} value={formData.challan_no} onChange={e=>setFormData({...formData, challan_no: e.target.value})} placeholder="Enter Challan" /></div>
             
             <div><label style={{ fontSize: '12px' }}>Vehicle No *</label><select style={styles.input} value={formData.vehicle_no} onChange={e=>handleVehicleChange(e.target.value)}><option value="">-- Choose --</option>{vehicles.map(v => <option key={v.id} value={v.vehical_no || v.vehicle_no || v.registration_no}>{v.vehical_no || v.vehicle_no || v.registration_no}</option>)}</select></div>
-            <div><label style={{ fontSize: '12px' }}>Customer Name (Billed To)</label><input type="text" style={styles.input} value={formData.customer_name} onChange={e=>setFormData({...formData, customer_name: e.target.value})} placeholder="Enter Customer" /></div>
+            <div><label style={{ fontSize: '12px', color: '#f59e0b' }}>Operating Company (Auto)</label><input style={{...styles.input, color: '#f59e0b'}} value={formData.operating_company} onChange={e=>setFormData({...formData, operating_company: e.target.value})} placeholder="Follows vehicle" /></div>
+            <div>
+              <label style={{ fontSize: '12px' }}>Customer Name (Billed To)</label>
+              <input type="text" style={styles.input} value={formData.customer_name} onChange={e=>setFormData({...formData, customer_name: e.target.value})} placeholder="Enter Customer" />
+              {(() => { const r = getLastCustomerRate(formData.customer_name); return (r && !formData.gross_freight) ? (
+                <div style={{ marginTop: '5px', fontSize: '11px', color: '#c084fc' }}>
+                  💡 Last freight: ₹{r.rate}
+                  <button type="button" onClick={() => setFormData(p => ({ ...p, gross_freight: r.rate }))} style={{ marginLeft: '6px', background: 'rgba(192,132,252,0.15)', color: '#c084fc', border: '1px solid #c084fc', borderRadius: '6px', padding: '1px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>Use</button>
+                </div>
+              ) : null; })()}
+            </div>
             <div><label style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>Consignee / Route *</label><input list="route-list" style={{...styles.input, borderColor: '#38bdf8', background: 'rgba(56, 189, 248, 0.05)'}} placeholder="Select Route to Auto-Fill..." value={formData.consignee_name} onChange={e=>handleConsigneeChange(e.target.value)} /><datalist id="route-list">{rtkmMaster.map(m => <option key={m.id} value={m.Consignee_Name || m.unloading_point || m.Destination} />)}</datalist></div>
             
             <div><label style={{ fontSize: '12px' }}>Driver</label><select style={styles.input} value={formData.driver_name} onChange={handleDriverSelect}><option value="">-- Choose --</option>{drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
