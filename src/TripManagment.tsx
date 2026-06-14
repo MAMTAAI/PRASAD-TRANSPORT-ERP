@@ -52,6 +52,31 @@ export default function TripManagment() {
   // 🗺️ Google Maps RTKM auto-calc (used when route is NOT in RTKM master)
   const [mapsCalc, setMapsCalc] = useState({ loading: false, error: '', info: '' });
 
+  // 💰 Bulk freight setter — fills missing freight so Revenue flows (Phase 12).
+  const [showFreightTool, setShowFreightTool] = useState(false);
+  const [freightCust, setFreightCust] = useState('');
+  const [freightRate, setFreightRate] = useState('');
+  const [freightBusy, setFreightBusy] = useState(false);
+  const tripCust = (t: any) => String(t.customer_name || t.Customer || t.Registered_Assessee || '').trim();
+  const tripHasFreight = (t: any) => parseFloat(t.gross_freight || t.Gross_Freight || t.Rate || 0) > 0;
+  const freightTargets = trips.filter(t => (!freightCust || tripCust(t) === freightCust) && !tripHasFreight(t));
+  const applyBulkFreight = async () => {
+    const rate = parseFloat(freightRate);
+    if (!freightCust) return alert('⚠️ Customer chunein.');
+    if (!(rate > 0)) return alert('⚠️ Valid freight ₹ daalein.');
+    if (!freightTargets.length) return alert('Is customer ke saare trips mein freight already hai.');
+    if (!window.confirm(`${freightTargets.length} trips (customer: ${freightCust}) mein freight ₹${rate} set karein? (sirf un trips mein jinme abhi freight nahi — add-only)`)) return;
+    setFreightBusy(true);
+    try {
+      for (const t of freightTargets) {
+        await updateDoc(doc(db, 'TRIPS', t.id), { gross_freight: String(rate), freight_set_by: 'bulk_tool' });
+      }
+      alert(`✅ ${freightTargets.length} trips mein freight ₹${rate} set ho gaya. Ab Accounts → Live Journal sync par Revenue flow karega.`);
+      setShowFreightTool(false); setFreightCust(''); setFreightRate(''); fetchData();
+    } catch (e) { alert('❌ Error: ' + (e?.message || 'failed')); }
+    setFreightBusy(false);
+  };
+
   const [showFuelModal, setShowFuelModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false); 
   const [showUnloadModal, setShowUnloadModal] = useState(false);
@@ -655,9 +680,34 @@ export default function TripManagment() {
       )}
 
       {/* --- HEADER & TABS --- */}
-      <div style={{ marginBottom: '25px' }}>
+      <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: 'white' }}>🚛 Trip Command Center</h1>
+        <button onClick={() => setShowFreightTool(true)} className="pt-btn pt-btn--ai" title="Trips mein freight bharo taaki Revenue dikhe">💰 Set Freight (Bulk)</button>
       </div>
+
+      {/* 💰 BULK FREIGHT TOOL — fills missing freight so Accounts Revenue flows */}
+      {showFreightTool && (
+        <div style={styles.modalOverlay}>
+          <div style={{ ...styles.modalContent, ...styles.modalSm }}>
+            <h3 style={{ color: '#c084fc', marginTop: 0 }}>💰 Set Freight (Bulk)</h3>
+            <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: 0 }}>Customer chuno + freight ₹ daalo. Sirf un trips mein lagega jinme abhi freight nahi hai (add-only). Phir Revenue journal mein flow karega.</p>
+            <label style={{ fontSize: '12px', color: '#38bdf8' }}>Customer</label>
+            <select style={styles.input} value={freightCust} onChange={e => setFreightCust(e.target.value)}>
+              <option value="">-- Choose customer --</option>
+              {Array.from(new Set(trips.map(tripCust).filter(Boolean))).sort().map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <label style={{ fontSize: '12px', color: '#10b981', marginTop: '10px', display: 'block' }}>Freight per trip (₹)</label>
+            <input type="number" style={styles.input} value={freightRate} onChange={e => setFreightRate(e.target.value)} placeholder="e.g. 25000" />
+            <div style={{ margin: '12px 0', fontSize: '13px', color: '#f59e0b' }}>
+              {freightCust ? `${freightTargets.length} trips ko freight milega (jinme abhi nahi hai).` : 'Customer chuno preview ke liye.'}
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setShowFreightTool(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={applyBulkFreight} disabled={freightBusy} className={`pt-btn pt-btn--success ${freightBusy ? 'is-loading' : ''}`} style={{ flex: 1 }}>{freightBusy ? 'Applying…' : '✅ Apply Freight'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🌟 GLOBAL SEARCH BAR & FILTERS */}
       <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
