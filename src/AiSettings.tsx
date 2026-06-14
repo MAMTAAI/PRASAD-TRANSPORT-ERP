@@ -5,6 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { llmHealth, llmComplete } from './lib/llm';
 import { LLM_CONFIG, getAiOverrides, setAiOverrides, getPersona, DEFAULT_PERSONA } from './lib/llm/config';
+import { generateProposals } from './lib/analysis/proposals';
 
 export default function AiSettings() {
   const [health, setHealth] = useState<any>(null);
@@ -15,6 +16,15 @@ export default function AiSettings() {
   const [saved, setSaved] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testOut, setTestOut] = useState('');
+  const [proposing, setProposing] = useState(false);
+  const [proposals, setProposals] = useState('');
+
+  const runProposals = async () => {
+    setProposing(true); setProposals('');
+    try { await generateProposals((t) => setProposals(prev => prev + t)); }
+    catch (e: any) { setProposals('❌ ' + (e?.message || 'error')); }
+    setProposing(false);
+  };
 
   const refreshHealth = () => {
     setChecking(true);
@@ -95,6 +105,17 @@ export default function AiSettings() {
           <button onClick={runTest} disabled={testing} className={`pt-btn pt-btn--primary ${testing ? 'is-loading' : ''}`}>{testing ? 'Testing…' : '🧪 Test Brain'}</button>
         </div>
         {testOut && <div style={{ marginTop: '14px', background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#10b981' }}>{testOut}</div>}
+      </div>
+
+      {/* 💡 Self-improvement proposals (Phase 14.3) — admin reviews, never auto-applied */}
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+          <h3 style={{ margin: 0, fontSize: '16px' }}>💡 Self-Improvement Proposals <span style={{ fontSize: '11px', color: '#64748b' }}>(from 👎 feedback — admin approves)</span></h3>
+          <button onClick={runProposals} disabled={proposing} className={`pt-btn pt-btn--ai ${proposing ? 'is-loading' : ''}`}>{proposing ? 'Analyzing…' : '🔍 Generate Proposals'}</button>
+        </div>
+        {proposals
+          ? <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#e2e8f0', fontSize: '13px' }}>{proposals}</div>
+          : <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Mamta 👎 feedback + aaj ke signals se safe improvement suggestions degi. Ye sirf suggestions hain — koi auto-change nahi (no self-modifying code).</p>}
       </div>
 
       <div style={{ padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px dashed #f59e0b', borderRadius: '10px', fontSize: '12px', color: '#f59e0b' }}>
