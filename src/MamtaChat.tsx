@@ -7,6 +7,7 @@ import { commitWrite } from './lib/agents/tools';
 import { llmHealth } from './lib/llm';
 import { speak, stopSpeaking, voiceStatus } from './lib/voice/tts';
 import { remember } from './lib/memory';
+import { generateDailyReport } from './lib/analysis/dailyReport';
 
 const SUGGESTIONS = [
   'Kaunse trips abhi In Transit hain?',
@@ -38,6 +39,22 @@ export default function MamtaChat() {
 
   const toggleSpeaker = () => {
     setSpeaker(s => { const next = !s; if (!next) stopSpeaking(); return next; });
+  };
+
+  // 📋 Daily self-analysis report (Phase 14.2) — read-only.
+  const runDailyReport = async () => {
+    if (busy) return;
+    setMessages(m => [...m, { role: 'user', content: '📋 Aaj ki daily report do' }, { role: 'assistant', content: '', streaming: true }]);
+    setBusy(true);
+    const patchLast = (fn: any) => setMessages(m => m.map((msg, i) => (i === m.length - 1 && msg.role === 'assistant' ? fn(msg) : msg)));
+    try {
+      const { report } = await generateDailyReport((t) => patchLast((msg: any) => ({ ...msg, content: msg.content + t })));
+      patchLast((msg: any) => ({ ...msg, streaming: false }));
+      if (speaker) speak(report);
+    } catch (e: any) {
+      patchLast((msg: any) => ({ ...msg, streaming: false, content: '❌ Report nahi ban payi: ' + (e?.message || 'error') }));
+    }
+    setBusy(false);
   };
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages]);
@@ -146,6 +163,7 @@ export default function MamtaChat() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button onClick={runDailyReport} disabled={busy} title="Aaj ka operations + finance review" className="pt-btn pt-btn--ghost" style={{ fontSize: '12px', padding: '6px 12px' }}>📋 Daily Report</button>
           <button onClick={toggleSpeaker} title={voiceName ? `Voice: ${voiceName}` : 'No local voice found'} className={`pt-btn ${speaker ? 'pt-btn--success' : 'pt-btn--ghost'}`} style={{ fontSize: '12px', padding: '6px 12px' }}>
             {speaker ? '🔊 Voice On' : '🔇 Voice Off'}
           </button>
