@@ -4,10 +4,12 @@ import { QRCodeSVG } from 'qrcode.react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import MamtaChat from './MamtaChat';
+import useIsMobile from './hooks/useIsMobile';
 
 const WhatsappDashboard = () => {
+  const { isMobile } = useIsMobile(); // 📱 responsive layout
   // 👤 USER SESSION
-  const [activeUser, setActiveUser] = useState('Admin'); 
+  const [activeUser, setActiveUser] = useState('Admin');
   const [tab, setTab] = useState('TRIP CHAT'); 
   const [isWa, setIsWa] = useState(false);
   const [qr, setQr] = useState('');
@@ -191,35 +193,37 @@ const WhatsappDashboard = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: theme.bg, color: 'white', fontFamily: 'sans-serif' }}>
-      
-      {/* 🔔 TOAST NOTIFICATION */}
-      {status.show && ( <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', background: status.type === 'error' ? theme.danger : status.type === 'accent' ? theme.accent : theme.wa, color: 'black', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', zIndex: 1000, boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>{status.text}</div> )}
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', maxWidth: '100%', background: theme.bg, color: 'white', fontFamily: 'sans-serif' }}>
 
-      {/* 🟢 SIDEBAR */}
-      <div style={{ width: '270px', padding: '25px', borderRight: `1px solid ${theme.border}`, display:'flex', flexDirection:'column' }}>
-        <h2 style={{ color: theme.wa, marginBottom: '20px', letterSpacing: '1px' }}>PRASAD <span style={{color:'white'}}>PRO</span></h2>
-        
+      {/* 🔔 TOAST NOTIFICATION */}
+      {status.show && ( <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', background: status.type === 'error' ? theme.danger : status.type === 'accent' ? theme.accent : theme.wa, color: 'black', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', zIndex: 1000, boxShadow: '0 5px 15px rgba(0,0,0,0.5)', maxWidth: '90vw' }}>{status.text}</div> )}
+
+      {/* 🟢 SIDEBAR — vertical on desktop, horizontal scroll bar on mobile */}
+      <div style={{ width: isMobile ? '100%' : '270px', padding: isMobile ? '12px' : '25px', borderRight: isMobile ? 'none' : `1px solid ${theme.border}`, borderBottom: isMobile ? `1px solid ${theme.border}` : 'none', display:'flex', flexDirection:'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <h2 style={{ color: theme.wa, marginBottom: isMobile ? '10px' : '20px', letterSpacing: '1px', fontSize: isMobile ? '18px' : '24px' }}>PRASAD <span style={{color:'white'}}>PRO</span></h2>
+          <div style={{ fontSize: isMobile ? '11px' : '13px', color: isWa ? theme.wa : theme.danger, fontWeight:'bold', whiteSpace:'nowrap' }}>● {isWa ? 'Online' : 'Offline'}</div>
+        </div>
+
+        {!isMobile && (
         <div style={{marginBottom:'20px', background:theme.inputBg, padding:'15px', borderRadius:'12px', border:`1px solid ${theme.accent}`}}>
             <label style={{fontSize:'12px', color:theme.sub}}>Current User</label>
             <input value={activeUser} onChange={e => setActiveUser(e.target.value)} style={{width:'100%', background:'transparent', border:'none', color:'white', outline:'none', fontWeight:'bold', marginTop:'5px', fontSize:'16px'}} />
         </div>
+        )}
 
-        <div style={{flex:1, overflowY:'auto'}}>
+        <div style={{ flex: isMobile ? '0 0 auto' : 1, overflowX: isMobile ? 'auto' : 'visible', overflowY: isMobile ? 'visible' : 'auto', display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: isMobile ? '6px' : '0', WebkitOverflowScrolling: 'touch' }} className="hide-scrollbar">
             {['MAMTA AI', 'DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
-              <div key={m} onClick={() => setTab(m)} style={{ padding: '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s' }}>
+              <div key={m} onClick={() => setTab(m)} style={{ padding: isMobile ? '8px 12px' : '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: isMobile ? '0' : '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s', whiteSpace: 'nowrap', fontSize: isMobile ? '13px' : '15px', flexShrink: 0 }}>
                 {m === 'MAMTA AI' ? '🤖 MAMTA AI' : m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
               </div>
             ))}
         </div>
-        <div style={{padding:'15px', background:theme.card, borderRadius:'12px', border:`1px solid ${isWa ? theme.wa : theme.danger}`, textAlign:'center', marginTop:'10px'}}>
-            <div style={{color: isWa ? theme.wa : theme.danger, fontSize:'13px', fontWeight:'bold'}}>● {isWa ? 'My WhatsApp Online' : 'Offline'}</div>
-        </div>
       </div>
 
       {/* ⚪ MAIN CONTENT */}
-      <div style={{ flex: 1, padding: '30px', overflowY: 'auto' }}>
-        <div style={{ background: theme.card, borderRadius: '25px', padding: '35px', minHeight: '85vh', border: `1px solid ${theme.border}` }}>
+      <div style={{ flex: 1, padding: isMobile ? '12px' : '30px', overflowY: 'auto', maxWidth: '100%' }}>
+        <div style={{ background: theme.card, borderRadius: isMobile ? '14px' : '25px', padding: isMobile ? '14px' : '35px', minHeight: '85vh', border: `1px solid ${theme.border}` }}>
           
           {/* ======================= TAB: MAMTA AI (local RAG chat) ======================= */}
           {tab === 'MAMTA AI' && <MamtaChat />}
@@ -253,8 +257,8 @@ const WhatsappDashboard = () => {
 
           {/* ======================= TAB 3: TRIP CHAT ======================= */}
           {tab === 'TRIP CHAT' && (
-            <div style={{display:'flex', height:'75vh', gap:'20px'}}>
-               <div style={{width:'350px', background:theme.bg, borderRadius:'20px', border:`1px solid ${theme.border}`, display:'flex', flexDirection:'column', overflow:'hidden'}}>
+            <div style={{display:'flex', flexDirection: isMobile ? 'column' : 'row', height: isMobile ? 'auto' : '75vh', minHeight: isMobile ? '78vh' : 'auto', gap:'20px'}}>
+               <div style={{width: isMobile ? '100%' : '350px', maxHeight: isMobile ? '38vh' : 'none', background:theme.bg, borderRadius:'20px', border:`1px solid ${theme.border}`, display:'flex', flexDirection:'column', overflow:'hidden', flexShrink: 0}}>
                   <div style={{padding:'20px', borderBottom:`1px solid ${theme.border}`, background:theme.inputBg}}>
                       <h3 style={{margin:0, color:theme.wa}}>🚚 Active ERP Trips</h3>
                       <p style={{fontSize:'12px', color:theme.sub, marginTop:'5px'}}>Auto-Synced from Trip Management</p>
