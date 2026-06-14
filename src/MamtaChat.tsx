@@ -62,9 +62,11 @@ export default function MamtaChat() {
 
       if (agentMode) {
         // 🧭 Multi-agent: route via tools, show the trace as it runs.
+        let rbacUser: any = undefined;
+        try { rbacUser = JSON.parse(localStorage.getItem('prasad_user') || 'null') || undefined; } catch { /* ignore */ }
         const { answer, pendingWrite } = await runAgent(query, (ev) => {
           if (ev.type === 'tool_call') patchLast(msg => ({ ...msg, trace: [...(msg.trace || []), `🔧 ${ev.agent || 'Agent'} → ${ev.tool}(${JSON.stringify(ev.args)})`] }));
-        });
+        }, rbacUser);
         if (pendingWrite) {
           // ✋ Write action — never auto-saved. Show preview + ask to confirm.
           patchLast(msg => ({ ...msg, streaming: false, content: `Main yeh record banana chahta hoon. Confirm karein to hi save hoga:`, pendingWrite }));

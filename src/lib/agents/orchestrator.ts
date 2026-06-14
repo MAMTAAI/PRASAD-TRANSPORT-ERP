@@ -4,6 +4,7 @@
 import { llmChat } from '../llm';
 import type { ChatMessage } from '../llm/types';
 import { enabledTools, type AgentTool } from './tools';
+import { shouldRefuseFinancial, describeScope, REFUSAL_HI, type AppUser } from '../rbac';
 
 export interface AgentEvent {
   type: 'tool_call' | 'tool_result' | 'final' | 'error' | 'pending_write';
@@ -24,15 +25,22 @@ const MAX_STEPS = 5;
 export async function runAgent(
   userMessage: string,
   onEvent?: (e: AgentEvent) => void,
+  user?: AppUser,
 ): Promise<{ answer: string; trace: AgentEvent[]; pendingWrite?: PendingWrite }> {
+  // 🔐 RBAC: a non-finance role asking for financials is politely declined.
+  if (user && shouldRefuseFinancial(user, userMessage)) {
+    onEvent?.({ type: 'final', text: REFUSAL_HI });
+    return { answer: REFUSAL_HI, trace: [{ type: 'final', text: REFUSAL_HI }] };
+  }
   const tools = enabledTools();
   const byName = new Map<string, AgentTool>(tools.map(t => [t.definition.function.name, t]));
   const toolDefs = tools.map(t => t.definition);
   const trace: AgentEvent[] = [];
   const emit = (e: AgentEvent) => { trace.push(e); onEvent?.(e); };
 
+  const scopeNote = user ? `\nThe current user's data access is: ${describeScope(user)}. Only discuss data within this scope; politely decline anything outside it in Hindi.` : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: SYSTEM },
+    { role: 'system', content: SYSTEM + scopeNote },
     { role: 'user', content: userMessage },
   ];
 
