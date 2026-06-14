@@ -2,6 +2,7 @@
 // 💬 MAMTA AI — local, RAG-grounded chat over ERP data (Phase 7).
 import React, { useEffect, useRef, useState } from 'react';
 import { ragAnswer, buildIndex, ragStatus } from './lib/rag';
+import { runAgent } from './lib/agents/orchestrator';
 import { llmHealth } from './lib/llm';
 
 const SUGGESTIONS = [
@@ -21,6 +22,7 @@ export default function MamtaChat() {
   const [indexing, setIndexing] = useState(false);
   const [progress, setProgress] = useState('');
   const [online, setOnline] = useState<boolean | null>(null);
+  const [agentMode, setAgentMode] = useState(true); // 🧭 multi-agent tool-calling
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,18 +52,23 @@ export default function MamtaChat() {
     const query = q.trim();
     if (!query || busy) return;
     setInput('');
-    setMessages(m => [...m, { role: 'user', content: query }, { role: 'assistant', content: '', streaming: true }]);
+    setMessages(m => [...m, { role: 'user', content: query }, { role: 'assistant', content: '', streaming: true, trace: [] }]);
     setBusy(true);
     try {
       // Immutable updates (StrictMode runs updaters twice — never mutate state).
-      const { sources } = await ragAnswer(query, (tok) => {
-        setMessages(m => m.map((msg, i) =>
-          i === m.length - 1 && msg.role === 'assistant' ? { ...msg, content: msg.content + tok } : msg
-        ));
-      });
-      setMessages(m => m.map((msg, i) =>
-        i === m.length - 1 && msg.role === 'assistant' ? { ...msg, streaming: false, sources } : msg
-      ));
+      const patchLast = (fn: (msg: any) => any) =>
+        setMessages(m => m.map((msg, i) => (i === m.length - 1 && msg.role === 'assistant' ? fn(msg) : msg)));
+
+      if (agentMode) {
+        // 🧭 Multi-agent: route via tools, show the trace as it runs.
+        const { answer } = await runAgent(query, (ev) => {
+          if (ev.type === 'tool_call') patchLast(msg => ({ ...msg, trace: [...(msg.trace || []), `🔧 ${ev.agent || 'Agent'} → ${ev.tool}(${JSON.stringify(ev.args)})`] }));
+        });
+        patchLast(msg => ({ ...msg, streaming: false, content: answer }));
+      } else {
+        const { sources } = await ragAnswer(query, (tok) => patchLast(msg => ({ ...msg, content: msg.content + tok })));
+        patchLast(msg => ({ ...msg, streaming: false, sources }));
+      }
     } catch (e: any) {
       const offline = e?.name === 'LLMOfflineError' || /ollama|reach|engine/i.test(e?.message || '');
       const errText = offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke dobara try karein.' : `❌ ${e?.message || 'Error'}`;
@@ -84,9 +91,15 @@ export default function MamtaChat() {
             {online === true && <span style={{ color: '#10b981', marginLeft: '10px' }}>● Engine online</span>}
           </div>
         </div>
-        <button onClick={handleBuildIndex} disabled={indexing} className={`pt-btn pt-btn--ai ${indexing ? 'is-loading' : ''}`}>
-          {indexing ? (progress || 'Building…') : (indexCount ? '🔄 Refresh Index' : '⚙️ Build Index')}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
+            <input type="checkbox" checked={agentMode} onChange={e => setAgentMode(e.target.checked)} />
+            🧭 Agent mode
+          </label>
+          <button onClick={handleBuildIndex} disabled={indexing} className={`pt-btn pt-btn--ai ${indexing ? 'is-loading' : ''}`}>
+            {indexing ? (progress || 'Building…') : (indexCount ? '🔄 Refresh Index' : '⚙️ Build Index')}
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -94,6 +107,11 @@ export default function MamtaChat() {
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: '12px' }}>
             <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '14px', background: m.role === 'user' ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(30,41,59,0.7)', color: '#f1f5f9', border: m.role === 'user' ? 'none' : '1px solid #334155', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+              {m.trace?.length > 0 && (
+                <div style={{ marginBottom: '8px', fontSize: '11px', color: '#c084fc', fontFamily: 'monospace' }}>
+                  {m.trace.map((t: string, k: number) => <div key={k}>{t}</div>)}
+                </div>
+              )}
               {m.content || (m.streaming ? '▌' : '')}
               {m.sources?.length > 0 && (
                 <details style={{ marginTop: '8px' }}>
