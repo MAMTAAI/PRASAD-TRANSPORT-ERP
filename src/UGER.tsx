@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { logAudit } from './lib/audit';
 import { db } from './firebase'; 
 
 export default function UGER() {
@@ -96,7 +97,8 @@ export default function UGER() {
       } else {
         await addDoc(collection(db, "USERS"), { ...finalData, createdAt: serverTimestamp() });
       }
-      setIsModalOpen(false); fetchUsers(); alert("✅ Data Saved Successfully!");
+      logAudit({ action: editingId ? 'USER_UPDATE' : 'USER_CREATE', target: formData.email, details: `${formData.full_name} → role ${formData.role}` });
+      setIsModalOpen(false); fetchUsers(); fetchLogs(); alert("✅ Data Saved Successfully!");
     } catch (e) { alert("❌ Error saving data!"); }
     setLoading(false);
   };

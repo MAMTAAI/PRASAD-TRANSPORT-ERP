@@ -4,6 +4,7 @@ import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, or
 import { db } from './firebase';
 import { getDrivingDistance } from './lib/maps';
 import { scopeCurrent } from './lib/rbac';
+import { logAudit } from './lib/audit';
 
 // 🔥 SUPER MATCH FUNCTION
 const checkMatch = (str1, str2) => {
@@ -72,6 +73,7 @@ export default function TripManagment() {
       for (const t of freightTargets) {
         await updateDoc(doc(db, 'TRIPS', t.id), { gross_freight: String(rate), freight_set_by: 'bulk_tool' });
       }
+      logAudit({ action: 'FREIGHT_BULK_SET', target: freightCust, details: `₹${rate} × ${freightTargets.length} trips` });
       alert(`✅ ${freightTargets.length} trips mein freight ₹${rate} set ho gaya. Ab Accounts → Live Journal sync par Revenue flow karega.`);
       setShowFreightTool(false); setFreightCust(''); setFreightRate(''); fetchData();
     } catch (e) { alert('❌ Error: ' + (e?.message || 'failed')); }

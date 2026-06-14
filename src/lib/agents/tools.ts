@@ -4,6 +4,7 @@ import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore
 import { db } from '../../firebase';
 import { retrieve } from '../rag';
 import { scopeFilter, type AppUser } from '../rbac';
+import { logAudit } from '../audit';
 import type { ToolDefinition } from '../llm/types';
 
 export interface ToolCtx { user?: AppUser; }
@@ -197,5 +198,7 @@ export function enabledTools(): AgentTool[] {
 export async function commitWrite(name: string, args: any): Promise<string> {
   const tool = WRITE_TOOLS.find(t => t.definition.function.name === name);
   if (!tool) throw new Error(`Unknown write tool: ${name}`);
-  return tool.run(args);
+  const result = await tool.run(args);
+  logAudit({ action: `AI_${name.toUpperCase()}`, details: `${result} | args: ${JSON.stringify(args).slice(0, 200)}` });
+  return result;
 }

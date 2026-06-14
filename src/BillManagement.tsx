@@ -4,6 +4,7 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverT
 import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
 import { postEntry } from './lib/accounting/journal';
+import { logAudit } from './lib/audit';
 
 export default function BillManagement() {
   const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS');
@@ -31,6 +32,7 @@ Empty string / 0 if absent.`;
       });
       // Journal: Dr Purchases/Expense, Cr Vendor (idempotent by bill_no).
       await postEntry({ source_type: 'PURCHASE_BILL', source_ref: String(billNo), date: ai.bill_date || '', narration: `Purchase bill ${billNo} — ${ai.vendor_name || ''}`, lines: [ { ledger: 'Purchases / Expense', dr_cr: 'Dr', amount }, { ledger: `Creditors: ${ai.vendor_name || 'Unknown Vendor'}`, dr_cr: 'Cr', amount } ] }).catch(() => {});
+      logAudit({ action: 'PURCHASE_BILL_SCAN', target: billNo, details: `${ai.vendor_name || ''} ₹${amount}` });
       alert(`✅ Bill scan ho gaya (local Gemma): ${ai.vendor_name || ''} ₹${amount} — record + journal updated.`);
     } catch (err: any) {
       const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
