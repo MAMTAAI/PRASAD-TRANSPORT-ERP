@@ -3,6 +3,35 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
+// 🛠️ Fleet fuel-economy config (km per litre) by vehicle capacity, used to
+// derive Fixed HSD = RTKM ÷ mileage when a route has no saved value.
+// Values match the existing master ratios (~3 km/L for tankers). Editable here.
+const MILEAGE_BY_CAP: { match: string; kmPerL: number }[] = [
+  { match: '12 KL', kmPerL: 3.5 },
+  { match: '20 KL', kmPerL: 3.2 },
+  { match: '24 KL', kmPerL: 3.0 },
+  { match: '29 KL', kmPerL: 2.8 },
+  { match: '34 KL', kmPerL: 2.6 },
+  { match: '40 KL', kmPerL: 2.4 },
+  { match: '18 MT', kmPerL: 3.0 },
+  { match: '21 MT', kmPerL: 2.8 },
+];
+const DEFAULT_KM_PER_L = 3.0;
+const DEFAULT_CASH_PER_KM = 2.5; // ₹ per km, fallback when no fixed cash
+
+const kmPerLFor = (cap: string): number => {
+  const hit = MILEAGE_BY_CAP.find(m => String(cap || '').includes(m.match));
+  return hit ? hit.kmPerL : DEFAULT_KM_PER_L;
+};
+const calcHsd = (rtkm: any, cap: string): number => {
+  const km = parseFloat(rtkm) || 0;
+  return km > 0 ? Math.round(km / kmPerLFor(cap)) : 0;
+};
+const calcCash = (rtkm: any): number => {
+  const km = parseFloat(rtkm) || 0;
+  return km > 0 ? Math.round(km * DEFAULT_CASH_PER_KM) : 0;
+};
+
 export default function LocationRtkmMaster() {
   const [routes, setRoutes] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]); 
@@ -109,6 +138,20 @@ export default function LocationRtkmMaster() {
     e.preventDefault();
     if (!formData.Customer || !formData.Depot_Link || !formData.Consignee_Name || !formData.RTKM_Distance || !formData.Item_Type || !formData.Vehicle_Capacity) {
       alert("⚠️ कृपया Customer, Depot, Consignee, Item Type, Vehicle Capacity और RTKM ज़रूर भरें!");
+      return;
+    }
+
+    // 🚫 Duplicate check (Customer + Depot + Consignee + Item Type must be unique).
+    const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const dup = routes.find(r =>
+      r.id !== editingId &&
+      norm(r.Customer || r.customer_name) === norm(formData.Customer) &&
+      norm(r.Depot_Link || r.depot_link) === norm(formData.Depot_Link) &&
+      norm(r.Consignee_Name || r.consignee_name) === norm(formData.Consignee_Name) &&
+      norm(r.Item_Type) === norm(formData.Item_Type)
+    );
+    if (dup) {
+      alert("⚠️ Yeh route pehle se master mein hai (same Customer + Depot + Consignee + Item Type). Duplicate save nahi hoga.");
       return;
     }
 
@@ -308,7 +351,16 @@ export default function LocationRtkmMaster() {
 
             <div>
               <label style={{...labelStyle, color: '#f59e0b'}}>RTKM Distance *</label>
-              <input type="number" placeholder="Distance" style={{...inputStyle, borderColor: '#f59e0b'}} value={formData.RTKM_Distance} onChange={e => setFormData({...formData, RTKM_Distance: e.target.value})} required />
+              <input type="number" placeholder="Distance" style={{...inputStyle, borderColor: '#f59e0b'}} value={formData.RTKM_Distance} onChange={e => {
+                const rtkm = e.target.value;
+                setFormData(prev => ({
+                  ...prev,
+                  RTKM_Distance: rtkm,
+                  // Auto-fill HSD/Cash only when the user hasn't typed their own.
+                  Fixed_HSD: (!prev.Fixed_HSD || parseFloat(prev.Fixed_HSD) === 0) ? String(calcHsd(rtkm, prev.Vehicle_Capacity) || '') : prev.Fixed_HSD,
+                  Fixed_Cash: (!prev.Fixed_Cash || parseFloat(prev.Fixed_Cash) === 0) ? String(calcCash(rtkm) || '') : prev.Fixed_Cash,
+                }));
+              }} required />
             </div>
 
             <div>
@@ -394,8 +446,16 @@ export default function LocationRtkmMaster() {
                     </td>
                     
                     <td style={{ padding: '15px 10px', fontWeight: 'bold', color: isActive ? '#fff' : '#64748b' }}>{r.RTKM_Distance || r.rtkm_distance}</td>
-                    <td style={{ padding: '15px 10px' }}>{r.Fixed_HSD ? `${r.Fixed_HSD} L` : '-'}</td>
-                    <td style={{ padding: '15px 10px' }}>{r.Fixed_Cash ? `₹${r.Fixed_Cash}` : '-'}</td>
+                    <td style={{ padding: '15px 10px' }}>
+                      {(r.Fixed_HSD && parseFloat(r.Fixed_HSD) > 0)
+                        ? `${r.Fixed_HSD} L`
+                        : <span style={{ color: '#64748b' }} title="Auto-estimated from RTKM ÷ mileage">~{calcHsd(r.RTKM_Distance || r.rtkm_distance, r.Vehicle_Capacity)} L</span>}
+                    </td>
+                    <td style={{ padding: '15px 10px' }}>
+                      {(r.Fixed_Cash && parseFloat(r.Fixed_Cash) > 0)
+                        ? `₹${r.Fixed_Cash}`
+                        : <span style={{ color: '#64748b' }} title="Auto-estimated from RTKM × cash/km">~₹{calcCash(r.RTKM_Distance || r.rtkm_distance)}</span>}
+                    </td>
                     
                     <td style={{ padding: '15px 10px', textAlign: 'center' }}>
                       <button 
