@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
 import { getDrivingDistance } from './lib/maps';
+import { scopeCurrent } from './lib/rbac';
 
 // 🔥 SUPER MATCH FUNCTION
 const checkMatch = (str1, str2) => {
@@ -117,7 +118,7 @@ export default function TripManagment() {
       const tripSnap = await getDocs(collection(db, "TRIPS"));
       const tripData = tripSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       tripData.sort((a, b) => (b.created_at?.toMillis() || 0) - (a.created_at?.toMillis() || 0));
-      setTrips(tripData);
+      setTrips(scopeCurrent(tripData)); // 🔐 RBAC: scoped roles see only their own trips
 
       const vehSnap = await getDocs(collection(db, "VEHICLES"));
       setVehicles(vehSnap.docs.map(d => ({ id: d.id, ...d.data() })));

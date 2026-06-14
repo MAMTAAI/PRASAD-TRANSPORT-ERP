@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
+import { scopeCurrent } from './lib/rbac';
 
 export default function Vehical() {
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -60,7 +61,7 @@ export default function Vehical() {
           ...vSnap2.docs.map(d => ({ id: d.id, _collection: 'ASSETS', ...d.data() }))
       ];
       
-      setVehicles(allVehicles);
+      setVehicles(scopeCurrent(allVehicles)); // 🔐 RBAC: scoped roles see only their own vehicles
     } catch (e) { console.error(e); }
     setLoading(false);
   };

@@ -87,3 +87,15 @@ export function shouldRefuseFinancial(user: AppUser, query: string): boolean {
 }
 
 export const REFUSAL_HI = 'Maaf kijiye, ye jaankari aapke access me nahi hai.';
+
+/** The logged-in user from localStorage (for UI-side scope filtering). */
+export function currentUser(): AppUser | null {
+  try { return JSON.parse((typeof localStorage !== 'undefined' && localStorage.getItem('prasad_user')) || 'null'); }
+  catch { return null; }
+}
+
+/** Convenience: filter a list to the current user's scope (UI tables). */
+export function scopeCurrent<T extends Record<string, any>>(records: T[]): T[] {
+  const u = currentUser();
+  return u ? scopeFilter(u, records) : records;
+}

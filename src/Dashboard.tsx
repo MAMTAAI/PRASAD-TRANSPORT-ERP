@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
+import { scopeCurrent } from './lib/rbac';
 
 interface DashboardProps {
   activeModule: string; 
@@ -102,13 +103,13 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
   const fetchMasterData = async () => {
     try {
       const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] }));
-      setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
+      setVehicles(scopeCurrent(vSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
 
       const dSnap = await getDocs(collection(db, "DRIVERS")).catch(() => ({ docs: [] }));
       setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
 
       const tSnap = await getDocs(collection(db, "TRIPS")).catch(() => ({ docs: [] }));
-      setTrips(tSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
+      setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []); // 🔐 RBAC scope
 
       const custSnap = await getDocs(collection(db, "CUSTOMERS")).catch(() => ({ docs: [] }));
       setCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
