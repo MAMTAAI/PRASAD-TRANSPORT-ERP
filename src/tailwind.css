@@ -1,0 +1,5 @@
+/* Local Tailwind entry — replaces the cdn.tailwindcss.com runtime script.
+   JIT scans content globs in tailwind.config.cjs and emits only used classes. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
