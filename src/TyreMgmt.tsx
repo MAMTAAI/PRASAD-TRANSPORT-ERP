@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractJsonFromImage } from './lib/aiScanner';
 
 // 🌟 CRASH-PROOF SAFE DATE PARSER FOR OLD DATA
 const getSafeTime = (dateVal: any) => {
@@ -217,15 +218,22 @@ export default function TyreMgmt() {
   const handleScanInvoice = async () => {
     if (!invoiceFile) return alert("⚠️ Please select an Invoice PDF or Image first!");
     setScanning(true); setUploadingDoc(true);
-    const data = new FormData(); data.append('file', invoiceFile); data.append('driverName', `Tyre_Inv_${new Date().getTime()}`); 
     try {
-      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', { method: 'POST', body: data });
-      const result = await response.json();
-      if (result.success) {
-          setPurchaseData({ ...purchaseData, invoice_file_url: result.driveLink, invoice_no: `INV-${Math.floor(Math.random() * 10000)}` });
-          alert("✅ Invoice Scanned & Uploaded to Secure Drive Successfully!");
-      } else { alert("❌ Upload Failed: " + result.message); }
-    } catch (error) { alert("❌ Server is unreachable. Please fill data manually."); }
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      const prompt = `Extract from this tyre purchase invoice and reply with ONLY JSON:
+{ "invoice_no": "", "vendor_name": "", "total_amount": 0, "gst_percent": 0 }
+Empty string / 0 if absent.`;
+      const ai = await extractJsonFromImage(invoiceFile, prompt);
+      setPurchaseData({
+        ...purchaseData,
+        invoice_no: ai.invoice_no || `INV-${Math.floor(Math.random() * 10000)}`,
+        vendor_name: ai.vendor_name || purchaseData.vendor_name,
+      });
+      alert("✅ Invoice ko Mamta AI (local Gemma 4) ne padh liya. Verify karein.");
+    } catch (error: any) {
+      const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai. Manually bharein.' : '❌ Invoice padhi nahi gayi. Manually bharein.');
+    }
     setScanning(false); setUploadingDoc(false);
   };
 

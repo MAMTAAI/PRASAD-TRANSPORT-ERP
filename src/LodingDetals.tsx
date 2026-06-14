@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, Timestamp, query, orderBy, limit, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractLoadingSlip } from './lib/aiScanner';
+import { speak } from './lib/voice/tts';
 
 export default function LodingDetals() {
   const [activeTab, setActiveTab] = useState('MANUAL'); 
@@ -138,20 +139,8 @@ export default function LodingDetals() {
     setLoading(false);
   };
 
-  const speakSmartHinglishReport = async (text: string) => {
-      try {
-          const response = await fetch("https://prasad-api.onrender.com/speak", {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text })
-          });
-          const data = await response.json();
-          if (data.success && data.audioContent) {
-              const audioSrc = `data:audio/mp3;base64,${data.audioContent}`;
-              const audio = new Audio(audioSrc);
-              audio.play(); 
-          }
-      } catch (error) { console.error("Voice Error:", error); }
+  const speakSmartHinglishReport = (text: string) => {
+      speak(text); // 🔊 100% LOCAL voice (browser on-device TTS) — no cloud.
   };
 
   const formatForDatePicker = (dateStr: string) => {

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
+import { speak } from './lib/voice/tts';
 
 // 📅 Document expiry status -> design-system pill (valid / expiring / expired).
 const parseExpiry = (s: string): number | null => {
@@ -229,21 +230,10 @@ export default function DriverMgmt() {
     }
   };
 
-  const speakSmartHinglishReport = async (docType: string) => {
-      const aiSpeech = `नमस्कार सुभाष सर। आपका ${docType === 'DL' ? 'ड्राइविंग लाइसेंस' : docType} सफलतापूर्वक स्कैन हो गया है। असली डेटा निकाल लिया गया है।`;
-      try {
-          const response = await fetch("https://prasad-api.onrender.com/speak", {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: aiSpeech })
-          });
-          const data = await response.json();
-          if (data.success && data.audioContent) {
-              const audioSrc = `data:audio/mp3;base64,${data.audioContent}`;
-              const audio = new Audio(audioSrc);
-              audio.play(); 
-          }
-      } catch (error) { console.error("Error playing voice:", error); }
+  const speakSmartHinglishReport = (docType: string) => {
+      // 🔊 100% LOCAL voice (browser on-device TTS) — no cloud.
+      const aiSpeech = `नमस्कार सर। आपका ${docType === 'DL' ? 'ड्राइविंग लाइसेंस' : docType} स्कैन हो गया है। डेटा निकाल लिया गया है।`;
+      speak(aiSpeech);
   };
 
   const triggerAIScan = (docType: string) => {

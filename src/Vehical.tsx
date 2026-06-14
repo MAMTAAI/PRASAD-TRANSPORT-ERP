@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractDocument } from './lib/aiScanner';
 
 export default function Vehical() {
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -97,33 +98,18 @@ export default function Vehical() {
     if (!rcFile) return alert("⚠️ Please select an RC photo first!");
     
     setUploadingRC(true);
-    const data = new FormData();
-    data.append('file', rcFile);
-    data.append('driverName', formData.vehicle_no || 'New_Vehicle_RC'); 
-
     try {
-      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
-        method: 'POST',
-        body: data,
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        alert("✅ RC Scanned & Saved to Secure Drive!\n🤖 Mamta AI is extracting details...");
-        
-        const aiData = result.aiData || {};
-        setFormData(prev => ({ 
-            ...prev, 
-            rc_photo_url: result.driveLink, 
-            vehicle_no: aiData.vehicleNumber || prev.vehicle_no,
-            reg_date: aiData.documentDate || prev.reg_date
-        }));
-      } else {
-        alert("❌ Drive Upload Error: " + result.message);
-      }
-    } catch (error) {
-      console.error(error);
-      alert("❌ Live Server is unreachable right now!");
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      const ex = await extractDocument(rcFile, 'Vehicle Registration Certificate (RC)');
+      setFormData(prev => ({
+        ...prev,
+        vehicle_no: (ex.document_number || '').toUpperCase().replace(/\s+/g, '') || prev.vehicle_no,
+        reg_date: ex.issue_date || prev.reg_date,
+      }));
+      alert("✅ RC ko Mamta AI (local Gemma 4) ne padh liya. Vehicle No & Reg date auto-fill — verify karein.");
+    } catch (error: any) {
+      const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke try karein.' : '❌ RC padhi nahi gayi. Saaf photo se try karein.');
     }
     setUploadingRC(false);
   };
