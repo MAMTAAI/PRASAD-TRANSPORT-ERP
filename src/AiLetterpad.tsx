@@ -4,6 +4,7 @@ import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css'; 
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { llmComplete } from './lib/llm';
 
 export default function AiLetterPad() {
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -71,7 +72,7 @@ export default function AiLetterPad() {
   };
 
   // 🤖 GENERATE VIA MAMTA AI
-  const handleMamtaAiDraft = () => {
+  const handleMamtaAiDraft = async () => {
     if (!authority || !actionType) {
       return alert("⚠️ Please type 'Authority/Company' and 'Action/Subject' for AI to draft!");
     }
@@ -80,21 +81,18 @@ export default function AiLetterPad() {
     setEditorContent('');
     setEditingDocId(null); // Reset ID
 
-    setTimeout(() => {
-      const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-      let bodyText = "";
+    const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 
-      const lowerAction = actionType.toLowerCase();
-      
-      if (lowerAction.includes('driver') || lowerAction.includes('auth')) {
-        bodyText = `This is to certify and authorize our driver, <strong>Mr. ${selectedDriver || '[Driver Name]'}</strong>, to enter your esteemed premises for the loading/unloading operations.<br/><br/>He will be operating our tank truck bearing Registration Number: <strong>${selectedVehicle || '[Vehicle No]'}</strong>. All original documents of the vehicle and the driver have been verified by us and copies are attached herewith for your kind perusal.`;
-      } 
-      else if (lowerAction.includes('replace') || lowerAction.includes('change')) {
-        bodyText = `We kindly request you to allow the replacement of our vehicle for the upcoming operations. The new vehicle details are <strong>${selectedVehicle || '[Vehicle No]'}</strong> driven by <strong>${selectedDriver || '[Driver Name]'}</strong>.<br/><br/>All required valid documents (RC, Fitness, Insurance, Pollution, etc.) are attached herewith for your verification and record.`;
-      } 
-      else {
-        bodyText = `With reference to the subject cited above, we would like to bring to your kind attention regarding <strong>${actionType}</strong> for our vehicle <strong>${selectedVehicle || '[Vehicle No]'}</strong>.<br/><br/>We request you to kindly process this at your earliest convenience and provide the necessary approvals.`;
-      }
+    // 🤖 100% LOCAL: draft the body with Gemma 4 (template fallback if offline).
+    let bodyText = `With reference to the subject cited above, we wish to bring to your kind attention the matter of <strong>${actionType}</strong>${selectedVehicle ? ` for our vehicle <strong>${selectedVehicle}</strong>` : ''}. We request you to kindly process this at the earliest.`;
+    try {
+      const ctx = `Company: ${letterhead}. Addressed to: ${authority}. Subject/Action: ${actionType}.${selectedVehicle ? ` Vehicle: ${selectedVehicle}.` : ''}${selectedDriver ? ` Driver: ${selectedDriver}.` : ''}`;
+      const ai = await llmComplete([
+        { role: 'system', content: 'You draft formal Indian business letters for a petroleum-transport company. Output ONLY the letter BODY (2 short professional paragraphs, no salutation, no date, no signature). Polite, formal English.' },
+        { role: 'user', content: `Write the body for this letter. ${ctx}` },
+      ], { temperature: 0.4 });
+      if (ai && ai.trim()) bodyText = ai.trim().replace(/\n{2,}/g, '<br/><br/>').replace(/\n/g, ' ');
+    } catch (e) { /* keep template fallback if Ollama offline */ }
 
       const draftHTML = `
         <div style="font-family: 'Times New Roman', Times, serif; line-height: 1.6; color: #000; max-width: 800px; margin: 0 auto;">
@@ -114,7 +112,6 @@ export default function AiLetterPad() {
       setEditorContent(draftHTML);
       setDocTitle(`${authority} - ${actionType}`);
       setIsAiThinking(false);
-    }, 1500);
   };
 
   // 💾 SAVE OR UPDATE TO DOCUMENT LIBRARY
