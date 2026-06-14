@@ -1,10 +1,44 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, where, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractJsonFromImage } from './lib/aiScanner';
+import { postEntry } from './lib/accounting/journal';
 
 export default function BillManagement() {
-  const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS'); 
+  const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS');
+  // 📄 Scan a purchase/vendor/pump bill locally (Gemma vision) → record + journal.
+  const [scanningBill, setScanningBill] = useState(false);
+  const [scannedBill, setScannedBill] = useState<any>(null);
+
+  const handleScanPurchaseBill = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setScanningBill(true); setScannedBill(null);
+    try {
+      const prompt = `Extract from this purchase/vendor/pump bill and reply ONLY JSON:
+{ "vendor_name": "", "bill_no": "", "bill_date": "DD-MM-YYYY", "total_amount": 0, "gst_amount": 0, "description": "" }
+Empty string / 0 if absent.`;
+      const ai = await extractJsonFromImage(file, prompt);
+      const amount = Number(String(ai.total_amount).replace(/[^0-9.]/g, '')) || 0;
+      const billNo = ai.bill_no || `PB-${Date.now().toString().slice(-6)}`;
+      if (amount <= 0) { alert('⚠️ Bill amount nahi mila — saaf photo/PDF se try karein.'); setScanningBill(false); return; }
+      setScannedBill({ ...ai, bill_no: billNo, total_amount: amount });
+      // ADD-ONLY purchase bill record (idempotent doc id by bill_no — no duplicate).
+      await setDoc(doc(db, 'PURCHASE_BILLS', String(billNo).replace(/[^A-Za-z0-9_-]/g, '_')), {
+        vendor_name: ai.vendor_name || '', bill_no: billNo, bill_date: ai.bill_date || '',
+        total_amount: amount, gst_amount: Number(ai.gst_amount) || 0, description: ai.description || '',
+        source: 'ai_scan', updated_at: serverTimestamp(),
+      });
+      // Journal: Dr Purchases/Expense, Cr Vendor (idempotent by bill_no).
+      await postEntry({ source_type: 'PURCHASE_BILL', source_ref: String(billNo), date: ai.bill_date || '', narration: `Purchase bill ${billNo} — ${ai.vendor_name || ''}`, lines: [ { ledger: 'Purchases / Expense', dr_cr: 'Dr', amount }, { ledger: `Creditors: ${ai.vendor_name || 'Unknown Vendor'}`, dr_cr: 'Cr', amount } ] }).catch(() => {});
+      alert(`✅ Bill scan ho gaya (local Gemma): ${ai.vendor_name || ''} ₹${amount} — record + journal updated.`);
+    } catch (err: any) {
+      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai.' : '❌ Bill padhi nahi gayi.');
+    }
+    setScanningBill(false);
+  };
+
   const [unbilledTrips, setUnbilledTrips] = useState<any[]>([]);
   const [generatedBills, setGeneratedBills] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -490,6 +524,19 @@ export default function BillManagement() {
           <h1 style={{ margin: 0, color: '#f8fafc', fontSize: '32px', fontWeight: '900', letterSpacing: '-0.5px' }}>Company Billing & Reconciliation</h1>
           <p style={{ color: '#94a3b8', margin: '5px 0' }}>Auto-generate bills, Verify, Edit, Delete & Cross-Check Payments</p>
         </div>
+      </div>
+
+      {/* 📄 SCAN PURCHASE BILL (local Gemma 4 vision → record + journal) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', background: 'rgba(192,132,252,0.06)', padding: '15px', border: '1px dashed #c084fc', borderRadius: '10px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '220px' }}>
+          <div style={{ color: '#c084fc', fontWeight: 'bold', fontSize: '14px' }}>📄 Scan Purchase Bill <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px' }}>100% LOCAL</span></div>
+          <div style={{ color: '#94a3b8', fontSize: '12px' }}>Vendor/pump bill (PDF/photo) upload → Gemma 4 padhega → record + journal auto-update.</div>
+          {scannedBill && <div style={{ marginTop: '6px', fontSize: '12px', color: '#10b981' }}>✅ {scannedBill.vendor_name} · Bill {scannedBill.bill_no} · ₹{Number(scannedBill.total_amount).toLocaleString('en-IN')}</div>}
+        </div>
+        <label className="pt-btn pt-btn--ai" style={{ cursor: scanningBill ? 'not-allowed' : 'pointer' }}>
+          {scanningBill ? '⏳ Scanning…' : '📎 Upload & Scan'}
+          <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanPurchaseBill} disabled={scanningBill} />
+        </label>
       </div>
 
       {/* 📅 GLOBAL FILTERS */}
