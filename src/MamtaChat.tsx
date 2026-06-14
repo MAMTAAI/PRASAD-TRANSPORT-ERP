@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ragAnswer, buildIndex, ragStatus } from './lib/rag';
 import { runAgent } from './lib/agents/orchestrator';
+import { commitWrite } from './lib/agents/tools';
 import { llmHealth } from './lib/llm';
 
 const SUGGESTIONS = [
@@ -61,10 +62,15 @@ export default function MamtaChat() {
 
       if (agentMode) {
         // 🧭 Multi-agent: route via tools, show the trace as it runs.
-        const { answer } = await runAgent(query, (ev) => {
+        const { answer, pendingWrite } = await runAgent(query, (ev) => {
           if (ev.type === 'tool_call') patchLast(msg => ({ ...msg, trace: [...(msg.trace || []), `🔧 ${ev.agent || 'Agent'} → ${ev.tool}(${JSON.stringify(ev.args)})`] }));
         });
-        patchLast(msg => ({ ...msg, streaming: false, content: answer }));
+        if (pendingWrite) {
+          // ✋ Write action — never auto-saved. Show preview + ask to confirm.
+          patchLast(msg => ({ ...msg, streaming: false, content: `Main yeh record banana chahta hoon. Confirm karein to hi save hoga:`, pendingWrite }));
+        } else {
+          patchLast(msg => ({ ...msg, streaming: false, content: answer }));
+        }
       } else {
         const { sources } = await ragAnswer(query, (tok) => patchLast(msg => ({ ...msg, content: msg.content + tok })));
         patchLast(msg => ({ ...msg, streaming: false, sources }));
@@ -77,6 +83,21 @@ export default function MamtaChat() {
       ));
     }
     setBusy(false);
+  };
+
+  const confirmWrite = async (idx: number) => {
+    const pw = messages[idx]?.pendingWrite;
+    if (!pw) return;
+    setMessages(m => m.map((msg, i) => i === idx ? { ...msg, pendingWrite: null, content: msg.content + '\n⏳ Saving…' } : msg));
+    try {
+      const result = await commitWrite(pw.tool, pw.args);
+      setMessages(m => m.map((msg, i) => i === idx ? { ...msg, content: `✅ Save ho gaya. ${result}` } : msg));
+    } catch (e: any) {
+      setMessages(m => m.map((msg, i) => i === idx ? { ...msg, content: `❌ Save nahi hua: ${e?.message || 'error'}` } : msg));
+    }
+  };
+  const cancelWrite = (idx: number) => {
+    setMessages(m => m.map((msg, i) => i === idx ? { ...msg, pendingWrite: null, content: '🚫 Cancel kiya — kuch save nahi hua.' } : msg));
   };
 
   return (
@@ -113,6 +134,18 @@ export default function MamtaChat() {
                 </div>
               )}
               {m.content || (m.streaming ? '▌' : '')}
+              {m.pendingWrite && (
+                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', borderRadius: '10px', padding: '12px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>✍️ {m.pendingWrite.agent} → {m.pendingWrite.tool}</div>
+                  {Object.entries(m.pendingWrite.args).map(([k, v]) => (
+                    <div key={k} style={{ fontSize: '12px', color: '#cbd5e1' }}><span style={{ color: '#94a3b8' }}>{k}:</span> <b>{String(v)}</b></div>
+                  ))}
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                    <button onClick={() => confirmWrite(i)} className="pt-btn pt-btn--success" style={{ fontSize: '12px', padding: '6px 14px' }}>✅ Confirm & Save</button>
+                    <button onClick={() => cancelWrite(i)} className="pt-btn pt-btn--ghost" style={{ fontSize: '12px', padding: '6px 14px' }}>🚫 Cancel</button>
+                  </div>
+                </div>
+              )}
               {m.sources?.length > 0 && (
                 <details style={{ marginTop: '8px' }}>
                   <summary style={{ fontSize: '11px', color: '#94a3b8', cursor: 'pointer' }}>📎 {m.sources.length} source records</summary>

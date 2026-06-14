@@ -6,12 +6,14 @@ import type { ChatMessage } from '../llm/types';
 import { enabledTools, type AgentTool } from './tools';
 
 export interface AgentEvent {
-  type: 'tool_call' | 'tool_result' | 'final' | 'error';
+  type: 'tool_call' | 'tool_result' | 'final' | 'error' | 'pending_write';
   agent?: string;
   tool?: string;
   args?: any;
   text?: string;
 }
+
+export interface PendingWrite { tool: string; agent?: string; args: any; }
 
 const SYSTEM = `You are MAMTA AI, the orchestrator for PRASAD Transport ERP (petroleum logistics).
 You have tools to read ERP data. Decide which tool(s) to call to answer the user, then give a concise final answer in the user's language (Hindi/Hinglish/English).
@@ -22,7 +24,7 @@ const MAX_STEPS = 5;
 export async function runAgent(
   userMessage: string,
   onEvent?: (e: AgentEvent) => void,
-): Promise<{ answer: string; trace: AgentEvent[] }> {
+): Promise<{ answer: string; trace: AgentEvent[]; pendingWrite?: PendingWrite }> {
   const tools = enabledTools();
   const byName = new Map<string, AgentTool>(tools.map(t => [t.definition.function.name, t]));
   const toolDefs = tools.map(t => t.definition);
@@ -42,7 +44,16 @@ export async function runAgent(
       return { answer: res.content || '(no answer)', trace };
     }
 
-    // Record the assistant's tool-call turn, then execute each call.
+    // A write tool? Do NOT execute — surface it for user confirmation (Section 0).
+    const writeCall = res.tool_calls.find(c => byName.get(c.function?.name)?.write);
+    if (writeCall) {
+      const tool = byName.get(writeCall.function.name);
+      const pending = { tool: writeCall.function.name, agent: tool?.agent, args: writeCall.function.arguments || {} };
+      emit({ type: 'pending_write', agent: tool?.agent, tool: pending.tool, args: pending.args });
+      return { answer: '', trace, pendingWrite: pending };
+    }
+
+    // Record the assistant's tool-call turn, then execute each (read-only) call.
     messages.push({ role: 'assistant', content: res.content || '', tool_calls: res.tool_calls } as any);
     for (const call of res.tool_calls) {
       const name = call.function?.name;

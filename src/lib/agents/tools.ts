@@ -1,6 +1,6 @@
 // 🛠️ Agent tools. Phase 8 starts READ-ONLY (no Firestore writes).
 // Each tool declares its JSON-schema definition + an executor + owning agent.
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { retrieve } from '../rag';
 import type { ToolDefinition } from '../llm/types';
@@ -106,7 +106,86 @@ export const TOOLS: AgentTool[] = [
   },
 ];
 
+// ── Write tools (gated: orchestrator never auto-runs these; they require
+//    explicit user confirmation, then commitWrite() performs the insert).
+//    ADD-ONLY: we only addDoc new records — never update/delete (Section 0).
+export const WRITE_TOOLS: AgentTool[] = [
+  {
+    agent: 'Operations',
+    write: true,
+    definition: {
+      type: 'function',
+      function: {
+        name: 'create_trip',
+        description: 'Create a NEW trip record. Requires user confirmation before saving. Provide as many fields as known.',
+        parameters: {
+          type: 'object',
+          properties: {
+            vehicle_no: { type: 'string' },
+            driver_name: { type: 'string' },
+            loading_point: { type: 'string' },
+            consignee_name: { type: 'string' },
+            customer_name: { type: 'string' },
+            product_type: { type: 'string' },
+            loaded_qty: { type: 'string' },
+            rtkm: { type: 'string' },
+          },
+          required: ['vehicle_no', 'consignee_name'],
+        },
+      },
+    },
+    run: async (args) => {
+      const ref = await addDoc(collection(db, 'TRIPS'), {
+        trip_id: 'TRP-' + Math.floor(Math.random() * 90000 + 10000),
+        vehicle_no: args.vehicle_no || '', driver_name: args.driver_name || '',
+        loading_point: args.loading_point || '', consignee_name: args.consignee_name || '',
+        customer_name: args.customer_name || '', product_type: args.product_type || '',
+        loaded_qty: args.loaded_qty || '', rtkm: args.rtkm || '',
+        trip_status: 'PENDING', billing_status: 'PENDING',
+        created_at: serverTimestamp(), created_by: 'MAMTA AI Agent',
+      });
+      return `Trip created with id ${ref.id}`;
+    },
+  },
+  {
+    agent: 'Accounts',
+    write: true,
+    definition: {
+      type: 'function',
+      function: {
+        name: 'add_ledger_entry',
+        description: 'Add a NEW ledger entry (party transaction). Requires user confirmation before saving.',
+        parameters: {
+          type: 'object',
+          properties: {
+            party_name: { type: 'string' },
+            amount: { type: 'number' },
+            type: { type: 'string', description: 'DEBIT or CREDIT' },
+            remarks: { type: 'string' },
+          },
+          required: ['party_name', 'amount'],
+        },
+      },
+    },
+    run: async (args) => {
+      const ref = await addDoc(collection(db, 'LEDGER_ENTRIES'), {
+        party_name: args.party_name || '', amount: Number(args.amount) || 0,
+        type: (args.type || 'DEBIT').toUpperCase(), remarks: args.remarks || '',
+        created_at: serverTimestamp(), created_by: 'MAMTA AI Agent',
+      });
+      return `Ledger entry added with id ${ref.id}`;
+    },
+  },
+];
+
 /** Tools currently enabled (modular — extend per agent rollout). */
 export function enabledTools(): AgentTool[] {
-  return TOOLS;
+  return [...TOOLS, ...WRITE_TOOLS];
+}
+
+/** Execute a write tool AFTER user confirmation. */
+export async function commitWrite(name: string, args: any): Promise<string> {
+  const tool = WRITE_TOOLS.find(t => t.definition.function.name === name);
+  if (!tool) throw new Error(`Unknown write tool: ${name}`);
+  return tool.run(args);
 }
