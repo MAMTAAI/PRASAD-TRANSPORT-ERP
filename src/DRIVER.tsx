@@ -474,7 +474,7 @@ export default function DriverMgmt() {
                   <th>Driver Identity</th>
                   <th>Licenses & HZD</th>
                   <th>KYC Documents</th>
-                  <th>Extra / Additional Docs</th> {/* 🌟 NEW COLUMN */}
+                  <th>Extra / Additional Docs</th>{/* NEW COLUMN */}
                   <th>Approval & Actions</th>
                 </tr>
               </thead>
