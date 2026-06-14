@@ -8,10 +8,10 @@
 
 import { LLM_CONFIG } from './config';
 import { OllamaProvider } from './providers/ollama';
-import {
-  ChatMessage, ChatOptions, ChatResult, LLMHealth, LLMProvider,
-  StreamChunk, LLMOfflineError, LLMError,
+import type {
+  ChatMessage, ChatOptions, ChatResult, LLMHealth, LLMProvider, StreamChunk,
 } from './types';
+import { LLMOfflineError, LLMError } from './types';
 
 export * from './types';
 export { LLM_CONFIG } from './config';

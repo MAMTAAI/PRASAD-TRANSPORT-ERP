@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, Timestamp, query, orderBy, limit, where } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractLoadingSlip } from './lib/aiScanner';
 
 export default function LodingDetals() {
   const [activeTab, setActiveTab] = useState('MANUAL'); 
@@ -21,6 +22,7 @@ export default function LodingDetals() {
   const [selectedTripId, setSelectedTripId] = useState('');
   const [isNewEntry, setIsNewEntry] = useState(true); 
   const [isScanningFile, setIsScanningFile] = useState(false);
+  const [scanLowConf, setScanLowConf] = useState<string[]>([]); // fields AI was unsure about
 
   const [showInboxModal, setShowInboxModal] = useState(false);
   const [isDragging, setIsDragging] = useState(false); 
@@ -209,130 +211,56 @@ export default function LodingDetals() {
 
   const processFile = async (file: File) => {
     setIsScanningFile(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('driverName', 'Direct_Loading_Slip'); 
-    formData.append('docType', 'INVOICE'); 
-
+    setScanLowConf([]);
     try {
-      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
-        method: 'POST',
-        body: formData
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      const ex = await extractLoadingSlip(file);
+
+      // Normalize product to the form's expected values.
+      const p = (ex.product_type || '').toUpperCase();
+      let product = 'HSD';
+      if (p.includes('ATF') || p.includes('JET')) product = 'ATF';
+      else if (p.includes('LPG')) product = 'LPG Bulk';
+      else if (p === 'MS' || p.includes('PETROL')) product = 'MS';
+      else if (p.includes('HSD') || p.includes('DIESEL')) product = 'HSD';
+
+      const extractedVehicle = String(ex.vehicle_no || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      const { dName, dMobile, opCompany } = getVehicleDetails(extractedVehicle || manualData.Vehical_No);
+
+      setIsNewEntry(true);
+      setSelectedTripId('NEW');
+
+      setManualData(prev => {
+        const isPartLoad = prev.Challan_No.trim().length > 0;
+        return {
+          ...prev,
+          Operating_Company: opCompany || prev.Operating_Company,
+          Loading_Date: formatForDatePicker(ex.document_date) || prev.Loading_Date,
+          Challan_No: isPartLoad && ex.challan_no ? `${prev.Challan_No}, ${ex.challan_no}` : (ex.challan_no || prev.Challan_No),
+          Vehical_No: extractedVehicle || prev.Vehical_No,
+          Customer: ex.customer || prev.Customer,
+          Loading_Point: ex.loading_point || prev.Loading_Point,
+          Consignee_Name: ex.consignee_name || prev.Consignee_Name,
+          Loaded_Qty: isPartLoad ? String(Number(prev.Loaded_Qty || 0) + Number(ex.loaded_qty || 0)) : String(ex.loaded_qty || ''),
+          Product_Type: isPartLoad ? `${prev.Product_Type} + ${product} (Part Load)` : product,
+          Driver_Name: ex.driver_name || dName || prev.Driver_Name,
+          Driver_Mobil_No: dMobile || prev.Driver_Mobil_No,
+        };
       });
-      const result = await response.json();
 
-      if (result.success) {
-        const ai = result.aiData || {};
-        const fullText = (JSON.stringify(result) + " " + (result.rawText || "")).toUpperCase(); 
-        
-        let product = "HSD";
-        if(fullText.includes("ATF") || fullText.includes("JETA1") || fullText.includes("JET A")) product = "ATF";
-        else if(fullText.includes("MS") || fullText.includes("PETROL")) product = "MS";
-        else if(fullText.includes("CYLINDER") && fullText.includes("LPG")) product = "LPG Cylinder";
-        else if(fullText.includes("LPG") || fullText.includes("LIQUEFIED") || fullText.includes("BULK LPG")) product = "LPG Bulk";
+      setScanLowConf(ex._lowConfidence || []);
+      setActiveTab('MANUAL');
+      setShowInboxModal(false);
 
-        const normalizedText = fullText.replace(/[Il|]/g, '1').replace(/[oO]/g, '0');
-        const pureNumbers = normalizedText.replace(/[^0-9]/g, '');
-        
-        let extractedChallan = '';
-        const aiChallan = String(ai.sapNo || ai.documentNumber || ai.invoiceNumber || '').replace(/[^0-9]/g, '');
-        
-        const match19 = normalizedText.match(/\b19\d{7,8}\b/); 
-        const match70 = normalizedText.match(/\b70\d{7,8}\b/); 
-        
-        if (aiChallan.startsWith('19') && aiChallan.length >= 9 && aiChallan.length <= 10) extractedChallan = aiChallan;
-        else if (aiChallan.startsWith('70') && aiChallan.length >= 9 && aiChallan.length <= 10) extractedChallan = aiChallan;
-        else if (match19) extractedChallan = match19[0];
-        else if (match70) extractedChallan = match70[0];
-        else {
-            const fallback19 = pureNumbers.match(/19\d{7,8}/);
-            const fallback70 = pureNumbers.match(/70\d{7,8}/);
-            if (fallback19) extractedChallan = fallback19[0];
-            else if (fallback70) extractedChallan = fallback70[0];
-            else if (aiChallan && !aiChallan.startsWith('48') && !aiChallan.startsWith('10')) extractedChallan = aiChallan.substring(0, 10);
-        }
-
-        let extractedVehicle = String(ai.truckNumber || ai.vehicleNumber || '').replace(/[^A-Z0-9]/g, '');
-        if (!extractedVehicle.match(/^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$/)) {
-            const vMatch = fullText.replace(/[\s-]/g, '').match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}/);
-            if (vMatch) extractedVehicle = vMatch[0];
-        }
-
-        let extractedConsignee = '';
-        if (fullText.match(/SHIV\s*SHANKAR/i)) extractedConsignee = 'COCO SHIV SHANKAR KSK';
-        else if (fullText.match(/AGARTALA/i)) extractedConsignee = 'AGARTALA AFS';
-        else if (fullText.match(/GOSSAIPUR BOTTLING/i) || fullText.match(/SILCHAR BP/i)) extractedConsignee = 'Silchar Bottling Plant';
-        
-        if (!extractedConsignee && (ai.consigneeName || ai.consignee)) {
-            const aiConsignee = String(ai.consigneeName || ai.consignee).toUpperCase();
-            if (!aiConsignee.replace(/[^A-Z]/g, '').includes('INDIANOIL') && !aiConsignee.includes('IOCL')) {
-                extractedConsignee = aiConsignee;
-            }
-        }
-
-        let extractedLoadingPoint = '';
-        if (fullText.match(/SILCHAR|CACHAR|GOSSAIPUR|SIL C HAR/i)) extractedLoadingPoint = 'Silchar Depot';
-        else if (fullText.match(/HALDIA/i)) extractedLoadingPoint = 'Haldia Refinery';
-        else if (fullText.match(/GUWAHATI|BETKUCHI/i)) extractedLoadingPoint = 'Guwahati Refinery';
-        else if (fullText.match(/NUMALIGARH|NRL/i)) extractedLoadingPoint = 'Numaligarh Refinery';
-        else if (fullText.match(/BONGAIGAON|BGR/i)) extractedLoadingPoint = 'Bongaigaon Refinery';
-
-        if (!extractedLoadingPoint && extractedConsignee.toUpperCase().includes('AGARTALA')) extractedLoadingPoint = 'Silchar Depot'; 
-        if (!extractedLoadingPoint && extractedConsignee.toUpperCase().includes('SHIV SHANKAR')) extractedLoadingPoint = 'Bongaigaon Refinery'; 
-        if (!extractedLoadingPoint && ai.loadingOrigin) extractedLoadingPoint = ai.loadingOrigin;
-
-        let finalQty = '';
-        if (fullText.includes('40.000') || fullText.includes('40,000') || fullText.includes('QTY40') || fullText.includes('40000')) finalQty = '40000';
-        else if (fullText.includes('32.000') || fullText.includes('32,000')) finalQty = '32000';
-        else if (fullText.includes('24.000') || fullText.includes('24,000')) finalQty = '24000';
-        else if (fullText.includes('20.000') || fullText.includes('20,000')) finalQty = '20000';
-        else if (fullText.includes('14.000') || fullText.includes('14,000')) finalQty = '14000';
-        else if (fullText.includes('12.000') || fullText.includes('12,000')) finalQty = '12000';
-        else if (fullText.includes('21.000') || fullText.includes('21000') || fullText.includes('21 MT')) finalQty = '21000'; 
-        else if (fullText.includes('18.000') || fullText.includes('18000') || fullText.includes('18 MT')) finalQty = '18000';
-        
-        if (!finalQty) {
-            const aiQtyNum = Number(String(ai.quantity || ai.Loaded_Qty || '').replace(/[^0-9.]/g, ''));
-            if (aiQtyNum >= 10 && aiQtyNum <= 50) finalQty = String(Math.floor(aiQtyNum) * 1000);
-            else if (aiQtyNum >= 10000 && aiQtyNum <= 50000) finalQty = String(Math.floor(aiQtyNum));
-        }
-
-        if (finalQty.startsWith('1166') || String(ai.quantity).includes('1166')) finalQty = ''; 
-        if (!finalQty && product === 'ATF') finalQty = '40000';
-
-        setIsNewEntry(true);
-        setSelectedTripId('NEW');
-
-        const { dName, dMobile, opCompany } = getVehicleDetails(extractedVehicle || manualData.Vehical_No);
-
-        setManualData(prev => {
-          const isPartLoad = prev.Challan_No.trim().length > 0; 
-          return {
-            ...prev,
-            Operating_Company: opCompany, 
-            Loading_Date: formatForDatePicker(ai.documentDate) || prev.Loading_Date,
-            Challan_No: isPartLoad && extractedChallan ? `${prev.Challan_No}, ${extractedChallan}` : extractedChallan || prev.Challan_No,
-            Vehical_No: extractedVehicle || prev.Vehical_No,
-            Customer: 'Indian Oil Corporation Ltd', 
-            Loading_Point: extractedLoadingPoint, 
-            Consignee_Name: extractedConsignee || prev.Consignee_Name, 
-            Loaded_Qty: isPartLoad ? String(Number(prev.Loaded_Qty || 0) + Number(finalQty || 0)) : String(finalQty),
-            Product_Type: isPartLoad ? 'MS + HSD (Part Load)' : product,
-            Driver_Name: dName || prev.Driver_Name,
-            Driver_Mobil_No: dMobile || prev.Driver_Mobil_No,
-            Invoice_URL: result.driveLink || prev.Invoice_URL 
-          };
-        });
-
-        setActiveTab('MANUAL');
-        setShowInboxModal(false);
-
-        alert("✅ Document Scanned! Vehicle & Operating Company Auto-Detected.");
-        speakSmartHinglishReport(`नमस्कार सुभाष सर। लोडिंग स्लिप स्कैन हो गई है। कृपया चेक करके सेव करें।`);
-      } else {
-        alert("❌ AI could not read the document properly.");
-      }
-    } catch (error) { alert("❌ Live Server is unreachable."); }
+      const note = ex._lowConfidence.length ? ' Kuch fields highlighted hain — unhe check karein.' : '';
+      alert(`✅ Mamta AI (local Gemma 4) ne slip scan kar li. Kripya verify karke Save karein.${note}`);
+      try { speakSmartHinglishReport(`नमस्कार सर। लोडिंग स्लिप लोकल ए आई से स्कैन हो गई है। कृपया चेक करके सेव करें।`); } catch (e) { /* voice optional */ }
+    } catch (error: any) {
+      const msg = String(error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '')
+        ? '❌ Local AI engine (Ollama) band hai. Use chalu karke dobara try karein.'
+        : '❌ Document padha nahi gaya. Saaf photo/PDF se dobara try karein.');
+      alert(msg);
+    }
     setIsScanningFile(false);
   };
 
@@ -837,8 +765,8 @@ export default function LodingDetals() {
           {selectedTripId === 'NEW' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', background: 'rgba(56, 189, 248, 0.05)', padding: '15px', border: '1px dashed #38bdf8', borderRadius: '10px' }}>
               <div style={{ flex: 1 }}>
-                <label style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>🤖 Mamta AI Scanner</label>
-                <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Upload Invoice or Loading Slip (PDF/Photo) to auto-fill the form below instantly.</p>
+                <label style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>🤖 Mamta AI Scanner <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px', marginLeft: '4px' }}>100% LOCAL</span></label>
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Upload Invoice or Loading Slip (PDF/Photo) — read on-device by Gemma 4, no internet. Auto-fills the form below.</p>
               </div>
               <label style={{ background: '#38bdf8', color: '#0f172a', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: isScanningFile ? 'not-allowed' : 'pointer', fontSize: '13px', transition: '0.3s', boxShadow: '0 4px 15px rgba(56,189,248,0.4)' }}>
                 {isScanningFile ? '⏳ Scanning File...' : '📎 Upload & Scan'}
@@ -870,6 +798,12 @@ export default function LodingDetals() {
               )}
 
               <h4 style={{ color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '10px', marginBottom: '15px' }}>2. Verify / Edit Details</h4>
+
+              {scanLowConf.length > 0 && (
+                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 14px', marginBottom: '15px', fontSize: '12px', color: '#f59e0b' }}>
+                  ⚠️ AI in fields ko padh nahi paaya — kripya manually check karein: <b>{scanLowConf.join(', ')}</b>
+                </div>
+              )}
               
               <div style={{ marginBottom: '15px' }}>
                 <label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Operating Company (For Auto LR Generation) *</label>

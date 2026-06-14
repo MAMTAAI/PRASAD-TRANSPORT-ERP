@@ -1,10 +1,10 @@
 // 🦙 Ollama provider — talks to the local Ollama engine (default http://localhost:11434).
 // Pure fetch + NDJSON streaming so it works in the browser and in Node 18+.
 
-import {
-  ChatMessage, ChatOptions, ChatResult, LLMHealth, LLMProvider,
-  StreamChunk, ToolCall, LLMError, LLMOfflineError,
+import type {
+  ChatMessage, ChatOptions, ChatResult, LLMHealth, LLMProvider, StreamChunk, ToolCall,
 } from '../types';
+import { LLMError, LLMOfflineError } from '../types';
 
 interface OllamaMessage {
   role: string;
