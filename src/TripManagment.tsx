@@ -64,7 +64,24 @@ export default function TripManagment() {
   
   const [pumps, setPumps] = useState([{ id: 1, vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }]);
   const [generatedMemos, setGeneratedMemos] = useState<any[]>([]); 
-  const [unloadData, setUnloadData] = useState({ unloading_date: new Date().toISOString().split('T')[0], shortage_qty: '', shortage_penalty: '', unloading_location: '', remarks: '' });
+  const [unloadData, setUnloadData] = useState({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: '', unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: '', remarks: '' });
+
+  // Recompute shortage (Loaded − Unloaded) and penalty (Shortage × rate) on change.
+  const recalcUnload = (patch: any) => {
+    setUnloadData(prev => {
+      const next = { ...prev, ...patch };
+      const loaded = parseFloat(next.loaded_qty || '0');
+      const unloaded = parseFloat(next.unloaded_qty || '0');
+      const shortage = next.unloaded_qty !== '' ? Math.max(0, Math.round((loaded - unloaded) * 100) / 100) : '';
+      next.shortage_qty = shortage === '' ? '' : String(shortage);
+      // Auto penalty only when a rate is set; user may still override the field.
+      if (patch.shortage_penalty === undefined) {
+        const rate = parseFloat(next.penalty_rate || '0');
+        next.shortage_penalty = (rate > 0 && shortage !== '') ? String(Math.round(Number(shortage) * rate)) : next.shortage_penalty;
+      }
+      return next;
+    });
+  };
   const [trackMode, setTrackMode] = useState('ROUTE');
 
   useEffect(() => { fetchData(); }, []);
@@ -622,9 +639,12 @@ export default function TripManagment() {
           <div style={{...styles.modalContent, ...styles.modalSm}}>
             <h3 style={{ color: '#10b981', marginTop: 0 }}>📦 Final Unloading</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
-              <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#fff', fontSize: '12px' }}>Date</label><input type="date" style={styles.input} value={unloadData.unloading_date} onChange={e=>setUnloadData({...unloadData, unloading_date: e.target.value})} /></div>
-              <div><label style={{ color: '#ef4444', fontSize: '12px' }}>Shortage Qty</label><input type="number" style={styles.input} value={unloadData.shortage_qty} onChange={e=>setUnloadData({...unloadData, shortage_qty: e.target.value})} /></div>
-              <div><label style={{ color: '#ef4444', fontSize: '12px' }}>Penalty (₹)</label><input type="number" style={{...styles.input, borderColor: '#ef4444'}} value={unloadData.shortage_penalty} onChange={e=>setUnloadData({...unloadData, shortage_penalty: e.target.value})} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#fff', fontSize: '12px' }}>Date</label><input type="date" style={styles.input} value={unloadData.unloading_date} onChange={e=>recalcUnload({ unloading_date: e.target.value })} /></div>
+              <div><label style={{ color: '#38bdf8', fontSize: '12px' }}>Loaded Qty (Auto)</label><input type="number" style={{...styles.input, color: '#38bdf8'}} value={unloadData.loaded_qty} onChange={e=>recalcUnload({ loaded_qty: e.target.value })} /></div>
+              <div><label style={{ color: '#10b981', fontSize: '12px' }}>Unloaded Qty *</label><input type="number" style={{...styles.input, borderColor: '#10b981'}} value={unloadData.unloaded_qty} onChange={e=>recalcUnload({ unloaded_qty: e.target.value })} placeholder="Enter received qty" /></div>
+              <div><label style={{ color: '#ef4444', fontSize: '12px' }}>Shortage (Auto)</label><input type="number" style={{...styles.input, borderColor: '#ef4444', color: '#ef4444', fontWeight: 'bold'}} value={unloadData.shortage_qty} readOnly /></div>
+              <div><label style={{ color: '#f59e0b', fontSize: '12px' }}>Penalty Rate (₹/unit)</label><input type="number" style={{...styles.input, borderColor: '#f59e0b'}} value={unloadData.penalty_rate} onChange={e=>recalcUnload({ penalty_rate: e.target.value })} placeholder="e.g. 50" /></div>
+              <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#ef4444', fontSize: '12px' }}>Penalty ₹ (Auto, editable)</label><input type="number" style={{...styles.input, borderColor: '#ef4444'}} value={unloadData.shortage_penalty} onChange={e=>recalcUnload({ shortage_penalty: e.target.value })} /></div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowUnloadModal(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
@@ -780,7 +800,7 @@ export default function TripManagment() {
                   <td style={{...styles.td, textAlign: 'center'}}>
                     <button onClick={() => { setActiveTrip(t); setShowPaymentModal(true); }} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
                     <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
-                    <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], shortage_qty: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{...styles.btn, background: '#10b981', marginTop:'5px'}}>✅ Unload</button>
+                    <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{...styles.btn, background: '#10b981', marginTop:'5px'}}>✅ Unload</button>
                   </td>
                 </tr>
               )})}
