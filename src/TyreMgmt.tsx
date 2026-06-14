@@ -554,7 +554,12 @@ Empty string / 0 if absent.`;
                         </div>
                         <small style={{ color: '#94a3b8' }}>{t.vendor || '-'}</small>
                     </td>
-                    <td style={{ color: '#10b981', fontWeight: '900', fontSize: '14px' }}>{parseFloat(t.total_km_run || 0).toLocaleString('en-IN')} KM</td>
+                    <td style={{ fontWeight: '900', fontSize: '14px' }}>
+                      <span style={{ color: parseFloat(t.total_km_run || 0) >= 60000 ? '#ef4444' : '#10b981' }}>{parseFloat(t.total_km_run || 0).toLocaleString('en-IN')} KM</span>
+                      {parseFloat(t.total_km_run || 0) >= 60000 && String(t.status || '').toUpperCase() !== 'SCRAPPED' && (
+                        <span className="pt-pill pt-pill--pending-unload" style={{ marginLeft: '6px', fontSize: '9px' }}>⚠️ Change Due</span>
+                      )}
+                    </td>
                     <td>
                       <span className="badge" style={{ 
                         background: t.status === 'IN STOCK' ? 'rgba(16,185,129,0.2)' : t.status === 'RESOLED' ? 'rgba(16,185,129,0.2)' : t.status === 'FITTED' ? 'rgba(56,189,248,0.2)' : t.status === 'SCRAPPED' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)', 

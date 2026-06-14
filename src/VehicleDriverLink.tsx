@@ -51,6 +51,15 @@ export default function VehicleDriverLink() {
       alert("⚠️ कृपया सभी जानकारी भरें!"); return;
     }
     
+    // 🔐 Conflict validation — one active link per vehicle AND per driver.
+    const up = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const active = records.filter(r => String(r.status).toUpperCase() === 'LINKED');
+    const vClash = active.find(r => up(r.vehicleName) === up(selectedVehicleName));
+    const dName0 = selectedDriverName.split('(')[0].trim();
+    const dClash = active.find(r => up(r.driverName) === up(dName0));
+    if (vClash) { if (!window.confirm(`⚠️ ${selectedVehicleName} pehle se ${vClash.driverName} ke saath linked hai. Naya link banayein? (purana record rahega — history safe)`)) return; }
+    if (dClash) { if (!window.confirm(`⚠️ Driver ${dName0} pehle se ${dClash.vehicleName} ke saath linked hai. Phir bhi link karein?`)) return; }
+
     setIsSubmitting(true);
     try {
       // 🔍 Find IDs based on the typed/selected names
