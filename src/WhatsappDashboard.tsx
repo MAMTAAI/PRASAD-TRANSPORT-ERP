@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import MamtaChat from './MamtaChat';
 
 const WhatsappDashboard = () => {
   // 👤 USER SESSION
@@ -205,9 +206,9 @@ const WhatsappDashboard = () => {
         </div>
 
         <div style={{flex:1, overflowY:'auto'}}>
-            {['DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
+            {['MAMTA AI', 'DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
               <div key={m} onClick={() => setTab(m)} style={{ padding: '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s' }}>
-                {m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
+                {m === 'MAMTA AI' ? '🤖 MAMTA AI' : m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
               </div>
             ))}
         </div>
@@ -220,6 +221,9 @@ const WhatsappDashboard = () => {
       <div style={{ flex: 1, padding: '30px', overflowY: 'auto' }}>
         <div style={{ background: theme.card, borderRadius: '25px', padding: '35px', minHeight: '85vh', border: `1px solid ${theme.border}` }}>
           
+          {/* ======================= TAB: MAMTA AI (local RAG chat) ======================= */}
+          {tab === 'MAMTA AI' && <MamtaChat />}
+
           {/* ======================= TAB 1: DASHBOARD ======================= */}
           {tab === 'DASHBOARD' && (
             <div>
