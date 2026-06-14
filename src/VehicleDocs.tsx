@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, serverTimestamp, addDoc, query, where } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractDocument } from './lib/aiScanner';
 
 // 🔥 SUPER SMART AUTO-RECOVERY HELPER (Case-Insensitive)
 const getVal = (obj: any, keysArr: string[], defaultVal = '') => {
@@ -169,45 +170,24 @@ export default function VehicleDocs() {
 
     setUploadingDoc(true);
     setScannedAIData(null);
-    const data = new FormData();
-    data.append('file', file);
-    
-    const cleanVehNo = (selectedVehicle?.vehicle_no || selectedVehicle?.vehical_no || 'UNKNOWN_VEHICLE').replace(/[^A-Za-z0-9]/g, '');
-    data.append('driverName', cleanVehNo); 
-    data.append('docType', activeTab.name); 
 
     try {
-      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', {
-        method: 'POST',
-        body: data,
-      });
-
-      const result = await response.json();
-      const safeLink = result.driveLink || result.fileUrl || result.link || "";
-      setFormData(prev => ({ ...prev, document_file: safeLink }));
-
-      let aiPayload = result.aiData || result.extractedData || result.data;
-
-      if (typeof aiPayload === 'string') {
-        try {
-           const cleanString = aiPayload.replace(/```json/gi, '').replace(/```/g, '').trim();
-           aiPayload = JSON.parse(cleanString);
-        } catch (err) { console.log("AI Parse Warning:", err); }
-      }
-
-      if (result.success || aiPayload) {
-        if (aiPayload && Object.keys(aiPayload).length > 0) {
-           setScannedAIData(aiPayload); 
-           alert(`✅ Document Saved in folder '${cleanVehNo}' & AI has read it!`);
-        } else {
-           alert(`⚠️ File Saved in folder '${cleanVehNo}'. Server did not send AI Data. Fill details manually.`);
-        }
-      } else {
-        alert("❌ Drive Upload Error: " + (result.message || "Failed"));
-      }
-    } catch (error) {
-      console.error("Bridge Error:", error);
-      alert("❌ Live Server is unreachable right now!");
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      const ex = await extractDocument(file, activeTab.name);
+      const docNum = (ex.document_number || '').replace(/[^A-Za-z0-9/-]/g, '').trim();
+      setFormData(prev => ({
+        ...prev,
+        application_no: docNum || prev.application_no || '',
+        receipt_no: docNum || prev.receipt_no || '',
+        inspected_on: ex.issue_date || prev.inspected_on || '',
+        next_due_date: ex.expiry_date || prev.next_due_date || '',
+      }));
+      setScannedAIData(ex);
+      const note = ex._lowConfidence.length ? ` (check: ${ex._lowConfidence.join(', ')})` : '';
+      alert(`✅ Mamta AI (local Gemma 4) ne ${activeTab.name} padh liya. Kripya verify karein.${note}`);
+    } catch (error: any) {
+      const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke dobara try karein.' : '❌ Document padha nahi gaya. Saaf photo/PDF se dobara try karein.');
     }
     setUploadingDoc(false);
   };

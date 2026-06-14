@@ -29,6 +29,34 @@ Rules:
 - challan_no: the invoice / SAP / document number (digits).
 - product_type: one of HSD, MS, ATF, LPG.`;
 
+export interface ExtractedDoc {
+  document_number: string;
+  expiry_date: string;   // DD-MM-YYYY
+  issue_date: string;    // DD-MM-YYYY
+  holder_name: string;
+  _lowConfidence: string[];
+}
+
+const DOC_FIELDS = ['document_number', 'expiry_date', 'issue_date', 'holder_name'] as const;
+
+/**
+ * Extract a vehicle/driver document's key fields (number + validity) locally
+ * via Gemma 4 vision. `docType` is a hint (e.g. 'Insurance', 'RC', 'DL', 'PUC').
+ */
+export async function extractDocument(file: File, docType = 'document'): Promise<ExtractedDoc> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const imageB64 = isPdf ? await pdfFirstPageToBase64(file) : await fileToBase64(file);
+  const prompt = `You are parsing an Indian transport ${docType}. Extract these fields and reply with ONLY JSON, no prose:
+{"document_number":"","expiry_date":"DD-MM-YYYY","issue_date":"DD-MM-YYYY","holder_name":""}
+Rules: document_number is the policy/certificate/registration number (keep letters+digits). Dates as DD-MM-YYYY. Empty string if absent.`;
+  const res = await llmChat([{ role: 'user', content: prompt, images: [imageB64] }], { format: 'json', temperature: 0 });
+  let parsed: any = {};
+  try { parsed = JSON.parse(res.content); } catch { const m = res.content.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : {}; }
+  const out: any = { _lowConfidence: [] };
+  for (const f of DOC_FIELDS) { const v = String(parsed[f] ?? '').trim(); out[f] = v; if (!v) out._lowConfidence.push(f); }
+  return out as ExtractedDoc;
+}
+
 /** Read a File as a base64 string (no data: prefix). */
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
