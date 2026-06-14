@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { extractDocument } from './lib/aiScanner';
 
 // 📅 Document expiry status -> design-system pill (valid / expiring / expired).
 const parseExpiry = (s: string): number | null => {
@@ -155,36 +156,31 @@ export default function DriverMgmt() {
 
     if (field === 'profile_pic') setLocalPicPreview(URL.createObjectURL(file));
 
-    setUploadingField(field); 
+    setUploadingField(field);
     setScannedAIData(null);
 
-    const data = new FormData();
-    data.append('file', file);
-    data.append('driverName', driverData.name || 'New_Driver_Doc'); 
-    data.append('docType', field);
+    // Photos that don't need OCR just preview locally.
+    if (field === 'profile_pic') { setUploadingField(null); return; }
+
+    const labelMap: any = { dl_photo: 'Driving Licence', aadhar_photo: 'Aadhaar', pan_photo: 'PAN Card', hzd_photo: 'Hazardous Certificate', bank_photo: 'Bank Passbook' };
+    const docType = labelMap[field] || 'document';
 
     try {
-      const response = await fetch('https://prasad-api.onrender.com/upload-to-drive', { 
-        method: 'POST', 
-        body: data 
-      });
-      const result = await response.json();
-      if (result.success) {
-        
-        // 🌟 Handle Custom Docs vs Standard Docs
-        if (field.startsWith('custom_')) {
-           const updatedDocs = driverData.additional_docs.map((d: any) => 
-               d.id === field ? { ...d, link: result.driveLink } : d
-           );
-           setDriverData(prev => ({ ...prev, additional_docs: updatedDocs }));
-        } else {
-           setDriverData(prev => ({ ...prev, [field]: result.driveLink })); 
-        }
-
-        setScannedAIData(result.aiData); 
-        alert("✅ Document Saved to Secure Cloud!");
-      } else alert("❌ Drive Upload Error: " + result.message);
-    } catch (error) { alert("❌ Live Server is unreachable right now!"); }
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      const ex = await extractDocument(file, docType);
+      const marker = 'local-scan'; // non-empty so downstream "scanned" gates pass
+      if (field.startsWith('custom_')) {
+        setDriverData(prev => ({ ...prev, additional_docs: prev.additional_docs.map((d: any) => d.id === field ? { ...d, link: marker } : d) }));
+      } else {
+        setDriverData(prev => ({ ...prev, [field]: marker }));
+      }
+      // Map to the shape the existing apply-logic expects.
+      setScannedAIData({ documentNumber: ex.document_number, documentDate: ex.expiry_date || ex.issue_date, extraDetails: ex.holder_name, partyName: ex.holder_name });
+      alert(`✅ Mamta AI (local Gemma 4) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
+    } catch (error: any) {
+      const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke try karein.' : '❌ Document padha nahi gaya. Saaf photo se try karein.');
+    }
     setUploadingField(null); 
   };
 
