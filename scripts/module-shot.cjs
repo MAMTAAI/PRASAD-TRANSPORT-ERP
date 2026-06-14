@@ -6,6 +6,7 @@ const fs = require('fs');
 
 const LABEL = process.argv[2] || 'Trip Management';
 const SLUG = process.argv[3] || 'module';
+const TAB = process.argv[4] || ''; // optional in-module tab to click (by text)
 const OUT = path.join(__dirname, '..', 'mobile-shots');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -30,7 +31,12 @@ const VPS = [{ name: 'desktop', w: 1280, h: 900 }, { name: 'phone', w: 390, h: 8
     }
     try { await page.getByText(LABEL, { exact: true }).first().click({ timeout: 5000 }); }
     catch (e) { console.log(`[${vp.name}] nav fail: ${e.message.slice(0, 80)}`); }
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2000);
+    if (TAB) {
+      try { await page.getByText(TAB, { exact: false }).first().click({ timeout: 4000 }); await page.waitForTimeout(1500); }
+      catch (e) { console.log(`[${vp.name}] tab "${TAB}" fail: ${e.message.slice(0, 70)}`); }
+    }
+    await page.waitForTimeout(1500);
     const file = path.join(OUT, `${SLUG}-${vp.name}.png`);
     await page.screenshot({ path: file, fullPage: false });
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

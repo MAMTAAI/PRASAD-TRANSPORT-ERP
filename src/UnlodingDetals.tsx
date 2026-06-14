@@ -215,10 +215,11 @@ export default function UnloadingDetails() {
 
               return (
                 <div key={t.id} style={{ background: '#1e293b', border: '1px solid #38bdf8', borderRadius: '15px', padding: '20px', position: 'relative' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                     <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '18px' }}>{t.Vehical_No || t.vehicle_no || t.vehical_no}</span>
                     <span style={{ background: '#334155', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>{t.Trip_ID || t.trip_id}</span>
                   </div>
+                  <div style={{ marginBottom: '10px' }}><span className="pt-pill pt-pill--pending-unload">Pending Unload</span></div>
                   <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '15px' }}>📍 {t.Loading_Point || t.loading_point} ➔ {t.Consignee_Name || t.consignee_name}</div>
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(56, 189, 248, 0.05)', padding: '10px', borderRadius: '10px', marginBottom: '10px' }}>
@@ -262,7 +263,7 @@ export default function UnloadingDetails() {
               {loading ? <tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr> : completedTrips.length === 0 ? <tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No Completed Trips Found.</td></tr> : 
                 completedTrips.map((t) => (
                 <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '12px' }}>
-                  <td style={{ padding: '12px 15px' }}>{t.Trip_ID || t.trip_id}</td>
+                  <td style={{ padding: '12px 15px' }}>{t.Trip_ID || t.trip_id}<br/><span className="pt-pill pt-pill--completed" style={{ marginTop: '4px' }}>Completed</span></td>
                   <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.Vehical_No || t.vehicle_no || t.vehical_no}</td>
                   <td style={{ padding: '12px 15px' }}>{t.Loading_Point || t.loading_point} ➔ {t.Consignee_Name || t.consignee_name}</td>
                   <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.Loaded_Qty || t.loaded_qty || t.driver_loaded_qty}</td>
