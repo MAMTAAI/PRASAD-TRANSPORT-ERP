@@ -9,6 +9,7 @@ import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { CARD_PROVIDERS, extractCardStatement, reconcileStatement } from './lib/fleetCard';
+import { classifyDocument } from './lib/billScanner';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
 
@@ -251,7 +252,19 @@ export default function FleetCardMgmt() {
           <select style={{ ...S.input, width: 'auto', flex: isMobile ? 1 : 'none' }} value={reconProvider} onChange={e => setReconProvider(e.target.value)}>
             {Object.entries(CARD_PROVIDERS).map(([k, m]) => <option key={k} value={k}>{m.name}</option>)}
           </select>
-          <input type="file" accept=".pdf,image/*" onChange={e => { setReconFile(e.target.files?.[0] || null); e.target.value = ''; }} style={{ color: '#94a3b8', flex: 1, minWidth: '200px' }} />
+          <input type="file" accept=".pdf,image/*" onChange={async e => {
+            const f = e.target.files?.[0] || null; e.target.value = '';
+            setReconFile(f);
+            if (!f) return;
+            // 🧭 Auto-detect the provider from the document itself
+            try {
+              const kind = await classifyDocument(f);
+              if (kind === 'IOCL_STATEMENT') setReconProvider('IOCL');
+              else if (kind === 'HPCL_DRIVETRACK') setReconProvider('HPCL');
+              else if (kind === 'BPCL_STATEMENT') setReconProvider('BPCL');
+              else if (kind === 'BPCL_FREIGHT_BILL') alert('🧭 Yeh BPCL ka AP210 FREIGHT BILL hai, card statement nahi.\nIse ACCOUNTS → 🤖 AI Bill Scanner me kholein — wahan freight + TDS + FLEET CARD DEBIT sab auto-file hoga.');
+            } catch {}
+          }} style={{ color: '#94a3b8', flex: 1, minWidth: '200px' }} />
           <button onClick={runRecon} disabled={reconBusy} style={S.btn('#8b5cf6', reconBusy)}>{reconBusy ? '⌛ Padh rahi hai…' : '🔍 Reconcile'}</button>
         </div>
         {reconFile && !reconBusy && <p style={{ fontSize: '12px', color: '#10b981', marginTop: '8px' }}>📎 {reconFile.name}</p>}

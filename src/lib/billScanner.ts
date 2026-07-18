@@ -296,6 +296,191 @@ export async function extractBill(
   return { kind, header, rows, pages: pages.length, rowSum, totalMatches, warnings };
 }
 
+// ── Document classification (multi-schema router) ─────────────────────────
+// Every oil company ships a different format. Mamta AI first CLASSIFIES the
+// document from text cues (instant, free), falling back to an LLM call only
+// when heuristics don't fire — then routes to the right extraction schema.
+
+export type DocKind =
+  | 'IOCL_STATEMENT'     // XTRAPOWER monthly card statement
+  | 'HPCL_DRIVETRACK'    // DriveTrack Plus account statement
+  | 'BPCL_STATEMENT'     // Hello Fleet / SmartFleet account statement
+  | 'BPCL_FREIGHT_BILL'  // AP210 transportation bill (freight + TDS/Loss/FLEET CARD DEBIT)
+  | 'IOCL_FREIGHT_BILL'  // IOCL Transportation Bill (tonne-km, Subtotal for Vehicle)
+  | 'HSD_PUMP_BILL'      // local petrol pump invoice
+  | 'UNKNOWN';
+
+/** Extract the first page's text layer (empty string for scans/photos). */
+export async function firstPageText(file: File): Promise<string> {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!isPdf) return '';
+  try {
+    const pdfjs: any = await import('pdfjs-dist');
+    const workerUrl = (await import('pdfjs-dist/build/pdf.worker.min.mjs?url')).default;
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+    const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const tc = await (await pdf.getPage(1)).getTextContent();
+    return tc.items.map((i: any) => i.str).join(' ');
+  } catch { return ''; }
+}
+
+const CLASSIFY_SCHEMA = {
+  type: 'object',
+  properties: { kind: { type: 'string', enum: ['IOCL_STATEMENT', 'HPCL_DRIVETRACK', 'BPCL_STATEMENT', 'BPCL_FREIGHT_BILL', 'IOCL_FREIGHT_BILL', 'HSD_PUMP_BILL', 'UNKNOWN'] } },
+  required: ['kind'],
+};
+
+/** Classify a document. Heuristics first; LLM only as fallback. */
+export async function classifyDocument(file: File): Promise<DocKind> {
+  const text = await firstPageText(file);
+  if (text) {
+    if (/XTRAPOWER/i.test(text)) return 'IOCL_STATEMENT';
+    if (/Drive\s*Track/i.test(text)) return 'HPCL_DRIVETRACK';
+    if (/FLEET CARD DEBIT|AP\s?210|Clearing Document/i.test(text)) return 'BPCL_FREIGHT_BILL';
+    if (/Hello\s*Fleet|SMARTFLEET/i.test(text)) return 'BPCL_STATEMENT';
+    if (/Subtotal for Vehicle|Transportation Bill/i.test(text) && /RTD|IGST/i.test(text)) return 'IOCL_FREIGHT_BILL';
+    if (/Qnty\/?Ltr|SERVICE CENTRE|SERVICE STATION|FILLING STATION|Petrol Pump/i.test(text) && /HSD|Diesel/i.test(text)) return 'HSD_PUMP_BILL';
+  }
+  // Fallback: ask the model (text when available, vision for photos)
+  try {
+    const prompt = `Classify this Indian transport/fuel document into exactly one kind:
+IOCL_STATEMENT (XTRAPOWER card statement) | HPCL_DRIVETRACK (DriveTrack Plus statement) | BPCL_STATEMENT (Hello Fleet/SmartFleet statement) | BPCL_FREIGHT_BILL (AP210 transportation bill with Gross Amount/TDS Recovery/Loss Recovery/FLEET CARD DEBIT) | IOCL_FREIGHT_BILL (IOCL transportation bill, tonne-km) | HSD_PUMP_BILL (local petrol pump diesel invoice) | UNKNOWN`;
+    const msg = text
+      ? { role: 'user' as const, content: `${prompt}\n\nDOCUMENT TEXT (first page):\n${text.slice(0, 4000)}` }
+      : { role: 'user' as const, content: prompt, images: [(await preparePages([file]))[0]?.b64].filter(Boolean) as string[] };
+    const res = await llmChat([msg], { format: CLASSIFY_SCHEMA, temperature: 0, numCtx: 8192, think: false });
+    const parsed = JSON.parse(res.content);
+    return (parsed.kind as DocKind) || 'UNKNOWN';
+  } catch { return 'UNKNOWN'; }
+}
+
+// ── BPCL AP210 Transportation Bill (freight + deductions + card debit) ─────
+
+export interface BpclFreightBill {
+  vendor_code: string;
+  clearing_doc: string;
+  clearing_date: string;   // YYYY-MM-DD
+  period: string;
+  gross_amount: number;    // total freight credited
+  tds_recovery: number;    // -> TDS Receivable ledger
+  loss_recovery: number;   // total debits (INCLUDES fleet_card_debit — SAP lumps them)
+  fleet_card_debit: number;// -> Fleet Card wallet RECHARGE
+  net_payable: number;     // lands in bank
+  rows: BillRow[];         // freight rows, reusing the BillRow shape for matching/filing
+  lossRows: { date: string; vehicle_no: string; detail: string; amount: number }[];
+  warnings: string[];
+  checks: { label: string; ok: boolean; detail: string }[];
+}
+
+const BPCL_SCHEMA = {
+  type: 'object',
+  properties: {
+    vendor_code: { type: 'string' },
+    clearing_doc: { type: 'string' },
+    clearing_date: { type: 'string' },
+    period: { type: 'string' },
+    gross_amount: { type: 'string' },
+    tds_recovery: { type: 'string' },
+    loss_recovery: { type: 'string' },
+    net_payable: { type: 'string' },
+    fleet_card_debit: { type: 'string' },
+    rows: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          row_type: { type: 'string', enum: ['FREIGHT', 'LOSS_RECOVERY', 'FLEET_CARD_DEBIT'] },
+          date: { type: 'string' },
+          ship_no: { type: 'string' },
+          vehicle_no: { type: 'string' },
+          destination: { type: 'string' },
+          qty: { type: 'string' },
+          rate: { type: 'string' },
+          distance: { type: 'string' },
+          credit_amount: { type: 'string' },
+          debit_amount: { type: 'string' },
+        },
+        required: ['row_type', 'date', 'ship_no', 'vehicle_no', 'destination', 'qty', 'rate', 'distance', 'credit_amount', 'debit_amount'],
+      },
+    },
+  },
+  required: ['vendor_code', 'clearing_doc', 'clearing_date', 'period', 'gross_amount', 'tds_recovery', 'loss_recovery', 'net_payable', 'fleet_card_debit', 'rows'],
+};
+
+const BPCL_HINT = `This is a BPCL "AP210" TRANSPORTATION BILL / clearing statement (SAP format) for a transport vendor.
+Header: "AP210 for Vendor <code> for <MM/YYYY>" => vendor_code and period; Clearing Document Number => clearing_doc; Clearing Date => clearing_date; Gross Amount; TDS Recovery; Loss Recovery; Net Amount Payable.
+Table columns: DtOfDesp (DD-MM-YYYY), Ship.No, Tpp/Consgn, Veh.No. (e.g. NL01AD0831 — may be prefixed by a Tpp code like "1226"), Cust/Plant name (e.g. GUWAHATI AFS), Product, Prod.Qty, Rate, Distance, CreditAmount, DebitAmount.
+Row typing:
+- Normal trip rows (CreditAmount > 0) => row_type FREIGHT, credit_amount = CreditAmount.
+- Rows whose Cust/Plant text contains "Loss Rec" (DebitAmount > 0) => row_type LOSS_RECOVERY, debit_amount = DebitAmount.
+- The row whose Veh.No./description says "FLEET CARD DEBIT" => row_type FLEET_CARD_DEBIT, debit_amount = that amount; ALSO copy that amount into the header field fleet_card_debit.
+Rules: numbers plain (strip commas). vehicle_no = only the vehicle registration (drop the leading Tpp code). Do NOT calculate. Do NOT invent rows.`;
+
+export async function extractBpclFreightBill(file: File, onProgress?: (m: string) => void): Promise<BpclFreightBill> {
+  onProgress?.('Reading BPCL AP210 bill…');
+  const text = await firstPageText(file);
+  const msg = text
+    ? { role: 'user' as const, content: `${BPCL_HINT}\nExtract header + EVERY row.\n\nBILL TEXT:\n${text}` }
+    : { role: 'user' as const, content: BPCL_HINT + '\nExtract header + EVERY row.', images: [(await preparePages([file], onProgress))[0]?.b64].filter(Boolean) as string[] };
+  onProgress?.('🤖 Mamta AI reading AP210 bill…');
+  const res = await llmChat([msg], { format: BPCL_SCHEMA, temperature: 0, numCtx: 16384, think: false });
+
+  let parsed: any = {};
+  try { parsed = JSON.parse(res.content); }
+  catch { try { const m = res.content.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : {}; } catch { parsed = {}; } }
+
+  const bill: BpclFreightBill = {
+    vendor_code: String(parsed.vendor_code ?? '').trim(),
+    clearing_doc: String(parsed.clearing_doc ?? '').trim(),
+    clearing_date: toISODate(parsed.clearing_date),
+    period: String(parsed.period ?? '').trim(),
+    gross_amount: round2(num(parsed.gross_amount)),
+    tds_recovery: round2(num(parsed.tds_recovery)),
+    loss_recovery: round2(num(parsed.loss_recovery)),
+    fleet_card_debit: round2(num(parsed.fleet_card_debit)),
+    net_payable: round2(num(parsed.net_payable)),
+    rows: [], lossRows: [], warnings: [], checks: [],
+  };
+
+  for (const r of parsed.rows || []) {
+    const vehicle = cleanPlate(String(r.vehicle_no ?? '').replace(/^1?\d{3}\s*/, '')); // strip Tpp prefix remnants
+    const date = toISODate(r.date);
+    if (r.row_type === 'FLEET_CARD_DEBIT' || /FLEETCARDDEBIT/.test(cleanPlate(r.vehicle_no) + cleanPlate(r.destination))) {
+      const amt = round2(num(r.debit_amount) || num(r.credit_amount));
+      if (amt > 0 && !bill.fleet_card_debit) bill.fleet_card_debit = amt;
+      continue;
+    }
+    if (r.row_type === 'LOSS_RECOVERY' || /Loss Rec/i.test(String(r.destination ?? ''))) {
+      const amt = round2(num(r.debit_amount));
+      if (amt > 0) bill.lossRows.push({ date, vehicle_no: vehicle, detail: String(r.destination ?? '').trim().slice(0, 60), amount: amt });
+      continue;
+    }
+    const credit = round2(num(r.credit_amount));
+    if (credit <= 0 || !vehicle) continue;
+    const review: string[] = [];
+    if (!RX.vehicleNo.test(vehicle)) review.push('vehicle_no');
+    if (!date) review.push('date');
+    bill.rows.push({
+      page: 1, vehicle_no: vehicle, date, qty: round2(num(r.qty)), qty_unit: '',
+      shortage: 0, rate: round2(num(r.rate)), rtd: round2(num(r.distance)),
+      gross_amount: credit, gst: 0, penalty: 0,
+      ref_no: String(r.ship_no ?? '').trim(), _review: review,
+    });
+  }
+
+  // Code-side verification (never trust model math)
+  const rowSum = round2(bill.rows.reduce((s, r) => s + r.gross_amount, 0));
+  const grossOk = bill.gross_amount > 0 ? Math.abs(rowSum - bill.gross_amount) <= Math.max(10, bill.gross_amount * 0.005) : true;
+  bill.checks.push({ label: 'Σ freight rows = Gross Amount', ok: grossOk, detail: `${rowSum.toLocaleString('en-IN')} vs ${bill.gross_amount.toLocaleString('en-IN')}` });
+  const netCalc = round2(bill.gross_amount - bill.tds_recovery - bill.loss_recovery);
+  const netOk = Math.abs(netCalc - bill.net_payable) <= 1;
+  bill.checks.push({ label: 'Gross − TDS − Loss Recovery = Net Payable', ok: netOk, detail: `${netCalc.toLocaleString('en-IN')} vs ${bill.net_payable.toLocaleString('en-IN')}` });
+  if (bill.fleet_card_debit > bill.loss_recovery) bill.warnings.push('FLEET CARD DEBIT loss-recovery total se bada hai — figures verify karein.');
+  if (!grossOk) bill.warnings.push('Freight rows ka total Gross se match nahi hua — kuch rows missing/misread ho sakti hain.');
+  if (!netOk) bill.warnings.push('Header ka net math tally nahi hua — bill dhyaan se verify karein.');
+  return bill;
+}
+
 // ── Trip / fuel-entry matching ────────────────────────────────────────────
 
 export type MatchStatus = 'MATCHED' | 'AMBIGUOUS' | 'UNMATCHED';

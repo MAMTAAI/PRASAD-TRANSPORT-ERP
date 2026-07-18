@@ -7,7 +7,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { collection, getDocs, doc, writeBatch, increment, query, where } from 'firebase/firestore';
 import { db } from './firebase';
-import { extractBill, matchRowsToTrips, matchRowsToFuelEntries } from './lib/billScanner';
+import { extractBill, matchRowsToTrips, matchRowsToFuelEntries, classifyDocument, extractBpclFreightBill } from './lib/billScanner';
+import { CARD_PROVIDERS } from './lib/fleetCard';
 import { postEntry } from './lib/accounting/journal';
 import { round2, getTripFreight } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
@@ -23,6 +24,7 @@ export default function BillScanner() {
   const [progress, setProgress] = useState('');
   const [scanning, setScanning] = useState(false);
   const [bill, setBill] = useState(null);                // ExtractedBill
+  const [bpcl, setBpcl] = useState(null);                // BpclFreightBill (AP210)
   const [rows, setRows] = useState([]);                  // editable copy
   const [matches, setMatches] = useState([]);            // RowMatch[]
   const [selected, setSelected] = useState({});          // rowIdx -> bool
@@ -55,12 +57,32 @@ export default function BillScanner() {
   // ── Scan ────────────────────────────────────────────────────────────────
   const runScan = async () => {
     if (!files.length || scanning) return;
-    setScanning(true); setFiledSummary(null); setBill(null); setRows([]); setMatches([]);
+    setScanning(true); setFiledSummary(null); setBill(null); setBpcl(null); setRows([]); setMatches([]);
     try {
-      const result = await extractBill(files, kind, setProgress);
-      setBill(result);
-      setRows(result.rows.map(r => ({ ...r })));
-      runMatch(result.rows);
+      // 🧭 MULTI-SCHEMA ROUTER: classify first, then extract with the right brain.
+      setProgress('🧭 Mamta AI document pehchan rahi hai…');
+      const detected = await classifyDocument(files[0]);
+      if (['IOCL_STATEMENT', 'HPCL_DRIVETRACK', 'BPCL_STATEMENT'].includes(detected)) {
+        alert('🧭 Yeh fleet-card ka STATEMENT hai, freight bill nahi.\nIse ACCOUNTS → 💳 Fleet Card & Settlement ke AI Reconciler me kholein.');
+        setScanning(false); setProgress(''); return;
+      }
+      let effKind = kind;
+      if (detected === 'BPCL_FREIGHT_BILL') effKind = 'BPCL';
+      else if (detected === 'HSD_PUMP_BILL') effKind = 'HSD';
+      else if (detected === 'IOCL_FREIGHT_BILL') effKind = 'FREIGHT';
+      if (effKind !== kind) setKind(effKind);
+
+      if (effKind === 'BPCL') {
+        const b = await extractBpclFreightBill(files[0], setProgress);
+        setBpcl(b);
+        setRows(b.rows.map(r => ({ ...r })));
+        runMatch(b.rows, 'BPCL');
+      } else {
+        const result = await extractBill(files, effKind, setProgress);
+        setBill(result);
+        setRows(result.rows.map(r => ({ ...r })));
+        runMatch(result.rows, effKind);
+      }
       setProgress('');
     } catch (e) {
       const offline = e?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(e?.message || '');
@@ -70,8 +92,8 @@ export default function BillScanner() {
     setScanning(false);
   };
 
-  const runMatch = (rowList) => {
-    const m = kind === 'FREIGHT' ? matchRowsToTrips(rowList, trips) : matchRowsToFuelEntries(rowList, fuelEntries);
+  const runMatch = (rowList, forKind = kind) => {
+    const m = forKind === 'HSD' ? matchRowsToFuelEntries(rowList, fuelEntries) : matchRowsToTrips(rowList, trips);
     setMatches(m);
     const sel = {};
     m.forEach((mt, i) => { sel[i] = mt.status === 'MATCHED' && rowList[i]._review.length === 0; });
@@ -83,7 +105,7 @@ export default function BillScanner() {
     setRows(prev => prev.map((r, idx) => {
       if (idx !== i) return r;
       const nr = { ...r, [field]: ['qty', 'shortage', 'rate', 'rtd', 'gross_amount', 'gst', 'penalty'].includes(field) ? (parseFloat(value) || 0) : value };
-      if (field === 'qty' || field === 'rate' || field === 'rtd') {
+      if ((field === 'qty' || field === 'rate' || field === 'rtd') && kind !== 'BPCL') {
         // Same three billing bases as the engine: tonne-km (IOCL), per-KL, per-litre
         nr.gross_amount = nr.rtd > 0 ? round2(nr.qty * nr.rtd * nr.rate)
           : kind === 'FREIGHT' ? round2((nr.qty / 1000) * nr.rate)
@@ -104,12 +126,12 @@ export default function BillScanner() {
     if (pendingReview.length && !window.confirm(`${pendingReview.length} row(s) me review-flag fields hain. Phir bhi file karein?`)) return;
 
     setFiling(true);
-    const billRef = bill?.header?.bill_no || `SCAN-${Date.now()}`;
+    const billRef = bpcl?.clearing_doc || bill?.header?.bill_no || `SCAN-${Date.now()}`;
     let ok = 0, journalOk = 0; const errors = [];
     try {
       const batch = writeBatch(db);
       for (const { r, m } of toFile) {
-        if (kind === 'FREIGHT') {
+        if (kind !== 'HSD') {
           const trip = trips.find(t => t.id === m.targetId);
           if (!trip) continue;
           const upd = {
@@ -149,10 +171,10 @@ export default function BillScanner() {
       // Journal posting (idempotent per source_ref — re-filing overwrites, never duplicates)
       for (const { r, m } of toFile) {
         try {
-          if (kind === 'FREIGHT') {
+          if (kind !== 'HSD') {
             const trip = trips.find(t => t.id === m.targetId);
             const ref = trip?.trip_id || trip?.Trip_ID || trip?.id;
-            const cust = bill?.header?.party_name || trip?.customer_name || trip?.Customer || 'Unknown Customer';
+            const cust = kind === 'BPCL' ? 'BPCL' : (bill?.header?.party_name || trip?.customer_name || trip?.Customer || 'Unknown Customer');
             const lines = [
               { ledger: `Debtors: ${cust}`, dr_cr: 'Dr', amount: round2(r.gross_amount + (r.gst || 0)) },
               { ledger: 'Direct Incomes (Freight/Trip Revenue)', dr_cr: 'Cr', amount: r.gross_amount },
@@ -171,6 +193,45 @@ export default function BillScanner() {
           journalOk++;
         } catch (je) { errors.push(`Journal: ${je?.message || je}`); }
       }
+
+      // 🛢️ BPCL AP210: one bill-level SETTLEMENT entry — the full money split.
+      // Gross clears the debtor; net hits bank; TDS becomes receivable; the
+      // FLEET CARD DEBIT recharges the BPCL wallet; the rest is loss recovery.
+      if (kind === 'BPCL' && bpcl) {
+        try {
+          const lossOther = round2(Math.max(0, bpcl.loss_recovery - bpcl.fleet_card_debit));
+          const lines = [
+            { ledger: 'Debtors: BPCL', dr_cr: 'Cr', amount: bpcl.gross_amount },
+            { ledger: 'Bank', dr_cr: 'Dr', amount: bpcl.net_payable },
+          ];
+          if (bpcl.tds_recovery > 0) lines.push({ ledger: 'TDS Receivable', dr_cr: 'Dr', amount: bpcl.tds_recovery });
+          if (bpcl.fleet_card_debit > 0) lines.push({ ledger: CARD_PROVIDERS.BPCL.wallet, dr_cr: 'Dr', amount: bpcl.fleet_card_debit });
+          if (lossOther > 0) lines.push({ ledger: 'Shortage / Loss Recovery', dr_cr: 'Dr', amount: lossOther });
+          await postEntry({
+            source_type: 'BPCL_AP210', source_ref: billRef, date: bpcl.clearing_date || '',
+            narration: `BPCL AP210 settlement ${billRef} (${bpcl.period}) — net ${bpcl.net_payable.toLocaleString('en-IN')}, card debit ${bpcl.fleet_card_debit.toLocaleString('en-IN')}`,
+            lines,
+          });
+          journalOk++;
+
+          // Fleet card wallet recharge (idempotent doc id per clearing doc)
+          if (bpcl.fleet_card_debit > 0) {
+            const txnId = `AP210_${billRef}`.replace(/[^A-Za-z0-9_-]/g, '_');
+            const already = await getDocs(query(collection(db, 'CARD_TRANSACTIONS'), where('ref', '==', txnId)));
+            if (already.empty) {
+              const b2 = writeBatch(db);
+              b2.set(doc(db, 'CARD_TRANSACTIONS', txnId), {
+                card_id: 'BPCL', provider: 'BPCL', type: 'RECHARGE',
+                amount: bpcl.fleet_card_debit, date: bpcl.clearing_date || '', party: 'BPCL',
+                narration: `FLEET CARD DEBIT via AP210 ${billRef}`, ref: txnId, createdAt: new Date().toISOString(),
+              });
+              b2.update(doc(db, 'FLEET_CARDS', 'BPCL'), { current_balance: increment(bpcl.fleet_card_debit) });
+              await b2.commit();
+            }
+          }
+        } catch (je) { errors.push(`AP210 settlement: ${je?.message || je}`); }
+      }
+
       setFiledSummary({ ok, journalOk, total: toFile.length, errors, billRef });
       fetchTargets();
     } catch (e) {
@@ -203,8 +264,8 @@ export default function BillScanner() {
 
       {/* Kind toggle */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        {[['FREIGHT', '🧾 Freight Invoice'], ['HSD', '⛽ HSD / Pump Bill']].map(([k, label]) => (
-          <button key={k} onClick={() => { setKind(k); setBill(null); setRows([]); setMatches([]); }}
+        {[['FREIGHT', '🧾 Freight Invoice'], ['HSD', '⛽ HSD / Pump Bill'], ['BPCL', '🛢️ BPCL AP210']].map(([k, label]) => (
+          <button key={k} onClick={() => { setKind(k); setBill(null); setBpcl(null); setRows([]); setMatches([]); }}
             style={{ ...S.btn(kind === k ? '#2563eb' : '#1e293b', false), flex: isMobile ? 1 : 'none', border: kind === k ? '1px solid #38bdf8' : '1px solid #334155' }}>
             {label}
           </button>
@@ -255,9 +316,26 @@ export default function BillScanner() {
       )}
 
       {/* Results */}
-      {bill && (
+      {bpcl && (
+        <div style={{ ...S.card, border: '1px solid #eab308' }}>
+          <b style={{ color: '#eab308' }}>🛢️ BPCL AP210 — {bpcl.clearing_doc || '?'} ({bpcl.period})</b>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))', gap: '10px', marginTop: '12px' }}>
+            {[['Gross Freight', bpcl.gross_amount, '#10b981'], ['TDS Recovery', bpcl.tds_recovery, '#f59e0b'], ['Loss Recovery', round2(Math.max(0, bpcl.loss_recovery - bpcl.fleet_card_debit)), '#ef4444'], ['💳 FLEET CARD DEBIT → Wallet', bpcl.fleet_card_debit, '#38bdf8'], ['Net Payable (Bank)', bpcl.net_payable, '#c084fc']].map(([label, v, c]) => (
+              <div key={label} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${c}55`, borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: c, fontWeight: 'bold' }}>{label}</div>
+                <b style={{ fontSize: '15px' }}>{fmtINR(v)}</b>
+              </div>
+            ))}
+          </div>
+          {bpcl.checks.map((c, i) => <p key={i} style={{ fontSize: '12px', color: c.ok ? '#10b981' : '#ef4444', margin: '8px 0 0 0' }}>{c.ok ? '✔' : '✖'} {c.label}: {c.detail}</p>)}
+          {bpcl.warnings.map((w, i) => <p key={i} style={{ fontSize: '12px', color: '#f59e0b', margin: '6px 0 0 0' }}>⚠️ {w}</p>)}
+          {bpcl.lossRows.length > 0 && <p style={{ fontSize: '11px', color: '#94a3b8', margin: '8px 0 0 0' }}>Loss-recovery rows: {bpcl.lossRows.map(l => `${l.vehicle_no || '?'} ${fmtINR(l.amount)}`).join(' · ')}</p>}
+        </div>
+      )}
+
+      {(bill || bpcl) && (
         <>
-          <div style={S.card}>
+          {bill && <div style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
               <div>
                 <b style={{ color: '#10b981' }}>📋 {bill.header.party_name || 'Party ?'} — Bill {bill.header.bill_no || '?'}</b>
@@ -271,7 +349,7 @@ export default function BillScanner() {
                 : <span style={S.chip('#ef4444')}>⚠ Totals differ</span>}
             </div>
             {bill.warnings.map((w, i) => <p key={i} style={{ color: '#f59e0b', fontSize: '12px', margin: '8px 0 0 0' }}>⚠️ {w}</p>)}
-          </div>
+          </div>}
 
           {/* Rows: cards on mobile, table on desktop */}
           <div style={S.card}>
@@ -292,7 +370,7 @@ export default function BillScanner() {
                       {matchChip(matches[i])}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                      {[['vehicle_no', 'Vehicle'], ['date', 'Date'], ['qty', `Qty ${r.qty_unit || ''}`], ['shortage', 'Shortage'], ['rate', 'Rate ₹'], ...(kind === 'FREIGHT' ? [['rtd', 'RTD km']] : []), ['gross_amount', 'Gross ₹'], ['gst', 'GST ₹']].map(([f, label]) => (
+                      {[['vehicle_no', 'Vehicle'], ['date', 'Date'], ['qty', `Qty ${r.qty_unit || ''}`], ['shortage', 'Shortage'], ['rate', 'Rate ₹'], ...(kind !== 'HSD' ? [['rtd', 'RTD km']] : []), ['gross_amount', 'Gross ₹'], ['gst', 'GST ₹']].map(([f, label]) => (
                         <div key={f}>
                           <label style={{ fontSize: '10px', color: r._review.includes(f) ? '#f59e0b' : '#64748b' }}>{label}{r._review.includes(f) ? ' ⚠' : ''}</label>
                           <input style={{ ...S.input, padding: '8px', ...reviewStyle(r, f) }} inputMode={f === 'vehicle_no' ? 'text' : 'decimal'} value={r[f]} onChange={e => editRow(i, f, e.target.value)} />
@@ -312,13 +390,13 @@ export default function BillScanner() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '900px' }}>
                   <thead><tr style={{ color: '#38bdf8', textAlign: 'left' }}>
-                    {['✓', 'Vehicle', 'Date', 'Qty', 'Shortage', 'Rate ₹', ...(kind === 'FREIGHT' ? ['RTD km'] : []), 'Gross ₹', 'GST ₹', 'Match'].map(h => <th key={h} style={{ padding: '8px', borderBottom: '2px solid #334155' }}>{h}</th>)}
+                    {['✓', 'Vehicle', 'Date', 'Qty', 'Shortage', 'Rate ₹', ...(kind !== 'HSD' ? ['RTD km'] : []), 'Gross ₹', 'GST ₹', 'Match'].map(h => <th key={h} style={{ padding: '8px', borderBottom: '2px solid #334155' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {rows.map((r, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
                         <td style={{ padding: '6px' }}><input type="checkbox" style={{ width: '18px', height: '18px' }} checked={!!selected[i]} onChange={e => setSelected(p => ({ ...p, [i]: e.target.checked }))} /></td>
-                        {['vehicle_no', 'date', 'qty', 'shortage', 'rate', ...(kind === 'FREIGHT' ? ['rtd'] : []), 'gross_amount', 'gst'].map(f => (
+                        {['vehicle_no', 'date', 'qty', 'shortage', 'rate', ...(kind !== 'HSD' ? ['rtd'] : []), 'gross_amount', 'gst'].map(f => (
                           <td key={f} style={{ padding: '6px' }}>
                             <input style={{ ...S.input, padding: '7px', minHeight: '34px', width: f === 'vehicle_no' ? '120px' : f === 'date' ? '110px' : '85px', ...reviewStyle(r, f) }} value={r[f]} onChange={e => editRow(i, f, e.target.value)} title={r._review.includes(f) ? 'AI unsure — verify' : ''} />
                           </td>
@@ -343,7 +421,7 @@ export default function BillScanner() {
 
             <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button style={{ ...S.btn('#10b981', filing), flex: isMobile ? 1 : 'none' }} disabled={filing} onClick={fileSelected}>
-                {filing ? '⌛ Filing…' : `✅ File ${Object.values(selected).filter(Boolean).length} row(s) → ${kind === 'FREIGHT' ? 'Trips + Ledger' : 'Fuel + Ledger'}`}
+                {filing ? '⌛ Filing…' : `✅ File ${Object.values(selected).filter(Boolean).length} row(s) → ${kind === 'HSD' ? 'Fuel + Ledger' : 'Trips + Ledger'}`}
               </button>
               <span style={{ fontSize: '11px', color: '#64748b' }}>Sirf matched + ticked rows file hoti hain. Journal posting idempotent hai — dobara file karne par duplicate nahi banta.</span>
             </div>
