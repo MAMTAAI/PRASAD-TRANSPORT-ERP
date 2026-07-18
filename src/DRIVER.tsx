@@ -4,6 +4,7 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp
 import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
+import { uploadMedia, slug } from './lib/uploadMedia';
 
 // 📅 Document expiry status -> design-system pill (valid / expiring / expired).
 const parseExpiry = (s: string): number | null => {
@@ -150,39 +151,62 @@ export default function DriverMgmt() {
     } catch(e) { alert("Error rejecting request."); }
   };
 
-  // 🌍 UPLOAD TO GOOGLE DRIVE
+  // 📂 REAL upload to Firebase Storage + 🤖 local Gemma OCR (Truth Sprint).
+  // The old flow ran OCR then DISCARDED the file, storing the literal string
+  // 'local-scan' — every "View File" link was permanently broken. Now the file
+  // is stored and its permanent URL saved; OCR remains a best-effort bonus.
   const handleDocUpload = async (e: any, field: string) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = '';
 
     if (field === 'profile_pic') setLocalPicPreview(URL.createObjectURL(file));
 
     setUploadingField(field);
     setScannedAIData(null);
 
-    // Photos that don't need OCR just preview locally.
-    if (field === 'profile_pic') { setUploadingField(null); return; }
+    const ownerKey = slug(driverData.mobile || driverData.name || 'new-driver');
+    const uploadPromise = uploadMedia(file, `drivers/${ownerKey}/${slug(field)}_${Date.now()}.jpg`);
+
+    if (field === 'profile_pic') {
+      try {
+        const { url } = await uploadPromise;
+        setDriverData(prev => ({ ...prev, profile_pic: url }));
+      } catch { alert('❌ Photo upload nahi hui — network check karein.'); }
+      setUploadingField(null);
+      return;
+    }
 
     const labelMap: any = { dl_photo: 'Driving Licence', aadhar_photo: 'Aadhaar', pan_photo: 'PAN Card', hzd_photo: 'Hazardous Certificate', bank_photo: 'Bank Passbook' };
     const docType = labelMap[field] || 'document';
 
+    // Upload and OCR run in parallel — a dead Ollama must not lose the document.
+    let storedUrl = '';
+    try {
+      const { url } = await uploadPromise;
+      storedUrl = url;
+      if (field.startsWith('custom_')) {
+        setDriverData(prev => ({ ...prev, additional_docs: prev.additional_docs.map((d: any) => d.id === field ? { ...d, link: url } : d) }));
+      } else {
+        setDriverData(prev => ({ ...prev, [field]: url }));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('❌ File upload nahi hui — network check karke dobara try karein.');
+      setUploadingField(null);
+      return;
+    }
+
     try {
       // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
       const ex = await extractDocument(file, docType);
-      const marker = 'local-scan'; // non-empty so downstream "scanned" gates pass
-      if (field.startsWith('custom_')) {
-        setDriverData(prev => ({ ...prev, additional_docs: prev.additional_docs.map((d: any) => d.id === field ? { ...d, link: marker } : d) }));
-      } else {
-        setDriverData(prev => ({ ...prev, [field]: marker }));
-      }
-      // Map to the shape the existing apply-logic expects.
       setScannedAIData({ documentNumber: ex.document_number, documentDate: ex.expiry_date || ex.issue_date, extraDetails: ex.holder_name, partyName: ex.holder_name });
-      alert(`✅ Mamta AI (local Gemma 4) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
+      alert(`✅ File saved + Mamta AI (local Gemma 4) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
-      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke try karein.' : '❌ Document padha nahi gaya. Saaf photo se try karein.');
+      alert(`✅ File saved ho gayi.\n${offline ? '⚠️ Local AI engine (Ollama) band hai — scan nahi hua.' : '⚠️ Document scan nahi ho paya (file phir bhi save hai).'}`);
     }
-    setUploadingField(null); 
+    setUploadingField(null);
   };
 
   // 🌟 NEW: ADD CUSTOM DOCUMENT CARD

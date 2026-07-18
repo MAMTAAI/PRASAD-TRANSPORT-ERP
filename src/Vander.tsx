@@ -35,7 +35,10 @@ export default function Vander() {
     try {
       const snap = await getDocs(collection(db, "VENDORS"));
       const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setVendors(data.sort((a: any, b: any) => a.vendor_name.localeCompare(b.vendor_name)));
+      // Crash-safe: VENDORS holds two doc shapes (vendor_name from this form,
+      // agency_name from MarketVehicles) — a missing field must not throw and
+      // silently blank the whole list.
+      setVendors(data.sort((a: any, b: any) => String(a.vendor_name || a.agency_name || '').localeCompare(String(b.vendor_name || b.agency_name || ''))));
     } catch (e) { console.error(e); }
     setLoading(false);
   };

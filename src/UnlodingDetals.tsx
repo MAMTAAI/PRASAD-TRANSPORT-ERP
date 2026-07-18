@@ -127,7 +127,10 @@ export default function UnloadingDetails() {
 
   // 🔍 Filters
   const inTransitTrips = trips.filter(t => t.trip_status === 'IN_TRANSIT' && !t.office_approved_unloading);
-  const pendingDriverApprovals = trips.filter(t => t.driver_unloaded_qty && !t.office_approved_unloading && t.office_approved_loading);
+  // Guard: a trip already COMPLETED (e.g. closed via Trip Command Center) must
+  // never reappear as "pending approval" — approving it again would overwrite
+  // the settled quantities and shortage figures.
+  const pendingDriverApprovals = trips.filter(t => t.driver_unloaded_qty && !t.office_approved_unloading && t.office_approved_loading && t.trip_status !== 'COMPLETED');
   const completedTrips = trips.filter(t => t.office_approved_unloading || t.trip_status === 'COMPLETED').sort((a:any, b:any) => new Date(b.completed_at?.toDate() || 0).getTime() - new Date(a.completed_at?.toDate() || 0).getTime());
 
   const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none' };

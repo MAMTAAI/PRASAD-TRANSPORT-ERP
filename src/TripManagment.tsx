@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, writeBatch, increment, getDoc } from 'firebase/firestore';
+import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import { db } from './firebase';
 import { getDrivingDistance } from './lib/maps';
 import { scopeCurrent } from './lib/rbac';
@@ -87,6 +88,9 @@ export default function TripManagment() {
   const [activeTrip, setActiveTrip] = useState<any>(null);
 
   const [paymentData, setPaymentData] = useState({ amount: '', mode: 'Office Cash', date: new Date().toISOString().split('T')[0], remarks: '' });
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [savingMemo, setSavingMemo] = useState(false);
+  const [gpsRefreshing, setGpsRefreshing] = useState(false);
   
   const [memoData, setMemoData] = useState({ date: new Date().toISOString().split('T')[0], fixed_hsd: '', fixed_cash: '', hsd_issued: 0, cash_issued: 0, memo_no: '', driver_mobile: '' });
   
@@ -292,21 +296,27 @@ export default function TripManagment() {
   };
 
   const handleDriverPayment = async () => {
-    if (!paymentData.amount || !activeTrip) return;
+    if (!paymentData.amount || !activeTrip || savingPayment) return;
+    const amt = round2(parseFloat(paymentData.amount));
+    if (!Number.isFinite(amt) || amt <= 0) return alert("⚠️ Enter a valid amount!");
+    setSavingPayment(true);
     try {
-      const amt = parseFloat(paymentData.amount);
       const updateField = paymentData.mode === 'Office Cash' ? 'office_cash_paid' : 'bank_paid';
-      const currentPaid = parseFloat(activeTrip[updateField] || '0');
-      const currentExp = parseFloat(activeTrip.total_expense || '0');
-      
-      await updateDoc(doc(db, "TRIPS", activeTrip.id), { [updateField]: currentPaid + amt, total_expense: currentExp + amt });
-      await addDoc(collection(db, "DRIVER_TRANSACTIONS"), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'PAYMENT_GIVEN', amount: amt, mode: paymentData.mode, date: paymentData.date, remarks: `Trip: ${activeTrip.trip_id || activeTrip.Trip_ID} - ${paymentData.remarks}`, createdAt: serverTimestamp() });
 
-      alert(`✅ ₹${amt} Paid via ${paymentData.mode}`);
+      // 💰 TRUTH FIX: cash to the driver is a recoverable ADVANCE (driver khata),
+      // NOT a trip expense — total_expense no longer accrues it. Atomic batch +
+      // increment() so double-clicks/concurrent edits can't clobber balances.
+      const batch = writeBatch(db);
+      batch.update(doc(db, "TRIPS", activeTrip.id), { [updateField]: increment(amt), total_advances: increment(amt) });
+      batch.set(doc(collection(db, "DRIVER_TRANSACTIONS")), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'PAYMENT_GIVEN', amount: amt, mode: paymentData.mode, date: paymentData.date, trip_id: activeTrip.trip_id || activeTrip.Trip_ID, remarks: `Trip: ${activeTrip.trip_id || activeTrip.Trip_ID} - ${paymentData.remarks}`, createdAt: serverTimestamp() });
+      await batch.commit();
+
+      alert(`✅ ₹${amt} Paid via ${paymentData.mode} (driver khata mein darj)`);
       setShowPaymentModal(false);
       setPaymentData({ amount: '', mode: 'Office Cash', date: new Date().toISOString().split('T')[0], remarks: '' });
       fetchData();
     } catch (e) { alert("❌ Payment Error"); }
+    setSavingPayment(false);
   };
 
   const openFuelModal = (trip: any) => {
@@ -359,46 +369,57 @@ export default function TripManagment() {
   };
 
   const handleSaveFuelMemo = async () => {
-    if(!activeTrip) return;
+    if(!activeTrip || savingMemo) return;
     const hasValidPump = pumps.some(p => p.vendor_id && p.qty);
     if (!hasValidPump) return alert("⚠️ Please select a 'Petrol Pump' and enter 'Liters'!");
+    // 💰 TRUTH FIX: without a rate the diesel value saves as ₹0 and the whole
+    // HSD cost silently vanishes from trip settlement. Rate is now mandatory.
+    const missingRate = pumps.find(p => p.vendor_id && p.qty && !(parseFloat(p.rate) > 0));
+    if (missingRate) return alert("⚠️ Enter the Rate (₹/Liter) for every pump row — bina rate ke diesel ka kharcha ₹0 ban jata hai!");
 
+    setSavingMemo(true);
     try {
-      let totalNewExpense = 0; let newHsdIssued = 0; let newPumpCash = 0; const savedSlips = [];
+      let newFuelExpense = 0; let newHsdIssued = 0; let newPumpCash = 0; const savedSlips = [];
+      // Atomic: all slips + khata entries + trip totals commit together or not at all.
+      const batch = writeBatch(db);
 
       for (const pump of pumps) {
         if (!pump.vendor_id || !pump.qty) continue;
-        const amt = parseFloat(pump.amount || '0');
-        const cashAmt = parseFloat(pump.cash_advance || '0');
-        const pumpTotal = amt + cashAmt;
-        
-        totalNewExpense += pumpTotal;
+        const amt = round2(parseFloat(pump.qty) * parseFloat(pump.rate));
+        const cashAmt = round2(parseFloat(pump.cash_advance || '0') || 0);
+
+        newFuelExpense += amt;          // diesel value = trip EXPENSE
+        newPumpCash += cashAmt;         // pump cash    = driver ADVANCE (khata)
         newHsdIssued += parseFloat(pump.qty);
-        newPumpCash += cashAmt;
 
         const slipData = { date: memoData.date, vehicle_no: activeTrip.vehicle_no || activeTrip.Vehical_No, route_name: `${activeTrip.loading_point || activeTrip.Loading_Point} To ${activeTrip.consignee_name || activeTrip.Consignee_Name}`, driver_name: activeTrip.driver_name || activeTrip.Driver_Name, memo_no: memoData.memo_no, vendor_id: pump.vendor_id, vendor_name: pump.vendor_name, fuel_type: pump.fuel_type, liters: pump.qty, rate: pump.rate, amount: amt.toFixed(2), cash_given_to_pump: pump.cash_advance, pump_mobile: pump.mobile, bill_status: 'UNBILLED', trip_id: activeTrip.trip_id || activeTrip.Trip_ID, createdAt: serverTimestamp() };
-        await addDoc(collection(db, "FUEL_ENTRIES"), slipData);
+        batch.set(doc(collection(db, "FUEL_ENTRIES")), slipData);
         savedSlips.push(slipData);
 
-        const vendor = fuelVendors.find(v => v.id === pump.vendor_id);
-        if (vendor) await updateDoc(doc(db, "VENDORS", vendor.id), { current_balance: (parseFloat(vendor.current_balance || '0') + amt).toFixed(2) });
+        // NOTE (double-count fix): the vendor's balance is deliberately NOT
+        // credited here. FuelMgmt reconciliation credits the vendor when the
+        // pump's physical bill is VERIFIED — crediting at memo time too would
+        // bill every liter twice the moment amounts became non-zero.
 
         if (cashAmt > 0 && (activeTrip.driver_name || activeTrip.Driver_Name)) {
-          await addDoc(collection(db, "DRIVER_TRANSACTIONS"), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'ADVANCE_GIVEN', amount: cashAmt, date: memoData.date, remarks: `Trip ${activeTrip.trip_id || activeTrip.Trip_ID} Cash from ${pump.vendor_name}`, createdAt: serverTimestamp() });
+          batch.set(doc(collection(db, "DRIVER_TRANSACTIONS")), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'ADVANCE_GIVEN', amount: cashAmt, date: memoData.date, trip_id: activeTrip.trip_id || activeTrip.Trip_ID, remarks: `Trip ${activeTrip.trip_id || activeTrip.Trip_ID} Cash from ${pump.vendor_name}`, createdAt: serverTimestamp() });
         }
       }
 
-      await updateDoc(doc(db, "TRIPS", activeTrip.id), { 
-        total_expense: parseFloat(activeTrip.total_expense || '0') + totalNewExpense, 
-        hsd_issued: parseFloat(activeTrip.hsd_issued || '0') + newHsdIssued, 
-        pump_cash_advance: parseFloat(activeTrip.pump_cash_advance || '0') + newPumpCash,
-        fixed_hsd: memoData.fixed_hsd, 
-        fixed_cash: memoData.fixed_cash 
+      batch.update(doc(db, "TRIPS", activeTrip.id), {
+        total_expense: increment(round2(newFuelExpense)),       // expenses: fuel value only
+        hsd_issued: increment(newHsdIssued),
+        pump_cash_advance: increment(round2(newPumpCash)),      // advances: tracked separately
+        total_advances: increment(round2(newPumpCash)),
+        fixed_hsd: memoData.fixed_hsd,
+        fixed_cash: memoData.fixed_cash
       });
-      
-      setGeneratedMemos(savedSlips); 
+      await batch.commit();
+
+      setGeneratedMemos(savedSlips);
       fetchData();
     } catch(e) { alert("❌ Error saving Fuel Memo."); }
+    setSavingMemo(false);
   };
 
   const sendFuelMemoWhatsApp = (slip: any) => {
@@ -407,6 +428,24 @@ export default function TripManagment() {
     let phone = slip.pump_mobile.replace(/\s+/g, '');
     if (phone.length === 10) phone = '91' + phone;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  // 📡 Re-read this trip's doc so the Live GPS view shows the freshest ping
+  const refreshLiveLocation = async () => {
+    if (!activeTrip?.id || gpsRefreshing) return;
+    setGpsRefreshing(true);
+    try {
+      const snap = await getDoc(doc(db, "TRIPS", activeTrip.id));
+      if (snap.exists()) setActiveTrip({ id: snap.id, ...snap.data() });
+    } catch (e) { console.error(e); }
+    setGpsRefreshing(false);
+  };
+
+  const gpsAgeMinutes = (loc: any): number | null => {
+    if (!loc?.lastUpdated) return null;
+    const t = new Date(loc.lastUpdated).getTime();
+    if (isNaN(t)) return null;
+    return Math.max(0, Math.round((Date.now() - t) / 60000));
   };
 
   const requestLiveLocation = () => {
@@ -422,13 +461,28 @@ export default function TripManagment() {
   const handleCompleteTrip = async () => {
     if(!activeTrip) return;
     try {
-      const gross = parseFloat(activeTrip.gross_freight || '0');
-      const expenses = parseFloat(activeTrip.total_expense || '0');
-      const penalty = parseFloat(unloadData.shortage_penalty || '0');
-      const finalBal = gross - expenses - penalty;
+      // 💰 TRUTH FIX: settlement uses canonical trip math — freight and true
+      // expenses (fuel/toll), with recoverable advances reported separately
+      // instead of being silently mixed into "expense".
+      const gross = getTripFreight(activeTrip);
+      const expenses = getTripExpense(activeTrip);
+      const advances = getTripAdvances(activeTrip);
+      const penalty = round2(parseFloat(unloadData.shortage_penalty || '0') || 0);
+      const finalBal = round2(gross - expenses - penalty);
 
-      await updateDoc(doc(db, "TRIPS", activeTrip.id), { ...unloadData, trip_status: 'COMPLETED', final_balance: finalBal });
-      alert(`✅ Trip Completed! Settlement: ₹${finalBal}`);
+      const completionStamp = new Date().toISOString();
+      await updateDoc(doc(db, "TRIPS", activeTrip.id), {
+        ...unloadData,
+        trip_status: 'COMPLETED',
+        final_balance: finalBal,
+        total_advances: advances,
+        // Unify the two completion doors (TripManagment vs UnlodingDetals):
+        // both now stamp approval + completed_at so registers/filters agree.
+        office_approved_unloading: true,
+        completed_at: completionStamp,
+        unloading_date: unloadData.unloading_date || completionStamp.split('T')[0]
+      });
+      alert(`✅ Trip Completed!\n\n💰 Settlement (Freight − Kharcha − Penalty): ₹${finalBal.toLocaleString('en-IN')}\n🤝 Driver advances outstanding (khata se vasooli): ₹${advances.toLocaleString('en-IN')}`);
       setShowUnloadModal(false);
       fetchData();
     } catch(e) { alert("Error completing trip"); }
@@ -522,26 +576,44 @@ export default function TripManagment() {
             
             <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
               <button onClick={() => setTrackMode('ROUTE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #38bdf8', cursor: 'pointer', background: trackMode === 'ROUTE' ? '#38bdf8' : '#1e293b', color: trackMode === 'ROUTE' ? '#0f172a' : '#38bdf8' }}>🛣️ Full Route Plan</button>
-              <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #10b981', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#1e293b', color: trackMode === 'GPRS' ? '#0f172a' : '#10b981' }}>📡 Vehicle GPRS (Live)</button>
+              <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #10b981', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#1e293b', color: trackMode === 'GPRS' ? '#0f172a' : '#10b981' }}>📡 Live GPS (Driver App)</button>
               <button onClick={() => setTrackMode('MOBILE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #f59e0b', cursor: 'pointer', background: trackMode === 'MOBILE' ? '#f59e0b' : '#1e293b', color: trackMode === 'MOBILE' ? '#0f172a' : '#f59e0b' }}>📱 Driver Mobile (Live)</button>
             </div>
 
             <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155', position: 'relative' }}>
               {/* 🗺️ GOOGLE MAPS FIX APPLIED HERE */}
               {trackMode === 'ROUTE' && (
-                <iframe 
-                    width="100%" height="100%" frameBorder="0" style={{ border: 0 }} 
-                    src={`https://maps.google.com/maps?q=${encodeURIComponent(activeTrip.loading_point || activeTrip.Loading_Point || '')}&destination=${encodeURIComponent(activeTrip.consignee_name || activeTrip.Consignee_Name || '')}&t=&z=7&ie=UTF8&iwloc=&output=embed`} 
+                <iframe
+                    width="100%" height="100%" frameBorder="0" style={{ border: 0 }}
+                    src={`https://maps.google.com/maps?saddr=${encodeURIComponent(activeTrip.loading_point || activeTrip.Loading_Point || '')}&daddr=${encodeURIComponent(activeTrip.consignee_name || activeTrip.Consignee_Name || '')}&z=7&output=embed`}
                     allowFullScreen>
                 </iframe>
               )}
-              {trackMode === 'GPRS' && (
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign:'center' }}>
-                  <span style={{ fontSize: '50px' }}>📡</span>
-                  <h2 style={{ color: '#10b981', margin:'10px 0' }}>Hardware GPS Not Detected</h2>
-                  <p style={{color:'#94a3b8'}}>Please connect a third-party GPS API (like LocoNav) to enable automatic live tracking.</p>
+              {trackMode === 'GPRS' && (activeTrip.liveLocation?.lat ? (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', background: 'rgba(16,185,129,0.1)', borderBottom: '1px solid #334155', gap: '10px', flexWrap: 'wrap' }}>
+                    {(() => { const age = gpsAgeMinutes(activeTrip.liveLocation); const stale = age === null || age > 15; return (
+                      <span style={{ color: stale ? '#f59e0b' : '#10b981', fontWeight: 'bold', fontSize: '13px' }}>
+                        📡 {age === null ? 'Driver app se live ping' : age < 1 ? 'Updated just now' : `Updated ${age} min ago`}{stale ? ' ⚠️ (purana ho sakta hai)' : ''}
+                      </span>
+                    ); })()}
+                    <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ background: '#10b981', color: '#0f172a', border: 'none', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛' : '🔄 Refresh'}</button>
+                  </div>
+                  <iframe
+                    width="100%" style={{ border: 0, flex: 1 }} frameBorder="0"
+                    src={`https://maps.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}&z=13&output=embed`}
+                    allowFullScreen>
+                  </iframe>
+                  <a href={`https://www.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}`} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center', padding: '10px', background: '#1e293b', color: '#38bdf8', textDecoration: 'none', fontWeight: 'bold', fontSize: '13px' }}>🗺️ Open exact position in Google Maps</a>
                 </div>
-              )}
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign:'center', padding: '20px' }}>
+                  <span style={{ fontSize: '50px' }}>📡</span>
+                  <h2 style={{ color: '#10b981', margin:'10px 0' }}>No GPS Ping Yet</h2>
+                  <p style={{color:'#94a3b8'}}>Driver app khula rahega to location apne aap yahan aayegi.<br/>Ask the driver to open the Driver App — it shares live GPS automatically for the active trip.</p>
+                  <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ marginTop: '15px', background: '#10b981', color: '#0f172a', border: 'none', padding: '10px 25px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛ Checking...' : '🔄 Check Again'}</button>
+                </div>
+              ))}
               {trackMode === 'MOBILE' && (
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign: 'center', padding:'20px' }}>
                   <span style={{ fontSize: '50px' }}>📱</span>
@@ -590,7 +662,7 @@ export default function TripManagment() {
               <input type="text" style={styles.input} placeholder="Remarks / Ref No." value={paymentData.remarks} onChange={e=>setPaymentData({...paymentData, remarks: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                 <button onClick={()=>setShowPaymentModal(false)} style={{ flex: 1, background: '#334155', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
-                <button onClick={handleDriverPayment} style={{ flex: 1, background: '#8b5cf6', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>Confirm Payment</button>
+                <button onClick={handleDriverPayment} disabled={savingPayment} style={{ flex: 1, background: savingPayment ? '#64748b' : '#8b5cf6', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>{savingPayment ? '⌛ Paying...' : 'Confirm Payment'}</button>
               </div>
             </div>
           </div>
@@ -649,12 +721,14 @@ export default function TripManagment() {
                     <select style={{...styles.input, flex: 1.5}} value={pump.vendor_id} onChange={e=>handlePumpChange(pump.id, 'vendor_id', e.target.value)}><option value="">-- Petrol Pump --</option>{fuelVendors.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}</select>
                     <select style={{...styles.input, flex: 1}} value={pump.fuel_type} onChange={e=>handlePumpChange(pump.id, 'fuel_type', e.target.value)}><option value="FIXED">Fixed</option><option value="ADVANCE">Advance</option></select>
                     <input type="number" style={{...styles.input, flex: 1}} placeholder="Liters (New)" value={pump.qty} onChange={e=>handlePumpChange(pump.id, 'qty', e.target.value)} />
+                    <input type="number" style={{...styles.input, flex: 1, borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ef4444' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
+                    <div style={{flex: 1, textAlign: 'center'}}><span style={{fontSize:'10px', color:'#94a3b8', display:'block'}}>Amount</span><b style={{color:'#f59e0b'}}>₹{pump.amount || '0.00'}</b></div>
                     <input type="number" style={{...styles.input, flex: 1}} placeholder="Cash (New)" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} />
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
                   <button onClick={() => setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }])} style={{ background: 'transparent', color: '#38bdf8', border: '1px dashed #38bdf8', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>+ Add Pump</button>
-                  <button onClick={handleSaveFuelMemo} style={{ padding: '12px 30px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>🚀 Save & Generate WA Slip</button>
+                  <button onClick={handleSaveFuelMemo} disabled={savingMemo} style={{ padding: '12px 30px', background: savingMemo ? '#64748b' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>{savingMemo ? '⌛ Saving...' : '🚀 Save & Generate WA Slip'}</button>
                 </div>
               </>
             )}

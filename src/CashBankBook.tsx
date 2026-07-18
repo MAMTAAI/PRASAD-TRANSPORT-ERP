@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { isDateInRange as inRange } from './lib/accounting/tripMath';
 
 export default function CashBankBook() {
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -441,14 +442,8 @@ export default function CashBankBook() {
     const t_acc = t.bank_account || t.account; 
     const matchAccount = selectedAccount === 'ALL' || t_acc === selectedAccount || t.from_account === selectedAccount || t.to_account === selectedAccount;
     
-    let matchDate = true;
-    if (fromDate || toDate) {
-      if (!t.date) matchDate = false;
-      else {
-        if (fromDate && t.date < fromDate) matchDate = false;
-        if (toDate && t.date > toDate) matchDate = false;
-      }
-    }
+    // Normalized date range (handles DD-MM-YYYY / ISO / Timestamp)
+    const matchDate = inRange(t.date, fromDate || undefined, toDate || undefined);
     return matchCompany && matchBranch && matchAccount && matchDate;
   });
 

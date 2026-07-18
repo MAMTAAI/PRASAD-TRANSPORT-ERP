@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
+import { vGstin, vPan, vMobile, gstinPanMatch, runChecks } from './lib/validators';
 
 interface CustomerPortalProps {
   onLogout?: () => void;
@@ -146,16 +147,39 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
     setLoading(false);
   };
 
-  const handleKYCSubmit = (e: React.FormEvent) => {
+  // ✅ REAL submission (Truth Sprint): validated, persisted to Firestore for
+  // staff review. The old handler saved nothing and fake-auto-approved after 3s.
+  const handleKYCSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if(!profile.corporateName || !profile.gstNumber || !profile.mobileNo) return alert("Fill all mandatory fields.");
-    
-    setProfile({ ...profile, status: 'PENDING' });
-    alert("✅ Profile Submitted Successfully! It is now pending for Admin approval in the ERP System.\n\n(Tip: I am temporarily auto-approving it so you can test the system!)");
-    
-    setTimeout(() => {
-      setProfile(prev => ({ ...prev, status: 'APPROVED' }));
-    }, 3000);
+    const errors = runChecks([
+      vGstin(profile.gstNumber, true),
+      vMobile(profile.mobileNo, true),
+      vPan(profile.panNumber),
+      gstinPanMatch(profile.gstNumber, profile.panNumber),
+    ]);
+    if (errors.length) return alert("⚠️ Please fix these before submitting:\n\n• " + errors.join("\n• "));
+
+    setLoading(true);
+    try {
+      await addDoc(collection(db, "ONBOARDING_APPLICATIONS"), {
+        type: 'CUSTOMER',
+        corporate_name: profile.corporateName.toUpperCase(),
+        gst_no: profile.gstNumber.toUpperCase(),
+        pan_no: (profile.panNumber || '').toUpperCase(),
+        mobile_no: profile.mobileNo,
+        address: profile.address || '',
+        contact_person: profile.contactPerson || '',
+        status: 'SUBMITTED',
+        submitted_at: serverTimestamp(),
+      });
+      setProfile({ ...profile, status: 'PENDING' });
+      alert("✅ Profile submitted for verification. Prasad Transport office will review and approve your KYC — you will be contacted on the mobile number provided.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Submission failed — please check your connection and try again.");
+    }
+    setLoading(false);
   };
 
   const handleDownload = (docName: string) => {

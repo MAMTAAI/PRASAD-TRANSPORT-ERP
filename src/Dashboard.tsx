@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { scopeCurrent } from './lib/rbac';
+import { getTripFreight, getTripExpense, round2 } from './lib/accounting/tripMath';
 
 interface DashboardProps {
   activeModule: string; 
@@ -243,9 +244,11 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
 
     let realRevenue = 0; let realExpenses = 0; const realDebtorsMap: any = {};
     filteredFinanceTrips.forEach(t => {
-      const freight = parseFloat(t.gross_freight || t.Rate || t.Freight || '0') || 0;
-      const expense = parseFloat(t.total_expense || t.Total_Expense || '0') || 0;
-      realRevenue += freight; realExpenses += expense;
+      // 💰 Canonical trip math (lib/accounting/tripMath) — SAME helpers as
+      // FinancialReports, so the two screens can never disagree again.
+      const freight = getTripFreight(t);
+      const expense = getTripExpense(t);
+      realRevenue = round2(realRevenue + freight); realExpenses = round2(realExpenses + expense);
 
       if (t.billing_status !== 'PAID' && t.trip_status === 'COMPLETED') {
          const cName = t.Customer || t.customer_name || t.Registered_Assessee || 'Unknown Customer';

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
+import { vGstin, vPan, vMobile, vAadhaar, gstinPanMatch, runChecks } from './lib/validators';
 
 interface FleetPartnerPortalProps {
   onBack?: () => void;
@@ -74,15 +75,42 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
     } catch (e) { console.error("Error fetching bids:", e); }
   };
 
-  const handleKYCSubmit = (e: React.FormEvent) => {
+  // ✅ REAL submission (Truth Sprint): validated, persisted to Firestore for
+  // staff review. The old handler saved nothing and fake-auto-approved after 3s.
+  const handleKYCSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if(!profile.agencyName || !profile.panNumber) return alert("Fill all mandatory fields (*).");
-    setProfile({ ...profile, status: 'PENDING' });
-    alert("✅ Agency Profile Submitted! Pending for Admin Approval.");
-    setTimeout(() => {
-      setProfile(prev => ({ ...prev, status: 'APPROVED' }));
-      fetchMyBids(); // Refetch bids after approval (uses agency name)
-    }, 3000);
+    const errors = runChecks([
+      vPan(profile.panNumber, true),
+      vMobile(profile.mobileNo, true),
+      vGstin(profile.gstNumber),
+      gstinPanMatch(profile.gstNumber, profile.panNumber),
+      vAadhaar(profile.aadharNumber),
+    ]);
+    if (errors.length) return alert("⚠️ Please fix these before submitting:\n\n• " + errors.join("\n• "));
+
+    setLoading(true);
+    try {
+      await addDoc(collection(db, "ONBOARDING_APPLICATIONS"), {
+        type: 'FLEET_PARTNER',
+        agency_name: profile.agencyName,
+        owner_name: profile.ownerName || '',
+        mobile_no: profile.mobileNo,
+        gst_no: (profile.gstNumber || '').toUpperCase(),
+        pan_no: profile.panNumber.toUpperCase(),
+        // PII minimization: store Aadhaar masked — full number is not needed
+        // for the review step and the collection is broadly readable (interim rules).
+        aadhaar_last4: (profile.aadharNumber || '').replace(/[\s-]/g, '').slice(-4),
+        status: 'SUBMITTED',
+        submitted_at: serverTimestamp(),
+      });
+      setProfile({ ...profile, status: 'PENDING' });
+      alert("✅ Agency profile submitted for verification. Prasad Transport office will review your KYC and contact you.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Submission failed — please check your connection and try again.");
+    }
+    setLoading(false);
   };
 
   const handleSubmitBid = async (e: React.FormEvent) => {

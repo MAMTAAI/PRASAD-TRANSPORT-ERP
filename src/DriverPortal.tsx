@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
 import { db } from './firebase';
+import { uploadMedia, slug } from './lib/uploadMedia';
 
 interface DriverPortalProps {
   onBack?: () => void;
@@ -22,6 +23,7 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
   const [isTracking, setIsTracking] = useState(false);
   const [currentLoc, setCurrentLoc] = useState<{lat: number, lng: number} | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const lastPingRef = useRef<{ t: number, lat: number, lng: number } | null>(null);
 
   // 📱 UI NAVIGATION STATES
   const [activeTab, setActiveTab] = useState('TRIPS'); // TRIPS, EXPENSES, KYC
@@ -153,6 +155,18 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
     }
   }, [activeTrips]);
 
+  // Throttle: write a ping at most every 3 min, or sooner if the truck moved
+  // ≥500 m. Unthrottled watchPosition was writing to Firestore every few
+  // seconds per moving truck (battery + data + billing burn).
+  const PING_MIN_MS = 3 * 60 * 1000;
+  const PING_MIN_METERS = 500;
+  const metersBetween = (a: {lat:number,lng:number}, b: {lat:number,lng:number}) => {
+    const R = 6371000, rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad) * Math.cos(b.lat*rad) * Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  };
+
   const startAutoTracking = (tripId: string) => {
     if (!navigator.geolocation) return;
     setIsTracking(true);
@@ -161,9 +175,14 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         setCurrentLoc({ lat, lng });
-        if (!tripId.includes('DEMO')) {
-           updateDoc(doc(db, "TRIPS", tripId), { liveLocation: { lat, lng, lastUpdated: new Date().toISOString() } });
-        }
+        if (tripId.includes('DEMO')) return;
+        const last = lastPingRef.current;
+        const now = Date.now();
+        const due = !last || (now - last.t) >= PING_MIN_MS || metersBetween(last, { lat, lng }) >= PING_MIN_METERS;
+        if (!due) return;
+        lastPingRef.current = { t: now, lat, lng };
+        updateDoc(doc(db, "TRIPS", tripId), { liveLocation: { lat, lng, lastUpdated: new Date().toISOString() } })
+          .catch(() => { lastPingRef.current = last; }); // failed write → retry on next fix
       },
       (error) => { console.error("Auto GPS Error:", error); setIsTracking(false); },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
@@ -177,28 +196,48 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
   // ==========================================
   // 📸 ACTION HANDLERS
   // ==========================================
+  // 📸 REAL uploads (Truth Sprint): photos now go to Firebase Storage and the
+  // permanent downloadURL is stored — the office can actually open them. The
+  // old flow stored a device-local blob: URL behind a fake success alert, so
+  // every POD/challan photo silently died on the driver's phone.
   const handleTripImageUpload = async (e: any, tripId: string, fieldType: string) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = ''; // allow re-selecting the same file after a failure
     setUploadingDoc(`${tripId}_${fieldType}`);
-    setTimeout(() => {
-      alert("✅ Image Uploaded Successfully!");
-      updateTripData(tripId, fieldType, URL.createObjectURL(file));
-      setUploadingDoc(null);
-    }, 1500);
+    try {
+      if (tripId.includes('DEMO')) {
+        updateTripData(tripId, fieldType, URL.createObjectURL(file));
+      } else {
+        const { url } = await uploadMedia(file, `trips/${slug(tripId)}/${slug(fieldType)}_${Date.now()}.jpg`);
+        await updateTripData(tripId, fieldType, url);
+        alert("✅ Photo office ko pahunch gayi! (Uploaded)");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("❌ Upload nahi hua — network check karke dobara try karein.\n(Upload failed — please retry)");
+    }
+    setUploadingDoc(null);
   };
 
   const handleDriverDocumentUpload = async (e: any, fieldType: string) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = '';
     setUploadingDoc(fieldType);
-    setTimeout(() => {
-      alert(`✅ ${fieldType} Uploaded Successfully!`);
-      const mockUrl = URL.createObjectURL(file);
-      if(driver.id.includes('DEMO')) { setDriver({ ...driver, [fieldType]: mockUrl }); } 
-      else { updateDriverKYC(fieldType, mockUrl); }
-      setUploadingDoc(null);
-    }, 1500);
+    try {
+      if (driver.id.includes('DEMO')) {
+        setDriver({ ...driver, [fieldType]: URL.createObjectURL(file) });
+      } else {
+        const { url } = await uploadMedia(file, `drivers/${slug(driver.id)}/${slug(fieldType)}_${Date.now()}.jpg`);
+        await updateDriverKYC(fieldType, url);
+        alert(`✅ ${fieldType} upload ho gaya! (Uploaded)`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("❌ Upload nahi hua — network check karke dobara try karein.\n(Upload failed — please retry)");
+    }
+    setUploadingDoc(null);
   };
 
   const updateDriverKYC = async (fieldName: string, value: any) => {

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, Timestamp, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { ledgerBalances } from './lib/accounting/journal';
+import { isDateInRange as inRange } from './lib/accounting/tripMath';
 
 // 📊 IMPORTING CHARTS
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -171,6 +172,9 @@ export default function LedgerMgmt() {
        
        await addDoc(collection(db, "LEDGERS"), {
           ledger_name: newVendorData.vendor_name,
+          // Readers key on `group` — the old `group_head`-only write dumped
+          // every vendor ledger into Suspense A/c (Truth Sprint fix).
+          group: "Sundry Creditors (Vendors)",
           group_head: "Sundry Creditors (Vendors)",
           op_balance: parseFloat(newVendorData.opening_balance || '0'),
           dr_cr: "Cr (Credit)",
@@ -247,12 +251,9 @@ export default function LedgerMgmt() {
 
   const handlePrintStatement = () => window.print();
 
-  const isDateInRange = (dateStr: string) => {
-     if(!dateStr) return true;
-     if(fromDate && dateStr < fromDate) return false;
-     if(toDate && dateStr > toDate) return false;
-     return true;
-  };
+  // Normalized date range (handles DD-MM-YYYY / ISO / Timestamp) — replaces
+  // the lexical string compare that mis-filtered mixed-format rows.
+  const isDateInRange = (dateVal: any) => inRange(dateVal, fromDate || undefined, toDate || undefined);
 
   const allSystemLedgers = [...ledgers, ...partyLedgers];
   const filteredLedgers = allSystemLedgers.filter(l => isMatch(l.company, selectedCompany));

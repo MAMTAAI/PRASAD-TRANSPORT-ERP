@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
+import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks } from './lib/validators';
 
 export default function Customer() {
   const [activeTab, setActiveTab] = useState('CORPORATE'); 
@@ -131,6 +132,15 @@ export default function Customer() {
 
   const handleSaveCustomer = async () => {
     if (!formData.customer_name) return alert("⚠️ Customer Name is required!");
+    // ✅ Format validation (Truth Sprint) — GST/PAN/mobile/pincode were free text.
+    const vErrors = runChecks([
+      vGstin(formData.gst_no),
+      vPan(formData.pan_no),
+      gstinPanMatch(formData.gst_no, formData.pan_no),
+      vMobile(formData.mobile_no),
+      vPincode(formData.pincode),
+    ]);
+    if (vErrors.length) return alert("⚠️ Please fix these fields:\n\n• " + vErrors.join("\n• "));
     // 🚫 Duplicate guard — one unified customer record (name or GSTIN unique).
     const nrm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const dup = customers.find(c => c.id !== editingId && (
@@ -145,7 +155,7 @@ export default function Customer() {
       } else {
         const docRef = await addDoc(collection(db, "CUSTOMERS"), { ...formData, createdAt: serverTimestamp() });
         await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: formData.customer_name, group_head: "Sundry Debtors", opening_balance: parseFloat(formData.opening_balance || '0'), 
+          ledger_name: formData.customer_name, group: "Sundry Debtors", group_head: "Sundry Debtors", opening_balance: parseFloat(formData.opening_balance || '0'),
           current_balance: parseFloat(formData.opening_balance || '0'), creation_type: "AUTO_SYSTEM", linked_module: "CUSTOMER", linked_id: docRef.id, created_at: serverTimestamp()
         });
         alert("✅ New Customer Saved & Portal Access Configured!");
@@ -388,7 +398,9 @@ export default function Customer() {
                 <div><label style={{ fontSize:'11px', color:'#c084fc' }}>PAN Number</label><input className="modern-input" value={formData.pan_no} onChange={e=>setFormData({...formData, pan_no: e.target.value.toUpperCase()})} /></div>
                 
                 <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Billing Address</label><input className="modern-input" value={formData.address} onChange={e=>setFormData({...formData, address: e.target.value})} /></div>
-                <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>State & Pincode</label><input className="modern-input" placeholder="State - Pincode" value={`${formData.state} ${formData.pincode}`} onChange={e=>setFormData({...formData, state: e.target.value})} /></div>
+                {/* Split fields — the old combined input could never save pincode and corrupted state on every edit */}
+                <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>State</label><input className="modern-input" placeholder="State" value={formData.state} onChange={e=>setFormData({...formData, state: e.target.value})} /></div>
+                <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Pincode</label><input className="modern-input" placeholder="6-digit Pincode" inputMode="numeric" maxLength={6} value={formData.pincode} onChange={e=>setFormData({...formData, pincode: e.target.value.replace(/[^\d]/g, '')})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Contact Person</label><input className="modern-input" value={formData.contact_person} onChange={e=>setFormData({...formData, contact_person: e.target.value})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile No</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
 

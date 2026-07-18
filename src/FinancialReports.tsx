@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { getJournal, ledgerBalances, reconcile } from './lib/accounting/journal';
+import { getTripFreight, getTripExpense, round2, isDateInRange as inRange } from './lib/accounting/tripMath';
+import { scopeCurrent } from './lib/rbac';
 // 📊 IMPORTING CHARTS
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -105,7 +107,9 @@ export default function FinancialReports() {
   const fetchRealSystemData = async () => {
     try {
        const tSnap = await getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]}));
-       setTrips(tSnap.docs.map(d => ({id: d.id, ...d.data()})));
+       // 🔐 RBAC scope — same as Dashboard, so a branch-scoped user sees the
+       // same Revenue on both screens (and stops seeing other branches' money).
+       setTrips(scopeCurrent(tSnap.docs.map(d => ({id: d.id, ...d.data()}))) || []);
 
        const lSnap1 = await getDocs(collection(db, "LOAN_MASTER")).catch(()=>({docs:[]}));
        const lSnap2 = await getDocs(collection(db, "LOANS")).catch(()=>({docs:[]}));
@@ -131,12 +135,9 @@ export default function FinancialReports() {
   const handlePrint = () => window.print();
   const clearDates = () => { setFromDate(''); setToDate(''); };
 
-  const isDateInRange = (dateStr: string) => {
-     if(!dateStr) return true;
-     if(fromDate && dateStr < fromDate) return false;
-     if(toDate && dateStr > toDate) return false;
-     return true;
-  };
+  // Normalized date filtering (handles DD-MM-YYYY, ISO, Firestore Timestamp) —
+  // the old lexical string compare silently mis-filtered mixed-format rows.
+  const isDateInRange = (dateVal: any) => inRange(dateVal, fromDate || undefined, toDate || undefined);
 
   // ==========================================
   // 📈 PNL CALCULATIONS & DETAILED BREAKDOWN
@@ -158,19 +159,29 @@ export default function FinancialReports() {
      if (!isMatch(getVal(t, ['Branch', 'branch']), selectedBranch)) return;
      if (!isMatch(getVal(t, ['Vehicle_No', 'vehicle_no', 'vehical_no']), selectedVehicle)) return;
 
-     const freightAmt = parseFloat(getVal(t, ['gross_freight', 'Gross_Freight', 'Freight', 'Rate', 'total_freight'], '0'));
-     directIncomes += freightAmt;
+     // 💰 Canonical trip math — identical helpers to the Finance Hub, so both
+     // screens always report the same Revenue/Expense for the same trip.
+     const freightAmt = getTripFreight(t);
+     directIncomes = round2(directIncomes + freightAmt);
      dirIncBreakdown['Trip Freight Revenue'] += freightAmt;
 
-     const fuel = parseFloat(getVal(t, ['diesel_amount', 'fuel_amount', 'diesel'], '0'));
-     const toll = parseFloat(getVal(t, ['toll_amount', 'toll', 'fastag'], '0'));
-     const driver = parseFloat(getVal(t, ['driver_bhatta', 'driver_advance', 'bhatta'], '0'));
-     const otherExp = parseFloat(getVal(t, ['total_expense', 'Total_Expense'], '0')) - (fuel + toll + driver);
+     // Breakdown lines are capped so they always sum EXACTLY to the canonical
+     // trip expense (legacy rows sometimes carry component fields that exceed
+     // total_expense). Note: driver_advance is deliberately NOT an expense —
+     // advances are recoverable khata, not P&L.
+     const te = getTripExpense(t);
+     const fuelRaw = parseFloat(getVal(t, ['diesel_amount', 'fuel_amount', 'diesel'], '0')) || 0;
+     const tollRaw = parseFloat(getVal(t, ['toll_amount', 'toll', 'fastag'], '0')) || 0;
+     const bhattaRaw = parseFloat(getVal(t, ['driver_bhatta', 'bhatta'], '0')) || 0;
+     const fuel = Math.min(fuelRaw, te);
+     const toll = Math.min(tollRaw, Math.max(0, te - fuel));
+     const bhatta = Math.min(bhattaRaw, Math.max(0, te - fuel - toll));
+     const otherExp = round2(Math.max(0, te - fuel - toll - bhatta));
 
-     directExpenses += (fuel + toll + driver + (otherExp > 0 ? otherExp : 0));
+     directExpenses = round2(directExpenses + te);
      dirExpBreakdown['Fuel (Diesel/Petrol)'] += fuel;
      dirExpBreakdown['Toll & Fastag'] += toll;
-     dirExpBreakdown['Driver Bhatta/Salary'] += driver;
+     dirExpBreakdown['Driver Bhatta/Salary'] += bhatta;
      if(otherExp > 0) dirExpBreakdown['Other Direct Exp'] += otherExp;
   });
 
