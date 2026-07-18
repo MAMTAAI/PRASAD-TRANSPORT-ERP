@@ -40,6 +40,14 @@ export interface ChatOptions {
   tools?: ToolDefinition[];
   /** Ask the model for structured output: 'json' or a JSON Schema object. */
   format?: 'json' | Record<string, unknown>;
+  /** Context window override (tokens). Vision/tabular extraction needs headroom
+   *  beyond Ollama's small default or early prompt content silently truncates. */
+  numCtx?: number;
+  /** Reasoning toggle for thinking-capable models. MUST be false for
+   *  schema-constrained extraction: on hard documents the model can spend its
+   *  entire output budget "thinking" and return empty content (done_reason:
+   *  length) — verified against real IOCL bills. */
+  think?: boolean;
   /** Abort in-flight requests (e.g. user navigates away / cancels). */
   signal?: AbortSignal;
   /** Disable automatic fallback to the lighter model on failure. */

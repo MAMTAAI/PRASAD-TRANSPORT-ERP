@@ -24,6 +24,7 @@ import Vander from './Vander';
 import TollFastagMgmt from './TollFastagMgmt';
 import LoanEmiMgmt from './LoanEmiMgmt';
 import GstMgmt from './GstMgmt';
+import BillScanner from './BillScanner';
 import TdsMgmt from './TdsMgmt';
 import UGER from './UGER'; 
 import CompanyInbox from './CompanyInbox';
@@ -283,6 +284,7 @@ export default function App() {
       case 'LEDGER': return <LedgerMgmt />;
       case 'PNL': return <FinancialReports />;
       case 'BILLING': return <BillManagement />;
+      case 'AI_SCANNER': return <BillScanner />;
       case 'LOCATION_RTKM': return <LocationRtkmMaster />;
       case 'CUSTOMER': return <Customer />;
       case 'VENDOR': return <Vander />;

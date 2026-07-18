@@ -27,10 +27,11 @@ function buildBody(messages: ChatMessage[], opts: ChatOptions & { model: string 
     model: opts.model,
     messages: toOllamaMessages(messages),
     stream,
-    options: { temperature: opts.temperature ?? 0.4 },
+    options: opts.numCtx ? { temperature: opts.temperature ?? 0.4, num_ctx: opts.numCtx } : { temperature: opts.temperature ?? 0.4 },
   };
   if (opts.tools?.length) body.tools = opts.tools;
   if (opts.format) body.format = opts.format;
+  if (opts.think !== undefined) body.think = opts.think;
   return body;
 }
 
