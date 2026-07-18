@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import { db } from './firebase';
@@ -37,6 +37,13 @@ export default function TripManagment() {
   
   // 🌟 Global Search & History Filters
   const [globalSearch, setGlobalSearch] = useState('');
+  // Debounced copy of the search text — filtering runs 250ms after typing
+  // stops instead of on every keystroke over the full trips array.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(globalSearch), 250);
+    return () => clearTimeout(t);
+  }, [globalSearch]);
   const [historyFromDate, setHistoryFromDate] = useState('');
   const [historyToDate, setHistoryToDate] = useState('');
 
@@ -142,7 +149,7 @@ export default function TripManagment() {
   };
 
   const handleConsigneeChange = (val: string) => {
-    const master = rtkmMaster.find(m => checkMatch(m.Consignee_Name || m.unloading_point || m.Destination, val));
+    const master = findRoute(val);
     
     if (master) {
       setFormData({
@@ -321,7 +328,7 @@ export default function TripManagment() {
 
   const openFuelModal = (trip: any) => {
     setActiveTrip(trip);
-    const masterRoute = rtkmMaster.find(m => checkMatch(m.Consignee_Name || m.unloading_point, trip.consignee_name || trip.Consignee_Name)) || {};
+    const masterRoute = findRoute(trip.consignee_name || trip.Consignee_Name);
     
     let hsdTarget = parseFloat(getVal(trip, ['fixedhsd', 'fixedhsdqty'])) || 0;
     if (hsdTarget === 0) hsdTarget = parseFloat(getVal(masterRoute, ['fixedhsdqty', 'fixedhsd', 'hsd'])) || 0;
@@ -488,10 +495,22 @@ export default function TripManagment() {
     } catch(e) { alert("Error completing trip"); }
   };
 
-  // 🔥 FILTER LOGIC FOR TRIPS (WITH COMPANY INCLUDED)
-  const activeTrips = trips.filter(t => t.trip_status !== 'COMPLETED').filter(t => {
-      if(!globalSearch) return true;
-      const q = globalSearch.toLowerCase();
+  // 🗺️ Cached route lookup: rtkmMaster fuzzy-match ran regex-normalization
+  // per table row per render; results are now cached per consignee name.
+  const routeCache = useMemo(() => new Map(), [rtkmMaster]);
+  const findRoute = (name: any) => {
+    const key = String(name || '').toLowerCase();
+    if (routeCache.has(key)) return routeCache.get(key);
+    const hit = rtkmMaster.find(m => checkMatch(m.Consignee_Name || m.unloading_point || m.Destination, name)) || {};
+    routeCache.set(key, hit);
+    return hit;
+  };
+
+  // 🔥 FILTER LOGIC FOR TRIPS — memoized; recomputes only when trips or the
+  // (debounced) filters change, not on every keystroke/modal state change.
+  const activeTrips = useMemo(() => trips.filter(t => t.trip_status !== 'COMPLETED').filter(t => {
+      if(!debouncedSearch) return true;
+      const q = debouncedSearch.toLowerCase();
       return (
           (t.vehicle_no || t.Vehical_No || '').toLowerCase().includes(q) ||
           (t.driver_name || t.Driver_Name || '').toLowerCase().includes(q) ||
@@ -501,17 +520,17 @@ export default function TripManagment() {
           (t.Operating_Company || t.operating_company || '').toLowerCase().includes(q) ||
           (t.challan_no || t.Challan_No || '').toLowerCase().includes(q)
       );
-  });
+  }), [trips, debouncedSearch]);
 
-  const completedTrips = trips.filter(t => t.trip_status === 'COMPLETED').filter(t => {
+  const completedTrips = useMemo(() => trips.filter(t => t.trip_status === 'COMPLETED').filter(t => {
       let matchDate = true;
       const tDate = t.unloading_date || t.start_date || t.Loading_Date || '';
       if (historyFromDate && tDate < historyFromDate) matchDate = false;
       if (historyToDate && tDate > historyToDate) matchDate = false;
 
       let matchSearch = true;
-      if(globalSearch) {
-        const q = globalSearch.toLowerCase();
+      if(debouncedSearch) {
+        const q = debouncedSearch.toLowerCase();
         matchSearch = (
             (t.vehicle_no || t.Vehical_No || '').toLowerCase().includes(q) ||
             (t.loading_point || t.Loading_Point || '').toLowerCase().includes(q) ||
@@ -523,7 +542,7 @@ export default function TripManagment() {
         );
       }
       return matchDate && matchSearch;
-  });
+  }), [trips, debouncedSearch, historyFromDate, historyToDate]);
 
   // 🚦 Map a raw trip_status to a design-system lifecycle pill (Phase 4)
   const tripStatusPill = (status: string) => {
@@ -543,7 +562,7 @@ export default function TripManagment() {
   let payModalCashTarget = 0;
   let payModalCashIssued = 0;
   if(activeTrip) {
-      const mRoute = rtkmMaster.find(m => checkMatch(m.Consignee_Name || m.unloading_point, activeTrip.consignee_name || activeTrip.Consignee_Name)) || {};
+      const mRoute = findRoute(activeTrip.consignee_name || activeTrip.Consignee_Name);
       payModalCashTarget = parseFloat(getVal(activeTrip, ['fixedcash', 'fixedcashamt'])) || parseFloat(getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
       payModalCashIssued = parseFloat(activeTrip.office_cash_paid||0) + parseFloat(activeTrip.bank_paid||0) + parseFloat(activeTrip.pump_cash_advance||0);
   }
@@ -890,7 +909,7 @@ export default function TripManagment() {
             <tbody>
               {activeTrips.length === 0 ? <tr><td colSpan={6} style={{padding: '20px', textAlign: 'center', color: '#64748b'}}>No matching active trips found.</td></tr> : 
                activeTrips.map(t => {
-                const mRoute = rtkmMaster.find(m => checkMatch(m.Consignee_Name || m.unloading_point || m.Destination, t.consignee_name || t.Consignee_Name)) || {};
+                const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
                 
                 let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
                 if(hTarget === 0) hTarget = parseFloat(getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) || 0;

@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
+import { collection, query, where, getDocs, updateDoc, doc, addDoc, or } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
 import { db } from './firebase';
 import { uploadMedia, slug } from './lib/uploadMedia';
 
@@ -124,10 +124,17 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
 
   const fetchDriverTrips = async (driverMobile: string, driverName: string) => {
     try {
-      const tSnap = await getDocs(collection(db, "TRIPS"));
+      // 🔐 Server-side scoped query: only THIS driver's trips leave the server.
+      // The old full-collection fetch downloaded the whole company's trip
+      // history (all customers, all rates) onto every driver's phone.
+      const clauses = [];
+      if (driverMobile) clauses.push(where('driver_mobil_no', '==', driverMobile));
+      if (driverName) clauses.push(where('driver_name', '==', driverName));
+      if (!clauses.length) { setActiveTrips([]); return; }
+      const tSnap = await getDocs(query(collection(db, "TRIPS"), clauses.length > 1 ? or(...clauses) : clauses[0]));
       const trips = tSnap.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((t: any) => (t.driver_mobil_no === driverMobile || t.driver_name === driverName) && t.trip_status !== 'COMPLETED');
+        .filter((t: any) => t.trip_status !== 'COMPLETED');
       setActiveTrips(trips);
     } catch (e) {
       console.error(e);

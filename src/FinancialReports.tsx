@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { getJournal, ledgerBalances, reconcile } from './lib/accounting/journal';
@@ -55,6 +55,13 @@ export default function FinancialReports() {
   const [selectedCompany, setSelectedCompany] = useState('ALL'); 
   const [selectedBranch, setSelectedBranch] = useState('ALL');
   const [selectedVehicle, setSelectedVehicle] = useState('ALL');
+  // Debounced copy — the P&L/BS recompute waits until typing pauses instead of
+  // rescanning every ledger entry on each keystroke of the vehicle filter.
+  const [debouncedVehicle, setDebouncedVehicle] = useState('ALL');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedVehicle(selectedVehicle), 250);
+    return () => clearTimeout(t);
+  }, [selectedVehicle]);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
@@ -137,12 +144,17 @@ export default function FinancialReports() {
   const isDateInRange = (dateVal: any) => inRange(dateVal, fromDate || undefined, toDate || undefined);
 
   // ==========================================
-  // 📈 PNL CALCULATIONS & DETAILED BREAKDOWN
+  // 📈 PNL + BALANCE SHEET — memoized (Phase B)
+  // The full O(ledgers × entries) aggregation used to run in the render body
+  // on EVERY state change (each keystroke, accordion toggle, tab switch).
+  // Now it recomputes only when the underlying data or (debounced) filters change.
   // ==========================================
-  let directIncomes = 0; 
-  let directExpenses = 0; 
-  let indirectIncomes = 0; 
-  let indirectExpenses = 0; 
+  const fin = useMemo(() => {
+  const selectedVehicle = debouncedVehicle; // shadow: debounced inside the memo
+  let directIncomes = 0;
+  let directExpenses = 0;
+  let indirectIncomes = 0;
+  let indirectExpenses = 0;
 
   const dirExpBreakdown: any = { 'Fuel (Diesel/Petrol)': 0, 'Driver Bhatta/Salary': 0, 'Toll & Fastag': 0, 'Vehicle Compliance & RTO': 0, 'Other Direct Exp': 0 };
   const dirIncBreakdown: any = { 'Trip Freight Revenue': 0, 'Other Direct Incomes': 0 };
@@ -329,6 +341,11 @@ export default function FinancialReports() {
       { name: 'Current Liabilities (Creditors)', value: sundryCreditors, color: '#f59e0b' },
       { name: 'Long-term Liabilities (Loans)', value: totalLoans, color: '#ec4899' }
   ].filter(d => d.value > 0);
+
+  return { directIncomes, directExpenses, indirectIncomes, indirectExpenses, pnlData, grossProfit, netProfit, bsData, totalLiabilities, totalAssets, pnlChartData, bsPieData };
+  }, [trips, ledgers, ledgerEntries, customers, vendors, loans, vehicles, bankTxns, selectedCompany, selectedBranch, debouncedVehicle, fromDate, toDate]);
+
+  const { directIncomes, directExpenses, indirectIncomes, indirectExpenses, pnlData, grossProfit, netProfit, bsData, totalLiabilities, totalAssets, pnlChartData, bsPieData } = fin;
 
   const handleDownloadExcel = () => {
     let csv = `Company: ${selectedCompany}\nReport: ${activeTab === 'PNL' ? 'Profit & Loss Account' : 'Balance Sheet'}\nPeriod: ${fromDate ? new Date(fromDate).toLocaleDateString('en-GB') : 'Start'} to ${toDate ? new Date(toDate).toLocaleDateString('en-GB') : 'Today'}\n\n`;
