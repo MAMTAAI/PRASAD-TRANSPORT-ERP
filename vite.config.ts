@@ -7,10 +7,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      
-      // 👇 यहाँ हमने workbox की लिमिट बढ़ाकर 10 MB कर दी है ताकि बड़ी फाइल पर क्रैश ना हो 
+
       workbox: {
-        maximumFileSizeToCacheInBytes: 10485760, 
+        // Phase B: modules are code-split, so the old 10 MB single-chunk cap
+        // is no longer needed. 5 MB still covers the pdf.js worker chunk.
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
       },
 
       manifest: {
@@ -35,4 +36,21 @@ export default defineConfig({
       }
     })
   ],
+
+  build: {
+    // Keep heavy shared vendors in their own long-cacheable chunks so a code
+    // change in one ERP module doesn't invalidate the framework/vendor cache.
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('firebase')) return 'vendor-firebase';
+            if (id.includes('recharts') || id.includes('d3-')) return 'vendor-recharts';
+            if (id.includes('quill')) return 'vendor-quill';
+            if (id.includes('react')) return 'vendor-react';
+          }
+        },
+      },
+    },
+  },
 });

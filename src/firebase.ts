@@ -1,6 +1,6 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
@@ -18,7 +18,20 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Database और Storage चालू करना
-export const db = getFirestore(app);
+// ⚡ Persistent IndexedDB cache: repeat full-collection reads are served
+// locally (near-instant warm loads, big Firestore read-cost saving) and
+// writes queue automatically when offline. Falls back to memory-only cache
+// on browsers that block IndexedDB (private mode).
+let _db;
+try {
+  _db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+  });
+} catch (e) {
+  console.warn("Persistent cache unavailable — using in-memory Firestore cache", e);
+  _db = getFirestore(app);
+}
+export const db = _db;
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 

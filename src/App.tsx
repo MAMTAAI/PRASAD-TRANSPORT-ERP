@@ -1,53 +1,58 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { authReady } from './firebase';
 
-// 📦 ALL COMPONENTS (ERP Modules)
+// 🧭 SHELL (needed for first paint — stays in the entry chunk)
 import SIDEBAR from './SIDEBAR';
-import Dashboard from './Dashboard';
-import Vehical from './Vehical';
-import DRIVER from './DRIVER';
-import TripManagment from './TripManagment';
-import FuelMgmt from './FuelMgmt';
-import LodingDetals from './LodingDetals'; 
-import UnlodingDetals from './UnlodingDetals'; 
-import VehicleDocs from './VehicleDocs';
-import TyreMgmt from './TyreMgmt';
-import VehicleMaintenance from './VehicleMaintenance';
-import CashBankBook from './CashBankBook';
-import LedgerMgmt from './LedgerMgmt';
-import FinancialReports from './FinancialReports';
-import BillManagement from './BillManagement';
-import LocationRtkmMaster from './LocationRtkmMaster';
-import Customer from './Customer';
-import Vander from './Vander'; 
-import TollFastagMgmt from './TollFastagMgmt';
-import LoanEmiMgmt from './LoanEmiMgmt';
-import GstMgmt from './GstMgmt';
-import BillScanner from './BillScanner';
-import TdsMgmt from './TdsMgmt';
-import UGER from './UGER'; 
-import CompanyInbox from './CompanyInbox';
-import AiLetterPad from './AiLetterpad';
-import WhatsappDashboard from './WhatsappDashboard'; 
-import AiSettings from './AiSettings';
-import WebSettings from './WebSettings';
-import VehicleDriverLink from './VehicleDriverLink';
-
-// 🏢 ADMIN SETUP COMPONENTS
-import COMPANY from './COMPANY';
-import BRANCH from './BRANCH';
-import BazaarAdmin from './BazaarAdmin'; 
-import MarketVehicles from './MarketVehicles'; 
-
-// 🌐 PUBLIC WEBSITE & LOGIN
-import PublicWebsite from './PublicWebsite'; 
+import PublicWebsite from './PublicWebsite';
 import Login from './Login';
 
-// 👑 EXTERNAL PORTALS
-import CustomerPortal from './CustomerPortal'; 
-import FleetPartnerPortal from './FleetPartnerPortal';
-import DriverPortal from './DriverPortal';
+// 📦 ALL ERP MODULES — lazy-loaded (Phase B): each module downloads only when
+// opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
+// visitors on the public site / login no longer pay for the whole back office.
+const Dashboard = lazy(() => import('./Dashboard'));
+const Vehical = lazy(() => import('./Vehical'));
+const DRIVER = lazy(() => import('./DRIVER'));
+const TripManagment = lazy(() => import('./TripManagment'));
+const FuelMgmt = lazy(() => import('./FuelMgmt'));
+const LodingDetals = lazy(() => import('./LodingDetals'));
+const UnlodingDetals = lazy(() => import('./UnlodingDetals'));
+const VehicleDocs = lazy(() => import('./VehicleDocs'));
+const TyreMgmt = lazy(() => import('./TyreMgmt'));
+const VehicleMaintenance = lazy(() => import('./VehicleMaintenance'));
+const CashBankBook = lazy(() => import('./CashBankBook'));
+const LedgerMgmt = lazy(() => import('./LedgerMgmt'));
+const FinancialReports = lazy(() => import('./FinancialReports'));
+const BillManagement = lazy(() => import('./BillManagement'));
+const LocationRtkmMaster = lazy(() => import('./LocationRtkmMaster'));
+const Customer = lazy(() => import('./Customer'));
+const Vander = lazy(() => import('./Vander'));
+const TollFastagMgmt = lazy(() => import('./TollFastagMgmt'));
+const LoanEmiMgmt = lazy(() => import('./LoanEmiMgmt'));
+const GstMgmt = lazy(() => import('./GstMgmt'));
+const BillScanner = lazy(() => import('./BillScanner'));
+const TdsMgmt = lazy(() => import('./TdsMgmt'));
+const UGER = lazy(() => import('./UGER'));
+const CompanyInbox = lazy(() => import('./CompanyInbox'));
+const AiLetterPad = lazy(() => import('./AiLetterpad'));
+const WhatsappDashboard = lazy(() => import('./WhatsappDashboard'));
+const AiSettings = lazy(() => import('./AiSettings'));
+const WebSettings = lazy(() => import('./WebSettings'));
+const VehicleDriverLink = lazy(() => import('./VehicleDriverLink'));
+const COMPANY = lazy(() => import('./COMPANY'));
+const BRANCH = lazy(() => import('./BRANCH'));
+const BazaarAdmin = lazy(() => import('./BazaarAdmin'));
+const MarketVehicles = lazy(() => import('./MarketVehicles'));
+const CustomerPortal = lazy(() => import('./CustomerPortal'));
+const FleetPartnerPortal = lazy(() => import('./FleetPartnerPortal'));
+const DriverPortal = lazy(() => import('./DriverPortal'));
+
+// Branded loading state while a module chunk downloads
+const ModuleLoader = () => (
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#38bdf8', fontWeight: 900, fontSize: '18px' }}>
+    ⏳ Loading module…
+  </div>
+);
 
 export default function App() {
   const [showPublicWebsite, setShowPublicWebsite] = useState(false); 
@@ -211,9 +216,9 @@ export default function App() {
   // 🌐 APP ROUTING
   // ==========================================
   if (showPublicWebsite && !user) return <PublicWebsite onLoginClick={() => setShowPublicWebsite(false)} />;
-  if (isCustomerMode) return <CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} />;
-  if (isPartnerMode) return <FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} />;
-  if (isDriverMode) return <DriverPortal onBack={() => { setIsDriverMode(false); setShowPublicWebsite(true); }} />;
+  if (isCustomerMode) return <Suspense fallback={<ModuleLoader />}><CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
+  if (isPartnerMode) return <Suspense fallback={<ModuleLoader />}><FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
+  if (isDriverMode) return <Suspense fallback={<ModuleLoader />}><DriverPortal onBack={() => { setIsDriverMode(false); setShowPublicWebsite(true); }} /></Suspense>;
   
   if (!user && !showPublicWebsite && !isDriverMode && !isCustomerMode && !isPartnerMode) {
     return (
@@ -382,7 +387,7 @@ export default function App() {
 
         {/* 📝 MAIN CONTENT */}
         <div className="fade-content" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '25px', paddingBottom: isMobile ? '80px' : '25px', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
-            {renderActiveComponent()}
+            <Suspense fallback={<ModuleLoader />}>{renderActiveComponent()}</Suspense>
         </div>
 
         {/* 📱 NATIVE APP BOTTOM NAVIGATION BAR (ONLY VISIBLE ON MOBILE) */}

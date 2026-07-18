@@ -92,10 +92,13 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
 
   const isAdmin = currentUser?.role === 'ADMIN' || currentUser?.role === 'Super Admin';
 
+  // Fetch once per mount — the data doesn't depend on which module tab is
+  // active (the old [activeModule] dep re-downloaded all 9 collections on
+  // every top-nav click).
   useEffect(() => {
     setLoading(true);
     fetchMasterData().then(() => setLoading(false)).catch(() => setLoading(false));
-  }, [activeModule]);
+  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -103,29 +106,27 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
 
   const fetchMasterData = async () => {
     try {
-      const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] }));
+      // All 9 collections in parallel — the old sequential awaits made cold
+      // load time the SUM of round trips instead of the slowest one.
+      const [vSnap, dSnap, tSnap, custSnap, venSnap, txnSnap, mSnap, cSnap1, cSnap2] = await Promise.all([
+        getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "DRIVERS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "TRIPS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "CUSTOMERS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "VENDORS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "DRIVER_TRANSACTIONS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "MAINTENANCE_LOGS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] })),
+      ]);
+
       setVehicles(scopeCurrent(vSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
-
-      const dSnap = await getDocs(collection(db, "DRIVERS")).catch(() => ({ docs: [] }));
       setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
-
-      const tSnap = await getDocs(collection(db, "TRIPS")).catch(() => ({ docs: [] }));
       setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []); // 🔐 RBAC scope
-
-      const custSnap = await getDocs(collection(db, "CUSTOMERS")).catch(() => ({ docs: [] }));
       setCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
-
-      const venSnap = await getDocs(collection(db, "VENDORS")).catch(() => ({ docs: [] }));
       setVendors(venSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
-
-      const txnSnap = await getDocs(collection(db, "DRIVER_TRANSACTIONS")).catch(() => ({ docs: [] }));
       setDriverTxns(txnSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
-
-      const mSnap = await getDocs(collection(db, "MAINTENANCE_LOGS")).catch(() => ({ docs: [] }));
       setMaintLogs(mSnap.docs.map(d => ({ id: d.id, ...d.data() })) || []);
-      
-      const cSnap1 = await getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] }));
-      const cSnap2 = await getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] }));
       const compList = [...(cSnap1.docs||[]), ...(cSnap2.docs||[])].map(d => d.data().company_name || d.data().name || d.data().Company_Name);
       setCompanies([...new Set(compList.filter(Boolean))]);
 

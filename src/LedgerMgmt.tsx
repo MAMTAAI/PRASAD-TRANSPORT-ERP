@@ -72,18 +72,16 @@ export default function LedgerMgmt() {
 
   const fetchMasterData = async () => {
     try {
-      const cSnap1 = await getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] }));
-      const cSnap2 = await getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] }));
+      const [cSnap1, cSnap2, bSnap, vSnap] = await Promise.all([
+        getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "BRANCH")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] })),
+      ]);
       let compList = [...cSnap1.docs, ...cSnap2.docs].map(d => d.data().company_name || d.data().name || d.data().Company_Name);
-      compList = [...new Set(compList.filter(Boolean))];
-      setCompanies(compList);
-
-      const bSnap = await getDocs(collection(db, "BRANCH")).catch(() => ({ docs: [] }));
+      setCompanies([...new Set(compList.filter(Boolean))]);
       let branchList = bSnap.docs.map(d => d.data().branch_name || d.data().name);
-      branchList = [...new Set(branchList.filter(Boolean))];
-      setBranches(branchList);
-
-      const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] }));
+      setBranches([...new Set(branchList.filter(Boolean))]);
       setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (error) { console.error(error); }
   };
@@ -91,7 +89,20 @@ export default function LedgerMgmt() {
   const fetchAllSystemData = async () => {
     setLoading(true);
     try {
-      const lSnap = await getDocs(query(collection(db, "LEDGERS"), orderBy("created_at", "desc"))).catch(() => ({ docs: [] }));
+      // All 10 collections in parallel (was ~10 sequential round trips)
+      const [lSnap, cSnap, vSnap, dSnap, vehQuery, loanSnap1, loanSnap2, leSnap, btSnap, emiSnap1, emiSnap2] = await Promise.all([
+        getDocs(query(collection(db, "LEDGERS"), orderBy("created_at", "desc"))).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "CUSTOMERS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "VENDORS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "DRIVERS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "LOAN_MASTER")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "LOANS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "LEDGER_ENTRIES")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "BANK_TRANSACTIONS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "EMI_PAYMENTS")).catch(() => ({ docs: [] })),
+        getDocs(collection(db, "LOAN_PAYMENTS")).catch(() => ({ docs: [] })),
+      ]);
       const manualLedgers: any[] = [];
       const virtualLedgers: any[] = [];
       
@@ -108,7 +119,6 @@ export default function LedgerMgmt() {
       });
       setLedgers(manualLedgers);
 
-      const cSnap = await getDocs(collection(db, "CUSTOMERS")).catch(() => ({ docs: [] }));
       cSnap.forEach(doc => {
         const d = doc.data();
         const cName = d.customer_name || d.name || d.party_name || d.Customer_Name;
@@ -116,7 +126,6 @@ export default function LedgerMgmt() {
         virtualLedgers.push({ id: doc.id, type: 'CUSTOMER', name: cName, group: 'Sundry Debtors (Customers)', op_balance: d.opening_balance || d.op_balance || '0', dr_cr: d.balance_type || 'Dr (Debit)', company: d.company || d.Company_Name || 'ALL' });
       });
 
-      const vSnap = await getDocs(collection(db, "VENDORS")).catch(() => ({ docs: [] }));
       vSnap.forEach(doc => {
         const d = doc.data();
         const vName = d.vendor_name || d.name || d.party_name || d.Vendor_Name;
@@ -124,7 +133,6 @@ export default function LedgerMgmt() {
         virtualLedgers.push({ id: doc.id, type: 'VENDOR', name: vName, group: 'Sundry Creditors (Vendors)', op_balance: d.opening_balance || d.op_balance || '0', dr_cr: d.balance_type || 'Cr (Credit)', company: d.company || d.Company_Name || 'ALL' });
       });
 
-      const dSnap = await getDocs(collection(db, "DRIVERS")).catch(() => ({ docs: [] }));
       dSnap.forEach(doc => {
         const d = doc.data();
         const dName = d.name || d.driver_name || d.Driver_Name;
@@ -132,11 +140,8 @@ export default function LedgerMgmt() {
         virtualLedgers.push({ id: doc.id, type: 'DRIVER', name: dName, group: 'Sundry Creditors (Drivers/Staff)', op_balance: d.opening_balance || d.op_balance || '0', dr_cr: d.balance_type || 'Cr (Credit)', company: d.company || d.Company_Name || 'ALL' });
       });
 
-      const vehQuery = await getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] }));
       const vList = vehQuery.docs.map(d => ({id: d.id, ...d.data()}));
 
-      const loanSnap1 = await getDocs(collection(db, "LOAN_MASTER")).catch(() => ({ docs: [] }));
-      const loanSnap2 = await getDocs(collection(db, "LOANS")).catch(() => ({ docs: [] }));
       [...loanSnap1.docs, ...loanSnap2.docs].forEach(doc => {
         const d = doc.data();
         const lName = d.Loan_Account_No ? `Loan A/C - ${d.Loan_Account_No} (${d.Vehicle_No})` : `Loan A/C - ${d.Vehicle_No}`;
@@ -149,14 +154,8 @@ export default function LedgerMgmt() {
       });
       setPartyLedgers(virtualLedgers);
 
-      const leSnap = await getDocs(collection(db, "LEDGER_ENTRIES")).catch(() => ({ docs: [] }));
       setAllLedgerEntries(leSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const btSnap = await getDocs(collection(db, "BANK_TRANSACTIONS")).catch(() => ({ docs: [] }));
       setAllBankTxns(btSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const emiSnap1 = await getDocs(collection(db, "EMI_PAYMENTS")).catch(() => ({ docs: [] }));
-      const emiSnap2 = await getDocs(collection(db, "LOAN_PAYMENTS")).catch(() => ({ docs: [] }));
       setAllEmiPayments([...emiSnap1.docs, ...emiSnap2.docs].map(d => ({ id: d.id, ...d.data() })));
 
     } catch (error) { console.error(error); }

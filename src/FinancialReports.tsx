@@ -106,28 +106,25 @@ export default function FinancialReports() {
 
   const fetchRealSystemData = async () => {
     try {
-       const tSnap = await getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]}));
+       // All collections in parallel (was 8 sequential round trips)
+       const [tSnap, lSnap1, lSnap2, cSnap, vSnap, ledSnap, leSnap, bSnap] = await Promise.all([
+         getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "LOAN_MASTER")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "LOANS")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "CUSTOMERS")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "VENDORS")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "LEDGERS")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "LEDGER_ENTRIES")).catch(()=>({docs:[]})),
+         getDocs(collection(db, "BANK_TRANSACTIONS")).catch(()=>({docs:[]})),
+       ]);
        // 🔐 RBAC scope — same as Dashboard, so a branch-scoped user sees the
        // same Revenue on both screens (and stops seeing other branches' money).
        setTrips(scopeCurrent(tSnap.docs.map(d => ({id: d.id, ...d.data()}))) || []);
-
-       const lSnap1 = await getDocs(collection(db, "LOAN_MASTER")).catch(()=>({docs:[]}));
-       const lSnap2 = await getDocs(collection(db, "LOANS")).catch(()=>({docs:[]}));
        setLoans([...lSnap1.docs, ...lSnap2.docs].map(d => ({id: d.id, ...d.data()})));
-
-       const cSnap = await getDocs(collection(db, "CUSTOMERS")).catch(()=>({docs:[]}));
        setCustomers(cSnap.docs.map(d => ({id: d.id, ...d.data()})));
-
-       const vSnap = await getDocs(collection(db, "VENDORS")).catch(()=>({docs:[]}));
        setVendors(vSnap.docs.map(d => ({id: d.id, ...d.data()})));
-
-       const ledSnap = await getDocs(collection(db, "LEDGERS")).catch(()=>({docs:[]}));
        setLedgers(ledSnap.docs.map(d => ({id: d.id, ...d.data()})));
-
-       const leSnap = await getDocs(collection(db, "LEDGER_ENTRIES")).catch(()=>({docs:[]}));
        setLedgerEntries(leSnap.docs.map(d => ({id: d.id, ...d.data()})));
-
-       const bSnap = await getDocs(collection(db, "BANK_TRANSACTIONS")).catch(()=>({docs:[]}));
        setBankTxns(bSnap.docs.map(d => ({id: d.id, ...d.data()})));
     } catch(e) { console.error(e); }
   };
