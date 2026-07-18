@@ -8,6 +8,8 @@ import { llmHealth } from './lib/llm';
 import { speak, stopSpeaking, voiceStatus } from './lib/voice/tts';
 import { remember, stmPush, stmGet } from './lib/memory';
 import { generateDailyReport } from './lib/analysis/dailyReport';
+import { useKeyboardInset, AssistantText } from './ui/chatMobile';
+import { useIsMobile } from './hooks/useIsMobile';
 
 const SUGGESTIONS = [
   'Kaunse trips abhi In Transit hain?',
@@ -157,8 +159,14 @@ export default function MamtaChat() {
     setMessages(m => m.map((msg, i) => i === idx ? { ...msg, pendingWrite: null, content: '🚫 Cancel kiya — kuch save nahi hua.' } : msg));
   };
 
+  const { isMobile } = useIsMobile();
+  // 📱 Virtual-keyboard fix: lift the whole chat by the keyboard's height so
+  // the input and the latest messages are never hidden (iOS Safari especially).
+  const kbInset = useKeyboardInset();
+  useEffect(() => { if (kbInset) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [kbInset]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '78vh' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: isMobile ? `calc(100dvh - 150px - ${kbInset}px)` : '78vh', minHeight: '320px' }}>
       {/* Header / index control */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
         <div>
@@ -188,13 +196,15 @@ export default function MamtaChat() {
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '10px', background: 'rgba(2,6,23,0.4)', borderRadius: '14px', border: '1px solid #1e293b' }}>
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: '12px' }}>
-            <div style={{ maxWidth: '80%', padding: '12px 16px', borderRadius: '14px', background: m.role === 'user' ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(30,41,59,0.7)', color: '#f1f5f9', border: m.role === 'user' ? 'none' : '1px solid #334155', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+            <div style={{ maxWidth: isMobile ? '92%' : '80%', padding: '12px 16px', borderRadius: '14px', background: m.role === 'user' ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(30,41,59,0.7)', color: '#f1f5f9', border: m.role === 'user' ? 'none' : '1px solid #334155', whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '16px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               {m.trace?.length > 0 && (
                 <div style={{ marginBottom: '8px', fontSize: '11px', color: '#c084fc', fontFamily: 'monospace' }}>
                   {m.trace.map((t: string, k: number) => <div key={k}>{t}</div>)}
                 </div>
               )}
-              {m.content || (m.streaming ? '▌' : '')}
+              {m.role === 'assistant' && m.content && !m.streaming
+                ? <AssistantText text={m.content} onTapSuggestion={(s) => !busy && send(s)} />
+                : (m.content || (m.streaming ? '▌' : ''))}
               {m.pendingWrite && (
                 <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', borderRadius: '10px', padding: '12px' }}>
                   <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>✍️ {m.pendingWrite.agent} → {m.pendingWrite.tool}</div>
@@ -248,7 +258,7 @@ export default function MamtaChat() {
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(input); }}
           placeholder={indexCount ? 'ERP data par sawaal poochhiye…' : 'Pehle Build Index dabaayein…'}
-          style={{ flex: 1, padding: '14px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', color: '#fff', outline: 'none', fontSize: '15px' }}
+          style={{ flex: 1, padding: '14px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', color: '#fff', outline: 'none', fontSize: '16px', minWidth: 0 }}
         />
         <button onClick={() => send(input)} disabled={busy || !input.trim()} className={`pt-btn pt-btn--primary ${busy ? 'is-loading' : ''}`}>
           {busy ? '' : '➤ Send'}

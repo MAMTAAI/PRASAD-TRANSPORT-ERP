@@ -6,6 +6,7 @@ import { scopeCurrent } from './lib/rbac';
 import { getTripFreight, getTripExpense, round2 } from './lib/accounting/tripMath';
 import { runAgent } from './lib/agents/orchestrator';
 import { stmPush, stmGet } from './lib/memory';
+import { useKeyboardInset, AssistantText } from './ui/chatMobile';
 
 interface DashboardProps {
   activeModule: string; 
@@ -87,6 +88,7 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
     { sender: 'ai', text: 'नमस्ते सुभाष सर! मैं आपकी AI असिस्टेंट ममता हूँ। आप मुझसे फ्लीट का डेटा या गाड़ियों की जानकारी पूछ सकते हैं।' }
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const kbInset = useKeyboardInset(); // 📱 virtual-keyboard height (0 on desktop)
 
   const activeModString = String(activeModule || '').toUpperCase();
   const isFinanceModule = activeModString.includes('FINANCE') || activeModString.includes('ACCOUNT') || activeModString.includes('ADMIN');
@@ -103,8 +105,8 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, isAiOpen]);
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chatMessages, isAiOpen, kbInset]);
 
   const fetchMasterData = async () => {
     try {
@@ -619,7 +621,7 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
         @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .ai-chat-header { background: #1e293b; padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; }
         .ai-chat-body { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; background: #0a0f1c; }
-        .chat-msg { max-width: 80%; padding: 10px 15px; border-radius: 15px; font-size: 13px; line-height: 1.5; }
+        .chat-msg { max-width: 80%; padding: 10px 15px; border-radius: 15px; font-size: 16px; line-height: 1.55; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; }
         .chat-msg.user { align-self: flex-end; background: #38bdf8; color: #0f172a; border-bottom-right-radius: 0; }
         .chat-msg.ai { align-self: flex-start; background: #1e293b; color: #fff; border-bottom-left-radius: 0; border: 1px solid #334155; }
         .ai-chat-footer { padding: 15px; background: #1e293b; display: flex; gap: 10px; align-items: center; border-top: 1px solid #334155; }
@@ -644,9 +646,17 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
           .nav-btn, .ad-mode-btn, .share-btn { min-height: 44px; }
         }
 
-        /* AI chat window: fits any phone instead of a fixed 350px that hangs off-screen */
-        @media (max-width: 480px) {
-          .ai-chat-window { width: auto; left: 10px; right: 10px; bottom: 80px; height: 65vh; }
+        /* 📱 AI chat: FULL-SCREEN sheet on phones/small tablets — the little
+           floating window pattern is desktop-only chrome */
+        @media (max-width: 768px) {
+          .ai-chat-window {
+            left: 0; right: 0; top: 0; bottom: 0;
+            width: 100%; height: 100dvh;
+            border-radius: 0; border: none;
+            animation: slideUp 0.25s ease-out;
+          }
+          .chat-msg { max-width: 92%; }
+          .ai-chat-footer { padding-bottom: calc(15px + env(safe-area-inset-bottom)); }
         }
         /* FAB must clear the app's bottom nav on ALL mobile/tablet widths
            (the nav shows up to 1024px — the old 480px query left the FAB
@@ -1194,29 +1204,33 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
       </button>
 
       {isAiOpen && (
-        <div className="ai-chat-window">
+        // 📱 Keyboard-safe: the sheet shrinks by the virtual keyboard's height
+        // so the input + latest messages stay visible (iOS Safari included)
+        <div className="ai-chat-window" style={{ paddingBottom: kbInset ? `${kbInset}px` : undefined }}>
           <div className="ai-chat-header">
             <h4 style={{ margin: 0, color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>
               🤖 Mamta AI Assistant
             </h4>
-            <button onClick={() => setIsAiOpen(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '16px', cursor: 'pointer' }}>✕</button>
+            <button onClick={() => setIsAiOpen(false)} aria-label="Close chat" style={{ background: 'rgba(239,68,68,0.12)', border: '1px solid #ef4444', borderRadius: '10px', color: '#ef4444', fontSize: '16px', cursor: 'pointer', minWidth: '44px', minHeight: '40px', fontWeight: 'bold' }}>✕</button>
           </div>
-          
+
           <div className="ai-chat-body">
             {chatMessages.map((msg, idx) => (
               <div key={idx} className={`chat-msg ${msg.sender}`}>
-                {msg.text}
+                {msg.sender === 'ai'
+                  ? <AssistantText text={msg.text} onTapSuggestion={(s) => handleAiSubmit(s)} accent="#c084fc" />
+                  : msg.text}
               </div>
             ))}
             <div ref={chatEndRef} />
           </div>
 
           <div className="ai-chat-footer">
-            <button onClick={handleAiVoiceStart} style={{ background: isListening ? '#ef4444' : '#334155', border: 'none', borderRadius: '50%', width: '40px', height: '40px', color: '#fff', fontSize: '18px', cursor: 'pointer', flexShrink: 0, transition: '0.3s' }}>
+            <button onClick={handleAiVoiceStart} style={{ background: isListening ? '#ef4444' : '#334155', border: 'none', borderRadius: '50%', width: '44px', height: '44px', color: '#fff', fontSize: '18px', cursor: 'pointer', flexShrink: 0, transition: '0.3s' }}>
               {isListening ? '🎙️' : '🎤'}
             </button>
-            <input type="text" placeholder="Ask anything about fleet..." value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleAiSubmit()} style={{ flex: 1, background: '#0a0f1c', border: '1px solid #334155', color: '#fff', padding: '10px 15px', borderRadius: '20px', outline: 'none', fontSize: '13px' }} />
-            <button onClick={() => handleAiSubmit()} style={{ background: '#c084fc', border: 'none', borderRadius: '50%', width: '40px', height: '40px', color: '#fff', fontSize: '18px', cursor: 'pointer', flexShrink: 0 }}>
+            <input type="text" placeholder="Fleet ke baare me kuch bhi poochhein…" value={aiInput} onChange={(e) => setAiInput(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleAiSubmit()} style={{ flex: 1, minWidth: 0, background: '#0a0f1c', border: '1px solid #334155', color: '#fff', padding: '12px 15px', borderRadius: '22px', outline: 'none', fontSize: '16px' }} />
+            <button onClick={() => handleAiSubmit()} style={{ background: '#c084fc', border: 'none', borderRadius: '50%', width: '44px', height: '44px', color: '#fff', fontSize: '18px', cursor: 'pointer', flexShrink: 0 }}>
               ➤
             </button>
           </div>
