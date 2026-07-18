@@ -1,12 +1,24 @@
 rules_version = '2';
 
-// 🔐 FIRST-PASS RULES (Phase 0) — see firestore.rules for context.
-// Requires a Firebase Auth token (the app signs in anonymously at startup).
-// Tightened per-path in Phase 1 with the Firebase Auth migration.
+// 🔐 PHASE 1 — staff (password provider) get full access; the anonymous
+// driver lane may only upload trip/KYC/expense photos (images/PDF, ≤15 MB)
+// into its own prefixes. Reads require some signed-in token.
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isStaff() { return signedIn() && request.auth.token.firebase.sign_in_provider == 'password'; }
+    function okFile() {
+      return request.resource.size < 15 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType == 'application/pdf');
+    }
+
+    match /trips/{allPaths=**}           { allow read: if signedIn(); allow write: if isStaff() || (signedIn() && okFile()); }
+    match /drivers/{allPaths=**}         { allow read: if signedIn(); allow write: if isStaff() || (signedIn() && okFile()); }
+    match /driver-expenses/{allPaths=**} { allow read: if signedIn(); allow write: if isStaff() || (signedIn() && okFile()); }
+    match /kyc/{allPaths=**}             { allow read: if isStaff(); allow write: if signedIn() && okFile(); }
+
     match /{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
   }
 }

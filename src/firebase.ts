@@ -5,7 +5,7 @@ import { getStorage } from "firebase/storage";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // 🔑 आपकी असली Firebase API Keys
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyBzbSLXzmbOvaQlCZKFuUcJqPLGp_a6Bv8", // current Browser key (old value was a hand-typed variant rejected by Identity Toolkit)
   authDomain: "prasad-transport-grup.firebaseapp.com",
   projectId: "prasad-transport-grup",
@@ -40,16 +40,18 @@ export const auth = getAuth(app);
 // every session gets an anonymous auth token so the deployed app keeps working
 // while direct anonymous REST access to the database is shut off.
 // App-level login (USERS + salted hashes) still decides who sees what.
+// PERSISTENT listener (Phase 1): staff sign in with email/password; whenever
+// the session ends (logout/expiry) we drop back to an anonymous token so the
+// public/driver surfaces keep working under their limited rules lane.
 export const authReady: Promise<void> = new Promise((resolve) => {
-  const unsub = onAuthStateChanged(auth, (u) => {
-    if (u) {
-      unsub();
-      resolve();
-    } else {
+  let resolved = false;
+  const done = () => { if (!resolved) { resolved = true; resolve(); } };
+  onAuthStateChanged(auth, (u) => {
+    if (u) { done(); }
+    else {
       signInAnonymously(auth).catch((e) => {
         console.error("Anonymous sign-in failed — Firestore access will be blocked by rules:", e);
-        unsub();
-        resolve();
+        done();
       });
     }
   });

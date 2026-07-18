@@ -1,20 +1,81 @@
 rules_version = '2';
 
-// 🔐 FIRST-PASS RULES (Phase 0 of the security modernization).
-// Before this file existed the database was effectively public: any visitor
-// with the (public) web API key could read/write every collection anonymously
-// over REST. These rules require a Firebase Auth token on every request —
-// the app signs in anonymously at startup (src/firebase.ts).
+// 🔐 PHASE 1 RULES — real per-user enforcement.
+// Staff sign in with Firebase email/password; their role lives in
+// USERS/{auth.uid} and is looked up server-side — identity and role can no
+// longer be forged from the client.
 //
-// ⚠️ INTERIM, NOT FINAL: an attacker can still mint an anonymous token with
-// the public API key. Real per-user enforcement (custom claims per role,
-// per-collection allowances, field validation) lands with the Firebase Auth
-// migration in Phase 1. This pass shuts off unauthenticated REST scraping
-// and gives rules a deployed, version-controlled home.
+// The ANONYMOUS lane exists only for the driver app + portal onboarding
+// (until phone-auth lands in Phase 1b): drivers can read trips/driver data,
+// update ONLY their driver_* fields, and create requests/applications.
+// Everything financial is staff-only.
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    function isStaff() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/USERS/$(request.auth.uid))
+        && get(/databases/$(database)/documents/USERS/$(request.auth.uid)).data.status != 'INACTIVE';
+    }
+
+    function isAdmin() {
+      return isStaff()
+        && get(/databases/$(database)/documents/USERS/$(request.auth.uid)).data.role in ['ADMIN', 'Super Admin'];
+    }
+
+    // ── Staff profiles: self-read; only admins manage ──────────────────
+    match /USERS/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Driver lane: trips ─────────────────────────────────────────────
+    // Drivers (anonymous for now) may update ONLY their own reporting
+    // fields — office-approved figures and money fields are untouchable.
+    match /TRIPS/{id} {
+      allow read: if signedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff()
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             ['driver_loaded_qty', 'driver_unloaded_qty', 'driver_loading_photo',
+              'driver_unloading_photo', 'liveLocation', 'plant_reported_at', 'plant_reported_loc']));
+    }
+
+    // Driver money-requests: anyone signed-in may create; only staff action them
+    match /DRIVER_REQUESTS/{id} {
+      allow read, create: if signedIn();
+      allow update, delete: if isStaff();
+    }
+
+    // Drivers master: driver app looks itself up + edits its own KYC fields
+    // (tightened to per-driver binding when phone-auth lands)
+    match /DRIVERS/{id} {
+      allow read, update: if signedIn();
+      allow create, delete: if isStaff();
+    }
+
+    // Portal onboarding: public submit, staff review
+    match /ONBOARDING_APPLICATIONS/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if isStaff();
+    }
+
+    // Bazaar marketplace (portal-facing; identity hardening comes with phone auth)
+    match /BAZAAR_LOADS/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+    match /BAZAAR_BIDS/{id} {
+      allow read, create: if signedIn();
+      allow update, delete: if isStaff();
+    }
+
+    // ── Everything else (books, masters, cards, journal, WA, …): STAFF ONLY ─
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isStaff();
     }
   }
 }

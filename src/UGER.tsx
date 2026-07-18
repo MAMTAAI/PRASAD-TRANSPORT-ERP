@@ -1,9 +1,10 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, deleteField } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, orderBy, deleteField } from 'firebase/firestore';
 import { logAudit } from './lib/audit';
-import { hashPassword } from './lib/passwords';
-import { db } from './firebase'; 
+import { db, auth, firebaseConfig } from './firebase';
+import { initializeApp, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut as secSignOut, sendPasswordResetEmail } from 'firebase/auth';
 
 export default function UGER() {
   // 🔥 NEW: TAB SYSTEM STATE
@@ -92,20 +93,31 @@ export default function UGER() {
     if (!formData.email || !formData.full_name) return alert("⚠️ Name and Email are required!");
     setLoading(true);
     try {
-      // 🔒 SECURITY: never store the plaintext password — only a salted PBKDF2 hash.
+      // 🔐 PHASE 1: Firebase Auth owns credentials. New staff get a real auth
+      // account (created on a SECONDARY app instance so the admin's own
+      // session isn't replaced); the profile doc is keyed by the auth uid so
+      // security rules can look roles up directly.
       const { password, ...rest } = formData;
-      const finalData = { ...rest, permissions: modules, updatedAt: serverTimestamp() };
-      if (password) {
-        const { saltHex, hashHex } = await hashPassword(password);
-        finalData.password_hash = hashHex;
-        finalData.password_salt = saltHex;
-      }
+      const cleanEmail = String(rest.email || '').trim().toLowerCase();
+      const finalData = { ...rest, email: cleanEmail, permissions: modules, updatedAt: serverTimestamp() };
+
       if (editingId) {
-        // Remove any legacy plaintext field left from before the migration.
-        await updateDoc(doc(db, "USERS", editingId), { ...finalData, password: deleteField() });
+        await updateDoc(doc(db, "USERS", editingId), { ...finalData, password: deleteField(), password_hash: deleteField(), password_salt: deleteField() });
+        if (password) {
+          await sendPasswordResetEmail(auth, cleanEmail)
+            .then(() => alert(`📧 Password change ab reset-email se hota hai — ${cleanEmail} par link bhej diya.`))
+            .catch(() => alert('⚠️ Reset email nahi gaya — email address check karein.'));
+        }
       } else {
-        if (!password) { setLoading(false); return alert("⚠️ Password is required for a new profile!"); }
-        await addDoc(collection(db, "USERS"), { ...finalData, createdAt: serverTimestamp() });
+        if (!password || password.length < 6) { setLoading(false); return alert("⚠️ New profile ke liye kam se kam 6-akshar ka password chahiye!"); }
+        const sec = initializeApp(firebaseConfig, 'uger-' + Date.now());
+        let uid = '';
+        try {
+          const cred = await createUserWithEmailAndPassword(getAuth(sec), cleanEmail, password);
+          uid = cred.user.uid;
+          await secSignOut(getAuth(sec)).catch(() => {});
+        } finally { await deleteApp(sec).catch(() => {}); }
+        await setDoc(doc(db, "USERS", uid), { ...finalData, createdAt: serverTimestamp() });
       }
       logAudit({ action: editingId ? 'USER_UPDATE' : 'USER_CREATE', target: formData.email, details: `${formData.full_name} → role ${formData.role}` });
       setIsModalOpen(false); fetchUsers(); fetchLogs(); alert("✅ Data Saved Successfully!");

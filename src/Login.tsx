@@ -1,8 +1,8 @@
 // @ts-nocheck
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, deleteField } from 'firebase/firestore';
-import { db } from './firebase';
-import { hashPassword, verifyPassword } from './lib/passwords';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
+import { db, auth } from './firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 
 interface LoginProps {
   onLoginSuccess: (userData: any) => void;
@@ -36,47 +36,39 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
     setLoading(true);
 
     try {
-      const q = query(collection(db, "USERS"), where("email", "==", email));
-      const querySnapshot = await getDocs(q);
+      // 🔐 PHASE 1: REAL Firebase Authentication. The server verifies the
+      // password; security rules then trust request.auth.uid — identity can
+      // no longer be forged via DevTools/localStorage.
+      const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+      const uid = cred.user.uid;
 
-      if (querySnapshot.empty) {
-        alert("❌ Invalid Email or Password!");
-        setLoading(false);
-        return;
+      // Profile doc is keyed by the auth uid (imported that way).
+      let data = null; let docId = uid;
+      const snap = await getDoc(doc(db, "USERS", uid));
+      if (snap.exists()) { data = snap.data(); }
+      else {
+        // Fallback for any legacy doc not keyed by uid
+        const qs = await getDocs(query(collection(db, "USERS"), where("email", "==", email.trim().toLowerCase())));
+        if (!qs.empty) { data = qs.docs[0].data(); docId = qs.docs[0].id; }
       }
 
-      const userDoc = querySnapshot.docs[0];
-      const data = userDoc.data();
-
-      let ok = false;
-      if (data.password_hash && data.password_salt) {
-        ok = await verifyPassword(password, data.password_salt, data.password_hash);
-      } else if (data.password) {
-        // Legacy plaintext doc (created before the security migration):
-        // verify once, then upgrade it to a salted hash and remove the plaintext.
-        ok = data.password === password;
-        if (ok) {
-          const { saltHex, hashHex } = await hashPassword(password);
-          await updateDoc(doc(db, "USERS", userDoc.id), {
-            password_hash: hashHex,
-            password_salt: saltHex,
-            password: deleteField()
-          }).catch(() => {});
-          delete data.password;
-        }
-      }
-
-      if (!ok) {
-        alert("❌ Invalid Email or Password!");
+      if (!data) {
+        alert("🚨 Login to hua par staff profile nahi mila. Admin se sampark karein.");
       } else if (data.status === 'INACTIVE') {
         alert("🚨 Your account is disabled. Contact Super Admin.");
       } else {
         const { password_hash, password_salt, password: _pw, ...safeData } = data;
-        onLoginSuccess({ id: userDoc.id, ...safeData });
+        onLoginSuccess({ id: docId, uid, ...safeData });
       }
-    } catch (error) {
-      console.error("Login error:", error);
-      alert("❌ Login failed! Check your internet connection.");
+    } catch (error: any) {
+      console.error("Login error:", error?.code);
+      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'].includes(error?.code)) {
+        alert("❌ Invalid Email or Password!");
+      } else if (error?.code === 'auth/too-many-requests') {
+        alert("🚨 Bahut zyada galat attempts — thodi der baad try karein.");
+      } else {
+        alert("❌ Login failed! Check your internet connection.");
+      }
     }
     setLoading(false);
   };

@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { authReady } from './firebase';
+import { authReady, auth } from './firebase';
+import { signOut } from 'firebase/auth';
 
 // 🧭 SHELL (needed for first paint — stays in the entry chunk)
 import SIDEBAR from './SIDEBAR';
@@ -120,6 +121,7 @@ export default function App() {
 
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to log out?')) {
+      signOut(auth).catch(() => {}); // firebase.ts listener drops back to anonymous
       localStorage.clear();
       sessionStorage.clear();
       setUser(null);
