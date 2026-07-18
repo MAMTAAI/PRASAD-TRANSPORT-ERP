@@ -13,10 +13,17 @@ dist-ssr
 *.local
 
 # 🔒 Secrets — NEVER commit
+.env
+.env.*
+!.env.example
 **/serviceAccountKey.json
 *-firebase-adminsdk-*.json
 google-key.json
 **/google-key.json
+
+# Firebase deploy cache
+.firebase/
+functions/firebase-debug.log
 
 # 🛟 Local data backups (business data — keep local only)
 backups/

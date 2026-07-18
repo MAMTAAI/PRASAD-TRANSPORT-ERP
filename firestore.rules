@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// 🔐 FIRST-PASS RULES (Phase 0 of the security modernization).
+// Before this file existed the database was effectively public: any visitor
+// with the (public) web API key could read/write every collection anonymously
+// over REST. These rules require a Firebase Auth token on every request —
+// the app signs in anonymously at startup (src/firebase.ts).
+//
+// ⚠️ INTERIM, NOT FINAL: an attacker can still mint an anonymous token with
+// the public API key. Real per-user enforcement (custom claims per role,
+// per-collection allowances, field validation) lands with the Firebase Auth
+// migration in Phase 1. This pass shuts off unauthenticated REST scraping
+// and gives rules a deployed, version-controlled home.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

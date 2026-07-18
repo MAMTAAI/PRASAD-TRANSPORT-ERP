@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
+import { authReady } from './firebase';
 
 // 📦 ALL COMPONENTS (ERP Modules)
 import SIDEBAR from './SIDEBAR';
@@ -77,7 +78,9 @@ export default function App() {
         console.error("Error parsing user data", e);
       }
     }
-    setAuthLoading(false);
+    // Wait for the Firebase (anonymous) auth token before any Firestore reads —
+    // security rules reject requests made without it.
+    authReady.then(() => setAuthLoading(false));
     
     // ✨ SPLASH SCREEN TIMER 
     const splashTimer = setTimeout(() => {

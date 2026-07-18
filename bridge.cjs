@@ -20,7 +20,7 @@ const auth = new google.auth.GoogleAuth({ keyFile: KEYFILEPATH, scopes: SCOPES }
 
 // --- 2. MAMTA AI (GEMINI) SETUP ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const GOOGLE_TTS_API_KEY = '***REMOVED-ROTATE-ME***'; // Consider moving to .env
+const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''; // set in .env (never commit keys)
 
 // =======================================================
 // ROUTE 1: UPLOAD & EXTRACT DATA (DRIVE + SUPER AI)

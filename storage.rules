@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// 🔐 FIRST-PASS RULES (Phase 0) — see firestore.rules for context.
+// Requires a Firebase Auth token (the app signs in anonymously at startup).
+// Tightened per-path in Phase 1 with the Firebase Auth migration.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

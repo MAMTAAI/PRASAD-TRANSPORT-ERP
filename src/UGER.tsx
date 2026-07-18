@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, deleteField } from 'firebase/firestore';
 import { logAudit } from './lib/audit';
+import { hashPassword } from './lib/passwords';
 import { db } from './firebase'; 
 
 export default function UGER() {
@@ -91,10 +92,19 @@ export default function UGER() {
     if (!formData.email || !formData.full_name) return alert("⚠️ Name and Email are required!");
     setLoading(true);
     try {
-      const finalData = { ...formData, permissions: modules, updatedAt: serverTimestamp() };
+      // 🔒 SECURITY: never store the plaintext password — only a salted PBKDF2 hash.
+      const { password, ...rest } = formData;
+      const finalData = { ...rest, permissions: modules, updatedAt: serverTimestamp() };
+      if (password) {
+        const { saltHex, hashHex } = await hashPassword(password);
+        finalData.password_hash = hashHex;
+        finalData.password_salt = saltHex;
+      }
       if (editingId) {
-        await updateDoc(doc(db, "USERS", editingId), finalData);
+        // Remove any legacy plaintext field left from before the migration.
+        await updateDoc(doc(db, "USERS", editingId), { ...finalData, password: deleteField() });
       } else {
+        if (!password) { setLoading(false); return alert("⚠️ Password is required for a new profile!"); }
         await addDoc(collection(db, "USERS"), { ...finalData, createdAt: serverTimestamp() });
       }
       logAudit({ action: editingId ? 'USER_UPDATE' : 'USER_CREATE', target: formData.email, details: `${formData.full_name} → role ${formData.role}` });
@@ -104,7 +114,9 @@ export default function UGER() {
   };
 
   const handleEdit = (user) => {
-    setFormData({ ...user });
+    // Never load hashes into the form; blank password = "keep existing password".
+    const { password_hash, password_salt, password, ...editable } = user;
+    setFormData({ ...editable, password: '' });
     setModules(user.permissions || getAppModulesList());
     setEditingId(user.id);
     setIsModalOpen(true);
@@ -314,7 +326,7 @@ export default function UGER() {
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>FULL NAME</label><input className="input-box" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>MOBILE NO</label><input className="input-box" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>LOGIN EMAIL</label><input className="input-box" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
-                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>PASSWORD</label><input className="input-box" value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
+                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>PASSWORD</label><input className="input-box" type="password" placeholder={editingId ? 'Leave blank to keep current password' : 'Set a password'} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#f59e0b'}}>SYSTEM ROLE (RBAC)</label>
                   <select className="input-box" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
                     <option>ADMIN</option><option>MANAGER</option><option>OPERATOR</option><option>ACCOUNTS</option><option>DATA ENTRY STAFF</option><option>VENDOR</option><option>CUSTOMER</option><option>DRIVER</option>

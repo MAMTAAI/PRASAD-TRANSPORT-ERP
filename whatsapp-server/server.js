@@ -152,8 +152,8 @@ app.post('/api/update-task', async (req, res) => {
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// 🔴 AI Key 
-const genAI = new GoogleGenerativeAI("***REMOVED-ROTATE-ME***API_KEY_HERE"); 
+// 🔴 AI Key — set GEMINI_API_KEY in the environment before starting (never commit keys)
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // 🔴 GOOGLE DRIVE SETUP
 const KEYFILEPATH = './google-key.json'; 

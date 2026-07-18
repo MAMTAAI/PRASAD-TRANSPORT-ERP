@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, deleteField } from 'firebase/firestore';
 import { db } from './firebase';
+import { hashPassword, verifyPassword } from './lib/passwords';
 
 interface LoginProps {
   onLoginSuccess: (userData: any) => void;
@@ -16,8 +17,8 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   const [loginMode, setLoginMode] = useState<'SELECT' | 'CUSTOMER' | 'PARTNER' | 'ADMIN'>('SELECT');
   
   // 🔐 STATES FOR OFFICE STAFF
-  const [email, setEmail] = useState('admin@prasad.com'); // Default fill
-  const [password, setPassword] = useState('123456'); // Default fill
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   
   // 📱 STATES FOR OTP LOGIN
   const [mobile, setMobile] = useState('');
@@ -34,37 +35,44 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
     
     setLoading(true);
 
-    // 🗝️ MASTER KEY FOR TESTING (Bypass Firebase)
-    if (email === 'admin@prasad.com' || email === 'admin') {
-      setTimeout(() => {
-        onLoginSuccess({
-          id: 'MASTER-ADMIN-001',
-          full_name: 'The Boss (Admin)',
-          role: 'ADMIN',
-          email: 'admin@prasad.com',
-          status: 'ACTIVE'
-        });
-        setLoading(false);
-      }, 1000);
-      return;
-    }
-
-    // --- REAL FIREBASE CHECK ---
     try {
-      const q = query(collection(db, "USERS"), where("email", "==", email), where("password", "==", password));
+      const q = query(collection(db, "USERS"), where("email", "==", email));
       const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const userDoc = querySnapshot.docs[0];
-        const userData = { id: userDoc.id, ...userDoc.data() };
-        
-        if (userData.status === 'INACTIVE') {
-          alert("🚨 Your account is disabled. Contact Super Admin.");
-        } else {
-          onLoginSuccess(userData);
-        }
-      } else {
+
+      if (querySnapshot.empty) {
         alert("❌ Invalid Email or Password!");
+        setLoading(false);
+        return;
+      }
+
+      const userDoc = querySnapshot.docs[0];
+      const data = userDoc.data();
+
+      let ok = false;
+      if (data.password_hash && data.password_salt) {
+        ok = await verifyPassword(password, data.password_salt, data.password_hash);
+      } else if (data.password) {
+        // Legacy plaintext doc (created before the security migration):
+        // verify once, then upgrade it to a salted hash and remove the plaintext.
+        ok = data.password === password;
+        if (ok) {
+          const { saltHex, hashHex } = await hashPassword(password);
+          await updateDoc(doc(db, "USERS", userDoc.id), {
+            password_hash: hashHex,
+            password_salt: saltHex,
+            password: deleteField()
+          }).catch(() => {});
+          delete data.password;
+        }
+      }
+
+      if (!ok) {
+        alert("❌ Invalid Email or Password!");
+      } else if (data.status === 'INACTIVE') {
+        alert("🚨 Your account is disabled. Contact Super Admin.");
+      } else {
+        const { password_hash, password_salt, password: _pw, ...safeData } = data;
+        onLoginSuccess({ id: userDoc.id, ...safeData });
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -76,31 +84,17 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   // ==========================================
   // 📱 2. OTP SEND LOGIC 
   // ==========================================
+  // 🔒 SECURITY: the previous OTP flow was a placeholder that accepted any 4 digits,
+  // leaving the Customer/Partner portals open to anyone. Portal login stays disabled
+  // until real phone verification (Firebase Phone Auth) ships in Phase 1.
   const handleSendOTP = (e: React.FormEvent) => {
     e.preventDefault();
-    if (mobile.length < 10) return alert("⚠️ Please enter a valid 10-digit mobile number.");
-    
-    setLoading(true);
-    setTimeout(() => {
-      setOtpSent(true);
-      setLoading(false);
-      alert(`✅ OTP sent successfully to +91 ${mobile}\n(For testing, enter any 4 digits)`);
-    }, 1000);
+    alert("🔒 Portal login is temporarily disabled for a security upgrade.\nPlease contact the Prasad Transport office for your account details.");
   };
 
-  // ==========================================
-  // ✅ 3. OTP VERIFY LOGIC
-  // ==========================================
   const handleVerifyOTP = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!otp) return alert("⚠️ Please enter the OTP.");
-    
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      if (loginMode === 'CUSTOMER') onCustomerClick();
-      else if (loginMode === 'PARTNER') onPartnerClick();
-    }, 1000);
+    alert("🔒 Portal login is temporarily disabled for a security upgrade.");
   };
 
   return (
@@ -238,7 +232,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
               ) : (
                 <form onSubmit={handleVerifyOTP} className="space-y-4 md:space-y-5 animate-fade-in-up">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1 text-center">Enter OTP (Any 4 digits)</label>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1 text-center">Enter OTP</label>
                     <input type="text" maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="••••" className={`w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white text-3xl tracking-[1em] font-black text-center outline-none transition-colors ${loginMode === 'CUSTOMER' ? 'focus:border-blue-500' : 'focus:border-orange-500'}`} required />
                   </div>
                   <button type="submit" disabled={loading} className="w-full text-white font-black py-4 rounded-xl shadow-lg hover:-translate-y-0.5 transition-transform bg-emerald-600 hover:bg-emerald-500">
