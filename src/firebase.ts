@@ -6,7 +6,7 @@ import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // 🔑 आपकी असली Firebase API Keys
 const firebaseConfig = {
-  apiKey: "AIzaSyBzbSLXzmb0VaQLCZKFuUcJqPLGp_a6Bv8",
+  apiKey: "AIzaSyBzbSLXzmbOvaQlCZKFuUcJqPLGp_a6Bv8", // current Browser key (old value was a hand-typed variant rejected by Identity Toolkit)
   authDomain: "prasad-transport-grup.firebaseapp.com",
   projectId: "prasad-transport-grup",
   storageBucket: "prasad-transport-grup.appspot.com",
