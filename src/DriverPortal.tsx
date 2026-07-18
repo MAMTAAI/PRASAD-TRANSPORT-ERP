@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc, or } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
-import { db } from './firebase';
+import { db, auth } from './firebase';
+import { signInWithPhoneNumber, RecaptchaVerifier, signOut, onAuthStateChanged } from 'firebase/auth';
 import { uploadMedia, slug } from './lib/uploadMedia';
 import BottomSheet from './ui/BottomSheet';
 
@@ -16,9 +17,10 @@ const REQ_STATUS = {
 
 interface DriverPortalProps {
   onBack?: () => void;
+  preview?: boolean; // staff preview from the ERP — demo data, no real OTP
 }
 
-export default function DriverPortal({ onBack }: DriverPortalProps) {
+export default function DriverPortal({ onBack, preview = false }: DriverPortalProps) {
   // 🔐 LOGIN & DATA STATES
   const [mobileNo, setMobileNo] = useState('');
   const [driver, setDriver] = useState<any>(null);
@@ -167,29 +169,99 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
   };
 
   // ==========================================
-  // 🔐 1. HIGH-SECURITY DRIVER LOGIN
+  // 🔐 1. REAL DRIVER LOGIN — Firebase Phone OTP (Phase 1b)
+  // The old flow was a mobile-number lookup with a published demo backdoor;
+  // now the SERVER sends and verifies the OTP, the session persists on the
+  // device, and the driver's uid gets bound to his DRIVERS doc.
   // ==========================================
-  const handleLogin = async () => {
-    if (!mobileNo) return alert("⚠️ Please enter mobile number!");
+  const [otpStep, setOtpStep] = useState('PHONE'); // PHONE | OTP
+  const [otpCode, setOtpCode] = useState('');
+  const confirmRef = useRef(null);
+  const recaptchaRef = useRef(null);
+
+  // Persistent session: app reopen with a phone token → straight to duty screen
+  useEffect(() => {
+    if (preview) return;
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (u?.phoneNumber && !driver) {
+        findAndBindDriver(u.phoneNumber.replace(/^\+91/, ''), u.uid);
+      }
+    });
+    return () => unsub();
+  }, [preview, driver]);
+
+  const findAndBindDriver = async (mobile10, uid) => {
     setLoading(true);
+    try {
+      const qs = await getDocs(query(collection(db, "DRIVERS"), where("mobile", "==", mobile10)));
+      if (qs.empty) {
+        alert("🚫 Yeh number office me registered nahi hai.\nOffice ko call karke register karayein.");
+        await signOut(auth).catch(() => {});
+        setOtpStep('PHONE'); setOtpCode('');
+      } else {
+        const driverDoc = qs.docs[0];
+        const data = { id: driverDoc.id, ...driverDoc.data() };
+        // One-time uid binding (rules will key on this when the lane tightens)
+        if (uid && data.driver_uid !== uid) {
+          updateDoc(doc(db, "DRIVERS", driverDoc.id), { driver_uid: uid, last_login: new Date().toISOString() }).catch(() => {});
+        }
+        setDriver(data);
+        setDriverType(data.driver_type || 'OWN');
+        fetchDriverTrips(mobile10, data.name);
+      }
+    } catch (e) { console.error(e); alert("❌ Login me dikkat aayi — dobara try karein."); }
+    setLoading(false);
+  };
 
-    if (mobileNo === '1234567890' || mobileNo === '1234') {
-      setTimeout(() => {
-        loadDemoData('OWN'); 
-        setLoading(false);
-      }, 1000);
-      return;
+  const handleSendOtp = async () => {
+    const m = mobileNo.replace(/[^\d]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(m)) return alert("⚠️ Sahi 10-digit mobile number daalein!");
+    setLoading(true);
+    try {
+      // QA hook: only effective for Firebase TEST phone numbers — cannot be
+      // abused for real numbers (Firebase ignores it otherwise).
+      if (window.__QA_DISABLE_APP_VERIFY) auth.settings.appVerificationDisabledForTesting = true;
+      if (!recaptchaRef.current) {
+        recaptchaRef.current = new RecaptchaVerifier(auth, 'drv-recaptcha', { size: 'invisible' });
+      }
+      confirmRef.current = await signInWithPhoneNumber(auth, '+91' + m, recaptchaRef.current);
+      setMobileNo(m);
+      setOtpStep('OTP');
+      alert(`📩 OTP bheja gaya +91 ${m} par.`);
+    } catch (e) {
+      console.error(e);
+      alert(e?.code === 'auth/too-many-requests' ? '🚨 Bahut zyada attempts — thodi der baad try karein.' : '❌ OTP nahi gaya — number/network check karke dobara try karein.');
+      try { recaptchaRef.current?.clear(); } catch {}
+      recaptchaRef.current = null;
     }
+    setLoading(false);
+  };
 
+  const handleVerifyOtp = async () => {
+    if (!/^\d{6}$/.test(otpCode)) return alert("⚠️ 6-digit OTP daalein!");
+    setLoading(true);
+    try {
+      const cred = await confirmRef.current.confirm(otpCode);
+      await findAndBindDriver(mobileNo, cred.user.uid);
+    } catch (e) {
+      console.error(e);
+      alert('❌ OTP galat hai — dobara dekh kar daalein.');
+      setLoading(false);
+    }
+  };
+
+  // (legacy path kept for reference by staff tools)
+  const handleLogin = async () => {
+    setLoading(true);
     try {
       const q = query(collection(db, "DRIVERS"), where("mobile", "==", mobileNo));
       const querySnapshot = await getDocs(q);
-      
+
       if (!querySnapshot.empty) {
         const driverDoc = querySnapshot.docs[0];
         const driverData = { id: driverDoc.id, ...driverDoc.data() };
         setDriver(driverData);
-        setDriverType(driverData.driver_type || 'OWN'); 
+        setDriverType(driverData.driver_type || 'OWN');
         fetchDriverTrips(driverData.mobile, driverData.name);
       } else {
         alert("❌ Driver not found! Please check the mobile number.");
@@ -377,21 +449,54 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
           <p className="text-white/40 text-sm font-medium mb-12">Secured by Prasad Transport</p>
           
           <div className="w-full space-y-6">
-            <div className="relative">
-              <input 
-                type="tel" 
-                placeholder="Mobile Number (Type 1234 for demo)" 
-                value={mobileNo} 
-                onChange={e => setMobileNo(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 p-5 rounded-[24px] text-white text-lg font-bold text-center outline-none focus:border-blue-500 focus:bg-white/10 transition-all backdrop-blur-md placeholder:text-white/20"
-              />
-            </div>
-            <button 
-              onClick={handleLogin}
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-[24px] text-lg font-black shadow-[0_10px_30px_rgba(37,99,235,0.3)] active:scale-[0.98] transition-all"
-            >
-              {loading ? 'VERIFYING...' : 'CONTINUE ➔'}
+            {preview ? (
+              <>
+                <p className="text-white/70 text-center text-sm font-bold">👁️ Staff Preview — demo data</p>
+                <button onClick={() => loadDemoData('OWN')} className="w-full bg-blue-600 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all">🏢 OWN DRIVER DEMO</button>
+                <button onClick={() => loadDemoData('MARKET')} className="w-full bg-orange-600 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all">🚚 MARKET DRIVER DEMO</button>
+              </>
+            ) : otpStep === 'PHONE' ? (
+              <>
+                <div className="relative">
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/80 font-black text-lg">+91</span>
+                  <input
+                    type="tel" inputMode="numeric" maxLength={10}
+                    placeholder="मोबाइल नंबर डालो"
+                    value={mobileNo}
+                    onChange={e => setMobileNo(e.target.value.replace(/[^\d]/g, ''))}
+                    className="w-full bg-white/5 border border-white/10 p-5 pl-16 rounded-[24px] text-white text-lg font-black text-center outline-none focus:border-blue-500 focus:bg-white/10 transition-all backdrop-blur-md placeholder:text-white/30"
+                  />
+                </div>
+                <button
+                  onClick={handleSendOtp}
+                  disabled={loading}
+                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black shadow-[0_10px_30px_rgba(37,99,235,0.3)] active:scale-[0.98] transition-all"
+                >
+                  {loading ? '⏳ भेज रहे हैं…' : '📩 OTP भेजो'}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-emerald-300 text-center text-sm font-bold">📩 +91 {mobileNo} पर OTP भेजा गया</p>
+                <input
+                  type="tel" inputMode="numeric" maxLength={6}
+                  placeholder="••••••"
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/[^\d]/g, ''))}
+                  className="w-full bg-white/5 border border-white/10 p-5 rounded-[24px] text-white text-3xl font-black text-center tracking-[0.6em] outline-none focus:border-emerald-500 transition-all placeholder:text-white/20"
+                />
+                <button
+                  onClick={handleVerifyOtp}
+                  disabled={loading}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all"
+                >
+                  {loading ? '⏳ जाँच रहे हैं…' : '✅ OTP जाँचो और लॉगिन'}
+                </button>
+                <button onClick={() => { setOtpStep('PHONE'); setOtpCode(''); }} className="w-full text-white/60 text-sm font-bold py-2">← नंबर बदलो</button>
+              </>
+            )}
+            <div id="drv-recaptcha"></div>
+            <button style={{ display: 'none' }} onClick={handleLogin} aria-hidden="true">
             </button>
           </div>
         </div>
@@ -427,7 +532,7 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
               </div>
             </div>
           </div>
-          <button onClick={() => setDriver(null)} className="text-[10px] font-black text-red-400 bg-red-500/10 px-3 py-2 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest">
+          <button onClick={() => { if (!preview && !window.confirm('Logout karein? Dobara OTP lagega.')) return; if (!preview) signOut(auth).catch(() => {}); setDriver(null); setOtpStep('PHONE'); setOtpCode(''); setMobileNo(''); }} className="text-[10px] font-black text-red-400 bg-red-500/10 px-3 py-2 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest">
             Exit
           </button>
         </header>

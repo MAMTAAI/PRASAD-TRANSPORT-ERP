@@ -1,8 +1,8 @@
 // @ts-nocheck
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
 import { db, auth } from './firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
 
 interface LoginProps {
   onLoginSuccess: (userData: any) => void;
@@ -76,17 +76,45 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   // ==========================================
   // 📱 2. OTP SEND LOGIC 
   // ==========================================
-  // 🔒 SECURITY: the previous OTP flow was a placeholder that accepted any 4 digits,
-  // leaving the Customer/Partner portals open to anyone. Portal login stays disabled
-  // until real phone verification (Firebase Phone Auth) ships in Phase 1.
-  const handleSendOTP = (e: React.FormEvent) => {
+  // 📱 PHASE 1b: REAL portal OTP via Firebase Phone Auth — the server sends
+  // and verifies the code (the old placeholder accepted any 4 digits).
+  const confirmRef = useRef<any>(null);
+  const recapRef = useRef<any>(null);
+
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-    alert("🔒 Portal login is temporarily disabled for a security upgrade.\nPlease contact the Prasad Transport office for your account details.");
+    const m = mobile.replace(/[^\d]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
+    if (!/^[6-9]\d{9}$/.test(m)) return alert("⚠️ Please enter a valid 10-digit mobile number.");
+    setLoading(true);
+    try {
+      if ((window as any).__QA_DISABLE_APP_VERIFY) (auth as any).settings.appVerificationDisabledForTesting = true;
+      if (!recapRef.current) recapRef.current = new RecaptchaVerifier(auth, 'portal-recaptcha', { size: 'invisible' });
+      confirmRef.current = await signInWithPhoneNumber(auth, '+91' + m, recapRef.current);
+      setMobile(m);
+      setOtpSent(true);
+      alert(`📩 OTP sent to +91 ${m}`);
+    } catch (err: any) {
+      console.error(err?.code);
+      alert(err?.code === 'auth/too-many-requests' ? '🚨 Too many attempts — please try again later.' : '❌ OTP send failed — check the number and your connection.');
+      try { recapRef.current?.clear(); } catch {}
+      recapRef.current = null;
+    }
+    setLoading(false);
   };
 
-  const handleVerifyOTP = (e: React.FormEvent) => {
+  const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
-    alert("🔒 Portal login is temporarily disabled for a security upgrade.");
+    if (!/^\d{6}$/.test(otp)) return alert("⚠️ Please enter the 6-digit OTP.");
+    setLoading(true);
+    try {
+      await confirmRef.current.confirm(otp);
+      if (loginMode === 'CUSTOMER') onCustomerClick();
+      else if (loginMode === 'PARTNER') onPartnerClick();
+    } catch (err) {
+      console.error(err);
+      alert('❌ Wrong OTP — please check and try again.');
+    }
+    setLoading(false);
   };
 
   return (
@@ -225,7 +253,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
                 <form onSubmit={handleVerifyOTP} className="space-y-4 md:space-y-5 animate-fade-in-up">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1 text-center">Enter OTP</label>
-                    <input type="text" maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="••••" className={`w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white text-3xl tracking-[1em] font-black text-center outline-none transition-colors ${loginMode === 'CUSTOMER' ? 'focus:border-blue-500' : 'focus:border-orange-500'}`} required />
+                    <input type="text" inputMode="numeric" maxLength={6} value={otp} onChange={(e) => setOtp(e.target.value.replace(/[^\d]/g, ''))} placeholder="••••••" className={`w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white text-3xl tracking-[1em] font-black text-center outline-none transition-colors ${loginMode === 'CUSTOMER' ? 'focus:border-blue-500' : 'focus:border-orange-500'}`} required />
                   </div>
                   <button type="submit" disabled={loading} className="w-full text-white font-black py-4 rounded-xl shadow-lg hover:-translate-y-0.5 transition-transform bg-emerald-600 hover:bg-emerald-500">
                     {loading ? 'Verifying...' : 'VERIFY & ENTER ✅'}
@@ -238,6 +266,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
         </div>
       </div>
 
+      <div id="portal-recaptcha"></div>
       <style>{`
         .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }

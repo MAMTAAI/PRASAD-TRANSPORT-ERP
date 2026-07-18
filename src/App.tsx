@@ -276,7 +276,7 @@ export default function App() {
       case 'DRIVER_PORTAL_PREVIEW': 
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
-            <DriverPortal onBack={() => handleComponentChange('DASHBOARD')} />
+            <DriverPortal preview onBack={() => handleComponentChange('DASHBOARD')} />
           </div>
         );
 

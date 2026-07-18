@@ -57,6 +57,13 @@ service cloud.firestore {
       allow create, delete: if isStaff();
     }
 
+    // Driver khata: drivers may READ their transactions (client filters by
+    // name); only staff write
+    match /DRIVER_TRANSACTIONS/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
     // Portal onboarding: public submit, staff review
     match /ONBOARDING_APPLICATIONS/{id} {
       allow create: if signedIn();
