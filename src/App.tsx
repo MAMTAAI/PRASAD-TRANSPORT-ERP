@@ -33,6 +33,7 @@ const GstMgmt = lazy(() => import('./GstMgmt'));
 const BillScanner = lazy(() => import('./BillScanner'));
 const FleetCardMgmt = lazy(() => import('./FleetCardMgmt'));
 const MonthlyBilling = lazy(() => import('./MonthlyBilling'));
+const KycApprovals = lazy(() => import('./KycApprovals'));
 const TdsMgmt = lazy(() => import('./TdsMgmt'));
 const UGER = lazy(() => import('./UGER'));
 const CompanyInbox = lazy(() => import('./CompanyInbox'));
@@ -179,7 +180,7 @@ export default function App() {
     }
 
     if (module === 'CRM') {
-      if (itemId === 'CUSTOMER') return checkView('Customer Master');
+      if (itemId === 'CUSTOMER' || itemId === 'ONBOARDING') return checkView('Customer Master');
       if (itemId === 'INBOX' || itemId === 'AI_SETTINGS') return checkView('CRM Tools');
     }
     
@@ -300,6 +301,7 @@ export default function App() {
       case 'AI_SCANNER': return <BillScanner />;
       case 'FLEET_CARD': return <FleetCardMgmt />;
       case 'AUTO_BILLING': return <MonthlyBilling />;
+      case 'ONBOARDING': return <KycApprovals />;
       case 'LOCATION_RTKM': return <LocationRtkmMaster />;
       case 'CUSTOMER': return <Customer />;
       case 'VENDOR': return <Vander />;

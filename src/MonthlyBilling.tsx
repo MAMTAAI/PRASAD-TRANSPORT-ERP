@@ -122,7 +122,9 @@ export default function MonthlyBilling() {
     // Sab editable hai — data me exact reporting time na ho to user theek kare.
     setDetRows(picked.map(t => {
       const load = toISODate(t.start_date || t.Loading_Date || t.loading_date);
-      const start = load ? toISODate(new Date(new Date(load).getTime() + 86400000)) : '';
+      // Best source: the driver's 🏭 plant-reporting stamp (exact detention
+      // start); fallback: loading + 1 day (editable).
+      const start = toISODate(t.plant_reported_at) || (load ? toISODate(new Date(new Date(load).getTime() + 86400000)) : '');
       const end = toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)) || start;
       const days = daysBetween(start, end);
       return {

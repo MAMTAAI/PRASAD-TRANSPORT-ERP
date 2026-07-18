@@ -515,6 +515,27 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                         </button>
                       </div>
 
+                      {/* 🏭 Plant-reporting stamp — detention billing counts from THIS
+                          moment, so the office no longer guesses the start date */}
+                      {!trip.office_approved_unloading && (
+                        trip.plant_reported_at ? (
+                          <div className="mb-5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 text-center">
+                            <span className="text-emerald-300 font-black text-[14px]">🏭 प्लांट पहुँचे: {new Date(trip.plant_reported_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              if (!window.confirm('🏭 प्लांट पहुँच गए? अभी का समय दर्ज होगा — detention इसी से गिनेगा।')) return;
+                              updateTripData(trip.id, 'plant_reported_at', new Date().toISOString());
+                              if (currentLoc) updateTripData(trip.id, 'plant_reported_loc', currentLoc);
+                            }}
+                            className="w-full mb-5 bg-amber-500/15 border-2 border-amber-500/50 active:scale-95 p-4 rounded-2xl text-amber-300 font-black text-[15px] min-h-[60px] transition-all"
+                          >
+                            🏭 प्लांट पहुँच गया — समय दर्ज करो
+                          </button>
+                        )
+                      )}
+
                       {/* 📦 ROUTE CARD */}
                       <div className="bg-[#121212] rounded-[32px] border border-white/5 shadow-2xl p-6 relative overflow-hidden mb-6">
                         

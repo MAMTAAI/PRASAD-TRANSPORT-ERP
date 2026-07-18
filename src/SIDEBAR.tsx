@@ -1,5 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { db } from './firebase';
 
 interface SidebarProps {
   activeComponent: string;
@@ -14,6 +16,16 @@ interface SidebarProps {
 export default function SIDEBAR({ activeComponent, setActiveComponent, activeModule, setActiveModule, isMobile, isOpen, onClose }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [user, setUser] = useState<any>(null);
+
+  // 🔴 LIVE pending counts (replaces the old hardcoded "3" badge)
+  const [pendingKyc, setPendingKyc] = useState(0);
+  const [pendingReq, setPendingReq] = useState(0);
+  useEffect(() => {
+    const u1 = onSnapshot(query(collection(db, 'ONBOARDING_APPLICATIONS'), where('status', '==', 'SUBMITTED')), s => setPendingKyc(s.size), () => {});
+    const u2 = onSnapshot(query(collection(db, 'DRIVER_REQUESTS'), where('status', '==', 'PENDING')), s => setPendingReq(s.size), () => {});
+    return () => { u1(); u2(); };
+  }, []);
+  const badgeFor = (id) => (id === 'ONBOARDING' || id === 'BAZAAR_ADMIN') ? pendingKyc : id === 'DRIVER' ? pendingReq : 0;
 
   useEffect(() => {
     if (!isMobile && window.innerWidth < 1024) {
@@ -124,6 +136,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'AI_SETTINGS', label: 'AI Brain Control', icon: '🧠' },
         { id: 'WEB_SETTINGS', label: 'Website Builder', icon: '🌐' },
         { id: 'CUSTOMER', label: 'Customer Master', icon: '🏢' },
+        { id: 'ONBOARDING', label: 'KYC Approvals', icon: '🪪' },
         { id: 'AI_DOCS', label: 'AI Letter Pad', icon: '📝' },
         
         // 👑 ADMIN HEADINGS (ISKO MAP ME HANDLE KIYA HAI)
@@ -176,7 +189,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
               {(isExpanded || isMobile) && (
                 <span style={{ fontSize: '14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                   {item.label}
-                  {item.id === 'BAZAAR_ADMIN' && <span style={{ marginLeft: 'auto', background: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold' }}>3</span>}
+                  {badgeFor(item.id) > 0 && <span style={{ marginLeft: 'auto', background: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold' }}>{badgeFor(item.id)}</span>}
                 </span>
               )}
             </div>
