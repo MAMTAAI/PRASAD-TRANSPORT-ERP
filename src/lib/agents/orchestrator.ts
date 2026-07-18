@@ -27,6 +27,7 @@ export async function runAgent(
   userMessage: string,
   onEvent?: (e: AgentEvent) => void,
   user?: AppUser,
+  history?: Array<{ role: 'user' | 'assistant'; text: string }>, // 🧠 multi-turn context (STM)
 ): Promise<{ answer: string; trace: AgentEvent[]; pendingWrite?: PendingWrite }> {
   // 🔐 RBAC: a non-finance role asking for financials is politely declined.
   if (user && shouldRefuseFinancial(user, userMessage)) {
@@ -48,13 +49,20 @@ export async function runAgent(
     if (mems.length) memoryNote = `\nRelevant remembered facts:\n${mems.map(m => `- ${m.text}`).join('\n')}`;
   } catch { /* memory optional */ }
 
+  // 🧠 Multi-turn: prior turns (short-term memory) come BEFORE the new
+  // question, so "aur uska mobile number?" finally works. Capped upstream.
+  const historyMsgs: ChatMessage[] = (history || []).slice(-10).map(h => ({ role: h.role, content: h.text }));
+
   const messages: ChatMessage[] = [
     { role: 'system', content: SYSTEM + scopeNote + memoryNote },
+    ...historyMsgs,
     { role: 'user', content: userMessage },
   ];
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    const res = await llmChat(messages, { tools: toolDefs, temperature: 0.2 });
+    // numCtx: the loop accumulates history + tool results — Ollama's small
+    // default context would silently drop the system rules first.
+    const res = await llmChat(messages, { tools: toolDefs, temperature: 0.2, numCtx: 8192 } as any);
 
     if (!res.tool_calls?.length) {
       emit({ type: 'final', text: res.content });
@@ -89,12 +97,14 @@ export async function runAgent(
         result = `Tool error: ${e?.message || 'failed'}`;
       }
       emit({ type: 'tool_result', agent: tool?.agent, tool: name, text: result.slice(0, 200) });
-      messages.push({ role: 'tool', name, content: result } as any);
+      // Cap what re-enters the context — an unbounded tool dump evicts the
+      // system rules long before Gemma sees the question again.
+      messages.push({ role: 'tool', name, content: result.length > 2000 ? result.slice(0, 2000) + '\n…(truncated)' : result } as any);
     }
   }
 
   // Safety: ran out of steps — ask the model to answer from what it has.
-  const final = await llmChat([...messages, { role: 'user', content: 'Give your best final answer now from the tool results above.' }], { temperature: 0.2 });
+  const final = await llmChat([...messages, { role: 'user', content: 'Give your best final answer now from the tool results above.' }], { temperature: 0.2, numCtx: 8192 } as any);
   emit({ type: 'final', text: final.content });
   return { answer: final.content || '(no answer)', trace };
 }

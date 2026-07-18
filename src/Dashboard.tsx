@@ -4,6 +4,8 @@ import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { scopeCurrent } from './lib/rbac';
 import { getTripFreight, getTripExpense, round2 } from './lib/accounting/tripMath';
+import { runAgent } from './lib/agents/orchestrator';
+import { stmPush, stmGet } from './lib/memory';
 
 interface DashboardProps {
   activeModule: string; 
@@ -202,36 +204,43 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
     }
   };
 
-  const handleAiSubmit = (textOverride?: string) => {
+  // Instant keyword answers — kept as the OFFLINE fallback when Ollama is down
+  const keywordFallback = (userText: string) => {
+    const q = userText.toLowerCase();
+    if (q.includes('total') || q.includes('kitni gadi') || q.includes('fleet')) return `सर, सिस्टम में अभी कुल ${vehicles.length} गाड़ियां रजिस्टर्ड हैं।`;
+    if (q.includes('loading') || q.includes('load')) return `सर, अभी ${pendingLoadingTrips.length} गाड़ियां लोडिंग के लिए खड़ी (पेंडिंग) हैं।`;
+    if (q.includes('transit') || q.includes('rasta') || q.includes('raaste') || q.includes('chal rahi')) return `अभी कुल ${activeTransitTrips.length} गाड़ियां रास्ते (Transit) में हैं।`;
+    if (q.includes('unload') || q.includes('khali') || q.includes('pahuch')) return `सर, ${pendingUnloadingTrips.length} गाड़ियां कंसाइनी के पास पहुँच चुकी हैं और अनलोडिंग के लिए रुकी हैं।`;
+    if (q.includes('namaste') || q.includes('hello') || q.includes('hi')) return `नमस्ते सर! बताइए आज मैं आपका क्या काम आसान कर सकती हूँ?`;
+    return "माफ़ करें सर, अभी local AI engine बंद है — आप लोडिंग, फ्लीट, रास्ते की गाड़ियां या अनलोडिंग के बारे में पूछ सकते हैं।";
+  };
+
+  // 🤖 REAL Mamta AI (was a keyword if/else bot — one of three inconsistent
+  // "Mamta"s). Now the same tool-calling agent as the CRM chat, with shared
+  // multi-turn memory; keyword answers only when Ollama is offline.
+  const handleAiSubmit = async (textOverride?: string) => {
     const userText = textOverride || aiInput;
     if (!userText.trim()) return;
 
-    setChatMessages(prev => [...prev, { sender: 'user', text: userText }]);
+    setChatMessages(prev => [...prev, { sender: 'user', text: userText }, { sender: 'ai', text: '⏳ सोच रही हूँ…' }]);
     setAiInput('');
 
-    setTimeout(() => {
-      const q = userText.toLowerCase();
-      let reply = "माफ़ करें सर, मैं समझ नहीं पाई। आप मुझसे लोडिंग, फ्लीट, रास्ते की गाड़ियां या अनलोडिंग के बारे में पूछ सकते हैं।";
+    const patchLastAi = (text: string) =>
+      setChatMessages(prev => prev.map((m, i) => (i === prev.length - 1 && m.sender === 'ai' ? { ...m, text } : m)));
 
-      if (q.includes('total') || q.includes('kitni gadi') || q.includes('fleet')) {
-        reply = `सर, सिस्टम में अभी कुल ${vehicles.length} गाड़ियां रजिस्टर्ड हैं।`;
-      } 
-      else if (q.includes('loading') || q.includes('load')) {
-        reply = `सर, अभी ${pendingLoadingTrips.length} गाड़ियां लोडिंग के लिए खड़ी (पेंडिंग) हैं।`;
-      } 
-      else if (q.includes('transit') || q.includes('rasta') || q.includes('raaste') || q.includes('chal rahi')) {
-        reply = `अभी कुल ${activeTransitTrips.length} गाड़ियां रास्ते (Transit) में हैं।`;
-      } 
-      else if (q.includes('unload') || q.includes('khali') || q.includes('pahuch')) {
-        reply = `सर, ${pendingUnloadingTrips.length} गाड़ियां कंसाइनी के पास पहुँच चुकी हैं और अनलोडिंग के लिए रुकी हैं।`;
-      }
-      else if (q.includes('namaste') || q.includes('hello') || q.includes('hi')) {
-        reply = `नमस्ते सुभाष सर! बताइए आज मैं आपका क्या काम आसान कर सकती हूँ?`;
-      }
-
-      setChatMessages(prev => [...prev, { sender: 'ai', text: reply }]);
-      speakAiResponse(reply); 
-    }, 1000);
+    try {
+      let rbacUser: any; try { rbacUser = JSON.parse(localStorage.getItem('prasad_user') || 'null') || undefined; } catch { /* ignore */ }
+      const { answer } = await runAgent(userText, undefined, rbacUser, stmGet('mamta'));
+      const reply = answer || keywordFallback(userText);
+      patchLastAi(reply);
+      stmPush('mamta', 'user', userText);
+      stmPush('mamta', 'assistant', String(reply).slice(0, 500));
+      speakAiResponse(reply);
+    } catch (e) {
+      const reply = keywordFallback(userText);
+      patchLastAi(reply);
+      speakAiResponse(reply);
+    }
   };
 
   if (isFinanceModule) {

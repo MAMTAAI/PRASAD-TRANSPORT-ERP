@@ -6,7 +6,7 @@ import { runAgent } from './lib/agents/orchestrator';
 import { commitWrite } from './lib/agents/tools';
 import { llmHealth } from './lib/llm';
 import { speak, stopSpeaking, voiceStatus } from './lib/voice/tts';
-import { remember } from './lib/memory';
+import { remember, stmPush, stmGet } from './lib/memory';
 import { generateDailyReport } from './lib/analysis/dailyReport';
 
 const SUGGESTIONS = [
@@ -90,9 +90,12 @@ export default function MamtaChat() {
         // 🧭 Multi-agent: route via tools, show the trace as it runs.
         let rbacUser: any = undefined;
         try { rbacUser = JSON.parse(localStorage.getItem('prasad_user') || 'null') || undefined; } catch { /* ignore */ }
+        // 🧠 Multi-turn: prior turns from short-term memory make follow-ups
+        // ("aur uska mobile number?") finally work.
+        const history = stmGet('mamta');
         const { answer, pendingWrite } = await runAgent(query, (ev) => {
           if (ev.type === 'tool_call') patchLast(msg => ({ ...msg, trace: [...(msg.trace || []), `🔧 ${ev.agent || 'Agent'} → ${ev.tool}(${JSON.stringify(ev.args)})`] }));
-        }, rbacUser);
+        }, rbacUser, history);
         if (pendingWrite) {
           // ✋ Write action — never auto-saved. Show preview + ask to confirm.
           const ask = 'Main yeh record banana chahta hoon. Confirm karein to hi save hoga:';
@@ -100,12 +103,16 @@ export default function MamtaChat() {
           if (speaker) speak(ask);
         } else {
           patchLast(msg => ({ ...msg, streaming: false, content: answer }));
+          stmPush('mamta', 'user', query);
+          stmPush('mamta', 'assistant', String(answer).slice(0, 500));
           if (speaker) speak(answer);
         }
       } else {
         let full = '';
         const { sources } = await ragAnswer(query, (tok) => { full += tok; patchLast(msg => ({ ...msg, content: msg.content + tok })); });
         patchLast(msg => ({ ...msg, streaming: false, sources }));
+        stmPush('mamta', 'user', query);
+        stmPush('mamta', 'assistant', full.slice(0, 500));
         if (speaker) speak(full);
       }
     } catch (e: any) {
