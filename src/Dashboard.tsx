@@ -302,11 +302,31 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
     };
 
     return (
-      <div style={{ padding: '30px', minHeight: '100vh', background: '#0a0f1c', fontFamily: "'Inter', sans-serif", color: 'white', paddingBottom: '100px' }}>
-        <style>{`.fin-card { transition: 0.3s; cursor: pointer; } .fin-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); } .bar { transition: 0.5s; cursor: pointer; } .bar:hover { filter: brightness(1.2); } .modal-table th { background: rgba(255,255,255,0.05); padding: 15px; text-align: left; color: #94a3b8; text-transform: uppercase; font-size: 12px; } .modal-table td { padding: 15px; border-bottom: 1px solid #334155; font-size: 14px; }`}</style>
-        
+      <div style={{ padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: '#0a0f1c', fontFamily: "'Inter', sans-serif", color: 'white', paddingBottom: '100px' }}>
+        <style>{`
+          .fin-card { transition: 0.3s; cursor: pointer; }
+          .fin-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+          .bar { transition: 0.5s; cursor: pointer; }
+          .bar:hover { filter: brightness(1.2); }
+          .fin-kpi { background: #0f172a; padding: clamp(14px, 3vw, 25px); border-radius: 15px; }
+          .fin-kpi-label { color: #94a3b8; font-size: clamp(11px, 3vw, 14px); }
+          .fin-kpi-value { font-size: clamp(22px, 6.5vw, 38px); font-weight: 900; }
+          .fin-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: clamp(12px, 2.5vw, 25px); margin-bottom: 35px; }
+          @media (max-width: 620px) { .fin-kpi-grid { grid-template-columns: 1fr 1fr; } .fin-kpi--hero { grid-column: 1 / -1; } }
+          .modal-table th { background: rgba(255,255,255,0.05); padding: 15px; text-align: left; color: #94a3b8; text-transform: uppercase; font-size: 12px; }
+          .modal-table td { padding: 15px; border-bottom: 1px solid #334155; font-size: 14px; }
+          /* Phone: debtor/creditor rows become stacked cards — no side-scroll */
+          @media (max-width: 560px) {
+            .modal-table thead { display: none; }
+            .modal-table, .modal-table tbody { display: block; width: 100%; }
+            .modal-table tr { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding: 10px 4px; gap: 4px; }
+            .modal-table td { border: none !important; padding: 2px 4px !important; }
+            .modal-table td:first-child { flex-basis: 100%; }
+          }
+        `}</style>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
-          <div><h2 style={{ margin: 0, fontSize: '36px', color: '#fff', fontWeight: '900' }}>💰 Master Finance Hub</h2><p style={{ margin: '5px 0 0 0', color: '#10b981', fontWeight: 'bold' }}>Real-time Consolidated Financial Overview</p></div>
+          <div><h2 style={{ margin: 0, fontSize: 'clamp(22px, 5.5vw, 36px)', color: '#fff', fontWeight: '900' }}>💰 Master Finance Hub</h2><p style={{ margin: '5px 0 0 0', color: '#10b981', fontWeight: 'bold', fontSize: 'clamp(12px, 3vw, 15px)' }}>Consolidated Financial Overview</p></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
             <GoogleTools />
             {isAdmin && (
@@ -325,27 +345,36 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: '25px', marginBottom: '35px' }}>
-          <div style={{ background: '#0f172a', borderLeft: '5px solid #10b981', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Total Revenue (YTD)</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#10b981' }}>{formatCurrency(realRevenue)}</div></div>
-          <div style={{ background: '#0f172a', borderLeft: '5px solid #ef4444', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Total Expenses</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#ef4444' }}>{formatCurrency(realExpenses)}</div></div>
-          <div style={{ background: '#0f172a', borderLeft: '5px solid #3b82f6', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Net Profit</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#38bdf8' }}>{formatCurrency(realProfit)}</div></div>
-          
-          <div className={isAdmin ? "fin-card" : ""} onClick={() => isAdmin && setDetailModal('DEBTORS')} style={{ background: '#0f172a', borderLeft: '5px solid #f59e0b', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Accounts Receivable (Debtors)</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#f59e0b' }}>{formatCurrency(totalReceivable)}</div></div>
-          <div className={isAdmin ? "fin-card" : ""} onClick={() => isAdmin && setDetailModal('CREDITORS')} style={{ background: '#0f172a', borderLeft: '5px solid #ec4899', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Accounts Payable (Creditors)</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#ec4899' }}>{formatCurrency(totalPayable)}</div></div>
-          <div style={{ background: '#0f172a', borderLeft: '5px solid #8b5cf6', padding: '25px', borderRadius: '15px' }}><div style={{ color: '#94a3b8' }}>Calculated Cash Flow</div><div style={{ fontSize: '38px', fontWeight: '900', color: '#c084fc' }}>{formatCurrency(calculatedBankBalance)}</div></div>
+        <div className="fin-kpi-grid">
+          {/* Hero: the number the boss opens this screen for */}
+          <div className="fin-kpi fin-kpi--hero" style={{ borderLeft: '5px solid #3b82f6', background: 'linear-gradient(135deg, #0f172a, #101d33)' }}>
+            <div className="fin-kpi-label">Net Profit (All Time)</div>
+            <div className="fin-kpi-value" style={{ color: realProfit >= 0 ? '#38bdf8' : '#ef4444', fontSize: 'clamp(28px, 8vw, 48px)' }}>{formatCurrency(realProfit)}</div>
+            <div style={{ fontSize: 'clamp(10px, 2.6vw, 12px)', color: '#64748b', marginTop: '4px' }}>Revenue {formatCurrency(realRevenue)} − Expenses {formatCurrency(realExpenses)}</div>
+          </div>
+          <div className="fin-kpi" style={{ borderLeft: '5px solid #10b981' }}><div className="fin-kpi-label">Total Revenue (All Time)</div><div className="fin-kpi-value" style={{ color: '#10b981' }}>{formatCurrency(realRevenue)}</div></div>
+          <div className="fin-kpi" style={{ borderLeft: '5px solid #ef4444' }}><div className="fin-kpi-label">Total Expenses</div><div className="fin-kpi-value" style={{ color: '#ef4444' }}>{formatCurrency(realExpenses)}</div></div>
+          <div className={`fin-kpi ${isAdmin ? 'fin-card' : ''}`} onClick={() => isAdmin && setDetailModal('DEBTORS')} style={{ borderLeft: '5px solid #f59e0b' }}><div className="fin-kpi-label">Receivable (Debtors) {isAdmin ? '👆' : ''}</div><div className="fin-kpi-value" style={{ color: '#f59e0b' }}>{formatCurrency(totalReceivable)}</div></div>
+          <div className={`fin-kpi ${isAdmin ? 'fin-card' : ''}`} onClick={() => isAdmin && setDetailModal('CREDITORS')} style={{ borderLeft: '5px solid #ec4899' }}><div className="fin-kpi-label">Payable (Creditors) {isAdmin ? '👆' : ''}</div><div className="fin-kpi-value" style={{ color: '#ec4899' }}>{formatCurrency(totalPayable)}</div></div>
+          <div className="fin-kpi" style={{ borderLeft: '5px solid #8b5cf6' }}><div className="fin-kpi-label">Net Position (Indicative)</div><div className="fin-kpi-value" style={{ color: '#c084fc' }}>{formatCurrency(calculatedBankBalance)}</div><div style={{ fontSize: 'clamp(9px, 2.4vw, 11px)', color: '#64748b', marginTop: '4px' }}>Profit − Receivables + Payables (not a bank balance)</div></div>
         </div>
 
-        <div style={{ background: '#1e293b', borderRadius: '15px', padding: '30px' }}>
-          <h3 style={{ margin: '0 0 20px 0', color: '#fff' }}>📉 6-Month Trend (Income vs Expense)</h3>
+        <div style={{ background: '#1e293b', borderRadius: '15px', padding: 'clamp(14px, 3vw, 30px)' }}>
+          <h3 style={{ margin: '0 0 20px 0', color: '#fff', fontSize: 'clamp(15px, 4vw, 19px)' }}>📉 6-Month Trend (Income vs Expense)</h3>
           {realRevenue === 0 && realExpenses === 0 ? ( <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>No financial data available.</div> ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: '280px', borderBottom: '2px solid #475569', paddingBottom: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: '280px', borderBottom: '2px solid #475569', paddingBottom: '10px', gap: '4px' }}>
               {realChartData.map((data, index) => (
-                <div key={index} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%' }}>
-                  <div style={{ position: 'relative', display: 'flex', gap: '4px', alignItems: 'flex-end', height: '100%', width: '100%', justifyContent: 'center' }}>
-                    <div className="bar" style={{ width: '18px', background: '#10b981', height: getBarHeight(data.inc) }} title={`₹${(Number(data.inc)||0).toFixed(2)}L`}></div>
-                    <div className="bar" style={{ width: '18px', background: '#ef4444', height: getBarHeight(data.exp) }} title={`₹${(Number(data.exp)||0).toFixed(2)}L`}></div>
+                // Values are ALWAYS visible (title-attr tooltips don't exist on touch)
+                <div key={index} role="img" aria-label={`${data.month}: income ${(Number(data.inc)||0).toFixed(1)} lakh, expense ${(Number(data.exp)||0).toFixed(1)} lakh`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 'clamp(8px, 2vw, 11px)', fontWeight: 'bold', textAlign: 'center', lineHeight: 1.3, marginBottom: '4px' }}>
+                    <span style={{ color: '#10b981', display: 'block' }}>₹{(Number(data.inc)||0).toFixed(1)}L</span>
+                    <span style={{ color: '#ef4444', display: 'block' }}>₹{(Number(data.exp)||0).toFixed(1)}L</span>
                   </div>
-                  <span style={{ color: '#cbd5e1', fontSize: '13px', marginTop:'10px' }}>{data.month}</span>
+                  <div style={{ position: 'relative', display: 'flex', gap: '4px', alignItems: 'flex-end', flex: 1, width: '100%', justifyContent: 'center' }}>
+                    <div className="bar" style={{ width: 'clamp(14px, 4vw, 24px)', borderRadius: '4px 4px 0 0', background: '#10b981', height: getBarHeight(data.inc) }}></div>
+                    <div className="bar" style={{ width: 'clamp(14px, 4vw, 24px)', borderRadius: '4px 4px 0 0', background: '#ef4444', height: getBarHeight(data.exp) }}></div>
+                  </div>
+                  <span style={{ color: '#cbd5e1', fontSize: 'clamp(10px, 2.6vw, 13px)', marginTop:'10px' }}>{data.month}</span>
                 </div>
               ))}
             </div>
