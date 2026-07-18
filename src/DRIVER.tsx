@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
@@ -102,15 +102,19 @@ export default function DriverMgmt() {
       const tSnap = await getDocs(collection(db, "DRIVER_TRANSACTIONS"));
       setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()));
 
-      try {
-        const reqSnap = await getDocs(collection(db, "DRIVER_REQUESTS"));
-        setPendingRequests(reqSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-          .filter((r:any) => r.status === 'PENDING' || r.status === 'APPROVED'));
-      } catch(e) {}
-
     } catch (e) { console.error(e); }
     setLoading(false);
   };
+
+  // 📡 LIVE driver requests — the old one-time fetch meant an EMERGENCY/advance
+  // request sat unseen until someone happened to reopen this module.
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "DRIVER_REQUESTS"), (snap) => {
+      setPendingRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .filter((r:any) => r.status === 'PENDING' || r.status === 'APPROVED'));
+    }, (e) => console.error(e));
+    return () => unsub();
+  }, []);
 
   const handleApproveRequest = async (req: any) => {
     if (!window.confirm(`Pass ${req.type} of ₹${req.amount} for ${req.driver_name}?\n(This will send it to Cashier for Payment)`)) return;

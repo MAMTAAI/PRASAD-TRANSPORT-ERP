@@ -3,6 +3,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc, or } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
 import { db } from './firebase';
 import { uploadMedia, slug } from './lib/uploadMedia';
+import BottomSheet from './ui/BottomSheet';
+
+const inr = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
+// Request status → Hindi chip (the driver finally SEES what happened to his request)
+const REQ_STATUS = {
+  PENDING:  { label: '📨 भेजा गया', color: '#f59e0b' },
+  APPROVED: { label: '✅ मंज़ूर', color: '#38bdf8' },
+  PAID:     { label: '💰 मिल गया', color: '#10b981' },
+  REJECTED: { label: '❌ रद्द', color: '#ef4444' },
+};
 
 interface DriverPortalProps {
   onBack?: () => void;
@@ -27,6 +37,74 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
 
   // 📱 UI NAVIGATION STATES
   const [activeTab, setActiveTab] = useState('TRIPS'); // TRIPS, EXPENSES, KYC
+
+  // 💸 Money-request sheet (replaces window.prompt) + driver's own data
+  const [askSheet, setAskSheet] = useState(null); // {type, title} | null
+  const [askAmount, setAskAmount] = useState('');
+  const [askRemarks, setAskRemarks] = useState('');
+  const [sendingReq, setSendingReq] = useState(false);
+  const [myRequests, setMyRequests] = useState([]);
+  const [khataTxns, setKhataTxns] = useState([]);
+  // ⛽ Kharcha (expense) form — was dead UI with no handlers at all
+  const [expType, setExpType] = useState('⛽ Diesel / Fuel Slip');
+  const [expAmount, setExpAmount] = useState('');
+  const [expFile, setExpFile] = useState(null);
+  const [sendingExp, setSendingExp] = useState(false);
+
+  const fetchDriverExtras = async (drv) => {
+    if (!drv || String(drv.id).includes('DEMO')) return;
+    try {
+      const [reqSnap, txnSnap] = await Promise.all([
+        getDocs(query(collection(db, 'DRIVER_REQUESTS'), where('driver_name', '==', drv.name))).catch(() => ({ docs: [] })),
+        getDocs(query(collection(db, 'DRIVER_TRANSACTIONS'), where('driver_name', '==', drv.name))).catch(() => ({ docs: [] })),
+      ]);
+      setMyRequests(reqSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20));
+      setKhataTxns(txnSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) { console.error(e); }
+  };
+  useEffect(() => { if (driver) fetchDriverExtras(driver); }, [driver?.id]);
+
+  // खाता summary: paisa mila (advances/payments TO driver) — office se hisaab
+  const khataGiven = khataTxns.filter(t => ['ADVANCE_GIVEN', 'PAYMENT_GIVEN'].includes(t.txn_type)).reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const khataRecovered = khataTxns.filter(t => !['ADVANCE_GIVEN', 'PAYMENT_GIVEN'].includes(t.txn_type)).reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+
+  const sendRequest = async (type, amount, remarks) => {
+    setSendingReq(true);
+    try {
+      await addDoc(collection(db, 'DRIVER_REQUESTS'), {
+        driver_id: driver.id, driver_name: driver.name,
+        type, amount: String(amount || ''), remarks: remarks || '',
+        status: 'PENDING', createdAt: new Date().toISOString(),
+      });
+      alert('✅ Request office ko chali gayi! Status "खाता" tab me dikhega.');
+      setAskSheet(null); setAskAmount(''); setAskRemarks('');
+      fetchDriverExtras(driver);
+    } catch (e) { console.error(e); alert('❌ Request nahi gayi — network check karke dobara try karein.'); }
+    setSendingReq(false);
+  };
+
+  // ⛽ REAL expense submit (photo → Storage, request → office approval queue)
+  const submitExpense = async () => {
+    const amt = parseFloat(expAmount);
+    if (!Number.isFinite(amt) || amt <= 0) return alert('⚠️ Sahi amount daalein!');
+    setSendingExp(true);
+    try {
+      let billUrl = '';
+      if (expFile) {
+        const { url } = await uploadMedia(expFile, `driver-expenses/${slug(driver.id)}/${Date.now()}.jpg`);
+        billUrl = url;
+      }
+      await addDoc(collection(db, 'DRIVER_REQUESTS'), {
+        driver_id: driver.id, driver_name: driver.name,
+        type: 'EXPENSE', amount: String(amt), remarks: expType,
+        bill_photo: billUrl, status: 'PENDING', createdAt: new Date().toISOString(),
+      });
+      alert('✅ Kharcha office ko pahunch gaya! Approval ke baad khata me judega.');
+      setExpAmount(''); setExpFile(null);
+      fetchDriverExtras(driver);
+    } catch (e) { console.error(e); alert('❌ Nahi gaya — network check karke dobara try karein.'); }
+    setSendingExp(false);
+  };
 
   // ==========================================
   // 🔄 HELPER: LOAD DEMO DATA BASED ON TYPE
@@ -259,49 +337,21 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
   // 🚀 ACTION HANDLERS (SEND TO ADMIN - FIREBASE)
   // ==========================================
   const handleQuickAction = async (actionName: string) => {
-    let amount = '';
-    let remarks = '';
-    
+    // Money asks open a proper numeric sheet (window.prompt was a tiny English
+    // system dialog with no numeric keypad — hostile to the target user).
     if (actionName === 'ADVANCE') {
-       const purpose = driverType === 'OWN' ? 'Trip Bhatta / Diesel' : 'Freight Advance / Toll';
-       const inputAmount = window.prompt(`Enter amount needed for ${purpose} (₹):`);
-       if (!inputAmount) return; // Cancel kiya to wapas jao
-       amount = inputAmount;
-       remarks = window.prompt('Any remarks? (Optional)') || purpose;
-    } else if (actionName === 'FUEL_CALL') {
-       if (driverType === 'OWN') {
-         const inputAmount = window.prompt('Enter Diesel Amount (₹):');
-         if (!inputAmount) return;
-         amount = inputAmount;
-         remarks = 'Diesel Kharcha';
-       } else {
-         alert('📞 Call Owner for support.');
-         return;
-       }
-    } else if (actionName === 'POD') {
-       remarks = 'Driver clicked POD or requested document check.';
-    } else if (actionName === 'EMERGENCY') {
-       remarks = driverType === 'OWN' ? 'Vehicle Repair needed' : 'Emergency Help Needed';
-    } else {
-       remarks = `Requested Action: ${actionName}`;
+      setAskSheet({ type: 'ADVANCE', title: driverType === 'OWN' ? '💸 भत्ता / एडवांस माँगो' : '💸 एडवांस माँगो' });
+      return;
     }
-
-    try {
-      // ✅ Yahan asli jadu ho raha hai - Data Firebase me save hoga
-      await addDoc(collection(db, "DRIVER_REQUESTS"), {
-        driver_id: driver.id,
-        driver_name: driver.name,
-        type: actionName === 'ADVANCE' ? 'ADVANCE' : actionName === 'FUEL_CALL' ? 'FUEL' : actionName,
-        amount: amount,
-        remarks: remarks,
-        status: 'PENDING',
-        createdAt: new Date().toISOString()
-      });
-      alert(`✅ Request sent to Admin successfully!`);
-    } catch (e) {
-      alert("❌ Failed to send request.");
-      console.error(e);
+    if (actionName === 'FUEL_CALL') {
+      if (driverType === 'OWN') { setAskSheet({ type: 'FUEL', title: '⛽ डीज़ल का पैसा माँगो' }); }
+      else { alert('📞 Owner ko call karein.'); }
+      return;
     }
+    const remarks = actionName === 'POD' ? 'Driver clicked POD or requested document check.'
+      : actionName === 'EMERGENCY' ? (driverType === 'OWN' ? 'Vehicle Repair needed' : 'Emergency Help Needed')
+      : `Requested Action: ${actionName}`;
+    await sendRequest(actionName === 'POD' ? 'POD' : actionName, '', remarks);
   };
 
   // =========================================================
@@ -361,7 +411,11 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
         <header className="px-6 pt-10 pb-4 flex justify-between items-center bg-[#0a0a0a]/80 backdrop-blur-xl sticky top-0 z-40 border-b border-white/5">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <img src={driver.profile_photo || 'https://ui-avatars.com/api/?name='+driver.name+'&background=2563eb&color=fff'} alt="Profile" className="w-12 h-12 rounded-full object-cover border-2 border-white/10 bg-zinc-800" />
+              {driver.profile_photo ? (
+                <img src={driver.profile_photo} alt="Profile" className="w-12 h-12 rounded-full object-cover border-2 border-white/10 bg-zinc-800" />
+              ) : (
+                <div className="w-12 h-12 rounded-full border-2 border-white/10 bg-blue-600 flex items-center justify-center text-lg font-black text-white">{String(driver.name || '?').trim().charAt(0).toUpperCase()}</div>
+              )}
               <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0a0a0a] rounded-full"></div>
             </div>
             <div>
@@ -399,8 +453,8 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
               {activeTrips.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-10 h-full mt-20 text-center">
                   <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner">💤</div>
-                  <h3 className="text-xl font-bold text-white">No Active Duty</h3>
-                  <p className="text-sm text-white/40 mt-2 text-center">Take some rest. Office will assign a new trip soon.</p>
+                  <h3 className="text-2xl font-black text-white">अभी कोई ड्यूटी नहीं</h3>
+                  <p className="text-base text-white/70 mt-2 text-center">आराम करें — ऑफिस नई ट्रिप देगा तो यहाँ दिखेगी।</p>
                 </div>
               ) : (
                 activeTrips.map((trip: any) => (
@@ -408,10 +462,11 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                     
                     {/* 🗺️ DYNAMIC AUTO-MAP AREA */}
                     <div className="w-full h-56 relative bg-zinc-900 border-b border-white/10 overflow-hidden">
+                      {/* Map shown in NORMAL colors — the old invert filter made it unreadable in sunlight */}
                       {isTracking && currentLoc ? (
-                        <iframe width="100%" height="100%" style={{ border: 0, filter: 'invert(90%) hue-rotate(180deg)' }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?q=${currentLoc.lat},${currentLoc.lng}&z=15&output=embed`}></iframe>
+                        <iframe width="100%" height="100%" style={{ border: 0 }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?q=${currentLoc.lat},${currentLoc.lng}&z=15&output=embed`}></iframe>
                       ) : (
-                        <iframe width="100%" height="100%" style={{ border: 0, opacity: 0.5, filter: 'invert(90%) hue-rotate(180deg)' }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?q=${encodeURIComponent(trip.loading_point)}+to+${encodeURIComponent(trip.consignee_name)}&t=m&z=5&output=embed`}></iframe>
+                        <iframe width="100%" height="100%" style={{ border: 0, opacity: 0.85 }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?saddr=${encodeURIComponent(trip.loading_point)}&daddr=${encodeURIComponent(trip.consignee_name)}&z=5&output=embed`}></iframe>
                       )}
                       
                       <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none"></div>
@@ -440,31 +495,23 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                     <div className="px-5 py-4">
                       
                       {/* 🔥 SMART QUICK ACTIONS GRID 🔥 */}
-                      <div className="grid grid-cols-4 gap-3 mb-6">
-                        <button onClick={() => handleQuickAction('POD')} className="bg-white/5 border border-white/10 hover:border-emerald-500/50 p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all">
-                          <span className="text-2xl">📸</span>
-                          <span className="text-[8px] font-black text-emerald-400 uppercase">POD</span>
+                      {/* बड़े हिंदी tiles — 8px English labels थे, driver पढ़ ही नहीं पाता था */}
+                      <div className="grid grid-cols-2 gap-3 mb-6">
+                        <button onClick={() => handleQuickAction('ADVANCE')} className="bg-blue-500/10 border border-blue-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
+                          <span className="text-3xl">💸</span>
+                          <span className="text-[13px] font-black text-blue-300">पैसा माँगो</span>
                         </button>
-
-                        <button onClick={() => handleQuickAction('ADVANCE')} className="bg-white/5 border border-white/10 hover:border-blue-500/50 p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all">
-                          <span className="text-2xl">💸</span>
-                          <span className="text-[8px] font-black text-blue-400 uppercase text-center leading-tight">
-                            {driverType === 'OWN' ? 'ASK\nBHATTA' : 'ASK\nADVANCE'}
-                          </span>
+                        <button onClick={() => handleQuickAction('POD')} className="bg-emerald-500/10 border border-emerald-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
+                          <span className="text-3xl">📸</span>
+                          <span className="text-[13px] font-black text-emerald-300">पर्ची / POD</span>
                         </button>
-
-                        <button onClick={() => handleQuickAction('FUEL_CALL')} className="bg-white/5 border border-white/10 hover:border-orange-500/50 p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all">
-                          <span className="text-2xl">{driverType === 'OWN' ? '⛽' : '📞'}</span>
-                          <span className="text-[8px] font-black text-orange-400 uppercase text-center leading-tight">
-                            {driverType === 'OWN' ? 'ADD\nFUEL' : 'CALL\nOWNER'}
-                          </span>
+                        <button onClick={() => handleQuickAction('FUEL_CALL')} className="bg-orange-500/10 border border-orange-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
+                          <span className="text-3xl">{driverType === 'OWN' ? '⛽' : '📞'}</span>
+                          <span className="text-[13px] font-black text-orange-300">{driverType === 'OWN' ? 'डीज़ल का पैसा' : 'मालिक को फ़ोन'}</span>
                         </button>
-
-                        <button onClick={() => handleQuickAction('EMERGENCY')} className="bg-red-500/10 border border-red-500/30 hover:bg-red-500/20 p-3 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all">
-                          <span className="text-2xl">{driverType === 'OWN' ? '🛠️' : '🆘'}</span>
-                          <span className="text-[8px] font-black text-red-400 uppercase text-center leading-tight">
-                            {driverType === 'OWN' ? 'REPAIR' : 'HELP'}
-                          </span>
+                        <button onClick={() => handleQuickAction('EMERGENCY')} className="bg-red-500/15 border border-red-500/40 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
+                          <span className="text-3xl">🆘</span>
+                          <span className="text-[13px] font-black text-red-300">{driverType === 'OWN' ? 'गाड़ी ख़राब / मदद' : 'मदद चाहिए'}</span>
                         </button>
                       </div>
 
@@ -477,12 +524,12 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                              <div className="absolute left-[11px] top-2 bottom-2 w-[2px] bg-gradient-to-b from-blue-500 to-emerald-500 opacity-50"></div>
                              <div className="relative">
                                <div className="absolute -left-[35px] top-1.5 w-5 h-5 bg-[#121212] rounded-full border-4 border-blue-500"></div>
-                               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-0.5">Pickup</p>
+                               <p className="text-[11px] font-bold text-white/70 tracking-widest mb-0.5">कहाँ से (Loading)</p>
                                <p className="text-lg font-black text-white leading-tight">{trip.loading_point}</p>
                              </div>
                              <div className="relative">
                                <div className="absolute -left-[35px] top-1.5 w-5 h-5 bg-[#121212] rounded-full border-4 border-emerald-500"></div>
-                               <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-0.5">Drop</p>
+                               <p className="text-[11px] font-bold text-white/70 tracking-widest mb-0.5">कहाँ तक (Drop)</p>
                                <p className="text-lg font-black text-white leading-tight">{trip.consignee_name}</p>
                              </div>
                            </div>
@@ -490,8 +537,8 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
 
                         {/* Loading Inputs */}
                         <div className="space-y-4">
-                          <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><span>1.</span> Loading Actions</h4>
-                          <input type="number" placeholder="Enter Loaded Qty" defaultValue={trip.driver_loaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_loaded_qty', e.target.value)} disabled={trip.office_approved_loading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/20" />
+                          <h4 className="text-sm font-black text-blue-400 tracking-widest flex items-center gap-2"><span>1.</span> लोडिंग — कितना माल भरा?</h4>
+                          <input type="number" inputMode="decimal" placeholder="माल की मात्रा डालें (Loaded Qty)" defaultValue={trip.driver_loaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_loaded_qty', e.target.value)} disabled={trip.office_approved_loading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/20" />
                           <div className="relative">
                             {trip.driver_loading_photo ? (
                               <div className="relative rounded-2xl overflow-hidden border border-white/10 h-32 group">
@@ -505,7 +552,7 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                               </div>
                             ) : (
                               <label className="flex flex-col items-center justify-center w-full h-24 bg-white/5 border border-dashed border-blue-500/50 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
-                                <span className="text-2xl mb-1">📸</span><span className="text-blue-400 font-bold text-xs">Upload Challan</span>
+                                <span className="text-2xl mb-1">📸</span><span className="text-blue-400 font-bold text-sm">चालान की फोटो भेजो</span>
                                 <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_loading_photo')} disabled={trip.office_approved_loading} className="hidden" />
                               </label>
                             )}
@@ -515,8 +562,8 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                         
                         {/* Unloading Inputs */}
                         <div className="space-y-4 mt-8 pt-6 border-t border-white/5">
-                          <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2"><span>2.</span> Unloading Actions</h4>
-                          <input type="number" placeholder="Enter Unloaded Qty" defaultValue={trip.driver_unloaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_unloaded_qty', e.target.value)} disabled={trip.office_approved_unloading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-emerald-500 transition-all placeholder:text-white/20" />
+                          <h4 className="text-sm font-black text-emerald-400 tracking-widest flex items-center gap-2"><span>2.</span> अनलोडिंग — कितना माल उतरा?</h4>
+                          <input type="number" inputMode="decimal" placeholder="उतरा हुआ माल डालें (Unloaded Qty)" defaultValue={trip.driver_unloaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_unloaded_qty', e.target.value)} disabled={trip.office_approved_unloading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-emerald-500 transition-all placeholder:text-white/20" />
                           <div className="relative">
                             {trip.driver_unloading_photo ? (
                               <div className="relative rounded-2xl overflow-hidden border border-white/10 h-32 group">
@@ -530,7 +577,7 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
                               </div>
                             ) : (
                               <label className="flex flex-col items-center justify-center w-full h-24 bg-white/5 border border-dashed border-emerald-500/50 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
-                                <span className="text-2xl mb-1">📸</span><span className="text-emerald-400 font-bold text-xs">Upload POD</span>
+                                <span className="text-2xl mb-1">📸</span><span className="text-emerald-400 font-bold text-sm">उतराई की पर्ची भेजो (POD)</span>
                                 <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_unloading_photo')} disabled={trip.office_approved_unloading} className="hidden" />
                               </label>
                             )}
@@ -546,33 +593,74 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
             </div>
           )}
 
-          {/* ⛽ TAB 2: KHARCHA (EXPENSES) - ONLY FOR OWN DRIVERS */}
+          {/* 📒 TAB 2: खाता — balance + kharcha + request status (was DEAD UI: the
+              submit button had no onClick and the driver never saw any status) */}
           {activeTab === 'EXPENSES' && driverType === 'OWN' && (
             <div className="p-5 animate-fade-in-up space-y-6">
-              <div className="bg-[#121212] rounded-[32px] p-6 border border-white/5 shadow-2xl">
-                <h3 className="text-xl font-black text-white mb-2">Trip Kharcha</h3>
-                <p className="text-xs text-white/40 mb-6">Upload diesel slip or toll receipt directly to office ERP.</p>
-                
-                <div className="space-y-5">
-                  <select className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[20px] text-sm font-bold text-white outline-none focus:border-blue-500 transition-all appearance-none">
+
+              {/* 📒 खाता summary — office se kitna mila */}
+              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
+                <h3 className="text-xl font-black text-white mb-4">📒 मेरा खाता</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center">
+                    <p className="text-[12px] font-bold text-emerald-300">पैसा मिला (Advance)</p>
+                    <p className="text-2xl font-black text-emerald-400 mt-1">{inr(khataGiven)}</p>
+                  </div>
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-center">
+                    <p className="text-[12px] font-bold text-blue-300">हिसाब हुआ</p>
+                    <p className="text-2xl font-black text-blue-400 mt-1">{inr(khataRecovered)}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-white/50 mt-3 text-center">पूरा हिसाब ऑफिस के पास है — कुछ गड़बड़ लगे तो 🆘 दबाओ।</p>
+              </div>
+
+              {/* ⛽ Kharcha form — REAL now */}
+              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
+                <h3 className="text-lg font-black text-white mb-1">⛽ खर्चा भेजो</h3>
+                <p className="text-[12px] text-white/60 mb-5">डीज़ल / टोल की पर्ची की फोटो के साथ ऑफिस को भेजें।</p>
+                <div className="space-y-4">
+                  <select value={expType} onChange={e => setExpType(e.target.value)} className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-base font-bold text-white outline-none focus:border-blue-500 transition-all appearance-none">
                     <option>⛽ Diesel / Fuel Slip</option>
                     <option>🛣️ Toll Tax Receipt</option>
                     <option>👮 RTO / Border Kharcha</option>
                     <option>🛠️ Vehicle Repair</option>
                   </select>
-                  
-                  <input type="number" placeholder="Total Amount (₹)" className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[20px] text-lg font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/20" />
-
-                  <label className="w-full bg-[#0a0a0a] border-2 border-dashed border-white/20 hover:border-blue-500 text-white/40 font-bold text-xs py-10 rounded-[24px] flex flex-col items-center justify-center cursor-pointer transition-colors">
+                  <input type="number" inputMode="decimal" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="कितने रुपये? (₹)" className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/30" />
+                  <label className={`w-full bg-[#0a0a0a] border-2 border-dashed ${expFile ? 'border-emerald-500 text-emerald-400' : 'border-white/20 text-white/60'} font-bold text-sm py-8 rounded-[20px] flex flex-col items-center justify-center cursor-pointer transition-colors`}>
                     <span className="text-3xl mb-2">📸</span>
-                    Click Photo of Bill/Slip
-                    <input type="file" accept="image/*" capture="environment" className="hidden" />
+                    {expFile ? '✅ पर्ची की फोटो लग गयी — बदलने के लिए दबाओ' : 'पर्ची की फोटो खींचो'}
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { setExpFile(e.target.files?.[0] || null); e.target.value = ''; }} />
                   </label>
-
-                  <button className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black text-base py-4 rounded-[20px] shadow-[0_10px_20px_rgba(37,99,235,0.3)] active:scale-95 transition-transform mt-2">
-                    SEND TO OFFICE 🚀
+                  <button onClick={submitExpense} disabled={sendingExp} className="w-full bg-blue-600 active:bg-blue-500 disabled:bg-zinc-700 text-white font-black text-lg py-4 rounded-[18px] shadow-[0_10px_20px_rgba(37,99,235,0.3)] active:scale-95 transition-transform min-h-[56px]">
+                    {sendingExp ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
                   </button>
                 </div>
+              </div>
+
+              {/* 📨 मेरी रिक्वेस्ट — status timeline (closes the phone-call loop) */}
+              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-black text-white">📨 मेरी रिक्वेस्ट</h3>
+                  <button onClick={() => fetchDriverExtras(driver)} className="text-[12px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-xl">🔄 ताज़ा करो</button>
+                </div>
+                {myRequests.length === 0 ? (
+                  <p className="text-sm text-white/50 text-center py-4">अभी कोई रिक्वेस्ट नहीं भेजी।</p>
+                ) : (
+                  <div className="space-y-3">
+                    {myRequests.map(r => {
+                      const st = REQ_STATUS[r.status] || REQ_STATUS.PENDING;
+                      return (
+                        <div key={r.id} className="flex justify-between items-center bg-[#0a0a0a] border border-white/5 rounded-2xl p-4">
+                          <div className="min-w-0">
+                            <p className="text-sm font-black text-white truncate">{r.type === 'EXPENSE' ? '⛽ खर्चा' : r.type === 'ADVANCE' ? '💸 एडवांस' : r.type === 'FUEL' ? '⛽ डीज़ल' : r.type} {r.amount ? `· ${inr(r.amount)}` : ''}</p>
+                            <p className="text-[11px] text-white/50 truncate">{String(r.createdAt || '').slice(0, 10)} · {r.remarks || ''}</p>
+                          </div>
+                          <span className="text-[12px] font-black px-3 py-1.5 rounded-full whitespace-nowrap" style={{ color: st.color, background: st.color + '1a', border: `1px solid ${st.color}55` }}>{st.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -651,18 +739,18 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
         {/* 📱 MODERN FLOATING BOTTOM NAV */}
         <div className={`absolute bottom-6 left-6 right-6 bg-[#1a1a1a]/90 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex justify-between items-center z-50 shadow-[0_20px_40px_rgba(0,0,0,0.5)] ${driverType === 'MARKET' ? 'justify-center' : ''}`}>
           
-          <button onClick={() => setActiveTab('TRIPS')} className={`flex-1 flex flex-col items-center py-2 transition-all ${activeTab === 'TRIPS' ? 'text-blue-500 scale-105' : 'text-white/40'}`}>
-            <span className="text-2xl mb-1">🗺️</span><span className="text-[9px] font-black uppercase tracking-widest">Duty</span>
+          <button onClick={() => setActiveTab('TRIPS')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'TRIPS' ? 'text-blue-400 scale-105' : 'text-white/60'}`}>
+            <span className="text-2xl mb-0.5">🗺️</span><span className="text-[12px] font-black">ड्यूटी</span>
           </button>
 
           {/* 🔥 HIDE EXPENSES & KYC FOR MARKET DRIVER 🔥 */}
           {driverType === 'OWN' && (
             <>
-              <button onClick={() => setActiveTab('EXPENSES')} className={`flex-1 flex flex-col items-center py-2 transition-all ${activeTab === 'EXPENSES' ? 'text-emerald-500 scale-105' : 'text-white/40'}`}>
-                <span className="text-2xl mb-1">⛽</span><span className="text-[9px] font-black uppercase tracking-widest">Kharcha</span>
+              <button onClick={() => setActiveTab('EXPENSES')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'EXPENSES' ? 'text-emerald-400 scale-105' : 'text-white/60'}`}>
+                <span className="text-2xl mb-0.5">📒</span><span className="text-[12px] font-black">खाता</span>
               </button>
-              <button onClick={() => setActiveTab('KYC')} className={`flex-1 flex flex-col items-center py-2 transition-all ${activeTab === 'KYC' ? 'text-orange-500 scale-105' : 'text-white/40'}`}>
-                <span className="text-2xl mb-1">🪪</span><span className="text-[9px] font-black uppercase tracking-widest">Docs</span>
+              <button onClick={() => setActiveTab('KYC')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'KYC' ? 'text-orange-400 scale-105' : 'text-white/60'}`}>
+                <span className="text-2xl mb-0.5">🪪</span><span className="text-[12px] font-black">कागज़</span>
               </button>
             </>
           )}
@@ -670,6 +758,30 @@ export default function DriverPortal({ onBack }: DriverPortalProps) {
         </div>
 
       </div>
+
+      {/* 💸 पैसा माँगो sheet — proper numeric keypad, no window.prompt */}
+      <BottomSheet open={!!askSheet} onClose={() => setAskSheet(null)} title={askSheet?.title || ''} accent="#3b82f6" maxWidth={440}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', color: '#93c5fd', marginBottom: '8px' }}>कितने रुपये चाहिए?</label>
+            <input type="number" inputMode="decimal" autoFocus value={askAmount} onChange={e => setAskAmount(e.target.value)}
+              placeholder="₹ 0"
+              style={{ width: '100%', boxSizing: 'border-box', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: '16px', color: 'white', fontSize: '32px', fontWeight: 900, textAlign: 'center', padding: '16px', outline: 'none' }} />
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {[500, 1000, 2000, 5000].map(v => (
+                <button key={v} onClick={() => setAskAmount(String(v))} style={{ background: 'rgba(59,130,246,0.12)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '999px', padding: '10px 16px', fontWeight: 'bold', cursor: 'pointer', minHeight: '44px' }}>₹{v.toLocaleString('en-IN')}</button>
+              ))}
+            </div>
+          </div>
+          <input type="text" value={askRemarks} onChange={e => setAskRemarks(e.target.value)} placeholder="किस लिए? (optional)"
+            style={{ width: '100%', boxSizing: 'border-box', background: '#0a0a0a', border: '1px solid #334155', borderRadius: '14px', color: 'white', fontSize: '15px', padding: '14px', outline: 'none' }} />
+          <button onClick={() => { const a = parseFloat(askAmount); if (!Number.isFinite(a) || a <= 0) return alert('⚠️ Sahi amount daalein!'); sendRequest(askSheet.type, a, askRemarks || askSheet.title); }} disabled={sendingReq}
+            style={{ width: '100%', background: sendingReq ? '#3f3f46' : '#3b82f6', color: 'white', border: 'none', borderRadius: '16px', padding: '18px', fontSize: '18px', fontWeight: 900, cursor: 'pointer', minHeight: '56px' }}>
+            {sendingReq ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
+          </button>
+        </div>
+      </BottomSheet>
+
       <style>{`
         .animate-fade-in-up { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
