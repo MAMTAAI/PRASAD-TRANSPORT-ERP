@@ -31,6 +31,7 @@ const TollFastagMgmt = lazy(() => import('./TollFastagMgmt'));
 const LoanEmiMgmt = lazy(() => import('./LoanEmiMgmt'));
 const GstMgmt = lazy(() => import('./GstMgmt'));
 const BillScanner = lazy(() => import('./BillScanner'));
+const FleetCardMgmt = lazy(() => import('./FleetCardMgmt'));
 const TdsMgmt = lazy(() => import('./TdsMgmt'));
 const UGER = lazy(() => import('./UGER'));
 const CompanyInbox = lazy(() => import('./CompanyInbox'));
@@ -145,10 +146,15 @@ export default function App() {
 
   const hasPermission = (itemId: string, module: string) => {
     if (!user) return false;
-    
+
     if (itemId === 'UGER' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS') {
       return user.role === 'ADMIN' || user.role === 'Super Admin';
     }
+
+    // Admins see everything — without this, any module id missing from the
+    // mapping below fell through to `return false` even for Super Admin
+    // (this silently locked newly added modules for everyone).
+    if (user.role === 'ADMIN' || user.role === 'Super Admin') return true;
 
     if (['DASHBOARD', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true; 
 
@@ -165,7 +171,8 @@ export default function App() {
     if (module === 'ACCOUNTS') {
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'BILLING') return checkView('Billing & Invoicing');
+      if (itemId === 'BILLING' || itemId === 'AI_SCANNER') return checkView('Billing & Invoicing');
+      if (itemId === 'FLEET_CARD') return checkView('Ledger & Cash Book') || checkView('Fuel & Maintenance');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
       if (itemId === 'VENDOR') return checkView('Vendor Master');
     }
@@ -290,6 +297,7 @@ export default function App() {
       case 'PNL': return <FinancialReports />;
       case 'BILLING': return <BillManagement />;
       case 'AI_SCANNER': return <BillScanner />;
+      case 'FLEET_CARD': return <FleetCardMgmt />;
       case 'LOCATION_RTKM': return <LocationRtkmMaster />;
       case 'CUSTOMER': return <Customer />;
       case 'VENDOR': return <Vander />;

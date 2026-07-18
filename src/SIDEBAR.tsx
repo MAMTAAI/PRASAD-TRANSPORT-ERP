@@ -107,6 +107,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
+        { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
         { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },
         { id: 'TOLL', label: 'Toll & Fastag', icon: '🛣️' },
         { id: 'GST', label: 'GST Management', icon: '🏛️' },
