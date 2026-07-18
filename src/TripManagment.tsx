@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, writeBatch, increment, getDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -145,27 +145,52 @@ export default function TripManagment() {
 
   useEffect(() => { fetchData(); }, []);
 
+  // 📄 PAGINATED lifecycle queries (Phase B3): the old full-collection fetch
+  // downloaded all 800+ completed trips on every mount/mutation. Active trips
+  // load fully (small set); history loads HISTORY_PAGE at a time via cursor.
+  const HISTORY_PAGE = 100;
+  const historyCursor = React.useRef(null);
+  const [historyDone, setHistoryDone] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const tripSnap = await getDocs(collection(db, "TRIPS"));
-      const tripData = tripSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      tripData.sort((a, b) => (b.created_at?.toMillis() || 0) - (a.created_at?.toMillis() || 0));
-      setTrips(scopeCurrent(tripData)); // 🔐 RBAC: scoped roles see only their own trips
+      const safe = (p) => p.catch((e) => { console.error(e); return { docs: [] }; });
+      const [activeSnap, histSnap, vehSnap, drvSnap, venSnap, rtkmSnap] = await Promise.all([
+        safe(getDocs(query(collection(db, "TRIPS"), where('trip_status', '!=', 'COMPLETED')))),
+        safe(getDocs(query(collection(db, "TRIPS"), where('trip_status', '==', 'COMPLETED'), orderBy('sort_date', 'desc'), limit(HISTORY_PAGE)))),
+        safe(getDocs(collection(db, "VEHICLES"))),
+        safe(getDocs(collection(db, "DRIVERS"))),
+        safe(getDocs(collection(db, "VENDORS"))),
+        safe(getDocs(collection(db, "RTKM_MASTER"))),
+      ]);
+      const active = activeSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      active.sort((a, b) => String(b.sort_date || '').localeCompare(String(a.sort_date || '')));
+      const hist = histSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      historyCursor.current = histSnap.docs.length ? histSnap.docs[histSnap.docs.length - 1] : null;
+      setHistoryDone(histSnap.docs.length < HISTORY_PAGE);
+      setTrips(scopeCurrent([...active, ...hist])); // 🔐 RBAC: scoped roles see only their own trips
 
-      const vehSnap = await getDocs(collection(db, "VEHICLES"));
       setVehicles(vehSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const drvSnap = await getDocs(collection(db, "DRIVERS"));
       setDrivers(drvSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const venSnap = await getDocs(collection(db, "VENDORS"));
       setFuelVendors(venSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(v => String(v.vendor_type).toLowerCase().includes('fuel') || String(v.vendor_type).toLowerCase().includes('pump')));
-
-      const rtkmSnap = await getDocs(collection(db, "RTKM_MASTER"));
       setRtkmMaster(rtkmSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) { console.error(e); }
     setLoading(false);
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyCursor.current || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const snap = await getDocs(query(collection(db, "TRIPS"), where('trip_status', '==', 'COMPLETED'), orderBy('sort_date', 'desc'), startAfter(historyCursor.current), limit(HISTORY_PAGE)));
+      const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      historyCursor.current = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+      setHistoryDone(snap.docs.length < HISTORY_PAGE);
+      setTrips(prev => scopeCurrent([...prev, ...more.filter(m => !prev.some(p => p.id === m.id))]));
+    } catch (e) { console.error(e); }
+    setLoadingMore(false);
   };
 
   const handleConsigneeChange = (val: string) => {
@@ -278,12 +303,13 @@ export default function TripManagment() {
   const handleSaveTrip = async () => {
     if (!formData.vehicle_no || !formData.consignee_name) return alert("⚠️ Please fill Vehicle No and Consignee!");
     try {
+      const sortDate = formData.start_date || new Date().toISOString().split('T')[0]; // paginated queries order on this
       if (editingTripId) {
-        await updateDoc(doc(db, "TRIPS", editingTripId), { ...formData });
+        await updateDoc(doc(db, "TRIPS", editingTripId), { ...formData, sort_date: sortDate });
         alert("✅ Trip Updated Successfully!");
         setEditingTripId('');
       } else {
-        await addDoc(collection(db, "TRIPS"), { ...formData, created_at: serverTimestamp(), total_expense: 0, office_cash_paid: 0, bank_paid: 0, hsd_issued: 0, pump_cash_advance: 0 });
+        await addDoc(collection(db, "TRIPS"), { ...formData, sort_date: sortDate, created_at: serverTimestamp(), total_expense: 0, office_cash_paid: 0, bank_paid: 0, hsd_issued: 0, pump_cash_advance: 0 });
         alert("✅ New Trip Started Successfully!");
       }
       setFormData({ trip_id: 'TRP-' + Math.floor(Math.random() * 90000 + 10000), vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '', customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0], gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '', trip_status: 'IN_TRANSIT', billing_status: 'PENDING' });
@@ -996,7 +1022,39 @@ export default function TripManagment() {
         </div>
       )}
 
-      {activeTab === 'COMPLETED' && (
+      {/* 📱 MOBILE: history as cards */}
+      {activeTab === 'COMPLETED' && isMobile && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {completedTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching completed trips found.</div> :
+           completedTrips.map(t => (
+            <div key={t.id} style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                <b style={{ fontSize: '16px', color: '#38bdf8' }}>{t.vehicle_no || t.Vehical_No}</b>
+                <span style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>{t.trip_id || t.Trip_ID}</span>
+              </div>
+              <div style={{ fontSize: '12px', color: '#cbd5e1', margin: '6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Ld: {t.start_date || t.Loading_Date || '-'} · Un: {t.unloading_date || '-'} · {t.driver_name || t.Driver_Name || '—'}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', gap: '8px' }}>
+                <div style={{ fontSize: '12px' }}>
+                  <span style={{ color: '#94a3b8' }}>Gross ₹{(parseFloat(t.gross_freight || t.Gross_Freight) || 0).toLocaleString('en-IN')}</span>
+                  <span style={{ color: '#ef4444', marginLeft: '8px' }}>Exp ₹{(parseFloat(t.total_expense) || 0).toLocaleString('en-IN')}</span>
+                  <b style={{ color: '#10b981', marginLeft: '8px' }}>Bal ₹{(parseFloat(t.final_balance) || 0).toLocaleString('en-IN')}</b>
+                </div>
+                <button onClick={() => handleEditCompletedTrip(t)} style={{ minHeight: '44px', padding: '0 16px', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', border: '1px solid #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✏️ Edit</button>
+              </div>
+            </div>
+          ))}
+          {!historyDone && !debouncedSearch && (
+            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ minHeight: '52px', background: loadingMore ? '#475569' : '#1e293b', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+              {loadingMore ? '⌛ Loading…' : `⬇️ Aur purani trips dikhao (${HISTORY_PAGE} aur)`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'COMPLETED' && !isMobile && (
         <div style={styles.glassCard}>
           <table style={{...styles.table, whiteSpace: 'nowrap'}}>
             <thead>
@@ -1038,7 +1096,15 @@ export default function TripManagment() {
               ))}
             </tbody>
           </table>
+          {!historyDone && !debouncedSearch && (
+            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ width: '100%', marginTop: '14px', minHeight: '48px', background: loadingMore ? '#475569' : 'transparent', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+              {loadingMore ? '⌛ Loading…' : `⬇️ Load ${HISTORY_PAGE} more completed trips`}
+            </button>
+          )}
         </div>
+      )}
+      {activeTab === 'COMPLETED' && (debouncedSearch || historyFromDate || historyToDate) && !historyDone && (
+        <p style={{ fontSize: '12px', color: '#f59e0b', marginTop: '10px' }}>⚠️ Search/date filter sirf loaded trips ({trips.filter(t => t.trip_status === 'COMPLETED').length}) me chal raha hai — puri history ke liye "Load more" karte jaayein.</p>
       )}
     </div>
   );

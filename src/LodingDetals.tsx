@@ -390,7 +390,7 @@ export default function LodingDetals() {
       await updateDoc(doc(db, "TRIPS", tripId), {
         office_approved_loading: true, Loaded_Qty: driverQty, loaded_qty: driverQty,
         trip_status: 'IN_TRANSIT', Loading_Date: new Date().toISOString().split('T')[0],
-        loading_date: new Date().toISOString().split('T')[0], sync_to_customer_portal: true
+        loading_date: new Date().toISOString().split('T')[0], sort_date: new Date().toISOString().split('T')[0], sync_to_customer_portal: true
       });
       alert("✅ Driver Loading Data Approved! Synced to Customer Portal.");
       fetchTripsAndMaster();
@@ -410,12 +410,14 @@ export default function LodingDetals() {
           loading_date: manualData.Loading_Date, challan_no: manualData.Challan_No,
           operating_company: manualData.Operating_Company, invoice_url: manualData.Invoice_URL, 
           office_approved_loading: true, trip_status: 'IN_TRANSIT', sync_to_customer_portal: true,
+          sort_date: manualData.Loading_Date || new Date().toISOString().split('T')[0],
           created_at: Timestamp.now()
         });
         alert(`✅ Entry Saved for ${manualData.Operating_Company}! LR No: ${manualData.Trip_ID}`);
       } else {
         await updateDoc(doc(db, "TRIPS", selectedTripId), {
-          ...manualData, office_approved_loading: true, trip_status: 'IN_TRANSIT', 
+          ...manualData, office_approved_loading: true, trip_status: 'IN_TRANSIT',
+          sort_date: manualData.Loading_Date || new Date().toISOString().split('T')[0],
           loaded_qty: manualData.Loaded_Qty, loading_date: manualData.Loading_Date,
           challan_no: manualData.Challan_No, loading_point: manualData.Loading_Point, 
           consignee_name: manualData.Consignee_Name, operating_company: manualData.Operating_Company, 
