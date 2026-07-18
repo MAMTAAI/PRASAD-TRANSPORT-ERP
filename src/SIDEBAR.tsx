@@ -106,6 +106,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
         { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
+        { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
         { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },

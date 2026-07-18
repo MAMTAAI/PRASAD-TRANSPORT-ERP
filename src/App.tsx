@@ -32,6 +32,7 @@ const LoanEmiMgmt = lazy(() => import('./LoanEmiMgmt'));
 const GstMgmt = lazy(() => import('./GstMgmt'));
 const BillScanner = lazy(() => import('./BillScanner'));
 const FleetCardMgmt = lazy(() => import('./FleetCardMgmt'));
+const MonthlyBilling = lazy(() => import('./MonthlyBilling'));
 const TdsMgmt = lazy(() => import('./TdsMgmt'));
 const UGER = lazy(() => import('./UGER'));
 const CompanyInbox = lazy(() => import('./CompanyInbox'));
@@ -171,7 +172,7 @@ export default function App() {
     if (module === 'ACCOUNTS') {
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'BILLING' || itemId === 'AI_SCANNER') return checkView('Billing & Invoicing');
+      if (itemId === 'BILLING' || itemId === 'AI_SCANNER' || itemId === 'AUTO_BILLING') return checkView('Billing & Invoicing');
       if (itemId === 'FLEET_CARD') return checkView('Ledger & Cash Book') || checkView('Fuel & Maintenance');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
       if (itemId === 'VENDOR') return checkView('Vendor Master');
@@ -298,6 +299,7 @@ export default function App() {
       case 'BILLING': return <BillManagement />;
       case 'AI_SCANNER': return <BillScanner />;
       case 'FLEET_CARD': return <FleetCardMgmt />;
+      case 'AUTO_BILLING': return <MonthlyBilling />;
       case 'LOCATION_RTKM': return <LocationRtkmMaster />;
       case 'CUSTOMER': return <Customer />;
       case 'VENDOR': return <Vander />;
