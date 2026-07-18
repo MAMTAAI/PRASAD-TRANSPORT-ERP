@@ -609,6 +609,11 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
         /* AI chat window: fits any phone instead of a fixed 350px that hangs off-screen */
         @media (max-width: 480px) {
           .ai-chat-window { width: auto; left: 10px; right: 10px; bottom: 80px; height: 65vh; }
+        }
+        /* FAB must clear the app's bottom nav on ALL mobile/tablet widths
+           (the nav shows up to 1024px — the old 480px query left the FAB
+           covering the CRM tab on tablets/landscape phones) */
+        @media (max-width: 1024px) {
           .ai-chat-btn { bottom: 80px; right: 16px; }
         }
       `}</style>
@@ -699,11 +704,11 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
       {/* PERFORMANCE ANALYTICS */}
       {(!isCrmModule && dashConfig.showAnalytics) && (
         <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '15px', padding: '25px', marginBottom: '35px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #1e293b', paddingBottom: '15px' }}>
-            <h3 style={{ margin: 0, color: '#fff', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid #1e293b', paddingBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+            <h3 style={{ margin: 0, color: '#fff', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               📈 Fleet Performance Analytics <span style={{fontSize:'12px', color:'#94a3b8'}}>(Click vehicle bar for details)</span>
             </h3>
-            <div style={{ display: 'flex', gap: '5px', background: '#0a0f1c', padding: '5px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+            <div style={{ display: 'flex', gap: '5px', background: '#0a0f1c', padding: '5px', borderRadius: '8px', border: '1px solid #1e293b', flexWrap: 'wrap' }}>
               <button onClick={() => setTimeRange('1')} style={{ padding: '8px 20px', borderRadius: '5px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: timeRange === '1' ? '#38bdf8' : 'transparent', color: timeRange === '1' ? '#0f172a' : '#94a3b8' }}>Today</button>
               <button onClick={() => setTimeRange('15')} style={{ padding: '8px 20px', borderRadius: '5px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: timeRange === '15' ? '#10b981' : 'transparent', color: timeRange === '15' ? '#0f172a' : '#94a3b8' }}>15 Days</button>
               <button onClick={() => setTimeRange('30')} style={{ padding: '8px 20px', borderRadius: '5px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: timeRange === '30' ? '#f59e0b' : 'transparent', color: timeRange === '30' ? '#0f172a' : '#94a3b8' }}>30 Days</button>

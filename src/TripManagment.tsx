@@ -2,6 +2,25 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
+import BottomSheet from './ui/BottomSheet';
+import { useIsMobile } from './hooks/useIsMobile';
+
+// 📊 Compact target-vs-used meter for trip cards (HSD / Cash)
+function TripMeter({ label, used, target, unit, color }) {
+  const pct = target > 0 ? Math.min(100, Math.round((used / target) * 100)) : 0;
+  const over = target > 0 && used > target;
+  return (
+    <div style={{ flex: 1, minWidth: '130px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
+        <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>{label}</span>
+        <span style={{ color: over ? '#ef4444' : color, fontWeight: 'bold' }}>{unit === '₹' ? `₹${used.toLocaleString('en-IN')}/${target ? '₹' + target.toLocaleString('en-IN') : '—'}` : `${used}/${target || '—'} ${unit}`}</span>
+      </div>
+      <div style={{ height: '6px', borderRadius: '3px', background: '#1e293b', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', borderRadius: '3px', background: over ? '#ef4444' : color, transition: 'width .3s' }} />
+      </div>
+    </div>
+  );
+}
 import { db } from './firebase';
 import { getDrivingDistance } from './lib/maps';
 import { scopeCurrent } from './lib/rbac';
@@ -27,6 +46,7 @@ const getVal = (obj, keysArr) => {
 };
 
 export default function TripManagment() {
+  const { isMobile } = useIsMobile();
   const [activeTab, setActiveTab] = useState('ACTIVE'); 
   const [trips, setTrips] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -585,15 +605,10 @@ export default function TripManagment() {
     <div style={styles.container}>
       
       {/* MODALS */}
-      {showTrackModal && activeTrip && (
-        <div style={styles.modalOverlay}>
-          <div style={{...styles.modalContent, display: 'flex', flexDirection: 'column', height: '80vh'}}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-              <h2 style={{ color: '#38bdf8', margin: 0 }}>📍 Route Tracking: {activeTrip.vehicle_no || activeTrip.Vehical_No}</h2>
-              <button onClick={() => setShowTrackModal(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+      <BottomSheet open={!!(showTrackModal && activeTrip)} onClose={() => setShowTrackModal(false)} title={`📍 Route Tracking: ${activeTrip?.vehicle_no || activeTrip?.Vehical_No || ''}`} accent="#38bdf8" maxWidth={860}>
+        {activeTrip && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '68dvh' }}>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
               <button onClick={() => setTrackMode('ROUTE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #38bdf8', cursor: 'pointer', background: trackMode === 'ROUTE' ? '#38bdf8' : '#1e293b', color: trackMode === 'ROUTE' ? '#0f172a' : '#38bdf8' }}>🛣️ Full Route Plan</button>
               <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #10b981', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#1e293b', color: trackMode === 'GPRS' ? '#0f172a' : '#10b981' }}>📡 Live GPS (Driver App)</button>
               <button onClick={() => setTrackMode('MOBILE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #f59e0b', cursor: 'pointer', background: trackMode === 'MOBILE' ? '#f59e0b' : '#1e293b', color: trackMode === 'MOBILE' ? '#0f172a' : '#f59e0b' }}>📱 Driver Mobile (Live)</button>
@@ -652,13 +667,11 @@ export default function TripManagment() {
               </div>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </BottomSheet>
 
-      {showPaymentModal && activeTrip && (
-        <div style={styles.modalOverlay}>
-          <div style={{...styles.modalContent, ...styles.modalSm}}>
-            <h3 style={{ color: '#8b5cf6', marginTop: 0 }}>💸 Pay to Driver ({activeTrip.driver_name || activeTrip.Driver_Name})</h3>
+      <BottomSheet open={!!(showPaymentModal && activeTrip)} onClose={() => setShowPaymentModal(false)} title={`💸 Pay to Driver (${activeTrip?.driver_name || activeTrip?.Driver_Name || ''})`} accent="#8b5cf6" maxWidth={480}>
+        {activeTrip && (<>
             <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(245, 158, 11, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b', marginBottom: '15px' }}>
                <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#94a3b8'}}>Cash Target</span><br/><b style={{color:'#f59e0b'}}>₹{payModalCashTarget}</b></div>
                <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#94a3b8'}}>Total Paid</span><br/><b style={{color:'#f59e0b'}}>₹{payModalCashIssued}</b></div>
@@ -681,21 +694,14 @@ export default function TripManagment() {
               <input type="text" style={styles.input} placeholder="Remarks / Ref No." value={paymentData.remarks} onChange={e=>setPaymentData({...paymentData, remarks: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                 <button onClick={()=>setShowPaymentModal(false)} style={{ flex: 1, background: '#334155', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
-                <button onClick={handleDriverPayment} disabled={savingPayment} style={{ flex: 1, background: savingPayment ? '#64748b' : '#8b5cf6', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>{savingPayment ? '⌛ Paying...' : 'Confirm Payment'}</button>
+                <button onClick={handleDriverPayment} disabled={savingPayment} style={{ flex: 1, background: savingPayment ? '#64748b' : '#8b5cf6', color: 'white', padding: '14px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', minHeight: '48px' }}>{savingPayment ? '⌛ Paying...' : 'Confirm Payment'}</button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+        </>)}
+      </BottomSheet>
 
-      {showFuelModal && activeTrip && (
-        <div style={styles.modalOverlay}>
-          <div style={{...styles.modalContent, width: '850px'}}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h3 style={{ color: '#f59e0b', margin: 0, fontSize: '24px' }}>⛽ Issue Trip Fuel/Cash Memo</h3>
-              <button onClick={() => setShowFuelModal(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
-            </div>
-
+      <BottomSheet open={!!(showFuelModal && activeTrip)} onClose={() => setShowFuelModal(false)} title="⛽ Issue Trip Fuel/Cash Memo" accent="#f59e0b" maxWidth={880}>
+        {activeTrip && (<>
             {generatedMemos.length > 0 ? (
               <div style={{ textAlign: 'center', padding: '20px' }}>
                 <h2 style={{ color: '#10b981' }}>✅ Memos Generated!</h2>
@@ -708,14 +714,14 @@ export default function TripManagment() {
               </div>
             ) : (
               <>
-                <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px' }}>
-                  <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Vehicle</label><input style={styles.input} value={activeTrip.vehicle_no || activeTrip.Vehical_No} readOnly /></div>
-                  <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Driver</label><input style={styles.input} value={activeTrip.driver_name || activeTrip.Driver_Name} readOnly /></div>
-                  <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile</label><input style={styles.input} value={memoData.driver_mobile} readOnly /></div>
+                <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px', flexWrap: 'wrap' }}>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Vehicle</label><input style={styles.input} value={activeTrip.vehicle_no || activeTrip.Vehical_No} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Driver</label><input style={styles.input} value={activeTrip.driver_name || activeTrip.Driver_Name} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile</label><input style={styles.input} value={memoData.driver_mobile} readOnly /></div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-                  <div style={{flex: 1, background: 'rgba(56, 189, 248, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)'}}>
+                <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(56, 189, 248, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)'}}>
                     <h4 style={{margin: '0 0 10px 0', color: '#38bdf8'}}>💧 HSD Calculation</h4>
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#38bdf8' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#38bdf8'}} value={memoData.fixed_hsd} onChange={e=>setMemoData({...memoData, fixed_hsd: e.target.value})} /></div>
@@ -724,7 +730,7 @@ export default function TripManagment() {
                     </div>
                   </div>
 
-                  <div style={{flex: 1, background: 'rgba(16, 185, 129, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
+                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(16, 185, 129, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
                     <h4 style={{margin: '0 0 10px 0', color: '#10b981'}}>💵 Cash Calculation</h4>
                     <div style={{ display: 'flex', gap: '10px' }}>
                       <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#10b981' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#10b981'}} value={memoData.fixed_cash} onChange={e=>setMemoData({...memoData, fixed_cash: e.target.value})} /></div>
@@ -736,13 +742,13 @@ export default function TripManagment() {
 
                 <h4 style={{ color: '#f59e0b', marginBottom: '10px' }}>⛽ Issue New Fuel / Cash</h4>
                 {pumps.map((pump) => (
-                  <div key={pump.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
-                    <select style={{...styles.input, flex: 1.5}} value={pump.vendor_id} onChange={e=>handlePumpChange(pump.id, 'vendor_id', e.target.value)}><option value="">-- Petrol Pump --</option>{fuelVendors.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}</select>
-                    <select style={{...styles.input, flex: 1}} value={pump.fuel_type} onChange={e=>handlePumpChange(pump.id, 'fuel_type', e.target.value)}><option value="FIXED">Fixed</option><option value="ADVANCE">Advance</option></select>
-                    <input type="number" style={{...styles.input, flex: 1}} placeholder="Liters (New)" value={pump.qty} onChange={e=>handlePumpChange(pump.id, 'qty', e.target.value)} />
-                    <input type="number" style={{...styles.input, flex: 1, borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ef4444' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
-                    <div style={{flex: 1, textAlign: 'center'}}><span style={{fontSize:'10px', color:'#94a3b8', display:'block'}}>Amount</span><b style={{color:'#f59e0b'}}>₹{pump.amount || '0.00'}</b></div>
-                    <input type="number" style={{...styles.input, flex: 1}} placeholder="Cash (New)" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} />
+                  <div key={pump.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '15px', borderRadius: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                    <select style={{...styles.input, flex: 1.5, minWidth: 'min(100%, 180px)'}} value={pump.vendor_id} onChange={e=>handlePumpChange(pump.id, 'vendor_id', e.target.value)}><option value="">-- Petrol Pump --</option>{fuelVendors.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}</select>
+                    <select style={{...styles.input, flex: 1, minWidth: '110px'}} value={pump.fuel_type} onChange={e=>handlePumpChange(pump.id, 'fuel_type', e.target.value)}><option value="FIXED">Fixed</option><option value="ADVANCE">Advance</option></select>
+                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Liters (New)" value={pump.qty} onChange={e=>handlePumpChange(pump.id, 'qty', e.target.value)} />
+                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px', borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ef4444' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
+                    <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}><span style={{fontSize:'10px', color:'#94a3b8', display:'block'}}>Amount</span><b style={{color:'#f59e0b'}}>₹{pump.amount || '0.00'}</b></div>
+                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Cash (New)" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} />
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
@@ -751,15 +757,12 @@ export default function TripManagment() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-      )}
+        </>)}
+      </BottomSheet>
 
-      {showUnloadModal && activeTrip && (
-        <div style={styles.modalOverlay}>
-          <div style={{...styles.modalContent, ...styles.modalSm}}>
-            <h3 style={{ color: '#10b981', marginTop: 0 }}>📦 Final Unloading</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+      <BottomSheet open={!!(showUnloadModal && activeTrip)} onClose={() => setShowUnloadModal(false)} title="📦 Final Unloading" accent="#10b981" maxWidth={480}>
+        {activeTrip && (<>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '15px', marginBottom: '20px' }}>
               <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#fff', fontSize: '12px' }}>Date</label><input type="date" style={styles.input} value={unloadData.unloading_date} onChange={e=>recalcUnload({ unloading_date: e.target.value })} /></div>
               <div><label style={{ color: '#38bdf8', fontSize: '12px' }}>Loaded Qty (Auto)</label><input type="number" style={{...styles.input, color: '#38bdf8'}} value={unloadData.loaded_qty} onChange={e=>recalcUnload({ loaded_qty: e.target.value })} /></div>
               <div><label style={{ color: '#10b981', fontSize: '12px' }}>Unloaded Qty *</label><input type="number" style={{...styles.input, borderColor: '#10b981'}} value={unloadData.unloaded_qty} onChange={e=>recalcUnload({ unloaded_qty: e.target.value })} placeholder="Enter received qty" /></div>
@@ -769,11 +772,10 @@ export default function TripManagment() {
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={() => setShowUnloadModal(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleCompleteTrip} style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>✅ Complete Trip</button>
+              <button onClick={handleCompleteTrip} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', minHeight: '48px' }}>✅ Complete Trip</button>
             </div>
-          </div>
-        </div>
-      )}
+        </>)}
+      </BottomSheet>
 
       {/* --- HEADER & TABS --- */}
       <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
@@ -782,10 +784,7 @@ export default function TripManagment() {
       </div>
 
       {/* 💰 BULK FREIGHT TOOL — fills missing freight so Accounts Revenue flows */}
-      {showFreightTool && (
-        <div style={styles.modalOverlay}>
-          <div style={{ ...styles.modalContent, ...styles.modalSm }}>
-            <h3 style={{ color: '#c084fc', marginTop: 0 }}>💰 Set Freight (Bulk)</h3>
+      <BottomSheet open={showFreightTool} onClose={() => setShowFreightTool(false)} title="💰 Set Freight (Bulk)" accent="#c084fc" maxWidth={480}>
             <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: 0 }}>Customer chuno + freight ₹ daalo. Sirf un trips mein lagega jinme abhi freight nahi hai (add-only). Phir Revenue journal mein flow karega.</p>
             <label style={{ fontSize: '12px', color: '#38bdf8' }}>Customer</label>
             <select style={styles.input} value={freightCust} onChange={e => setFreightCust(e.target.value)}>
@@ -801,12 +800,10 @@ export default function TripManagment() {
               <button onClick={() => setShowFreightTool(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
               <button onClick={applyBulkFreight} disabled={freightBusy} className={`pt-btn pt-btn--success ${freightBusy ? 'is-loading' : ''}`} style={{ flex: 1 }}>{freightBusy ? 'Applying…' : '✅ Apply Freight'}</button>
             </div>
-          </div>
-        </div>
-      )}
+      </BottomSheet>
 
-      {/* 🌟 GLOBAL SEARCH BAR & FILTERS */}
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+      {/* 🌟 GLOBAL SEARCH BAR & FILTERS — sticky so it never scrolls away */}
+      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 30, background: '#0f172a', padding: '10px 0', margin: '0 0 20px 0' }}>
         <input 
           type="text" 
           placeholder="🔍 Global Search: Vehicle, Route, Driver, Trip ID, Challan, Company..." 
@@ -902,7 +899,51 @@ export default function TripManagment() {
         </div>
       )}
 
-      {activeTab === 'ACTIVE' && (
+      {/* 📱 MOBILE: touch-first trip cards with HSD/Cash meters */}
+      {activeTab === 'ACTIVE' && isMobile && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {activeTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching active trips found.</div> :
+           activeTrips.map(t => {
+            const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
+            let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
+            if (hTarget === 0) hTarget = parseFloat(getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) || 0;
+            let cTarget = parseFloat(getVal(t, ['fixedcash', 'fixedcashamt'])) || 0;
+            if (cTarget === 0) cTarget = parseFloat(getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
+            const paidCash = parseFloat(t.office_cash_paid||0) + parseFloat(t.bank_paid||0) + parseFloat(t.pump_cash_advance||0);
+            const hsdIssued = parseFloat(t.hsd_issued||0);
+            const pill = tripStatusPill(t.trip_status);
+            const phone = t.driver_mobil_no || t.driver_mobile || '';
+            return (
+              <div key={t.id} style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                  <b style={{ fontSize: '17px', color: '#fff' }}>{t.vehicle_no || t.Vehical_No}</b>
+                  <span className={`pt-pill ${pill.cls}`}>{pill.label}</span>
+                </div>
+                <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold', margin: '3px 0' }}>{t.trip_id || t.Trip_ID}</div>
+                <div style={{ fontSize: '13px', color: '#cbd5e1', margin: '4px 0 10px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
+                </div>
+                <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                  <TripMeter label="⛽ HSD" used={hsdIssued} target={hTarget} unit="L" color="#10b981" />
+                  <TripMeter label="💵 Cash" used={paidCash} target={cTarget} unit="₹" color="#f59e0b" />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }}>
+                  <span>👨‍✈️ {t.driver_name || t.Driver_Name || '—'}</span>
+                  {phone && <a href={`tel:${phone}`} style={{ color: '#10b981', fontWeight: 'bold', textDecoration: 'none', padding: '6px 12px', border: '1px solid #10b981', borderRadius: '8px' }}>📞 Call</a>}
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => { setActiveTrip(t); setShowPaymentModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💸 Pay</button>
+                  <button onClick={() => openFuelModal(t)} style={{ flex: 1, minHeight: '48px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>⛽ Fuel</button>
+                  <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Unload</button>
+                  <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {activeTab === 'ACTIVE' && !isMobile && (
         <div style={styles.glassCard}>
           <table style={styles.table}>
             <thead><tr><th style={styles.th}>Vehicle / Driver</th><th style={styles.th}>Route</th><th style={{...styles.th, color: '#10b981'}}>HSD Balance</th><th style={{...styles.th, color: '#f59e0b'}}>Cash Balance</th><th style={{...styles.th, textAlign: 'center'}}>Track</th><th style={{...styles.th, textAlign: 'center'}}>Action</th></tr></thead>
