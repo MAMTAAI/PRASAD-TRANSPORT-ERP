@@ -259,6 +259,7 @@ export default function MonthlyBilling() {
         date: loadDate,
         cn: String(t.challan_no || t.Challan_No || t.trip_id || t.Trip_ID || '').trim(),
         vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
+        route_label: `${String(t.loading_point || t.Loading_Point || '').replace(/\s+/g, ' ').trim()} ➔ ${String(t.consignee_name || t.Consignee_Name || '').replace(/\s+/g, ' ').trim()}`.replace(/^ ?➔ ?$/, ''),
         qty: parseFloat(t.qty || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
         rate: tripRate > 0 ? tripRate : (meta && meta.rate > 0 ? meta.rate : defRate),
         billing_type: meta?.billing_type || 'PER_KL',
@@ -763,7 +764,15 @@ export default function MonthlyBilling() {
                     <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#10b981' }} checked={r.include} onChange={e => editRow(r.tripId, 'include', e.target.checked)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.date} onChange={e => editRow(r.tripId, 'date', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input style={{ ...S.cell, width: '100px' }} value={r.cn} onChange={e => editRow(r.tripId, 'cn', e.target.value)} /></td>
-                    <td style={{ padding: '4px' }}><input style={{ ...S.cell, width: '115px' }} value={r.vehicle} onChange={e => editRow(r.tripId, 'vehicle', e.target.value)} /></td>
+                    <td style={{ padding: '4px' }}>
+                      <input style={{ ...S.cell, width: '115px' }} value={r.vehicle} onChange={e => editRow(r.tripId, 'vehicle', e.target.value)} />
+                      {/* 🗺️ Route (From ➔ To) + RTKM — har row par visible */}
+                      {r.route_label && r.route_label !== '➔' && (
+                        <div style={{ fontSize: '10px', color: '#38bdf8', marginTop: '3px', maxWidth: '230px', whiteSpace: 'normal', lineHeight: 1.4 }}>
+                          {r.route_label}{parseFloat(r.rtkm) > 0 && <b style={{ color: '#f59e0b' }}> · 📏 {r.rtkm} km</b>}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.unloadDate) || '—'}</td>
                     {/* ✏️ Excel-style inline: 0 par laal border = challan aane par yahin bharo; blur = TRIPS me instant save */}
                     <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.qty) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} onBlur={() => persistRow(r)} /></td>
