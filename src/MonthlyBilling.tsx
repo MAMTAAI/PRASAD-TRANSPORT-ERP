@@ -142,6 +142,19 @@ export default function MonthlyBilling() {
     else setPeriod('FULL');
   }, [custCycle]);
 
+  // 🧹 STRICT STATE RESET (anti-leakage): customer / company-filter / month /
+  // period mein SE KUCH BHI badalte hi poora bill-in-progress turant zero —
+  // purane customer/company ki trips, TDS, shortage, advance naye bill mein
+  // kabhi leak nahi ho sakte. User ko dobara Fetch karna padta hai.
+  useEffect(() => {
+    setRows([]); setDetRows([]); setGenerated(false);
+    setDetectedCompanies([]); setOpCompany('');
+    setShortageAmt(''); setAdvanceAmt(''); setTdsPct('2');
+    setInvoiceNo(''); setDetInvoiceNo('');
+  }, [cust, companyFilterSel, month, period]);
+  // Company chip switch (post-fetch) = alag bill → bill-specific deductions reset.
+  useEffect(() => { setShortageAmt(''); setAdvanceAmt(''); }, [opCompany]);
+
   // Period → concrete date range for the chosen month.
   const periodRange = () => {
     const [y, m] = month.split('-').map(Number);
@@ -275,9 +288,13 @@ export default function MonthlyBilling() {
   const excludedCount = rows.length - visRows.length;
 
   // 💰 LIVE TOTALS (recompute on every selection change)
+  // 🎯 PRECISION RULE: freight is rounded PER TRIP first, then summed — so the
+  // invoice total ALWAYS equals the sum of the per-trip journal entries to the
+  // paisa (totalQty×rate can drift by paise on fractional KL).
   const fRows = visRows.filter(r => r.include);
+  const tripFreightOf = (r) => round2((parseFloat(r.qty) || 0) * (parseFloat(freightRate) || 0));
   const totalQty = round2(fRows.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0));
-  const freightTotal = round2(totalQty * (parseFloat(freightRate) || 0));
+  const freightTotal = round2(fRows.reduce((s, r) => s + tripFreightOf(r), 0));
   const dRows = visDetRows.filter(r => r.include && r.days > 0);
   const totalDetDays = dRows.reduce((s, r) => s + r.days, 0);
   const detTotal = round2(totalDetDays * (parseFloat(detRate) || 0));
@@ -473,8 +490,21 @@ export default function MonthlyBilling() {
     if (!window.confirm(`🏢 ${co.name} ke naam se:\n\n${fRows.length} trips BILLED mark hongi\nFreight ₹${inr(freightTotal)} + Detention ₹${inr(detTotal)}\nGST (RCM 2.5+2.5): ₹${inr(cgst + sgst)}\n\nJournal me post karein?`)) return;
     setSaving(true);
     try {
+      // 🛡️ FINAL PRE-COMMIT VERIFICATION against the SOURCE data (not UI row
+      // state): (a) 100% company isolation via .every(), (b) no trip already
+      // BILLED (double-billing guard). Mismatch = hard stop, nothing writes.
+      const tripById = new Map(trips.map(t => [t.id, t]));
+      const companyOk = fRows.every(r => {
+        const src = tripById.get(r.tripId);
+        const tc = src ? tripCompany(src) : r.company;
+        return !tc || tc.toUpperCase() === String(opCompany).toUpperCase();
+      });
+      if (!companyOk) throw new Error(`COMPANY MISMATCH: kuch selected trips ${co.name} ki nahi hain (source data cross-check fail). Bill cancel — dobara Fetch karke sahi company chunein.`);
+      const dblBilled = fRows.filter(r => (tripById.get(r.tripId)?.billing_status || '') === 'BILLED');
+      if (dblBilled.length) throw new Error(`DOUBLE-BILLING BLOCKED: ${dblBilled.length} trips (CN ${dblBilled.map(r => r.cn).join(', ')}) pehle se BILLED hain. Screen refresh karke dobara Fetch karein.`);
+
       const perTripFreight = {};
-      fRows.forEach(r => { perTripFreight[r.tripId] = round2((parseFloat(r.qty) || 0) * (parseFloat(freightRate) || 0)); });
+      fRows.forEach(r => { perTripFreight[r.tripId] = tripFreightOf(r); });
       // Atomic batch: all trips flip BILLED together with the invoice record.
       const batch = writeBatch(db);
       fRows.forEach(r => {
