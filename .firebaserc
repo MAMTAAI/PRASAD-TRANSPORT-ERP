@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "prasad-transport-grup"
+    "default": "prasad-transport-grup",
+    "npm run build": "prasad-transport-grup"
   },
   "targets": {
     "prasad-transport-grup": {

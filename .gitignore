@@ -12,6 +12,29 @@ dist
 dist-ssr
 *.local
 
+# 🔒 Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+**/serviceAccountKey.json
+*-firebase-adminsdk-*.json
+google-key.json
+**/google-key.json
+
+# Firebase deploy cache
+.firebase/
+functions/firebase-debug.log
+
+# 🛟 Local data backups (business data — keep local only)
+backups/
+
+# 📱 Local QA screenshots
+mobile-shots/
+
+# WhatsApp Web session cache (regenerated at runtime)
+whatsapp-server/.wwebjs_auth/
+whatsapp-server/.wwebjs_cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -22,3 +45,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.screenshots/
+
+# AI stack launcher logs
+logs/

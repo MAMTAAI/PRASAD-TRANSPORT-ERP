@@ -1,0 +1,112 @@
+rules_version = '2';
+
+// 🔐 PHASE 1 RULES — real per-user enforcement.
+// Staff sign in with Firebase email/password; their role lives in
+// USERS/{auth.uid} and is looked up server-side — identity and role can no
+// longer be forged from the client.
+//
+// The ANONYMOUS lane exists only for the driver app + portal onboarding
+// (until phone-auth lands in Phase 1b): drivers can read trips/driver data,
+// update ONLY their driver_* fields, and create requests/applications.
+// Everything financial is staff-only.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    function isStaff() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/USERS/$(request.auth.uid))
+        && get(/databases/$(database)/documents/USERS/$(request.auth.uid)).data.status != 'INACTIVE';
+    }
+
+    function isAdmin() {
+      return isStaff()
+        && get(/databases/$(database)/documents/USERS/$(request.auth.uid)).data.role in ['ADMIN', 'Super Admin'];
+    }
+
+    // ── Staff profiles: self-read; only admins manage ──────────────────
+    match /USERS/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Driver lane: trips ─────────────────────────────────────────────
+    // Drivers (anonymous for now) may update ONLY their own reporting
+    // fields — office-approved figures and money fields are untouchable.
+    match /TRIPS/{id} {
+      allow read: if signedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff()
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+             ['driver_loaded_qty', 'driver_unloaded_qty', 'driver_loading_photo',
+              'driver_unloading_photo', 'liveLocation', 'plant_reported_at', 'plant_reported_loc']));
+    }
+
+    // Driver money-requests: anyone signed-in may create; only staff action them
+    match /DRIVER_REQUESTS/{id} {
+      allow read, create: if signedIn();
+      allow update, delete: if isStaff();
+    }
+
+    // Drivers master: driver app looks itself up + edits its own KYC fields
+    // (tightened to per-driver binding when phone-auth lands)
+    match /DRIVERS/{id} {
+      allow read, update: if signedIn();
+      allow create, delete: if isStaff();
+    }
+
+    // Driver khata: drivers may READ their transactions (client filters by
+    // name); only staff write
+    match /DRIVER_TRANSACTIONS/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    // Portal onboarding: public submit, staff review
+    match /ONBOARDING_APPLICATIONS/{id} {
+      allow create: if signedIn();
+      allow read, update, delete: if isStaff();
+    }
+
+    // Bazaar marketplace (portal-facing; identity hardening comes with phone auth)
+    match /BAZAAR_LOADS/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+    match /BAZAAR_BIDS/{id} {
+      allow read, create: if signedIn();
+      allow update, delete: if isStaff();
+    }
+
+    // ── Retro-expense approval queue: staff may file/edit while PENDING;
+    //    only ADMIN can approve/reject (status change) or delete ───────────
+    match /EXPENSE_APPROVALS/{id} {
+      allow read, create: if isStaff();
+      allow update: if isAdmin()
+        || (isStaff() && resource.data.status == 'PENDING'
+            && request.resource.data.status == 'PENDING');
+      allow delete: if isAdmin();
+    }
+
+    // ── 📧 Email parser: managed accounts hold IMAP app-passwords — ADMIN ONLY.
+    //    (Background parser uses the Admin SDK, which bypasses these rules.)
+    match /EMAIL_ACCOUNTS/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /EMAIL_SETTINGS/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── 🛣️ Toll auto-sync settings: portal login credentials — ADMIN ONLY.
+    match /TOLL_SETTINGS/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── Everything else (books, masters, cards, journal, WA, …): STAFF ONLY ─
+    match /{document=**} {
+      allow read, write: if isStaff();
+    }
+  }
+}

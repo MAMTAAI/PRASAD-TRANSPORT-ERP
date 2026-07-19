@@ -2,9 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-
-const GEMINI_API_KEY = "***REMOVED-ROTATE-ME***"; // Update with your actual key if needed
+import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function VehicleMaintenance() {
   const [activeTab, setActiveTab] = useState('ALERTS_DASHBOARD'); 
@@ -56,37 +54,24 @@ export default function VehicleMaintenance() {
     setAiLoading(true);
     
     try {
-      const reader = new FileReader(); 
-      reader.readAsDataURL(file);
-      reader.onload = async () => {
-        const base64Data = (reader.result as string).split(',')[1];
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-        
-        const prompt = `You are an expert AI assistant for Prasad Transport ERP. Extract data from this mechanic/showroom bill and STRICTLY return ONLY a JSON object (no markdown, no backticks). 
-Format: { "vehicle_no": "Extracted or empty", "garage_name": "Extracted name", "service_center_type": "AUTHORIZED" or "LOCAL_GARAGE", "parts_used": [{"part_name": "string", "qty": number, "price": number}], "total_bill": number, "work_done": "summary of work" }`;
-        
-        const result = await model.generateContent([{ inlineData: { data: base64Data, mimeType: file.type } }, prompt]);
-        
-        // 🛡️ Safe JSON Parsing (Removes Markdown backticks if AI hallucinates)
-        let cleanText = result.response.text().replace(/```json/gi, '').replace(/```/g, '').trim();
-        const aiData = JSON.parse(cleanText);
-        
-        const vNum = (aiData.vehicle_no || '').toUpperCase();
-        
-        setFormData(prev => ({ 
-          ...prev, 
-          Vehicle_No: vNum,
-          Garage_Name: aiData.garage_name || '',
-          Service_Center_Type: aiData.service_center_type || 'LOCAL_GARAGE',
-          Parts_Used: aiData.parts_used || [],
-          Bill_Amount: aiData.total_bill || '',
-          Work_Done: aiData.work_done || 'Auto-scanned from bill'
-        }));
-        
-        alert("✨ Mamta AI: Bill Scanned Successfully! Parts and Amount Auto-Filled.");
-      };
-    } catch (err) { 
+      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud Gemini).
+      const prompt = `You are an expert assistant for Prasad Transport ERP. Extract data from this mechanic/showroom maintenance bill and reply with ONLY a JSON object (no markdown):
+{ "vehicle_no": "", "garage_name": "", "service_center_type": "AUTHORIZED|LOCAL_GARAGE", "parts_used": [{"part_name": "", "qty": 0, "price": 0}], "total_bill": 0, "work_done": "" }
+Use empty string / 0 / [] when a field is absent.`;
+      const aiData = await extractJsonFromImage(file, prompt);
+
+      setFormData(prev => ({
+        ...prev,
+        Vehicle_No: String(aiData.vehicle_no || '').toUpperCase(),
+        Garage_Name: aiData.garage_name || '',
+        Service_Center_Type: aiData.service_center_type || 'LOCAL_GARAGE',
+        Parts_Used: Array.isArray(aiData.parts_used) ? aiData.parts_used : [],
+        Bill_Amount: aiData.total_bill || '',
+        Work_Done: aiData.work_done || 'Auto-scanned from bill'
+      }));
+
+      alert("✨ Mamta AI (local Gemma 4): Bill Scanned! Parts & Amount auto-filled. Verify karein.");
+    } catch (err) {
       console.error(err);
       alert("❌ Mamta AI Scan Failed. The image might be too blurry or not a valid bill. Please enter manually."); 
     } finally { 
@@ -178,7 +163,7 @@ Format: { "vehicle_no": "Extracted or empty", "garage_name": "Extracted name", "
   const vehicleWiseAccounting = Object.keys(vehicleCostMap)
     .map(v => ({ vehicle: v, cost: vehicleCostMap[v] })).sort((a, b) => b.cost - a.cost);
 
-  const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box' as 'border-box', outline: 'none' };
+  const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '13px', boxSizing: 'border-box' as const, outline: 'none' };
 
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: '30px' }}>

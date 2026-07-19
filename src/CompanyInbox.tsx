@@ -68,7 +68,7 @@ function InboxUI() {
             
             const headers = msgData.payload?.headers || [];
             const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
-            let from = headers.find((h: any) => h.name === (tabType === 'sent' || tabType === 'draft' ? 'To' : 'From'))?.value || 'Unknown';
+            const from = headers.find((h: any) => h.name === (tabType === 'sent' || tabType === 'draft' ? 'To' : 'From'))?.value || 'Unknown';
             const date = headers.find((h: any) => h.name === 'Date')?.value || '';
             
             const cleanName = from.split('<')[0].trim().replace(/"/g, '');

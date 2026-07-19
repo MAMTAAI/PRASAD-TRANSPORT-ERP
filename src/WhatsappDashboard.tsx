@@ -3,10 +3,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { db } from './firebase'; 
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import MamtaChat from './MamtaChat';
+import useIsMobile from './hooks/useIsMobile';
 
 const WhatsappDashboard = () => {
+  const { isMobile } = useIsMobile(); // 📱 responsive layout
   // 👤 USER SESSION
-  const [activeUser, setActiveUser] = useState('Admin'); 
+  const [activeUser, setActiveUser] = useState('Admin');
   const [tab, setTab] = useState('TRIP CHAT'); 
   const [isWa, setIsWa] = useState(false);
   const [qr, setQr] = useState('');
@@ -79,7 +82,8 @@ const WhatsappDashboard = () => {
 
     const checkServer = async () => { 
         try { 
-            const res = await fetch(`http://localhost:5001/api/status/${activeUser}`); 
+            // 🚨 UPDATED TO LIVE SERVER
+            const res = await fetch(`https://prasad-api.onrender.com/api/status/${activeUser}`); 
             const data = await res.json(); 
             setIsWa(data.connected); 
             setQr(data.qr); 
@@ -136,7 +140,8 @@ const WhatsappDashboard = () => {
     logActivity(`Broadcasted to ${selPhones.length} contacts.`);
     for (const p of selPhones) { 
         try { 
-            await fetch('http://localhost:5001/api/send-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg }) }); 
+            // 🚨 UPDATED TO LIVE SERVER
+            await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg }) }); 
             await new Promise(r => setTimeout(r, 2000)); 
         } catch(e) {} 
     }
@@ -166,7 +171,8 @@ const WhatsappDashboard = () => {
       const text = chatInput; 
       setChatInput(''); 
       try {
-        await fetch('http://localhost:5001/api/send-whatsapp', { 
+        // 🚨 UPDATED TO LIVE SERVER
+        await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { 
             method:'POST', headers:{'Content-Type':'application/json'}, 
             body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole }) 
         });
@@ -187,36 +193,41 @@ const WhatsappDashboard = () => {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: theme.bg, color: 'white', fontFamily: 'sans-serif' }}>
-      
-      {/* 🔔 TOAST NOTIFICATION */}
-      {status.show && ( <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', background: status.type === 'error' ? theme.danger : status.type === 'accent' ? theme.accent : theme.wa, color: 'black', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', zIndex: 1000, boxShadow: '0 5px 15px rgba(0,0,0,0.5)' }}>{status.text}</div> )}
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: '100vh', maxWidth: '100%', background: theme.bg, color: 'white', fontFamily: 'sans-serif' }}>
 
-      {/* 🟢 SIDEBAR */}
-      <div style={{ width: '270px', padding: '25px', borderRight: `1px solid ${theme.border}`, display:'flex', flexDirection:'column' }}>
-        <h2 style={{ color: theme.wa, marginBottom: '20px', letterSpacing: '1px' }}>PRASAD <span style={{color:'white'}}>PRO</span></h2>
-        
+      {/* 🔔 TOAST NOTIFICATION */}
+      {status.show && ( <div style={{ position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)', background: status.type === 'error' ? theme.danger : status.type === 'accent' ? theme.accent : theme.wa, color: 'black', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', zIndex: 1000, boxShadow: '0 5px 15px rgba(0,0,0,0.5)', maxWidth: '90vw' }}>{status.text}</div> )}
+
+      {/* 🟢 SIDEBAR — vertical on desktop, horizontal scroll bar on mobile */}
+      <div style={{ width: isMobile ? '100%' : '270px', padding: isMobile ? '12px' : '25px', borderRight: isMobile ? 'none' : `1px solid ${theme.border}`, borderBottom: isMobile ? `1px solid ${theme.border}` : 'none', display:'flex', flexDirection:'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+          <h2 style={{ color: theme.wa, marginBottom: isMobile ? '10px' : '20px', letterSpacing: '1px', fontSize: isMobile ? '18px' : '24px' }}>PRASAD <span style={{color:'white'}}>PRO</span></h2>
+          <div style={{ fontSize: isMobile ? '11px' : '13px', color: isWa ? theme.wa : theme.danger, fontWeight:'bold', whiteSpace:'nowrap' }}>● {isWa ? 'Online' : 'Offline'}</div>
+        </div>
+
+        {!isMobile && (
         <div style={{marginBottom:'20px', background:theme.inputBg, padding:'15px', borderRadius:'12px', border:`1px solid ${theme.accent}`}}>
             <label style={{fontSize:'12px', color:theme.sub}}>Current User</label>
             <input value={activeUser} onChange={e => setActiveUser(e.target.value)} style={{width:'100%', background:'transparent', border:'none', color:'white', outline:'none', fontWeight:'bold', marginTop:'5px', fontSize:'16px'}} />
         </div>
+        )}
 
-        <div style={{flex:1, overflowY:'auto'}}>
-            {['DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
-              <div key={m} onClick={() => setTab(m)} style={{ padding: '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s' }}>
-                {m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
+        <div style={{ flex: isMobile ? '0 0 auto' : 1, overflowX: isMobile ? 'auto' : 'visible', overflowY: isMobile ? 'visible' : 'auto', display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: isMobile ? '6px' : '0', WebkitOverflowScrolling: 'touch' }} className="hide-scrollbar">
+            {['MAMTA AI', 'DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
+              <div key={m} onClick={() => setTab(m)} style={{ padding: isMobile ? '8px 12px' : '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: isMobile ? '0' : '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s', whiteSpace: 'nowrap', fontSize: isMobile ? '13px' : '15px', flexShrink: 0 }}>
+                {m === 'MAMTA AI' ? '🤖 MAMTA AI' : m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
               </div>
             ))}
-        </div>
-        <div style={{padding:'15px', background:theme.card, borderRadius:'12px', border:`1px solid ${isWa ? theme.wa : theme.danger}`, textAlign:'center', marginTop:'10px'}}>
-            <div style={{color: isWa ? theme.wa : theme.danger, fontSize:'13px', fontWeight:'bold'}}>● {isWa ? 'My WhatsApp Online' : 'Offline'}</div>
         </div>
       </div>
 
       {/* ⚪ MAIN CONTENT */}
-      <div style={{ flex: 1, padding: '30px', overflowY: 'auto' }}>
-        <div style={{ background: theme.card, borderRadius: '25px', padding: '35px', minHeight: '85vh', border: `1px solid ${theme.border}` }}>
+      <div style={{ flex: 1, padding: isMobile ? '12px' : '30px', overflowY: 'auto', maxWidth: '100%' }}>
+        <div style={{ background: theme.card, borderRadius: isMobile ? '14px' : '25px', padding: isMobile ? '14px' : '35px', minHeight: '85vh', border: `1px solid ${theme.border}` }}>
           
+          {/* ======================= TAB: MAMTA AI (local RAG chat) ======================= */}
+          {tab === 'MAMTA AI' && <MamtaChat />}
+
           {/* ======================= TAB 1: DASHBOARD ======================= */}
           {tab === 'DASHBOARD' && (
             <div>
@@ -246,8 +257,8 @@ const WhatsappDashboard = () => {
 
           {/* ======================= TAB 3: TRIP CHAT ======================= */}
           {tab === 'TRIP CHAT' && (
-            <div style={{display:'flex', height:'75vh', gap:'20px'}}>
-               <div style={{width:'350px', background:theme.bg, borderRadius:'20px', border:`1px solid ${theme.border}`, display:'flex', flexDirection:'column', overflow:'hidden'}}>
+            <div style={{display:'flex', flexDirection: isMobile ? 'column' : 'row', height: isMobile ? 'auto' : '75vh', minHeight: isMobile ? '78vh' : 'auto', gap:'20px'}}>
+               <div style={{width: isMobile ? '100%' : '350px', maxHeight: isMobile ? '38vh' : 'none', background:theme.bg, borderRadius:'20px', border:`1px solid ${theme.border}`, display:'flex', flexDirection:'column', overflow:'hidden', flexShrink: 0}}>
                   <div style={{padding:'20px', borderBottom:`1px solid ${theme.border}`, background:theme.inputBg}}>
                       <h3 style={{margin:0, color:theme.wa}}>🚚 Active ERP Trips</h3>
                       <p style={{fontSize:'12px', color:theme.sub, marginTop:'5px'}}>Auto-Synced from Trip Management</p>
@@ -279,9 +290,9 @@ const WhatsappDashboard = () => {
                           </div>
 
                           <div style={{flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:'15px', backgroundImage:'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundBlendMode:'overlay', backgroundColor:'rgba(2, 6, 23, 0.95)'}}>
-                              {(!activeChatPhoneView) && <div style={{background:'rgba(244,63,94,0.2)', padding:'15px', borderRadius:'10px', color:theme.danger, textAlign:'center', border:`1px solid ${theme.danger}`}}>⚠️ {chatRole} का मोबाइल नंबर Master Directory में सेव नहीं है! कृपया पहले नंबर सेव करें।</div>}
+                              {(!activePhoneToView) && <div style={{background:'rgba(244,63,94,0.2)', padding:'15px', borderRadius:'10px', color:theme.danger, textAlign:'center', border:`1px solid ${theme.danger}`}}>⚠️ {chatRole} का मोबाइल नंबर Master Directory में सेव नहीं है! कृपया पहले नंबर सेव करें।</div>}
                               
-                              {currentChatHistory.length === 0 && activeChatPhoneView && <div style={{textAlign:'center', color:theme.sub, marginTop:'50px'}}>यहाँ मैसेज टाइप करें। यह सीधे {chatRole} ({activeChatPhoneView}) के WhatsApp पर जाएगा!</div>}
+                              {currentChatHistory.length === 0 && activePhoneToView && <div style={{textAlign:'center', color:theme.sub, marginTop:'50px'}}>यहाँ मैसेज टाइप करें। यह सीधे {chatRole} ({activePhoneToView}) के WhatsApp पर जाएगा!</div>}
                               
                               {currentChatHistory.map(msg => (
                                   <div key={msg.id} style={{alignSelf: msg.type === 'outgoing' ? 'flex-end' : 'flex-start', maxWidth:'70%', background: msg.type === 'outgoing' ? theme.wa : theme.inputBg, color: msg.type === 'outgoing' ? 'black' : 'white', padding:'12px 18px', borderRadius: msg.type === 'outgoing' ? '20px 20px 0 20px' : '20px 20px 20px 0', border:`1px solid ${theme.border}`, boxShadow:'0 5px 15px rgba(0,0,0,0.1)'}}>
@@ -294,8 +305,10 @@ const WhatsappDashboard = () => {
                           </div>
 
                           <div style={{padding:'20px', background:theme.inputBg, borderTop:`1px solid ${theme.border}`, display:'flex', gap:'15px'}}>
-                              <input disabled={!activeChatPhoneView} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendTripChat()} placeholder={activeChatPhoneView ? `Type message for ${chatRole}...` : 'Mobile number missing...'} style={{flex:1, background:theme.bg, border:`1px solid ${theme.border}`, color:'white', padding:'15px', borderRadius:'30px', outline:'none', fontSize:'15px', opacity: activeChatPhoneView ? 1 : 0.5}} />
-                              <button disabled={!activeChatPhoneView} onClick={sendTripChat} style={{background:theme.wa, color:'black', border:'none', padding:'0 25px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'16px', opacity: activeChatPhoneView ? 1 : 0.5}}>Send 🚀</button>
+                              <input disabled={!activePhoneToView} value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyPress={e => e.key === 'Enter' && sendTripChat()} placeholder={activePhoneToView ? `Type message for ${chatRole}...` : 'Mobile number missing...'} style={{flex:1, background:theme.bg, border:`1px solid ${theme.border}`, color:'white', padding:'15px', borderRadius:'30px', outline:'none', fontSize:'15px', opacity: activePhoneToView ? 1 : 0.5}} />
+                              <button disabled={!activePhoneToView} onClick={sendTripChat} style={{background:theme.wa, color:'black', border:'none', padding:'0 18px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'15px', opacity: activePhoneToView ? 1 : 0.5}}>Send 🚀</button>
+                              {/* 📱 Free click-to-chat — opens YOUR own WhatsApp (mobile app/web) with msg + number prefilled, no server */}
+                              <button disabled={!activePhoneToView} title="Apne WhatsApp se bhejein (free)" onClick={() => { const num = String(activePhoneToView).replace(/\D/g, ''); const n = num.length === 10 ? '91' + num : num; window.open(`https://wa.me/${n}?text=${encodeURIComponent(chatInput || '')}`, '_blank'); }} style={{ background:'#25D366', color:'white', border:'none', padding:'0 16px', borderRadius:'30px', fontWeight:'bold', cursor:'pointer', fontSize:'14px', opacity: activePhoneToView ? 1 : 0.5, whiteSpace:'nowrap' }}>📱 WhatsApp</button>
                           </div>
                        </>
                    ) : (
