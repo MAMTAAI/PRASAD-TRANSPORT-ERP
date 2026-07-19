@@ -74,3 +74,87 @@ exports.mamtaVoice = functions.https.onRequest((req, res) => {
     }
   });
 });
+// ═════════════════════════════════════════════════════════════════════════
+// 🛡️ generateAutoBill — SERVER-SIDE TRANSACTION GUARD for monthly billing.
+// Eliminates the simultaneous double-billing race 100%: inside ONE Firestore
+// transaction it (re)reads every trip and aborts if ANY trip is missing,
+// belongs to a different operating company, or is already BILLED. Only when
+// every check passes are the invoice doc + all trip flips written — atomically.
+// Two machines saving the same trips at the same second: exactly one wins,
+// the other gets a clean "already billed" error.
+// ═════════════════════════════════════════════════════════════════════════
+const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const admin = require("firebase-admin");
+if (!admin.apps.length) admin.initializeApp();
+
+exports.generateAutoBill = onCall({ region: "us-central1" }, async (request) => {
+  // ── Staff-only: signed in with email/password + active USERS profile ──
+  const auth = request.auth;
+  if (!auth) throw new HttpsError("unauthenticated", "Login required.");
+  const provider = auth.token?.firebase?.sign_in_provider;
+  if (provider !== "password") throw new HttpsError("permission-denied", "Staff login (email/password) required.");
+  const db = admin.firestore();
+  const userSnap = await db.collection("USERS").doc(auth.uid).get();
+  if (!userSnap.exists || userSnap.data().status === "INACTIVE") {
+    throw new HttpsError("permission-denied", "Staff profile not found or inactive.");
+  }
+
+  // ── Input validation ──
+  const { company, customer, invoice, trips } = request.data || {};
+  if (!company || typeof company !== "string") throw new HttpsError("invalid-argument", "operating company missing");
+  if (!customer || typeof customer !== "string") throw new HttpsError("invalid-argument", "customer missing");
+  if (!invoice || typeof invoice !== "object") throw new HttpsError("invalid-argument", "invoice payload missing");
+  if (!Array.isArray(trips) || !trips.length) throw new HttpsError("invalid-argument", "trip list empty");
+  if (trips.length > 400) throw new HttpsError("invalid-argument", "too many trips for one bill (max 400)");
+  for (const t of trips) {
+    if (!t || typeof t.id !== "string" || !t.id) throw new HttpsError("invalid-argument", "trip id missing");
+    if (typeof t.gross_freight !== "number" || !isFinite(t.gross_freight)) throw new HttpsError("invalid-argument", `bad freight for trip ${t.id}`);
+  }
+
+  const tripCompanyOf = (d) => String(d.operating_company || d.Operating_Company || d.company || "").trim();
+
+  // ── THE TRANSACTION: read-verify-write atomically ──
+  const invoiceRef = db.collection("MONTHLY_INVOICES").doc();
+  await db.runTransaction(async (tx) => {
+    // 1. READ all trips first (admin transactions require reads before writes).
+    const refs = trips.map((t) => db.collection("TRIPS").doc(t.id));
+    const snaps = await Promise.all(refs.map((r) => tx.get(r)));
+
+    // 2. VERIFY — any failure aborts the WHOLE transaction (nothing written).
+    const missing = [], wrongCompany = [], alreadyBilled = [];
+    snaps.forEach((s, i) => {
+      const cn = trips[i].cn || trips[i].id;
+      if (!s.exists) { missing.push(cn); return; }
+      const d = s.data();
+      const tc = tripCompanyOf(d);
+      if (tc && tc.toUpperCase() !== company.toUpperCase()) wrongCompany.push(`${cn} (${tc})`);
+      if ((d.billing_status || "") === "BILLED") alreadyBilled.push(cn);
+    });
+    if (missing.length) throw new HttpsError("failed-precondition", `Trips not found in DB: ${missing.join(", ")}`);
+    if (wrongCompany.length) throw new HttpsError("failed-precondition", `COMPANY MISMATCH — ye trips ${company} ki nahi hain: ${wrongCompany.join(", ")}`);
+    if (alreadyBilled.length) throw new HttpsError("already-exists", `DOUBLE-BILLING BLOCKED — pehle se BILLED: ${alreadyBilled.join(", ")}. (Kisi aur ne abhi bill bana diya?)`);
+
+    // 3. WRITE — invoice + every trip flip, all-or-nothing.
+    tx.set(invoiceRef, {
+      ...invoice,
+      customer, company,
+      trip_ids: trips.map((t) => t.id),
+      created_by_uid: auth.uid,
+      guard: "cloud_transaction",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    const billedAt = new Date().toISOString();
+    snaps.forEach((s, i) => {
+      tx.update(s.ref, {
+        gross_freight: trips[i].gross_freight,
+        rate: trips[i].rate ?? null,
+        billing_status: "BILLED",
+        billed_bill_no: invoice.invoice_no || "",
+        billed_at: billedAt,
+        billed_company: company,
+      });
+    });
+  });
+
+  return { ok: true, invoice_id: invoiceRef.id, trips_billed: trips.length };
+});

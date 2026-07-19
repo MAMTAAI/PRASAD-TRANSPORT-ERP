@@ -15,6 +15,7 @@
 // days (default 4); days counted INCLUSIVE of start and end.
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
@@ -505,17 +506,10 @@ export default function MonthlyBilling() {
 
       const perTripFreight = {};
       fRows.forEach(r => { perTripFreight[r.tripId] = tripFreightOf(r); });
-      // Atomic batch: all trips flip BILLED together with the invoice record.
-      const batch = writeBatch(db);
-      fRows.forEach(r => {
-        batch.update(doc(db, 'TRIPS', r.tripId), {
-          gross_freight: perTripFreight[r.tripId], rate: parseFloat(freightRate) || 0,
-          billing_status: 'BILLED', billed_bill_no: invoiceNo, billed_at: new Date().toISOString(),
-          billed_company: co.name,
-        });
-      });
-      batch.set(doc(collection(db, 'MONTHLY_INVOICES')), {
-        customer: cust, month, company: co.name,
+
+      // Shared invoice payload (both the cloud and fallback paths write this).
+      const invoicePayload = {
+        month,
         billing_cycle: custCycle || '30_days', billing_period: period, period_from: periodRange().from, period_to: periodRange().to,
         invoice_no: invoiceNo, det_invoice_no: detInvoiceNo,
         total_qty: totalQty, freight_rate: parseFloat(freightRate) || 0, freight_total: freightTotal,
@@ -525,9 +519,40 @@ export default function MonthlyBilling() {
         tds_pct: parseFloat(tdsPct) || 0, tds_amount: tdsAmt,
         shortage_amount: shortageDed, advance_deduction: advanceDed,
         total_deductions: totalDeductions, net_payable: netPayable,
-        trip_ids: fRows.map(r => r.tripId), createdAt: serverTimestamp(),
-      });
-      await batch.commit();
+      };
+      const tripsPayload = fRows.map(r => ({ id: r.tripId, cn: r.cn, gross_freight: perTripFreight[r.tripId], rate: parseFloat(freightRate) || 0 }));
+
+      // 🛡️ PRIMARY PATH: server-side Firestore TRANSACTION via Cloud Function —
+      // rereads every trip on the server and aborts atomically on any company
+      // mismatch / already-BILLED trip. Simultaneous saves: exactly one wins.
+      let guardPath = 'cloud_transaction';
+      try {
+        const call = httpsCallable(getFunctions(), 'generateAutoBill');
+        await call({ company: co.name, customer: cust, invoice: invoicePayload, trips: tripsPayload });
+      } catch (fe) {
+        const code = String(fe?.code || '');
+        // Server guard REJECTED the bill (race caught / bad data) → hard stop.
+        if (/already-exists|failed-precondition|permission-denied|unauthenticated|invalid-argument/.test(code)) {
+          throw new Error(`🛡️ Server guard ne bill ROK diya:\n${fe.message}\n\nScreen par purana data tha — dobara Fetch karke check karein.`);
+        }
+        // Function unreachable (not deployed / network) → guarded client
+        // fallback so billing kabhi band nahi hoti (best-effort guard).
+        guardPath = 'client_fallback';
+        console.warn('generateAutoBill unreachable — client fallback:', fe?.message);
+        const batch = writeBatch(db);
+        fRows.forEach(r => {
+          batch.update(doc(db, 'TRIPS', r.tripId), {
+            gross_freight: perTripFreight[r.tripId], rate: parseFloat(freightRate) || 0,
+            billing_status: 'BILLED', billed_bill_no: invoiceNo, billed_at: new Date().toISOString(),
+            billed_company: co.name,
+          });
+        });
+        batch.set(doc(collection(db, 'MONTHLY_INVOICES')), {
+          ...invoicePayload, customer: cust, company: co.name, guard: 'client_fallback',
+          trip_ids: fRows.map(r => r.tripId), createdAt: serverTimestamp(),
+        });
+        await batch.commit();
+      }
 
       let jOk = 0; const errs = [];
       for (const r of fRows) {
@@ -557,7 +582,7 @@ export default function MonthlyBilling() {
         } catch (e) { errs.push(`Detention: ${e.message}`); }
       }
       rememberBillDefaults(cust, co.name, { freightRate, detRate, freeDays });
-      alert(`✅ ${co.name}: ${fRows.length} trips BILLED + ${jOk} journal entries post ho gayi.${errs.length ? '\n⚠️ ' + errs.join('\n') : ''}`);
+      alert(`✅ ${co.name}: ${fRows.length} trips BILLED + ${jOk} journal entries post ho gayi.\n${guardPath === 'cloud_transaction' ? '🛡️ Server transaction guard se secure (race-proof).' : '⚠️ Cloud guard unreachable tha — client-side guarded save use hua.'}${errs.length ? '\n⚠️ ' + errs.join('\n') : ''}`);
       fetchAll();
     } catch (e) { console.error(e); alert('❌ Save fail: ' + (e.message || 'error')); }
     setSaving(false);
