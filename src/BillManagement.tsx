@@ -10,8 +10,11 @@ import {
   submitRetroExpense,
 } from './lib/postTripEngine';
 import { getField, toISODate } from './lib/accounting/tripMath';
+import BottomSheet from './ui/BottomSheet';
+import { useIsMobile } from './hooks/useIsMobile';
 
 export default function BillManagement() {
+  const { isPhone } = useIsMobile();
   const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS');
   // 📄 Scan a purchase/vendor/pump bill locally (Gemma vision) → auto-map to the
   // right trip_id: active trip → journal + trip P&L directly; COMPLETED trip →
@@ -634,7 +637,7 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
   const previewTotals = selectedTripData.reduce((a, t) => ({ gross: a.gross + t.calc_gross, pen: a.pen + t.calc_penalty, tds: a.tds + t.calc_tds, net: a.net + t.calc_net }), { gross: 0, pen: 0, tds: 0, net: 0 });
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
+    <div className="pt-anim-fade" style={{ padding: 'clamp(14px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
         .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
         .glow-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); }
@@ -658,16 +661,16 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
       </div>
 
       {/* 📊 PENDING BILLING DASHBOARD — the whole post-trip pipeline at a glance */}
-      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
+      <div className="pt-stagger" style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
         {[
           { label: 'Trips Awaiting Bill', value: String(filteredUnbilledTrips.length), color: '#f59e0b', sub: oldestWait > 0 ? `oldest waiting ${oldestWait}d` : 'sab fresh' },
           { label: 'Pending Billing Value', value: `₹${pendingValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: '#38bdf8', sub: `${draftsReady} auto-drafts ready` },
           { label: 'Outstanding Receivables', value: `₹${outstandingDue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: '#ef4444', sub: `${generatedBills.filter(b => b.status !== 'SETTLED').length} bills PENDING PAYMENT` },
         ].map(k => (
-          <div key={k.label} style={{ flex: '1 1 200px', background: 'rgba(30,41,59,0.5)', border: `1px solid ${k.color}44`, borderRadius: '14px', padding: '16px 20px' }}>
-            <div style={{ fontSize: '11px', color: k.color, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>{k.label}</div>
-            <div style={{ fontSize: '26px', fontWeight: 900, color: '#f8fafc', margin: '4px 0 2px' }}>{k.value}</div>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{k.sub}</div>
+          <div key={k.label} className="pt-kpi" style={{ borderColor: `${k.color}44` }}>
+            <div className="pt-kpi__label" style={{ color: k.color }}>{k.label}</div>
+            <div className="pt-kpi__value">{k.value}</div>
+            <div className="pt-kpi__sub">{k.sub}</div>
           </div>
         ))}
       </div>
@@ -715,13 +718,13 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #334155' }}>
-        <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span style={{background: '#ef4444', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '10px', marginLeft: '5px'}}>{filteredUnbilledTrips.length}</span>}</button>
-        <button className={`tab-btn ${activeTab === 'GENERATED_BILLS' ? 'active' : ''}`} onClick={() => setActiveTab('GENERATED_BILLS')}>🧾 GENERATED INVOICES</button>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+        <button className={`pt-tab ${activeTab === 'UNBILLED_TRIPS' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span className="pt-tab__count">{filteredUnbilledTrips.length}</span>}</button>
+        <button className={`pt-tab ${activeTab === 'GENERATED_BILLS' ? 'is-active' : ''}`} onClick={() => setActiveTab('GENERATED_BILLS')}>🧾 GENERATED INVOICES</button>
       </div>
 
       {activeTab === 'UNBILLED_TRIPS' && (
-        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #10b981' }}>
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(12px, 2.5vw, 20px)', overflowX: 'auto', borderTop: '4px solid #10b981' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
             <div>
               <h3 style={{ color: '#10b981', margin: 0 }}>🚚 Pending Billing — Customer-wise Pipeline</h3>
@@ -734,7 +737,46 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
             )}
           </div>
           
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Unbilled Trips...</p> : (
+          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Unbilled Trips...</p> : isPhone ? (
+            /* 📱 PHONE: tap-first smart cards, customer-wise — whole card is the tap target */
+            <div className="pt-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {filteredUnbilledTrips.length === 0 ? <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No Unbilled Trips found.</div> :
+                Object.entries(groupedUnbilled).map(([cust, custTrips]: any) => (
+                  <div key={cust}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px', position: 'sticky', top: 0 }}>
+                      <b style={{ color: '#38bdf8', fontSize: '13px' }}>👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length}</span></b>
+                      <button className="pt-chip" style={{ minHeight: '40px', padding: '6px 14px' }}
+                        onClick={() => setSelectedTripsForBill(prev => custTrips.every((t: any) => prev.includes(t.id))
+                          ? prev.filter(id => !custTrips.some((t: any) => t.id === id))
+                          : [...new Set([...prev, ...custTrips.map((t: any) => t.id)])])}>
+                        {custTrips.every((t: any) => selectedTripsForBill.includes(t.id)) ? '✓ Sab hataen' : 'Sab select'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {custTrips.map((t: any) => {
+                        const on = selectedTripsForBill.includes(t.id);
+                        const wait = daysSince(t.unloading_date || t.Unloading_Date);
+                        return (
+                          <div key={t.id} onClick={() => toggleTripSelection(t.id)} className="pt-card" role="button"
+                            style={{ padding: '14px 16px', cursor: 'pointer', borderColor: on ? '#10b981' : undefined, background: on ? 'rgba(16,185,129,0.08)' : undefined }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <b style={{ color: '#fff', fontSize: '16px' }}>{on ? '☑️ ' : ''}{t.vehicle_no || t.Vehical_No || t.vehical_no}</b>
+                              <b style={{ color: '#10b981', fontSize: '17px' }}>₹{t.calc_net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</b>
+                            </div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '8px' }}>{t.trip_id || t.Trip_ID} · Un: {t.unloading_date || t.Unloading_Date || '-'} · {t.calc_qty} × {t.calc_rate}</div>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                              {t.draft_invoice && <span className="pt-badge pt-badge--info">🧾 Auto-Draft</span>}
+                              {t.calc_penalty > 0 && <span className="pt-badge pt-badge--danger">Short ₹{t.calc_penalty.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>}
+                              {wait > 0 && <span className={`pt-badge ${wait > 7 ? 'pt-badge--danger' : 'pt-badge--warning'}`}>⏱ {wait}d</span>}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : (
             <table>
               <thead>
                 <tr>
@@ -802,7 +844,7 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
       )}
 
       {activeTab === 'GENERATED_BILLS' && (
-        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #38bdf8' }}>
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(12px, 2.5vw, 20px)', overflowX: 'auto', borderTop: '4px solid #38bdf8' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
             <h3 style={{ color: '#38bdf8', margin: 0 }}>Generated Invoices — Receivables Tracking</h3>
             <div style={{ fontSize: '13px', color: '#ef4444', fontWeight: 900, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '10px', padding: '8px 14px' }}>
@@ -852,17 +894,11 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
         </div>
       )}
 
-      {/* 🧾 STEP 2 OF 2: INVOICE PREVIEW (client format) → CONFIRM & GENERATE */}
-      {showPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '900px', border: '1px solid #10b981', background: '#0f172a', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '5px' }}>
-              <div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', letterSpacing: '1px' }}>STEP 2 OF 2 — VERIFY BEFORE GENERATING</div>
-                <h2 style={{ margin: '5px 0 0', color: '#10b981', fontSize: '22px' }}>🧾 Invoice Preview — {previewCustomer || 'No customer'}</h2>
-              </div>
-              <button onClick={() => setShowPreview(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '26px', cursor: 'pointer' }}>✕</button>
-            </div>
+      {/* 🧾 STEP 2 OF 2: INVOICE PREVIEW (client format) → CONFIRM & GENERATE
+          📱 BottomSheet: swipeable sheet on phone, centered dialog on desktop */}
+      <BottomSheet open={showPreview} onClose={() => setShowPreview(false)} title={`🧾 Invoice Preview — ${previewCustomer || 'No customer'}`} accent="#10b981" maxWidth={900}>
+        <div className="pt-anim-fade">
+            <div className="pt-badge pt-badge--info" style={{ marginBottom: '12px' }}>Step 2 of 2 — verify before generating</div>
             {!previewSameCustomer && (
               <div style={{ margin: '12px 0', padding: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: '8px', color: '#fca5a5', fontSize: '13px', fontWeight: 'bold' }}>
                 ⚠️ Alag-alag customers ki trips select hain — ek bill sirf EK customer ka ban sakta hai. Wapas jakar selection theek karein.
@@ -895,28 +931,21 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
                 </tbody>
               </table>
             </div>
-            <div style={{ display: 'flex', gap: '12px', marginTop: '25px' }}>
-              <button onClick={() => setShowPreview(false)} style={{ flex: 1, padding: '14px', background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>← Back (Edit Selection)</button>
-              <button disabled={!previewSameCustomer || loading} onClick={async () => { await handleGenerateInvoice(); setShowPreview(false); }}
-                style={{ flex: 2, padding: '14px', background: previewSameCustomer ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 900, fontSize: '15px', cursor: previewSameCustomer ? 'pointer' : 'not-allowed' }}>
-                {loading ? '⏳ Generating…' : `✅ Confirm & Generate Invoice — ₹${previewTotals.net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+            <div style={{ display: 'flex', gap: '12px', marginTop: '25px', flexWrap: 'wrap' }}>
+              <button className="pt-btn pt-btn--ghost" onClick={() => setShowPreview(false)} style={{ flex: '1 1 160px', minHeight: '52px' }}>← Back (Edit Selection)</button>
+              <button className={`pt-btn pt-btn--success ${loading ? 'is-loading' : ''}`} disabled={!previewSameCustomer || loading} onClick={async () => { await handleGenerateInvoice(); setShowPreview(false); }}
+                style={{ flex: '2 1 240px', minHeight: '52px', fontWeight: 900, fontSize: '15px' }}>
+                {loading ? 'Generating…' : `✅ Confirm & Generate — ₹${previewTotals.net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
               </button>
             </div>
-          </div>
         </div>
-      )}
+      </BottomSheet>
 
-      {/* ⚖️ MODAL: SMART MANUAL CHECKLIST & SETTLEMENT */}
-      {isAdjustModalOpen && selectedBill && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '1200px', border: '1px solid #f59e0b', background: '#0f172a', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <div>
-                <h2 style={{ margin: 0, color: '#f59e0b', fontSize: '24px' }}>📝 Smart Invoice Checklist & Edit</h2>
-                <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>Bill No: <b style={{color: '#fff'}}>{selectedBill.bill_no}</b> | Client: <b style={{color: '#fff'}}>{selectedBill.customer_name}</b></p>
-              </div>
-              <button onClick={() => setIsAdjustModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
-            </div>
+      {/* ⚖️ SMART MANUAL CHECKLIST & SETTLEMENT — 📱 BottomSheet (swipeable on phone) */}
+      <BottomSheet open={isAdjustModalOpen && !!selectedBill} onClose={() => setIsAdjustModalOpen(false)} title="⚖️ Invoice Checklist & Settle" accent="#f59e0b" maxWidth={1200}>
+        {selectedBill && (
+          <div className="pt-anim-fade">
+            <p style={{ margin: '0 0 15px 0', color: '#94a3b8', fontSize: '13px' }}>Bill No: <b style={{color: '#fff'}}>{selectedBill.bill_no}</b> | Client: <b style={{color: '#fff'}}>{selectedBill.customer_name}</b> <span className={`pt-badge ${selectedBill.status === 'SETTLED' ? 'pt-badge--success' : 'pt-badge--danger'}`} style={{ marginLeft: '8px' }}>{selectedBill.status === 'PENDING_PAYMENT' ? '⏳ Pending Payment' : (selectedBill.status || '').replace(/_/g, ' ')}</span></p>
 
             <div style={{ background: 'rgba(56, 189, 248, 0.05)', border: '1px solid rgba(56, 189, 248, 0.3)', padding: '20px', borderRadius: '12px', marginBottom: '25px', overflowX: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
@@ -992,12 +1021,12 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
               </div>
             </div>
 
-            <button style={{ width: '100%', marginTop: '30px', padding: '16px', background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 5px 15px rgba(16,185,129,0.4)' }} onClick={handleSettlePayment}>
+            <button className="pt-btn pt-btn--success" style={{ width: '100%', marginTop: '30px', minHeight: '54px', fontSize: '16px', fontWeight: 900, boxShadow: '0 8px 24px rgba(16,185,129,0.4)' }} onClick={handleSettlePayment}>
               💸 Record Manual Payment & Update Ledgers
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </BottomSheet>
     </div>
   );
 }
