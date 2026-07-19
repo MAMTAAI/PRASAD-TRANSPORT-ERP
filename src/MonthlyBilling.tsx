@@ -89,6 +89,16 @@ export default function MonthlyBilling() {
   const [opCompany, setOpCompany] = useState('');
   const [detectedCompanies, setDetectedCompanies] = useState([]); // [{name, count}]
 
+  // 🗓️ CUSTOMER BILLING CYCLE: '15_days' (fortnightly, Oil Cos) | '30_days'.
+  // Read from the customer master the moment a customer is picked; drives the
+  // period chips + validation below.
+  const [period, setPeriod] = useState('FULL'); // FULL | H1 (1–15) | H2 (16–end)
+
+  // ➖ DEDUCTIONS & ADJUSTMENTS: TDS (on freight only) + shortage + advance.
+  const [tdsPct, setTdsPct] = useState('2');
+  const [shortageAmt, setShortageAmt] = useState('');
+  const [advanceAmt, setAdvanceAmt] = useState('');
+
   useEffect(() => { fetchAll(); }, []);
   const fetchAll = async () => {
     setLoading(true);
@@ -121,10 +131,40 @@ export default function MonthlyBilling() {
   }, [companiesList, trips]);
   const [companyFilterSel, setCompanyFilterSel] = useState('AUTO'); // AUTO = detect from trips
 
+  // The picked customer's configured cycle (from CUSTOMERS master).
+  const custCycle = useMemo(() => {
+    const rec = customers.find(c => String(c.customer_name || '').toLowerCase() === cust.toLowerCase());
+    return rec?.billing_cycle === '15_days' ? '15_days' : rec?.billing_cycle === '30_days' ? '30_days' : '';
+  }, [customers, cust]);
+  // Smart default: 15-day customer → 1st Half auto-selected; 30-day → full month.
+  useEffect(() => {
+    if (custCycle === '15_days') setPeriod(p => p === 'FULL' ? 'H1' : p);
+    else setPeriod('FULL');
+  }, [custCycle]);
+
+  // Period → concrete date range for the chosen month.
+  const periodRange = () => {
+    const [y, m] = month.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    if (period === 'H1') return { from: `${month}-01`, to: `${month}-15` };
+    if (period === 'H2') return { from: `${month}-16`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+    return { from: `${month}-01`, to: `${month}-${String(lastDay).padStart(2, '0')}` };
+  };
+  const periodLabel = () => {
+    const ml = month ? new Date(month + '-01').toLocaleString('en-GB', { month: 'long', year: 'numeric' }) : '';
+    if (period === 'H1') return `1st Fortnight (01–15) ${ml}`;
+    if (period === 'H2') return `2nd Fortnight (16–End) ${ml}`;
+    return ml;
+  };
+
   // 1️⃣ FETCH TRIPS: customer + month + operating company → UNBILLED completed trips
   const loadMonth = () => {
     if (!cust || !month) return alert('⚠️ Customer aur month dono chunein!');
-    const from = `${month}-01`, to = `${month}-31`;
+    // 🗓️ CYCLE VALIDATION: 15-day customer ka full-month bill galti se na bane.
+    if (custCycle === '15_days' && period === 'FULL') {
+      if (!window.confirm(`⚠️ WARNING: ${cust} ki billing cycle 15 DIN (Fortnightly) set hai — Oil Company pattern.\n\nAap pura mahina (1–${month.slice(0, 7)} end) bill karne ja rahe hain. Normally iske do alag fortnight bills bante hain.\n\nPhir bhi FULL MONTH ka bill banayein?`)) return;
+    }
+    const { from, to } = periodRange();
     const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
     let picked = trips.filter(t => {
       if (norm(tripCust(t)) !== norm(cust)) return false;
@@ -245,6 +285,13 @@ export default function MonthlyBilling() {
   const cgst = round2(taxable * 0.025);
   const sgst = round2(taxable * 0.025);
   const grandWithGst = round2(taxable + cgst + sgst);
+  // ➖ Deductions: TDS sirf Freight par; shortage/advance manual.
+  const tdsAmt = round2(freightTotal * ((parseFloat(tdsPct) || 0) / 100));
+  const shortageDed = round2(parseFloat(shortageAmt) || 0);
+  const advanceDed = round2(parseFloat(advanceAmt) || 0);
+  const totalDeductions = round2(tdsAmt + shortageDed + advanceDed);
+  // Sub Total = Freight + Detention + GST (RCM); Net Payable = Sub − Deductions.
+  const netPayable = round2(grandWithGst - totalDeductions);
 
   const editRow = (i, f, v) => setRows(p => p.map((r) => r.tripId === i ? { ...r, [f]: f === 'qty' ? (parseFloat(v) || 0) : v } : r));
   const editDet = (i, f, v) => setDetRows(p => p.map((r) => {
@@ -268,7 +315,7 @@ export default function MonthlyBilling() {
     const invDate = dmy(new Date().toISOString()).replace(/\./g, '-');
 
     // Boxed Tax Invoice skeleton — company block, invoice meta, buyer block.
-    const invoiceShell = (title, invNo, particularsHtml, taxableAmt, note) => {
+    const invoiceShell = (title, invNo, particularsHtml, taxableAmt, note, extraHtml) => {
       const cg = round2(taxableAmt * 0.025), sg = round2(taxableAmt * 0.025);
       return `
       <div class="inv">
@@ -311,6 +358,7 @@ export default function MonthlyBilling() {
           </tbody>
         </table>
         <p class="taxwords"><span class="k">Tax Amount (in words) :</span> <b>${amountInWords(cg + sg).replace('INR', 'INR')}</b><br/><span class="k">Amount of tax subject to Reverse Charge</span></p>
+        ${extraHtml || ''}
 
         <table class="foot-t"><tr>
           <td class="remarks">
@@ -333,7 +381,7 @@ export default function MonthlyBilling() {
 
     // Freight particulars: numbered CN lines exactly like the real bill.
     const freightLines = fRows.map((r, i) => `${i + 1}.Dt-${dmy(r.date)},CN-${r.cn},${r.vehicle},Qty-${r.qty} KL`).join('<br/>');
-    const freightParticulars = `<b>Transportion Bills (RCM)</b><br/><i>Bill for the Month of ${monthLabel}</i><br/>${freightLines}<br/><br/><b>Total Freight = ${totalQty} KL Qty*Rate ${freightRate} KL</b>`;
+    const freightParticulars = `<b>Transportion Bills (RCM)</b><br/><i>Bill for the Period: ${periodLabel()}</i><br/>${freightLines}<br/><br/><b>Total Freight = ${totalQty} KL Qty*Rate ${freightRate} KL</b>`;
 
     // Detention annexure grouped per vehicle with subtotals (real layout).
     const byVeh = {};
@@ -351,7 +399,7 @@ export default function MonthlyBilling() {
     }).join('');
     const annexHtml = `
       <div class="inv">
-        <div class="annex-head"><b class="co-name">${co.name}</b><span>Details Regarding Detention Charge @ Unloading Point — ${monthLabel}</span></div>
+        <div class="annex-head"><b class="co-name">${co.name}</b><span>Details Regarding Detention Charge @ Unloading Point — ${periodLabel()}</span></div>
         <table class="annex"><thead><tr>
           <th>Sl No</th><th>Tanker No</th><th>CN No.</th><th>Consignor</th><th>Consignee</th><th>Shortage</th>
           <th>Loading Date</th><th>Reporting Date at Plant</th><th>Unloading Date</th>
@@ -366,7 +414,7 @@ export default function MonthlyBilling() {
 
     const w = window.open('', '_blank');
     if (!w) return alert('Popup allow karein — print window khulti hai.');
-    w.document.write(`<!doctype html><html><head><title>${cust} — ${monthLabel} Bills (${co.name})</title><style>
+    w.document.write(`<!doctype html><html><head><title>${cust} — ${periodLabel()} Bills (${co.name})</title><style>
       * { box-sizing: border-box; } body { font-family: Arial, sans-serif; color: #111; margin: 0; padding: 18px; font-size: 12px; }
       .title { text-align: center; font-size: 16px; margin: 0 0 8px; }
       .frame, .parts, .gst, .foot-t, .annex { width: 100%; border-collapse: collapse; }
@@ -395,9 +443,18 @@ export default function MonthlyBilling() {
       .pagebreak { page-break-after: always; }
       @media print { body { padding: 6mm; } .annex-page { size: landscape; } }
     </style></head><body>
-      ${invoiceShell('Tax Invoice', invoiceNo, freightParticulars, freightTotal)}
+      ${invoiceShell('Tax Invoice', invoiceNo, freightParticulars, freightTotal, '', totalDeductions > 0 ? `
+        <table class="gst" style="margin-top:8px;"><thead><tr><th colspan="2">Deductions & Net Payable Settlement</th></tr></thead><tbody>
+          <tr><td>Sub Total (Freight ₹${inr(freightTotal)} + Detention ₹${inr(detTotal)} + GST RCM ₹${inr(cgst + sgst)})</td><td class="r">₹ ${inr(grandWithGst)}</td></tr>
+          ${tdsAmt > 0 ? `<tr><td>Less: TDS @ ${tdsPct}% on Freight (Sec 194C)</td><td class="r">− ₹ ${inr(tdsAmt)}</td></tr>` : ''}
+          ${shortageDed > 0 ? `<tr><td>Less: Shortage Deduction</td><td class="r">− ₹ ${inr(shortageDed)}</td></tr>` : ''}
+          ${advanceDed > 0 ? `<tr><td>Less: Advance Already Paid</td><td class="r">− ₹ ${inr(advanceDed)}</td></tr>` : ''}
+          <tr class="b"><td><b>Total Deductions</b></td><td class="r"><b>− ₹ ${inr(totalDeductions)}</b></td></tr>
+          <tr class="b" style="background:#eee;"><td><b>NET PAYABLE AMOUNT</b></td><td class="r"><b>₹ ${inr(netPayable)}</b></td></tr>
+          <tr><td colspan="2"><b>${amountInWords(netPayable)}</b> (Net Payable)</td></tr>
+        </tbody></table>` : '')}
       <div class="pagebreak"></div>
-      ${detTotal > 0 ? `${invoiceShell('Tax Invoice', detInvoiceNo, `<b>Detention Charge (RCM)</b><br/><i>${monthLabel} — as per enclosed Annexure</i>`, detTotal)}<div class="pagebreak"></div>${annexHtml}` : ''}
+      ${detTotal > 0 ? `${invoiceShell('Tax Invoice', detInvoiceNo, `<b>Detention Charge (RCM)</b><br/><i>${periodLabel()} — as per enclosed Annexure</i>`, detTotal)}<div class="pagebreak"></div>${annexHtml}` : ''}
       <script>window.onload = () => setTimeout(() => window.print(), 400);</script>
     </body></html>`);
     w.document.close();
@@ -429,10 +486,15 @@ export default function MonthlyBilling() {
       });
       batch.set(doc(collection(db, 'MONTHLY_INVOICES')), {
         customer: cust, month, company: co.name,
+        billing_cycle: custCycle || '30_days', billing_period: period, period_from: periodRange().from, period_to: periodRange().to,
         invoice_no: invoiceNo, det_invoice_no: detInvoiceNo,
         total_qty: totalQty, freight_rate: parseFloat(freightRate) || 0, freight_total: freightTotal,
         detention_total: detTotal, det_rate: parseFloat(detRate) || 0, det_days: totalDetDays, free_days: parseInt(freeDays) || 0,
         taxable, cgst, sgst, grand_with_gst: grandWithGst,
+        // ➖ Deductions snapshot (future ledger/settlement accuracy)
+        tds_pct: parseFloat(tdsPct) || 0, tds_amount: tdsAmt,
+        shortage_amount: shortageDed, advance_deduction: advanceDed,
+        total_deductions: totalDeductions, net_payable: netPayable,
         trip_ids: fRows.map(r => r.tripId), createdAt: serverTimestamp(),
       });
       await batch.commit();
@@ -455,7 +517,7 @@ export default function MonthlyBilling() {
         try {
           await postEntry({
             source_type: 'DETENTION', source_ref: detInvoiceNo, date: `${month}-28`,
-            narration: `Detention charges ${monthLabel} — ${cust} (${totalDetDays} days @ ₹${detRate})`,
+            narration: `Detention charges ${periodLabel()} — ${cust} (${totalDetDays} days @ ₹${detRate})`,
             company: co.name,
             lines: [
               { ledger: `Debtors: ${cust}`, dr_cr: 'Dr', amount: detTotal },
@@ -499,6 +561,29 @@ export default function MonthlyBilling() {
             </select>
           </div>
           <div><label style={S.label}>Month *</label><input type="month" style={S.input} value={month} onChange={e => setMonth(e.target.value)} /></div>
+          <div style={{ gridColumn: isMobile ? 'auto' : 'span 2' }}>
+            <label style={{ ...S.label, color: custCycle === '15_days' ? '#c084fc' : '#94a3b8' }}>
+              🗓️ Billing Period {custCycle === '15_days' ? '— customer cycle: 15 DIN (Fortnightly)' : custCycle === '30_days' ? '— customer cycle: 30 DIN (Monthly)' : ''}
+            </label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {custCycle === '15_days' ? (
+                <>
+                  <button type="button" className={`pt-chip ${period === 'H1' ? 'is-on' : ''}`} onClick={() => setPeriod('H1')}>1st Half (1–15)</button>
+                  <button type="button" className={`pt-chip ${period === 'H2' ? 'is-on' : ''}`} onClick={() => setPeriod('H2')}>2nd Half (16–End)</button>
+                  <button type="button" className={`pt-chip ${period === 'FULL' ? 'is-on is-on--warning' : ''}`} title="15-din cycle customer — full month par warning aayegi" onClick={() => setPeriod('FULL')}>⚠ Full Month</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className={`pt-chip ${period === 'FULL' ? 'is-on is-on--success' : ''}`} onClick={() => setPeriod('FULL')}>Full Month (1–End)</button>
+                  <button type="button" className={`pt-chip ${period === 'H1' ? 'is-on' : ''}`} onClick={() => setPeriod('H1')}>1st Half</button>
+                  <button type="button" className={`pt-chip ${period === 'H2' ? 'is-on' : ''}`} onClick={() => setPeriod('H2')}>2nd Half</button>
+                </>
+              )}
+            </div>
+            {custCycle === '15_days' && period === 'FULL' && (
+              <div className="pt-anim-pop" style={{ marginTop: '6px', fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>⚠️ Is customer ke bill 15-din ke bante hain — Full Month chunne par confirm poocha jayega.</div>
+            )}
+          </div>
           <div><label style={S.label}>Freight Rate (₹/KL)</label><input type="number" inputMode="decimal" style={S.input} value={freightRate} onChange={e => setFreightRate(e.target.value)} /></div>
           <div><label style={S.label}>Detention ₹/Day</label><input type="number" inputMode="decimal" style={S.input} value={detRate} onChange={e => setDetRate(e.target.value)} /></div>
           <div><label style={S.label}>Free Days (Transit)</label><input type="number" style={S.input} value={freeDays} onChange={e => setFreeDays(e.target.value)} /></div>
@@ -593,17 +678,40 @@ export default function MonthlyBilling() {
             </div>
           </div>
 
+          {/* ➖ DEDUCTIONS & ADJUSTMENTS panel */}
+          <div style={{ ...S.card, border: '1px solid #ef4444' }} className="pt-anim-up">
+            <b style={{ color: '#ef4444' }}>➖ Deductions & Adjustments</b>
+            <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 12px' }}>TDS sirf Freight amount par lagta hai · Shortage/Advance manual entry. Net Payable neeche footer mein live dikh raha hai.</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: '12px' }}>
+              <div>
+                <label style={S.label}>TDS (%) — on Freight only</label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  {['1', '2'].map(p => <button key={p} type="button" className={`pt-chip ${tdsPct === p ? 'is-on' : ''}`} onClick={() => setTdsPct(p)}>{p}%</button>)}
+                  <input type="number" inputMode="decimal" style={{ ...S.input, width: '90px' }} value={tdsPct} onChange={e => setTdsPct(e.target.value)} />
+                </div>
+                <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '4px' }}>= ₹{inr(tdsAmt)}</div>
+              </div>
+              <div><label style={S.label}>Shortage Amount (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ef4444' }} value={shortageAmt} onChange={e => setShortageAmt(e.target.value)} placeholder="0.00" /></div>
+              <div><label style={S.label}>Advance Deduction (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ef4444' }} value={advanceAmt} onChange={e => setAdvanceAmt(e.target.value)} placeholder="0.00" /></div>
+              <div style={{ alignSelf: 'end', textAlign: 'right' }}>
+                <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>TOTAL DEDUCTIONS</div>
+                <div style={{ fontSize: '20px', fontWeight: 900, color: '#ef4444' }}>− ₹{inr(totalDeductions)}</div>
+              </div>
+            </div>
+          </div>
+
           {/* 💰 LIVE SUMMARY — sticky footer, updates with every checkbox */}
           <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 500, background: 'rgba(2,6,23,0.97)', borderTop: '2px solid #10b981', backdropFilter: 'blur(8px)', padding: '10px clamp(12px, 3vw, 30px)', boxShadow: '0 -8px 30px rgba(0,0,0,0.5)' }}>
-            <div style={{ display: 'flex', gap: 'clamp(10px, 2.5vw, 28px)', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 'clamp(8px, 2vw, 22px)', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 900 }}>🏢 {co.name}</div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>FREIGHT ({totalQty} KL)</div><div style={{ fontSize: '16px', fontWeight: 900, color: '#10b981' }}>₹{inr(freightTotal)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>DETENTION ({totalDetDays} days)</div><div style={{ fontSize: '16px', fontWeight: 900, color: '#f59e0b' }}>₹{inr(detTotal)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>CGST 2.5% <span style={{ color: '#64748b' }}>(RCM)</span></div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#38bdf8' }}>₹{inr(cgst)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>SGST 2.5% <span style={{ color: '#64748b' }}>(RCM)</span></div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#38bdf8' }}>₹{inr(sgst)}</div></div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>GRAND TOTAL (incl. GST — buyer pays GST)</div>
-                <div style={{ fontSize: 'clamp(17px, 3vw, 22px)', fontWeight: 900, color: '#fff' }}>₹{inr(grandWithGst)} <span style={{ fontSize: '11px', color: '#10b981' }}>· invoice value ₹{inr(taxable)}</span></div>
+              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>FREIGHT ({totalQty} KL)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#10b981' }}>₹{inr(freightTotal)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>DETENTION ({totalDetDays}d)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{inr(detTotal)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>CGST+SGST 5% <span style={{ color: '#64748b' }}>(RCM)</span></div><div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>₹{inr(cgst)} + ₹{inr(sgst)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>SUB TOTAL</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#cbd5e1' }}>₹{inr(grandWithGst)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>DEDUCTIONS (TDS+Short+Adv)</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#ef4444' }}>− ₹{inr(totalDeductions)}</div></div>
+              <div style={{ textAlign: 'right', background: 'rgba(16,185,129,0.12)', border: '1px solid #10b981', borderRadius: '10px', padding: '5px 14px' }}>
+                <div style={{ fontSize: '10px', color: '#10b981', fontWeight: 900 }}>💰 NET PAYABLE AMOUNT</div>
+                <div style={{ fontSize: 'clamp(17px, 3vw, 23px)', fontWeight: 900, color: '#10b981' }}>₹{inr(netPayable)}</div>
               </div>
             </div>
           </div>
