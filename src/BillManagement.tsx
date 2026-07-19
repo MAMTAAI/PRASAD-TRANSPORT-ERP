@@ -400,13 +400,20 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
           unloading_date: t.unloading_date || t.Unloading_Date || '',
           qty: t.calc_qty,
           rate: t.calc_rate,
-          gross_freight: t.calc_gross, 
+          rtkm: t.calc_rtkm || 0,
+          billing_type: t.calc_bt || 'PER_KL',
+          gross_freight: t.calc_gross,
           shortage_amt: t.calc_penalty,
           tds_amt: t.calc_tds,
-          igst_amt: 0, cgst_amt: 0, sgst_amt: 0, // For IOCL Print format
+          // IOCL RCM: CGST 2.5% + SGST 2.5% per row (informational — IOCL pays)
+          igst_amt: 0,
+          cgst_amt: Math.round(t.calc_gross * 2.5) / 100,
+          sgst_amt: Math.round(t.calc_gross * 2.5) / 100,
           net_payable: t.calc_net,
           payment_status: 'PENDING'
         })),
+        period_from: [...selectedTripData.map(t => String(t.loading_date || t.start_date || '').slice(0, 10)).filter(Boolean)].sort()[0] || '',
+        period_to: [...selectedTripData.map(t => String(t.loading_date || t.start_date || '').slice(0, 10)).filter(Boolean)].sort().pop() || '',
         createdAt: serverTimestamp()
       });
 
@@ -414,7 +421,23 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         await updateDoc(doc(db, "TRIPS", tripId), { billing_status: 'BILLED', linked_bill_no: newBillNo });
       }
 
-      alert(`✅ Invoice ${newBillNo} Generated Successfully!`);
+      // 🧾 AUTO-FLOW to tax modules (client rule: "TDS/GST jaha jani hai waha
+      // apne aap jaye"): GST Management (RCM 2.5+2.5) + TDS Management (2%).
+      const billDate = new Date().toISOString().split('T')[0];
+      await addDoc(collection(db, "GST_MANAGEMENT"), {
+        Customer_Name: customerName, GST_Type: 'CGST+SGST', Invoice_No: newBillNo,
+        Taxable_Amt: totalGross.toFixed(2), GST_Rate: '5', Total_GST: (totalGross * 0.05).toFixed(2),
+        is_submitted: false, rcm: true, location: billLocation, source: 'AUTO_BILL',
+        Entry_Date: billDate, createdAt: serverTimestamp(),
+      }).catch(e => console.warn('GST auto-entry fail:', e?.message));
+      await addDoc(collection(db, "TDS_MANAGEMENT"), {
+        Consignee_Name: customerName, Gross_Freight: totalGross.toFixed(2),
+        TDS_Rate: '2', TDS_Deducted: totalTds.toFixed(2), Date: billDate,
+        Status: 'PENDING', Invoice_No: newBillNo, location: billLocation, source: 'AUTO_BILL',
+        createdAt: serverTimestamp(),
+      }).catch(e => console.warn('TDS auto-entry fail:', e?.message));
+
+      alert(`✅ Invoice ${newBillNo} Generated Successfully!\n\n🧾 GST (RCM 5%) → GST Management me auto-entry\n✂️ TDS 2% (₹${totalTds.toLocaleString('en-IN', { maximumFractionDigits: 0 })}) → TDS Management me auto-entry`);
       setSelectedTripsForBill([]);
       fetchUnbilledTrips();
       fetchGeneratedBills();
@@ -524,134 +547,147 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
     } catch (e) { alert("❌ Error settling payment."); console.error(e); }
   };
 
-  // 🖨️ IOCL FORMAT PDF PRINT
-  const handlePrintInvoice = (bill: any) => {
+  // 🖨️ IOCL "Transportation Bill" EXACT FORMAT PRINT — owner's real bills
+  // (7B03/7R01… 16-30.06.2026) se reproduce: plant header (left), "Tax Invoice
+  // issued by" vendor block (right), vehicle-wise sections with Subtotal for
+  // Vehicle, RTD/RATE columns, CGST/SGST 2.5%+2.5% (RCM), Total for Bill.
+  const handlePrintInvoice = async (bill: any) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return alert("Please allow popups to print invoices.");
 
-    // Grouping trips by vehicle for the IOCL Format
-    const groupedTrips = bill.trips.reduce((acc: any, trip: any) => {
-      acc[trip.vehicle_no] = acc[trip.vehicle_no] || [];
-      acc[trip.vehicle_no].push(trip);
+    // 🔎 Masters (GSTIN / vendor code) — print ke waqt fresh lookup, purani
+    // bills (jinme ye fields saved nahi) bhi sahi header ke saath chhapti hain.
+    let coGstin = bill.company_gstin || '', custGstin = bill.customer_gstin || '', vendorCode = bill.vendor_code || '';
+    try {
+      const [c1, c2, cu] = await Promise.all([
+        getDocs(collection(db, 'COMPANY')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'COMPANIES')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
+      ]);
+      const norm = (x: any) => String(x || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const co = [...c1.docs, ...c2.docs].map(d => d.data()).find(c => norm(c.company_name || c.name).includes(norm(bill.company).slice(0, 10)) || norm(bill.company).includes(norm(c.company_name || c.name).slice(0, 10)));
+      if (co) coGstin = coGstin || co.gst_no || co.GSTIN || co.gstin || '';
+      const cd = cu.docs.map(d => d.data()).find(c => norm(c.customer_name || c.name) === norm(bill.customer_name));
+      if (cd) { custGstin = custGstin || cd.gst_no || cd.gstin || ''; vendorCode = vendorCode || cd.vendor_code || cd.Vendor_Code || ''; }
+    } catch { /* header lookup best-effort */ }
+
+    const dmy = (d: any) => { const x = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(x) ? `${x.slice(8,10)}.${x.slice(5,7)}.${x.slice(0,4)}` : (x || '-'); };
+    const inr2 = (n: any) => (parseFloat(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const trips = bill.trips || [];
+    const dates = trips.map((t: any) => String(t.loading_date || '').slice(0, 10)).filter(Boolean).sort();
+    const periodFrom = bill.period_from || dates[0] || bill.bill_date, periodTo = bill.period_to || dates[dates.length - 1] || bill.bill_date;
+
+    // Vehicle-wise grouping (IOCL sections)
+    const groupedTrips = trips.reduce((acc: any, trip: any) => {
+      const v = trip.vehicle_no || '-';
+      (acc[v] = acc[v] || []).push(trip);
       return acc;
     }, {});
 
-    let rowsHTML = "";
-    let sNo = 1;
-
-    Object.keys(groupedTrips).forEach(vehicleNo => {
-      rowsHTML += `<tr><td colspan="12" style="font-weight:bold; background:#f1f5f9; padding:8px;">Vehicle: ${vehicleNo}</td></tr>`;
-      let vehGross = 0, vehPenalty = 0, vehNet = 0;
-
+    let rowsHTML = ""; let sNo = 1;
+    let tGross = 0, tPen = 0, tCg = 0, tSg = 0;
+    Object.keys(groupedTrips).sort().forEach(vehicleNo => {
+      rowsHTML += `<tr><td colspan="13" style="font-weight:bold; background:#f1f5f9; padding:6px;">${vehicleNo}</td></tr>`;
+      let vG = 0, vP = 0, vCg = 0, vSg = 0;
       groupedTrips[vehicleNo].forEach((t: any) => {
-        vehGross += parseFloat(t.gross_freight || 0);
-        vehPenalty += parseFloat(t.shortage_amt || 0);
-        vehNet += parseFloat(t.net_payable || 0);
-
+        const gross = parseFloat(t.gross_freight) || 0;
+        const cg = t.cgst_amt > 0 ? parseFloat(t.cgst_amt) : Math.round(gross * 2.5) / 100;
+        const sg = t.sgst_amt > 0 ? parseFloat(t.sgst_amt) : Math.round(gross * 2.5) / 100;
+        vG += gross; vP += parseFloat(t.shortage_amt) || 0; vCg += cg; vSg += sg;
         rowsHTML += `
-          <tr style="border-bottom: 1px solid #e2e8f0; font-size:12px;">
-            <td style="padding: 8px; text-align: center;">${sNo++}</td>
-            <td style="padding: 8px;">${t.lr_no || t.trip_id}</td>
-            <td style="padding: 8px;">${t.loading_date || '-'}</td>
-            <td style="padding: 8px;">${t.unloading_date || '-'}</td>
-            <td style="padding: 8px; text-align:right;">${t.qty || 1}</td>
-            <td style="padding: 8px; text-align:right;">${t.rate || 0}</td>
-            <td style="padding: 8px; text-align:right;">${parseFloat(t.gross_freight).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-            <td style="padding: 8px; text-align:right;">${parseFloat(t.shortage_amt).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-            <td style="padding: 8px; text-align:right;">0.00</td>
-            <td style="padding: 8px; text-align:right;">0.00</td>
-            <td style="padding: 8px; text-align:right;">0.00</td>
-            <td style="padding: 8px; text-align:right; font-weight: bold;">${parseFloat(t.net_payable).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-          </tr>
-        `;
+          <tr style="font-size:11px;">
+            <td style="text-align:center;">${sNo++}</td>
+            <td>${t.lr_no && t.lr_no !== 'N/A' ? t.lr_no : (t.trip_id || '')}</td>
+            <td>${dmy(t.loading_date)}</td>
+            <td style="font-size:10px;">${bill.location || bill.customer_name || ''}</td>
+            <td style="text-align:right;">${t.qty || 0}</td>
+            <td style="text-align:right;">0.000</td>
+            <td style="text-align:right;">${t.rtkm || '-'}</td>
+            <td style="text-align:right;">${t.rate || 0}</td>
+            <td style="text-align:right;">${inr2(gross)}</td>
+            <td style="text-align:right;">${inr2(t.shortage_amt)}</td>
+            <td style="text-align:right;">0.00</td>
+            <td style="text-align:right;">${inr2(cg)}</td>
+            <td style="text-align:right;">${inr2(sg)}</td>
+          </tr>`;
       });
+      tGross += vG; tPen += vP; tCg += vCg; tSg += vSg;
       rowsHTML += `
-        <tr style="border-bottom: 2px solid #000; font-weight: bold; font-size:12px;">
-          <td colspan="6" style="text-align:right; padding:8px;">Subtotal for Vehicle:</td>
-          <td style="text-align:right; padding:8px;">${vehGross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-          <td style="text-align:right; padding:8px;">${vehPenalty.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-          <td style="text-align:right; padding:8px;">0.00</td>
-          <td style="text-align:right; padding:8px;">0.00</td>
-          <td style="text-align:right; padding:8px;">0.00</td>
-          <td style="text-align:right; padding:8px;">${vehNet.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-        </tr>
-      `;
+        <tr style="font-weight:bold; font-size:11px;">
+          <td colspan="8" style="text-align:right; padding:6px;">Subtotal for Vehicle:</td>
+          <td style="text-align:right;">${inr2(vG)}</td>
+          <td style="text-align:right;">${inr2(vP)}</td>
+          <td style="text-align:right;">0.00</td>
+          <td style="text-align:right;">${inr2(vCg)}</td>
+          <td style="text-align:right;">${inr2(vSg)}</td>
+        </tr>`;
     });
 
     const html = `
       <html>
         <head>
-          <title>Invoice - ${bill.bill_no}</title>
+          <title>Transportation Bill - ${bill.bill_no}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 20px; color: #000; font-size: 13px; }
-            .header { text-align: center; margin-bottom: 20px; }
-            .title { font-size: 22px; font-weight: 900; margin: 0; text-transform: uppercase; }
-            .bill-info { display: flex; justify-content: space-between; margin-bottom: 20px; padding: 15px; border: 1px solid #000; }
+            body { font-family: Arial, sans-serif; padding: 16px; color: #000; font-size: 12px; }
             table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #000; padding: 6px; }
-            th { background: #f0f0f0; text-align: center; font-size: 11px; }
-            @media print { body { padding: 0; } th { background: #e2e8f0 !important; -webkit-print-color-adjust: exact; } }
+            th, td { border: 1px solid #000; padding: 4px 5px; }
+            th { background: #eee; text-align: center; font-size: 10px; }
+            .hdr { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+            .hdr h2 { margin: 2px 0; font-size: 15px; }
+            @media print { body { padding: 0; } th, tr { -webkit-print-color-adjust: exact; } }
           </style>
         </head>
         <body>
-          <div class="header">
-            <h1 class="title">${bill.company || 'PRASAD TRANSPORT'}</h1>
-            <p style="margin: 5px 0;">TAX INVOICE / TRANSPORTATION BILL</p>
-            <p style="margin: 0; font-size:11px;">Reverse Charge Mechanism | GST Payable by Consignee</p>
-          </div>
-          
-          <div class="bill-info">
+          <div class="hdr">
             <div>
-              <p style="margin: 0 0 5px 0;"><strong>Billed To / Ship-to-Party:</strong></p>
-              <h3 style="margin: 0;">${bill.customer_name}</h3>
-              ${bill.location ? `<p style="margin: 5px 0 0 0; font-weight: bold;">🏭 Plant/Location: ${bill.location}</p>` : ''}
+              <h2>${bill.location || bill.customer_name}</h2>
+              ${custGstin ? `<div>(GSTIN:- ${custGstin})</div>` : ''}
+              <div>${bill.customer_name}</div>
             </div>
-            <div style="text-align: right;">
-              <p style="margin: 0 0 5px 0;"><strong>Invoice No:</strong> ${bill.bill_no}</p>
-              <p style="margin: 0;"><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString('en-IN')}</p>
+            <div style="text-align:center; align-self:center;"><h2 style="font-size:18px; text-decoration:underline;">Transportation Bill</h2></div>
+            <div style="text-align:right;">
+              <b>Tax Invoice issued by:-</b><br/>
+              <b>${bill.company || 'PRASAD TRANSPORT'}</b><br/>
+              ${vendorCode ? `Vendor code: ${vendorCode}<br/>` : ''}
+              ${coGstin ? `GSTIN:- ${coGstin}<br/>` : ''}
+              <b>Period: ${dmy(periodFrom)} to ${dmy(periodTo)}</b>
             </div>
           </div>
 
           <table>
             <thead>
               <tr>
-                <th>S.No</th>
-                <th>Trip / LR No</th>
-                <th>Load Dt</th>
-                <th>Unload Dt</th>
-                <th>Qty</th>
-                <th>Rate</th>
-                <th>Gross Amt (Rs)</th>
-                <th>Penalty/Short (Rs)</th>
-                <th>IGST (Rs)</th>
-                <th>CGST (Rs)</th>
-                <th>SGST (Rs)</th>
-                <th>Net Payable (Rs)</th>
+                <th>SNo.</th><th>Invoice/LR No.</th><th>Date</th><th>Ship-to-party</th>
+                <th>Quantity</th><th>Shortage</th><th>RTD</th><th>RATE</th>
+                <th>Gross Amt.(Rs.)</th><th>PenaltyAmt.(Rs.)</th><th>IGST(Rs.)</th><th>CGST(Rs.)</th><th>S/UGST(Rs.)</th>
               </tr>
             </thead>
             <tbody>
+              <tr><td colspan="8" style="font-weight:bold; padding:6px;">Reverse Charge</td><td colspan="5" style="text-align:right; font-weight:bold;">Bill No. & Date:- ${bill.bill_no} ${dmy(bill.bill_date)}</td></tr>
               ${rowsHTML}
-              <tr style="font-weight: 900; font-size: 14px; background: #e2e8f0;">
-                <td colspan="6" style="padding: 10px; text-align: right;">GRAND TOTAL EXPECTED:</td>
-                <td style="padding: 10px; text-align: right;">${parseFloat(bill.total_gross).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                <td style="padding: 10px; text-align: right;">${parseFloat(bill.total_shortage_deduction).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                <td colspan="3"></td>
-                <td style="padding: 10px; text-align: right;">${parseFloat(bill.total_net_expected).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+              <tr style="font-weight:900; font-size:12px; background:#e2e8f0;">
+                <td colspan="8" style="text-align:right; padding:8px;">Total for Bill:</td>
+                <td style="text-align:right;">${inr2(tGross)}</td>
+                <td style="text-align:right;">${inr2(tPen)}</td>
+                <td style="text-align:right;">0.00</td>
+                <td style="text-align:right;">${inr2(tCg)}</td>
+                <td style="text-align:right;">${inr2(tSg)}</td>
               </tr>
             </tbody>
           </table>
 
-          <p style="font-size: 11px; margin-top:10px;">* GST payable by Consignee under Reverse Charge. TDS deducted as applicable (Sec 194C).</p>
-          
-          <div style="margin-top: 50px; display: flex; justify-content: space-between;">
-            <div>
-              <p style="margin: 0;"><strong>Bank Details for NEFT/RTGS:</strong></p>
-              <p style="margin: 5px 0 0 0; font-size: 12px;">A/C Name: Prasad Transport<br/>A/C No: 502000XXXXXX<br/>IFSC: HDFC000XXXX</p>
-            </div>
-            <div style="text-align: center;">
-              <p style="margin: 0 0 40px 0;"><strong>For ${bill.company || 'Prasad Transport'}</strong></p>
-              <p style="margin: 0; border-top: 1px solid #000; padding-top: 5px;">Authorized Signatory</p>
-            </div>
+          <div style="margin-top:10px; border:1px solid #000; padding:8px; width:320px; margin-left:auto; font-size:12px;">
+            <div style="display:flex; justify-content:space-between;"><span>Gross Total:</span><b>₹${inr2(bill.total_gross)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>Shortage/Penalty (−):</span><b>₹${inr2(bill.total_shortage_deduction)}</b></div>
+            <div style="display:flex; justify-content:space-between;"><span>TDS 2% (−):</span><b>₹${inr2(bill.total_tds_deduction)}</b></div>
+            <div style="display:flex; justify-content:space-between; border-top:1px solid #000; margin-top:4px; padding-top:4px;"><span><b>NET EXPECTED:</b></span><b>₹${inr2(bill.total_net_expected)}</b></div>
+          </div>
+
+          <p style="font-size:10px; margin-top:12px;">* This is System generated document for vehicles acknowledged during above mentioned period. | ** GST payable by ${bill.customer_name || 'Consignee'} to the concerned authorities in case of Reverse Charge | *** TDS deducted, as applicable.</p>
+
+          <div style="margin-top: 40px; text-align: right;">
+            <p style="margin: 0 0 40px 0;"><strong>for ${bill.company || 'PRASAD TRANSPORT'}</strong></p>
+            <p style="margin: 0;">Authorised Signatory</p>
           </div>
         </body>
       </html>
