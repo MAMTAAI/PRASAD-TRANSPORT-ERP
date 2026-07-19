@@ -1,7 +1,26 @@
 # PRASAD TRANSPORT ERP — Project Status & Operations Handover
 
-**As of:** 2026-07-18 · **Branch:** `upgrade-2026` (pushed) · **Live:** https://prasad-transport-grup.web.app
-**Full regression sweep:** 99 checks (all modules × desktop + phone, real staff auth) — **0 errors, 0 overflow.**
+**As of:** 2026-07-19 · **Branch:** `upgrade-2026` (pushed) · **Live:** https://prasad-transport-grup.web.app
+**Latest smoke sweep (2026-07-19):** 14 checks — 7 new/rebuilt modules × desktop + phone — **0 errors, 0 overflow.** (Prior full sweep 2026-07-18: 99 checks clean.)
+
+---
+
+## 2026-07-19 — Post-Trip Financial & Billing Engine (this release)
+
+| Feature | Delivered | Verified how |
+|---|---|---|
+| **Retro expenses + admin approval** | `EXPENSE_APPROVALS` queue (ACCOUNTS → Pending Expenses, live sidebar badge): late HSD/toll/vendor bills filed manually or via Mamta AI scan; ADMIN approval posts journal + retro-adjusts the trip P&L and re-finalizes COMPLETED-trip settlements (idempotent); admin-only approval enforced in `firestore.rules` | Rules deployed; UI verified both roles |
+| **Unloading → billing pipeline** | Both completion doors (Unloading Details + Trip Command Center) stamp `draft_invoice` + `billing_status:'PENDING'`; Bill Management = customer-wise Pending Billing dashboard (KPIs, aging, 2-step preview→generate); company-PDF reconciliation marks trips RECONCILED; explicit PENDING PAYMENT receivables | Screenshots + live data |
+| **Auto-shortage recovery** | Unloading with shortage auto-debits the driver's khata (`DRIVER_TRANSACTIONS` deterministic id `SHORTAGE__<trip>` — can never double-charge) + journal `SHORTAGE_RECOVERY`; penalty-rate chips (₹50/90/100/110); shows on WhatsApp confirmation + registers + client bill deduction | Idempotency by doc id |
+| **AI bill → trip mapping** | Vendor/fuel bill scans extract vehicle_no; engine maps to the exact trip by vehicle + date window; active trip → direct post, closed trip → approval queue; hardened `parseDocDate` (2-digit years, day/month swap, refuses impossible dates) | 11-case date test suite |
+| **Smart UI/UX layer** | design-system additions (pt-card/kpi/badge/chip/seg/tab/switch + animations, reduced-motion safe); BottomSheet modals everywhere; tap-first chips; 44px+ targets; mobile card views | 0 overflow/errors sweep |
+| **Offline Toll engine** | `tollParse.ts`/`tollEngine.ts`: ICICI FASTag PDF parser (**verified 67/67 tolls, ₹39,305 exact vs the real statement**), any-bank CSV/XLSX, date-window trip mapping, idempotent `TOLL_TRANSACTIONS` (`TFS_<ref>`), multi-company; IOCL claim generator reproduces the real Summary + Annexure-I to the layout (claim no format `110246990726012` matched); `TOLL_CLAIMS` register + reprint | `scripts/toll-parse-test.cjs` 11/11 |
+| **Multi-company auto-billing** | MonthlyBilling rebuilt: HARD RULE one invoice = one operating company (top-bar filter + save-time source verification + `billed_company` stamp); 100% dynamic letterhead from Company Master (no hardcoding); exact AADHAR-format Tax Invoice (HSN 996791, CGST/SGST 2.5+2.5 RCM) + Detention bill + annexure; real detention rule (reporting + free days, inclusive); live sticky summary; per-customer `billing_cycle` (15/30 days) with fortnight chips + wrong-cycle warning; Deductions panel (TDS freight-only, shortage, advance) with Net Payable on screen + PDF + invoice record | Real-bill formats reproduced; 14/14 math-proof tests (boundaries, leap yr, paisa parity) |
+| **QA audit fixes** | State-leakage hard reset on customer/company/month/period change; pre-commit `.every()` company check against source data + double-billing guard; paisa-exact freight (per-trip rounding = journal parity, old method drifted ₹1.50) | Proof tests + audit report |
+| **Cloud transaction guard** | `functions/index.js` → `generateAutoBill` v2 callable: server Firestore transaction rereads trips, aborts on mismatch/already-BILLED, atomic invoice+flips; frontend calls it first, guarded client fallback if unreachable | **Deploy pending Blaze** (see checklist) |
+| **Ledgers & P&L** | Customer Khata (Live): unified real-time statement — Auto-Billing + Bill Mgmt invoices as Cr, manual `CUSTOMER_PAYMENTS` + settle receipts as Dr, running balance + opening balance, payment BottomSheet posts journal too, CSV export; Company P&L (Live): revenue ex-GST, tolls/fuel (no double-count)/shortage expenses, recovery add-back, green/red hero card, CSV | Screenshots, live data |
+
+**New operating notes:** Pending Expenses = ACCOUNTS → ⏳ (admin approves); Toll statements = ACCOUNTS → Toll & Fastag → 📄 Statement Sync (upload ICICI PDF/CSV/Excel) then 🧾 IOCL Toll Claims (fortnight → generate); Khata = ACCOUNTS → Customer Khata (Live) → ＋ Add Payment Entry; P&L = ACCOUNTS → Company P&L (Live).
 
 ---
 
@@ -30,17 +49,21 @@
 
 ## Owner's outstanding checklist (not code)
 
-1. **Rotate the old leaked credentials** (3 SMTP passwords, Google TTS + Gemini keys) — they were public on GitHub before the history purge.
-2. **Backfill freight** on historical trips (Set Freight Bulk / file AP210s) — activates Revenue KPIs and the payment chase list; 21 flagged "late" trips are mostly never-closed trips worth completing.
-3. **Company Master:** add `bank_name`, `account_no`, `ifsc_code`, `udyam_no` so invoices print real bank/UDYAM details.
-4. **After all drivers have OTP'd once:** ask for the anonymous-lane retirement (tightens rules to phone-bound writes only).
-5. QA scripts note: the localStorage bypass no longer grants data access (by design) — use a dedicated staff account for testing.
+1. **Upgrade to Blaze** (Firebase console → Upgrade; billing account `017033-7CAF33-C668E8` is linked but disabled) then ask for `generateAutoBill` deploy — makes double-billing 100% race-proof server-side. Usage stays in the free tier.
+2. **Company Master:** fill GSTIN/PAN/bank/UDYAM for **JAISWAL ENTERPRISE** and **M/S GAUTAM PRASAD** — multi-company invoices print only what the master holds (nothing is hardcoded anymore).
+3. **Rotate the old leaked credentials** (3 SMTP passwords, Google TTS + Gemini keys) — they were public on GitHub before the history purge.
+4. **Backfill freight** on historical trips (Set Freight Bulk / file AP210s) — activates Revenue KPIs and the payment chase list.
+5. **After all drivers have OTP'd once:** ask for the anonymous-lane retirement (tightens rules to phone-bound writes only).
+6. QA scripts note: the localStorage bypass no longer grants data access (by design) — use a dedicated staff account for testing.
 
 ## Key engineering references
 
-- `firestore.rules` / `storage.rules` — the enforcement model (staff vs driver lane).
+- `firestore.rules` / `storage.rules` — the enforcement model (staff vs driver lane; `EXPENSE_APPROVALS` admin-only approval).
 - `src/lib/accounting/tripMath.ts` — canonical money math (both finance screens use it).
 - `src/lib/accounting/journal.ts` — idempotent double-entry journal (`postEntry`).
+- `src/lib/postTripEngine.ts` — post-trip brain: retro expenses, bill→trip matching, draft invoices, shortage recovery, `parseDocDate`.
+- `src/lib/tollParse.ts` (pure, Node-tested) + `src/lib/tollEngine.ts` — FASTag statement parsing, trip mapping, IOCL claim rendering.
+- `functions/index.js` → `generateAutoBill` — server transaction guard for billing (deploy pending Blaze).
 - `src/lib/billScanner.ts` + `src/lib/fleetCard.ts` — document AI (classify → extract → verify arithmetic in code).
 - `src/lib/analysis/predictors.ts` — median+MAD predictors feeding the daily report.
 - `scripts/` — one-time migrations (all idempotent, all already run) + QA utilities.
