@@ -347,8 +347,40 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
 
     try {
       const slipsToUpdate = filteredUnbilledSlips.filter(s => selectedSlips.includes(s.id));
+
+      // 💰 TRIP P&L DISTRIBUTION (2026-07-19 fuel R&D): purani slips ₹0 amount
+      // par saved thin (rate missing) — pump ke PHYSICAL BILL ki value ab
+      // LITERS ke anupat me har slip par batati hai, aur DELTA (naya − purana
+      // amount) us slip ki linked TRIP ke total_expense/diesel_amount me jata
+      // hai. Delta isliye: memo-time par jo amount tha wo trip par pehle se
+      // counted hai (TripManagment/FuelMgmt dono increment karte hain) —
+      // double-count kabhi nahi hota.
+      const billAmt = parseFloat(vendorBillAmount) || 0;
+      const totalLiters = slipsToUpdate.reduce((s, x) => s + (parseFloat(x.liters) || 0), 0);
+      let tripsBumped = 0;
+      const tSnap = await getDocs(collection(db, "TRIPS"));
+      const byTripId = new Map();
+      tSnap.docs.forEach(d => { const v = d.data(); const k = String(v.trip_id || v.Trip_ID || ''); if (k) byTripId.set(k, d.id); });
+      const perTripDelta = new Map();
+
       for (const slip of slipsToUpdate) {
-        await updateDoc(doc(db, "FUEL_ENTRIES", slip.id), { bill_status: 'BILLED_VERIFIED' });
+        const liters = parseFloat(slip.liters) || 0;
+        const share = (billAmt > 0 && totalLiters > 0) ? Math.round((billAmt * liters / totalLiters) * 100) / 100 : (parseFloat(slip.amount) || 0);
+        const oldAmt = parseFloat(slip.amount) || 0;
+        const rate = liters > 0 ? Math.round((share / liters) * 100) / 100 : 0;
+        await updateDoc(doc(db, "FUEL_ENTRIES", slip.id), {
+          bill_status: 'BILLED_VERIFIED',
+          amount: share.toFixed(2), rate: String(rate), reconciled_share: share,
+        });
+        const tid = slip.trip_db_id || byTripId.get(String(slip.trip_id || ''));
+        const delta = Math.round((share - oldAmt) * 100) / 100;
+        if (tid && Math.abs(delta) > 0.009) perTripDelta.set(tid, Math.round(((perTripDelta.get(tid) || 0) + delta) * 100) / 100);
+      }
+      for (const [tid, delta] of perTripDelta) {
+        await updateDoc(doc(db, "TRIPS", tid), {
+          total_expense: increment(delta), diesel_amount: increment(delta),
+        }).catch(() => {});
+        tripsBumped++;
       }
 
       // 🏦 POST TO LEDGER WITH DATE RANGE
@@ -378,7 +410,7 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
          await updateDoc(doc(db, "VENDORS", vendor.id), { current_balance: newBal });
       }
 
-      alert(`✅ SUCCESS: Slips Reconciled!\n\n₹${vendorBillAmount} has been successfully POSTED to ${vName}'s Ledger Account.`);
+      alert(`✅ SUCCESS: Slips Reconciled!\n\n₹${vendorBillAmount} POSTED to ${vName}'s Ledger Account.\n🚛 ${tripsBumped} trips ke kharche me diesel value update ho gayi (P&L me dikhega).`);
       
       setVendorBillAmount('');
       setSelectedSlips([]);

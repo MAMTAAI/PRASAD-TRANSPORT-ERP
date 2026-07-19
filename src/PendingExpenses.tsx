@@ -50,7 +50,24 @@ export default function PendingExpenses() {
 
   useEffect(() => {
     const un = onSnapshot(query(collection(db, 'EXPENSE_APPROVALS'), orderBy('created_at', 'desc')),
-      s => setRows(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
+      s => setRows(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error('EXPENSE_APPROVALS read:', e?.message));
+    return () => un();
+  }, []);
+
+  // ⛽ FUEL PENDING (2026-07-19 R&D): asli "pending expense" fuel slips hain —
+  // memo se liters record hote hain par ₹ value pump ke PHYSICAL BILL ke
+  // reconcile hone par hi banti hai. Yahan unka live count dikhta hai taaki
+  // "sab 0 hai, system kharab hai" wala confusion na ho.
+  const [fuelPending, setFuelPending] = useState({ count: 0, liters: 0, value: 0 });
+  useEffect(() => {
+    const un = onSnapshot(collection(db, 'FUEL_ENTRIES'), s => {
+      const un_ = s.docs.map(d => d.data()).filter(x => (x.bill_status || 'UNBILLED') === 'UNBILLED');
+      setFuelPending({
+        count: un_.length,
+        liters: Math.round(un_.reduce((t, x) => t + (parseFloat(x.liters) || 0), 0)),
+        value: Math.round(un_.reduce((t, x) => t + (parseFloat(x.amount) || 0), 0)),
+      });
+    }, (e) => console.error('FUEL_ENTRIES read:', e?.message));
     return () => un();
   }, []);
 
@@ -196,7 +213,23 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
           <div className="pt-kpi__value" style={{ color: '#10b981' }}>{approvedCount}</div>
           <div className="pt-kpi__sub">journal + P&L updated</div>
         </div>
+        <div className="pt-kpi" style={{ borderColor: '#ef4444' }}>
+          <div className="pt-kpi__label" style={{ color: '#ef4444' }}>⛽ Fuel Slips — Bill Pending</div>
+          <div className="pt-kpi__value" style={{ color: '#ef4444' }}>{fuelPending.count}</div>
+          <div className="pt-kpi__sub">{fuelPending.liters.toLocaleString('en-IN')} L diesel — pump bill se reconcile baaki</div>
+        </div>
       </div>
+
+      {/* ⛽ FUEL PENDING GUIDANCE — yahi wo "missing expenses" hain jo P&L me nahi aa rahe */}
+      {fuelPending.count > 0 && (
+        <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(239,68,68,0.06)', border: '1px dashed #ef4444', fontSize: '13px', color: '#fca5a5', lineHeight: 1.7 }}>
+          <b style={{ color: '#ef4444' }}>⛽ {fuelPending.count} fuel slips ({fuelPending.liters.toLocaleString('en-IN')} liters) ka PAISA abhi system me nahi hai</b> — memo se sirf LITERS record hote hain; ₹ value pump ke physical bill se aati hai.
+          <div style={{ marginTop: '8px', color: '#cbd5e1' }}>
+            Kaise poora karein: <b>Fuel (HSD) Mgmt → BILL RECONCILIATION</b> tab → pump/vendor chunein → physical bill ka total bharein → Verify.
+            Ab reconcile karte hi har slip ki value uski TRIP ke kharche me AUTO jud jaati hai (P&L complete). Ya <b>AI Bill Scanner → HSD/Pump Bill</b> se bill scan karein — wahi kaam automatic.
+          </div>
+        </div>
+      )}
 
       {/* ── Entry form (📱 BottomSheet on phone, centered dialog on desktop) ── */}
       <BottomSheet open={showForm} onClose={() => setShowForm(false)} title="📝 File Retro Expense" accent="#f59e0b" maxWidth={760}>
