@@ -34,6 +34,7 @@ const GstMgmt = lazy(() => import('./GstMgmt'));
 const BillScanner = lazy(() => import('./BillScanner'));
 const FleetCardMgmt = lazy(() => import('./FleetCardMgmt'));
 const MonthlyBilling = lazy(() => import('./MonthlyBilling'));
+const RateMaster = lazy(() => import('./RateMaster'));
 const KycApprovals = lazy(() => import('./KycApprovals'));
 const PendingExpenses = lazy(() => import('./PendingExpenses'));
 const CustomerLedger = lazy(() => import('./CustomerLedger'));
@@ -198,7 +199,7 @@ export default function App() {
     if (module === 'ACCOUNTS') {
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'BILLING' || itemId === 'AI_SCANNER' || itemId === 'AUTO_BILLING') return checkView('Billing & Invoicing');
+      if (itemId === 'BILLING' || itemId === 'AI_SCANNER' || itemId === 'AUTO_BILLING' || itemId === 'RATE_MASTER') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
       if (itemId === 'CUST_LEDGER') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
       if (itemId === 'CA_PNL') return checkView('Finance Hub');
@@ -329,6 +330,7 @@ export default function App() {
       case 'AI_SCANNER': return <BillScanner />;
       case 'FLEET_CARD': return <FleetCardMgmt />;
       case 'AUTO_BILLING': return <MonthlyBilling />;
+      case 'RATE_MASTER': return <RateMaster />;
       case 'EXPENSE_APPROVALS': return <PendingExpenses />;
       case 'CUST_LEDGER': return <CustomerLedger />;
       case 'CA_PNL': return <ProfitAndLoss />;

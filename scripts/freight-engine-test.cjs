@@ -59,5 +59,43 @@ check('normal per-KL rate untouched', F.effectiveBillingType('PER_KL', 1500, 618
 check('no rtkm => per-KL stays', F.effectiveBillingType('PER_KL', 3.43, 0), 'PER_KL');
 check('explicit FIXED never overridden', F.effectiveBillingType('FIXED', 3.43, 618.3), 'FIXED');
 
+// ── 💹 Dynamic Rate Master: strict Customer + Source + Destination + Effective window ──
+const rm = [
+  { id: 'a', Customer: 'INDIAN OIL CORPORATION LTD', Source: 'BONGAIGAON RC OFFICE (7R01)', Destination: '364075 BROTHERHOOD FUEL STATION',
+    Calc_Type: 'RTKM_KL', Rate_Value: 3.432495, RTKM_Distance: 1660, Effective_From: '2026-04-01', Effective_To: '2026-06-30', Status: 'Active' },
+  { id: 'b', Customer: 'INDIAN OIL CORPORATION LTD', Source: 'BONGAIGAON RC OFFICE (7R01)', Destination: '364075 BROTHERHOOD FUEL STATION',
+    Calc_Type: 'RTKM_KL', Rate_Value: 3.61, RTKM_Distance: 1660, Effective_From: '2026-07-01', Effective_To: '', Status: 'Active' },
+  { id: 'c', Customer: 'AADHAR GREEN INDUSTRIES LLP', Source: 'PATGAON', Destination: 'GUWAHATI PLANT',
+    Calc_Type: 'PER_UNIT', Rate_Value: 1500, Effective_From: '2026-01-01', Effective_To: '', Status: 'Active' },
+  { id: 'd', Customer: 'AADHAR GREEN INDUSTRIES LLP', Source: 'PATGAON', Destination: 'SILIGURI PLANT',
+    Calc_Type: 'FIXED_RATE', Rate_Value: 25000, Effective_From: '2026-01-01', Effective_To: '', Status: 'Inactive' },
+];
+const ioclTrip = { customer_name: 'INDIAN OIL CORPORATION LTD', loading_point: 'BONGAIGAON RC OFFICE (7R01)', consignee_name: '364075 BROTHERHOOD FUEL STATION' };
+check('RM: Q2 window rule (June)', F.findRateMasterEntry(rm, ioclTrip, '2026-06-18')?.id, 'a');
+check('RM: open-ended rule (Aug)', F.findRateMasterEntry(rm, ioclTrip, '2026-08-15')?.id, 'b');
+check('RM: date before all windows', F.findRateMasterEntry(rm, ioclTrip, '2026-03-15'), null);
+check('RM: inactive rule skipped', F.findRateMasterEntry(rm, { customer_name: 'AADHAR GREEN INDUSTRIES LLP', loading_point: 'PATGAON', consignee_name: 'SILIGURI PLANT' }, '2026-06-01'), null);
+check('RM: wrong destination no match', F.findRateMasterEntry(rm, { customer_name: 'INDIAN OIL CORPORATION LTD', loading_point: 'BONGAIGAON RC OFFICE (7R01)', consignee_name: 'SOMEWHERE ELSE' }, '2026-06-18'), null);
+check('RM: calc type mapping RTKM_KL', F.calcToBillingType('RTKM_KL'), 'RTKM_QTY');
+check('RM: calc type mapping RTKM_MT', F.calcToBillingType('RTKM_MT'), 'RTKM_QTY');
+check('RM: calc type mapping PER_UNIT', F.calcToBillingType('PER_UNIT'), 'PER_KL');
+check('RM: calc type mapping FIXED_RATE', F.calcToBillingType('FIXED_RATE'), 'FIXED');
+
+// resolveTripBilling: Rate Master route-master se PEHLE lagta hai
+const meta1 = F.resolveTripBilling(rm, routes, ioclTrip, '2026-06-18');
+check('resolve: engine = RATE_MASTER', meta1?.engine, 'RATE_MASTER');
+check('resolve: rate from RM rule', meta1?.rate, 3.432495);
+check('resolve: freight = real IOCL bill row', F.computeFreight(meta1.billing_type, { qty: 17.510, rtkm: meta1.rtkm, rate: meta1.rate }), 99770.96);
+// RM rule bina apne RTKM ke → route master ke RTKM se bharta hai
+const rmNoRtkm = [{ Customer: 'INDIAN OIL CORPORATION LTD', Source: 'BONGAIGAON RC OFFICE (7R01)', Destination: '364075 BROTHERHOOD FUEL STATION',
+  Calc_Type: 'RTKM_KL', Rate_Value: 3.61, Effective_From: '2026-01-01', Effective_To: '', Status: 'Active' }];
+const routesWithRtkm = [{ ...routes[0], RTKM_Distance: '618.3' }];
+check('resolve: RTKM fallback from route master', F.resolveTripBilling(rmNoRtkm, routesWithRtkm, ioclTrip, '2026-06-18')?.rtkm, 618.3);
+// Koi RM rule na mile → legacy route-master path
+const meta2 = F.resolveTripBilling([], [{ ...routes[0], Billing_Type: 'RTKM_QTY', RTKM_Distance: '618.3', rate_history: [{ valid_from: '2026-04-01', valid_to: '', rate_value: 3.432495 }] }], ioclTrip, '2026-06-18');
+check('resolve: fallback engine = ROUTE_MASTER', meta2?.engine, 'ROUTE_MASTER');
+check('resolve: fallback rate from route history', meta2?.rate, 3.432495);
+check('resolve: nothing matches = null', F.resolveTripBilling([], [], ioclTrip, '2026-06-18'), null);
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 process.exit(fail ? 1 : 0);

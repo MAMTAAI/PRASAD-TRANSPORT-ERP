@@ -20,7 +20,7 @@ import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
-import { tripFreightMeta, computeFreight, effectiveBillingType, BILLING_TYPES } from './lib/freightEngine';
+import { resolveTripBilling, computeFreight, effectiveBillingType, BILLING_TYPES, CALC_TYPES } from './lib/freightEngine';
 import { useIsMobile } from './hooks/useIsMobile';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -75,6 +75,9 @@ export default function MonthlyBilling() {
   const [companiesList, setCompaniesList] = useState([]);
   // 📍 Route & RTKM master — Smart Freight Engine ke formulas + quarterly rates
   const [routes, setRoutes] = useState([]);
+  // 💹 Dynamic Rate Master — Customer+Source+Destination wise admin-set rules;
+  // billing me route master se PEHLE yahi lagta hai (resolveTripBilling)
+  const [rateMaster, setRateMaster] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [cust, setCust] = useState('');
@@ -110,17 +113,19 @@ export default function MonthlyBilling() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [tSnap, cSnap, coSnap1, coSnap2, rSnap] = await Promise.all([
+      const [tSnap, cSnap, coSnap1, coSnap2, rSnap, rmSnap] = await Promise.all([
         getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANY')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANIES')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'RTKM_MASTER')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'RATE_MASTER')).catch(() => ({ docs: [] })),
       ]);
       setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
       setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setCompaniesList([...coSnap1.docs, ...coSnap2.docs].map(d => ({ id: d.id, ...d.data() })));
       setRoutes(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setRateMaster(rmSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -245,13 +250,16 @@ export default function MonthlyBilling() {
     // 📋 POST-TRIP DATA ENTRY: loading ke waqt qty/rate exact nahi hote (company
     // challan baad me aata hai) — isliye qty pehle billing-entered `qty`, phir
     // loading figures se; rate trip ka apna (AI-scan/inline se aya) warna default.
-    // 💰 SMART FREIGHT ENGINE: route master se billing formula + trip ki
-    // LOADING DATE wala quarterly rate auto-resolve hota hai (IOCL pattern:
-    // Qty × RTD × Rate/t-km). Trip par explicit rate ho to wahi jeet-ta hai.
+    // 💹 UNIFIED BILLING RESOLVER (resolveTripBilling): 1) Dynamic RATE MASTER
+    // rule (Customer + Source + Destination + loading date in Effective window)
+    // — admin ka set kiya rule FINAL hai, trip ke purane rate ko bhi override
+    // karta hai; 2) RTKM route master (quarterly rate_history); 3) trip ka
+    // apna rate; 4) default. Rate phir bhi inline-editable rehta hai.
     setRows(picked.map(t => {
       const loadDate = toISODate(t.start_date || t.Loading_Date || t.loading_date);
-      const meta = tripFreightMeta(routes, t, loadDate);
+      const meta = resolveTripBilling(rateMaster, routes, t, loadDate);
       const tripRate = parseFloat(t.rate || t.freight_rate || 0) || 0;
+      const fromRateMaster = meta?.engine === 'RATE_MASTER';
       return {
         tripId: t.id,
         company: tripCompany(t),
@@ -261,11 +269,14 @@ export default function MonthlyBilling() {
         vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
         route_label: `${String(t.loading_point || t.Loading_Point || '').replace(/\s+/g, ' ').trim()} ➔ ${String(t.consignee_name || t.Consignee_Name || '').replace(/\s+/g, ' ').trim()}`.replace(/^ ?➔ ?$/, ''),
         qty: parseFloat(t.qty || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
-        rate: tripRate > 0 ? tripRate : (meta && meta.rate > 0 ? meta.rate : defRate),
+        // 💹 Rate Master rule sabse upar; warna trip ka explicit rate; warna route master; warna default
+        rate: fromRateMaster ? meta.rate : (tripRate > 0 ? tripRate : (meta && meta.rate > 0 ? meta.rate : defRate)),
         billing_type: meta?.billing_type || 'PER_KL',
+        calc_type: meta?.calc_type || '',
+        engine: meta?.engine || '',
         rtkm: meta?.rtkm || 0,
         capacityKl: meta?.capacityKl || 0,
-        rate_source: tripRate > 0 ? 'trip' : (meta && meta.rate > 0 ? meta.rate_source : 'default'),
+        rate_source: fromRateMaster ? 'rate_master' : (tripRate > 0 ? 'trip' : (meta && meta.rate > 0 ? meta.rate_source : 'default')),
         unloadDate: toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)),
         include: true,
       };
@@ -339,7 +350,11 @@ export default function MonthlyBilling() {
   // RTKM×Cap×Rate · FIXED: flat. Rate inline-editable rehta hai.
   // effectiveBillingType: RTKM ho aur rate chota (≤₹25 = tonne-km) ho to
   // formula apne aap RTKM×Qty×Rate — master me Billing_Type bhoole to bhi sahi.
-  const rowBt = (r) => effectiveBillingType(r.billing_type, parseFloat(r.rate) || 0, parseFloat(r.rtkm) || 0);
+  // 💹 EXCEPTION: Rate Master rule ka Calc_Type admin ne EXPLICIT set kiya hai
+  // (e.g. Per Unit @ ₹18/MT) — us par safety-net guess kabhi nahi lagta.
+  const rowBt = (r) => r.rate_source === 'rate_master'
+    ? r.billing_type
+    : effectiveBillingType(r.billing_type, parseFloat(r.rate) || 0, parseFloat(r.rtkm) || 0);
   const tripFreightOf = (r) => computeFreight(rowBt(r), {
     qty: parseFloat(r.qty) || 0, rate: parseFloat(r.rate) || 0,
     rtkm: parseFloat(r.rtkm) || 0, capacityKl: parseFloat(r.capacityKl) || 0,
@@ -704,8 +719,11 @@ export default function MonthlyBilling() {
             )}
           </div>
           <div><label style={S.label}>Freight Rate (₹/KL) — default</label><input type="number" inputMode="decimal" style={S.input} value={freightRate}
-            onChange={e => { const v = e.target.value; setFreightRate(v); setRows(p => p.map(r => ({ ...r, rate: parseFloat(v) || 0 }))); }}
-            title="Ye default sab rows par lagta hai — per-trip rate table me alag se badla ja sakta hai" /></div>
+            onChange={e => { const v = e.target.value; setFreightRate(v);
+              // 💹 Rate Master rows protected: admin-set rule ka rate default se
+              // kabhi overwrite nahi hota (per-row inline edit se hi badlega).
+              setRows(p => p.map(r => r.rate_source === 'rate_master' ? r : { ...r, rate: parseFloat(v) || 0 })); }}
+            title="Ye default un rows par lagta hai jin par Rate Master rule nahi laga — per-trip rate table me alag se badla ja sakta hai" /></div>
           <div><label style={S.label}>Detention ₹/Day</label><input type="number" inputMode="decimal" style={S.input} value={detRate} onChange={e => setDetRate(e.target.value)} /></div>
           <div><label style={S.label}>Free Days (Transit)</label><input type="number" style={S.input} value={freeDays} onChange={e => setFreeDays(e.target.value)} /></div>
         </div>
@@ -782,7 +800,13 @@ export default function MonthlyBilling() {
                     <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
                     <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>
                       ₹{inr(tripFreightOf(r))}
-                      {rowBt(r) !== 'PER_KL' && (
+                      {/* 💹 Rate Master badge: admin-set rule laga hai (formula + rate dono wahi se) */}
+                      {r.rate_source === 'rate_master' ? (
+                        <span title={`Rate Master rule: ${CALC_TYPES.find(c => c.key === r.calc_type)?.label || ''} — ${CALC_TYPES.find(c => c.key === r.calc_type)?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}`}
+                          style={{ display: 'block', fontSize: '9px', color: '#10b981', fontWeight: 'bold' }}>
+                          💹 {CALC_TYPES.find(c => c.key === r.calc_type)?.label || 'Rate Master'} ·RM
+                        </span>
+                      ) : rowBt(r) !== 'PER_KL' && (
                         <span title={`${BILLING_TYPES.find(b => b.key === rowBt(r))?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}${r.rate_source === 'history' ? ' · quarterly rate (route master)' : ''}`}
                           style={{ display: 'block', fontSize: '9px', color: '#c084fc', fontWeight: 'bold' }}>
                           ⚙ {BILLING_TYPES.find(b => b.key === rowBt(r))?.label || rowBt(r)}{r.rate_source === 'history' ? ' ·Q' : ''}

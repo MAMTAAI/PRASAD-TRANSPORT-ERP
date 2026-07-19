@@ -79,7 +79,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (module === 'ACCOUNTS') {
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'BILLING') return checkView('Billing & Invoicing');
+      if (itemId === 'BILLING' || itemId === 'AUTO_BILLING' || itemId === 'AI_SCANNER' || itemId === 'RATE_MASTER') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
       if (itemId === 'CUST_LEDGER') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
       if (itemId === 'CA_PNL') return checkView('Finance Hub');
@@ -127,6 +127,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
         { id: 'EXPENSE_APPROVALS', label: 'Pending Expenses', icon: '⏳' },
         { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
+        { id: 'RATE_MASTER', label: 'Rate Master (Freight Rules)', icon: '💹' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
         { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },
