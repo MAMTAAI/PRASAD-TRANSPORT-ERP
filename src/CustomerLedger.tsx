@@ -14,6 +14,7 @@ import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { toISODate, round2, isDateInRange } from './lib/accounting/tripMath';
 import { currentUser } from './lib/rbac';
+import { companyMatches } from './lib/company';
 import { logAudit } from './lib/audit';
 import BottomSheet from './ui/BottomSheet';
 
@@ -45,7 +46,9 @@ export default function CustomerLedger() {
     const u2 = onSnapshot(collection(db, 'CUSTOMER_PAYMENTS'), s => setPayments(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
     const u3 = onSnapshot(collection(db, 'COMPANY_BILLS'), s => setCompanyBills(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
     const u4 = onSnapshot(collection(db, 'BANK_TRANSACTIONS'), s => setBankReceipts(
-      s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => /receipt/i.test(String(t.type || '')) && String(t.party_type || '') === 'Customer')
+      // 🚨 party_type-missing receipts ab bhi aati hain (purane records me
+      // field nahi hoti) — sirf explicitly Vendor/Driver-tagged exclude hote hain.
+      s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => /receipt/i.test(String(t.type || '')) && ['', 'Customer'].includes(String(t.party_type || '')))
     ), () => {});
     return () => { u1(); u2(); u3(); u4(); };
   }, []);
@@ -64,7 +67,8 @@ export default function CustomerLedger() {
   // date, then running balance (outstanding) computed in order.
   const ledger = useMemo(() => {
     if (!cust) return { rows: [], billed: 0, received: 0, outstanding: 0 };
-    const match = (v, sel) => sel === 'ALL' || !sel || String(v || '').toUpperCase() === String(sel).toUpperCase();
+    // 🏢 Normalized: 'M/S …'/'Pvt Ltd' variants match; record-side blank => shown.
+    const match = (v, sel) => companyMatches(v, sel === 'ALL' ? '' : sel);
     const rows = [];
     invoices.filter(i => match(i.company, company) && String(i.customer || '').toUpperCase() === cust.toUpperCase()).forEach(i => {
       const amt = round2(Number(i.net_payable ?? ((i.freight_total || 0) + (i.detention_total || 0))) || 0);

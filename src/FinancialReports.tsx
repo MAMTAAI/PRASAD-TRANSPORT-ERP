@@ -5,6 +5,7 @@ import { db } from './firebase';
 import { getJournal, ledgerBalances, reconcile } from './lib/accounting/journal';
 import { getTripFreight, getTripExpense, round2, isDateInRange as inRange } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
+import { normCompany } from './lib/company';
 // 📊 IMPORTING CHARTS
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
@@ -19,9 +20,11 @@ const getVal = (obj: any, keysArr: string[], defaultVal = '') => {
 
 // 🌟 SMART MATCHING LOGIC
 const isMatch = (recordVal: any, filterVal: string) => {
-  if (!filterVal || filterVal === 'ALL') return true; 
-  if (!recordVal || recordVal === 'ALL') return true; 
-  return String(recordVal).trim().toUpperCase() === String(filterVal).trim().toUpperCase();
+  if (!filterVal || filterVal === 'ALL') return true;
+  if (!recordVal || recordVal === 'ALL') return true;
+  // 🏢 Normalized compare: 'M/S PRASAD TRANSPORT' == 'PRASAD TRANSPORT' ==
+  // 'Prasad Transport Pvt Ltd' — cross-module naming variants ab match hote hain.
+  return normCompany(recordVal) === normCompany(filterVal);
 };
 
 export default function FinancialReports() {

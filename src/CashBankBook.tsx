@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { isDateInRange as inRange } from './lib/accounting/tripMath';
+import { companyMatches } from './lib/company';
 
 export default function CashBankBook() {
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -437,7 +438,9 @@ export default function CashBankBook() {
 
   // 🧮 TRANSACTION FILTERING
   const filteredTransactions = allCombinedTransactions.filter(t => {
-    const matchCompany = !t.company || t.company === 'ALL' || t.company === selectedCompany;
+    // 🏢 Normalized company match — 'PRASAD TRANSPORT' vs 'M/S PRASAD
+    // TRANSPORT' vs 'Pvt Ltd' variants ab ek dusre ko hide nahi karte.
+    const matchCompany = companyMatches(t.company, selectedCompany);
     const matchBranch = selectedBranch === 'ALL' || !t.branch || t.branch === 'ALL' || t.branch === selectedBranch;
     const t_acc = t.bank_account || t.account; 
     const matchAccount = selectedAccount === 'ALL' || t_acc === selectedAccount || t.from_account === selectedAccount || t.to_account === selectedAccount;

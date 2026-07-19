@@ -407,6 +407,9 @@ export default function LodingDetals() {
           loading_date: manualData.Loading_Date, challan_no: manualData.Challan_No,
           operating_company: manualData.Operating_Company, invoice_url: manualData.Invoice_URL, 
           office_approved_loading: true, trip_status: 'IN_TRANSIT', sync_to_customer_portal: true,
+          // 🚨 DATA-FLOW FIX: Loading se bani trips me billing_status kabhi
+          // stamp nahi hota tha => billing pipeline unhe kabhi nahi dekh pata.
+          billing_status: 'PENDING',
           sort_date: manualData.Loading_Date || new Date().toISOString().split('T')[0],
           created_at: Timestamp.now()
         });

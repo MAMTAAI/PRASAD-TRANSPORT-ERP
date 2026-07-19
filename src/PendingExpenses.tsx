@@ -153,8 +153,9 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
     setBusyId('');
   };
 
-  const filtered = rows.filter(r => r.status === statusTab);
-  const pendingTotal = rows.filter(r => r.status === 'PENDING').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  // status-missing rows PENDING tab me dikhti hain — kisi tab se gayab nahi hotin.
+  const filtered = rows.filter(r => (r.status || 'PENDING') === statusTab);
+  const pendingTotal = rows.filter(r => (r.status || 'PENDING') === 'PENDING').reduce((s, r) => s + (Number(r.amount) || 0), 0);
   const approvedCount = rows.filter(r => r.status === 'APPROVED').length;
 
   const S = {

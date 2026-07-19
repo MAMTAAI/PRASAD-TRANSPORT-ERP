@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
 
@@ -110,12 +110,38 @@ export default function FuelMgmt() {
       let totalAmount = 0;
       let advancePosted = false;
 
+      // 🚨 DATA-FLOW FIX (audit): fuel memo ka kharcha pehle kisi TRIP tak
+      // pahunchta hi nahi tha => dono P&L screens (jo trips ke total_expense
+      // se fuel nikalti hain) me diesel GAYAB rehta tha. Ab memo save par
+      // vehicle+date se trip match hoti hai — single confident match par
+      // trip ka total_expense/diesel_amount bump hota hai.
+      let matchedTrip = null;
+      try {
+        const normV = (s) => String(s || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
+        const tSnap = await getDocs(collection(db, "TRIPS"));
+        const memoTs = new Date(`${memoData.date}T12:00:00`).getTime();
+        const cands = tSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => {
+          if (normV(t.vehicle_no || t.Vehical_No) !== normV(memoData.vehicle_no)) return false;
+          const ld = String(t.loading_date || t.Loading_Date || t.start_date || '').slice(0, 10);
+          if (!ld) return false;
+          const from = new Date(`${ld}T00:00:00`).getTime();
+          const ud = String(t.unloading_date || t.Unloading_Date || '').slice(0, 10);
+          const to = ud ? new Date(`${ud}T23:59:59`).getTime()
+            : (String(t.trip_status || t.Trip_Status) !== 'COMPLETED' ? Date.now() : from + 15 * 86400000);
+          return memoTs >= from && memoTs <= to;
+        });
+        if (cands.length === 1) matchedTrip = cands[0];
+      } catch (me) { console.warn('Fuel→trip match skipped:', me?.message); }
+
+      let dieselExpense = 0; // sirf FUEL rows (ADVANCE = driver khata, expense nahi)
+
       for (const pump of pumps) {
         if (!pump.vendor_id || !pump.qty) continue;
-        
+
         const amt = parseFloat(pump.amount || '0');
         const cashAmt = parseFloat(pump.cash_advance || '0');
         totalAmount += amt;
+        if (pump.fuel_type !== 'ADVANCE') dieselExpense += amt;
 
         await addDoc(collection(db, "FUEL_ENTRIES"), {
           date: memoData.date,
@@ -125,13 +151,15 @@ export default function FuelMgmt() {
           memo_no: memoData.memo_no,
           vendor_id: pump.vendor_id,
           vendor_name: pump.vendor_name,
-          fuel_type: pump.fuel_type, 
+          fuel_type: pump.fuel_type,
           liters: pump.qty,
           rate: pump.rate,
           amount: amt.toFixed(2),
           cash_given_to_pump: pump.cash_advance,
           pump_mobile: pump.mobile,
-          bill_status: 'UNBILLED', 
+          bill_status: 'UNBILLED',
+          trip_db_id: matchedTrip?.id || '',
+          trip_id: matchedTrip?.trip_id || matchedTrip?.Trip_ID || '',
           createdAt: serverTimestamp()
         });
 
@@ -151,7 +179,16 @@ export default function FuelMgmt() {
         }
       }
 
-      const successMsg = `✅ Trip Fuel Memo Generated!\n\nNote: Vendor Balance will update ONLY after you Verify the Bill in Reconciliation Tab.`;
+      // 🔗 Trip P&L propagation: matched trip ka total_expense + diesel_amount
+      // bump — ab fuel dono P&L screens par usi trip ke kharch me dikhta hai.
+      if (matchedTrip && dieselExpense > 0) {
+        await updateDoc(doc(db, "TRIPS", matchedTrip.id), {
+          total_expense: increment(Math.round(dieselExpense * 100) / 100),
+          diesel_amount: increment(Math.round(dieselExpense * 100) / 100),
+        }).catch(e => console.warn('Trip expense bump failed:', e?.message));
+      }
+
+      const successMsg = `✅ Trip Fuel Memo Generated!\n\n${matchedTrip ? `🔗 Trip ${matchedTrip.trip_id || matchedTrip.Trip_ID || matchedTrip.id} se link — ₹${dieselExpense.toLocaleString('en-IN')} diesel trip kharch me juda (P&L me dikhega).` : '⚠️ Koi single matching trip nahi mili — kharcha trip P&L se nahi juda (memo phir bhi saved hai).'}\n\nNote: Vendor Balance will update ONLY after you Verify the Bill in Reconciliation Tab.`;
       alert(successMsg);
 
       setMemoData({ date: new Date().toISOString().split('T')[0], vehicle_no: '', route_name: '', driver_name: '', fixed_hsd: '', fixed_cash: '', memo_no: `MEMO-${Math.floor(Math.random()*10000)}` });

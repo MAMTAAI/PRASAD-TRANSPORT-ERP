@@ -86,7 +86,8 @@ export async function saveTollBatch(maps: TollMap[], opts: { company: string; so
       invoice_date: trip ? toISODate(getField(trip, ['loading_date', 'Loading_Date', 'start_date'])) : '',
       loading_loc: trip ? String(getField(trip, ['loading_point', 'Loading_Point']) || '') : '',
       dest_loc: trip ? String(getField(trip, ['consignee_name', 'Consignee_Name', 'unloading_point']) || '') : '',
-      company: opts.company || '',
+      // Blank company kabhi save nahi hoti — warna company-filtered P&L me toll gayab ho jata.
+      company: opts.company || 'PRASAD TRANSPORT',
       map_status: mp.confidence,
       claim_status: 'UNCLAIMED',
       billing_type: 'Reimbursable (Bill to Co.)',

@@ -16,6 +16,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { toISODate, round2, isDateInRange, getField } from './lib/accounting/tripMath';
+import { companyMatches, normCompany } from './lib/company';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -23,6 +24,10 @@ export default function ProfitAndLoss() {
   const [invoices, setInvoices] = useState([]);
   const [tolls, setTolls] = useState([]);
   const [trips, setTrips] = useState([]);
+  // 🧾 Ledger-side direct expenses (tyre consumption, compliance fees …) —
+  // pehle is operating P&L me bilkul nahi aate the (sirf CA report me the).
+  const [ledgers, setLedgers] = useState([]);
+  const [ledgerEntries, setLedgerEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [company, setCompany] = useState('ALL');
@@ -32,25 +37,42 @@ export default function ProfitAndLoss() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [iSnap, tSnap, trSnap] = await Promise.all([
+      const [iSnap, tSnap, trSnap, lSnap, leSnap] = await Promise.all([
         getDocs(collection(db, 'MONTHLY_INVOICES')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'TOLL_TRANSACTIONS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'LEDGERS')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'LEDGER_ENTRIES')).catch(() => ({ docs: [] })),
       ]);
       setInvoices(iSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTolls(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setTrips(trSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLedgers(lSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLedgerEntries(leSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     })();
   }, []);
 
-  const companies = useMemo(() => [...new Set([
-    ...invoices.map(i => i.company),
-    ...tolls.map(t => t.company),
-    ...trips.map(t => t.operating_company || t.Operating_Company || t.company),
-  ].filter(Boolean).map(s => String(s).trim()))].sort(), [invoices, tolls, trips]);
+  // 🏢 Dropdown: normalized-dedupe — 'M/S PRASAD TRANSPORT' / 'PRASAD
+  // TRANSPORT' / 'Pvt Ltd' variants ab EK hi option (pehla roop dikhta hai).
+  const companies = useMemo(() => {
+    const seen = new Map();
+    [
+      ...invoices.map(i => i.company),
+      ...tolls.map(t => t.company),
+      ...trips.map(t => t.operating_company || t.Operating_Company || t.company),
+      ...ledgerEntries.map(e => e.company),
+    ].filter(Boolean).forEach(s => {
+      const key = normCompany(s);
+      if (key && key !== 'ALL' && !seen.has(key)) seen.set(key, String(s).trim());
+    });
+    return [...seen.values()].sort();
+  }, [invoices, tolls, trips, ledgerEntries]);
 
-  const matchCo = (v) => company === 'ALL' || String(v || '').trim().toUpperCase() === company.toUpperCase();
+  // 🚨 DATA-FLOW FIX: exact-match tha => 'JAISWAL ENTERPRISE' ke tolls
+  // 'M/S JAISWAL ENTERPRISE' filter me nahi aate the; blank-company rows
+  // specific company chunte hi gir jati thin. Ab normalized + missing-tolerant.
+  const matchCo = (v) => companyMatches(v, company);
 
   // 💰 P&L computation — every figure round2'd, company + date filtered.
   const pl = useMemo(() => {
@@ -78,17 +100,28 @@ export default function ProfitAndLoss() {
     }, 0));
     const penalties = round2(tripRows.reduce((s, t) => s + (Number(getField(t, ['shortage_penalty'])) || 0), 0));
 
+    // 🛞 Ledger-side DIRECT EXPENSES (tyre scrap/consumption, compliance fees):
+    // Direct-Expense group ke ledgers ki Dr−Cr entries, company+date filtered.
+    // Trips ke total_expense se overlap NAHI — ye ledger-only kharche hain.
+    const dirExpLedgerIds = new Set(ledgers.filter(l => String(l.group || l.group_head || '').includes('Direct Expenses')).map(l => l.id));
+    const ledgerExp = round2(ledgerEntries.reduce((s, e) => {
+      if (!dirExpLedgerIds.has(e.ledgerId)) return s;
+      if (!matchCo(e.company) || !isDateInRange(e.date, fromDate || undefined, toDate || undefined)) return s;
+      const amt = Number(e.amount) || 0;
+      return s + (String(e.dr_cr || '').includes('Dr') ? amt : -amt);
+    }, 0));
+
     const revenue = round2(freight + detention);
-    const expenses = round2(toll + fuelOther + shortage);
+    const expenses = round2(toll + fuelOther + shortage + Math.max(0, ledgerExp));
     const recovery = penalties; // driver-se-vasooli (shortage loss ki bharpai)
     const netProfit = round2(revenue - expenses + recovery);
     return {
       invCount: invs.length, tripCount: tripRows.length, tollCount: tollRows.length,
       freight, detention, revenue, gstRcm,
-      toll, fuelOther, shortage, expenses, recovery,
+      toll, fuelOther, shortage, ledgerExp: Math.max(0, ledgerExp), expenses, recovery,
       netProfit, margin: revenue > 0 ? round2((netProfit / revenue) * 100) : 0,
     };
-  }, [invoices, tolls, trips, company, fromDate, toDate]);
+  }, [invoices, tolls, trips, ledgers, ledgerEntries, company, fromDate, toDate]);
 
   const exportCsv = () => {
     const L = [
@@ -97,6 +130,7 @@ export default function ProfitAndLoss() {
       ['Freight Income', pl.freight], ['Detention Income', pl.detention], ['TOTAL REVENUE', pl.revenue],
       [], ['DIRECT EXPENSES'],
       ['Toll Taxes (FASTag)', pl.toll], ['Fuel & Trip Kharcha (ex-toll)', pl.fuelOther],
+      ['Tyre & Other Ledger Expenses', pl.ledgerExp],
       ['Shortage Deductions (loss)', pl.shortage], ['Driver Advance (khata — not expense)', 0],
       ['TOTAL EXPENSES', pl.expenses],
       [], ['Shortage Recovery from Drivers (+)', pl.recovery],
@@ -175,6 +209,7 @@ export default function ProfitAndLoss() {
                 <tr><td colSpan={2} style={{ padding: '16px 10px 10px', color: '#ef4444', fontWeight: 900, fontSize: '12px', letterSpacing: '1px', borderBottom: '2px solid #334155' }}>💸 DIRECT EXPENSES</td></tr>
                 <Row icon="🛣️" label="Toll Taxes (FASTag)" sub={`${pl.tollCount} toll transactions`} value={pl.toll} color="#ef4444" minus />
                 <Row icon="⛽" label="Fuel & Trip Kharcha" sub="trips ka total_expense minus toll (double-count nahi)" value={pl.fuelOther} color="#ef4444" minus />
+                <Row icon="🛞" label="Tyre & Other Ledger Kharcha" sub="Direct-Expense ledgers (tyre scrap, compliance) — ab is P&L me bhi" value={pl.ledgerExp} color="#ef4444" minus />
                 <Row icon="📉" label="Shortage Deductions" sub="party ne bill se kata — business loss" value={pl.shortage} color="#ef4444" minus />
                 <Row icon="🤝" label="Driver Advance" sub="placeholder — advance recoverable khata hai, expense nahi (CA adjust kare to yahan judega)" value={0} color="#64748b" />
                 <Row icon="" label="TOTAL EXPENSES" value={pl.expenses} color="#ef4444" bold minus />

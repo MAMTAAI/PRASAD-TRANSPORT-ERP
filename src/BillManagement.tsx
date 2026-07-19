@@ -216,10 +216,16 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
   const fetchUnbilledTrips = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, "TRIPS"), where("billing_status", "==", "PENDING"));
-      const snap = await getDocs(q);
-      
-      let tripsData = snap.docs.map(d => {
+      // 🚨 DATA-FLOW FIX (2026-07-19 audit): pehle `where(billing_status ==
+      // 'PENDING')` tha — Firestore me equality-filter un docs ko GIRA deta
+      // hai jinme field hi nahi hoti. 846 me se 845 trips me billing_status
+      // set nahi tha (Loading module ne kabhi stamp nahi kiya) => 800
+      // completed-unbilled trips pipeline se GAYAB thin, sirf 1 dikhti thi.
+      // Ab: poora TRIPS read + lenient filter (MonthlyBilling jaisa) —
+      // "BILLED nahi hai" = unbilled, missing field bhi included.
+      const snap = await getDocs(collection(db, "TRIPS"));
+
+      let tripsData = snap.docs.filter(d => (d.data().billing_status || '') !== 'BILLED').map(d => {
         const t = d.data();
         
         // 🧮 AUTO-CALCULATION ENGINE FOR BILLING — qty default 0 (1 nahi):
@@ -245,13 +251,21 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         };
       });
 
-      tripsData = tripsData.filter(t => t.trip_status === "COMPLETED" || t.trip_status === "UNLOADED" || t.Trip_Status === "COMPLETED" || t.Trip_Status === "UNLOADED");
-      
+      // Completed = status COMPLETED/UNLOADED YA unloading_date bhari hai
+      // (status-field-missing purani trips bhi pakdi jayen — fallback rule).
+      tripsData = tripsData.filter(t =>
+        ["COMPLETED", "UNLOADED"].includes(String(t.trip_status || t.Trip_Status || '')) ||
+        t.unloading_date || t.Unloading_Date);
+
       const dynamicCustomers = tripsData.map(t => t.customer_name || t.Customer || t.Registered_Assessee);
       setCustomersList(prev => [...new Set([...prev, ...dynamicCustomers].filter(Boolean))]);
 
       setUnbilledTrips(tripsData);
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      // Read fail = khali list NAHI — user ko saaf batao (silent-empty audit fix).
+      alert('❌ Pending trips load nahi hui: ' + (e?.message || 'network/permission error') + '\nRefresh karein ya dobara login karein.');
+    }
     setLoading(false);
   };
 
