@@ -35,6 +35,7 @@ const BillScanner = lazy(() => import('./BillScanner'));
 const FleetCardMgmt = lazy(() => import('./FleetCardMgmt'));
 const MonthlyBilling = lazy(() => import('./MonthlyBilling'));
 const RateMaster = lazy(() => import('./RateMaster'));
+const EmailParserSettings = lazy(() => import('./EmailParserSettings'));
 const KycApprovals = lazy(() => import('./KycApprovals'));
 const PendingExpenses = lazy(() => import('./PendingExpenses'));
 const CustomerLedger = lazy(() => import('./CustomerLedger'));
@@ -175,7 +176,7 @@ export default function App() {
   const hasPermission = (itemId: string, module: string) => {
     if (!user) return false;
 
-    if (itemId === 'UGER' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS') {
+    if (itemId === 'UGER' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS' || itemId === 'EMAIL_PARSER') {
       return user.role === 'ADMIN' || user.role === 'Super Admin';
     }
 
@@ -331,6 +332,7 @@ export default function App() {
       case 'FLEET_CARD': return <FleetCardMgmt />;
       case 'AUTO_BILLING': return <MonthlyBilling />;
       case 'RATE_MASTER': return <RateMaster />;
+      case 'EMAIL_PARSER': return <EmailParserSettings />;
       case 'EXPENSE_APPROVALS': return <PendingExpenses />;
       case 'CUST_LEDGER': return <CustomerLedger />;
       case 'CA_PNL': return <ProfitAndLoss />;

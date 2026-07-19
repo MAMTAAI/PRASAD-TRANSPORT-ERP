@@ -54,8 +54,8 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (user.role === 'ADMIN' || user.role === 'Super Admin') return true; 
     
     // 🔒 SECURITY: आम स्टाफ को Master Setup नहीं दिखेगा
-    if (['COMPANY', 'BRANCH', 'UGER', 'WEB_SETTINGS'].includes(itemId)) {
-      return false; 
+    if (['COMPANY', 'BRANCH', 'UGER', 'WEB_SETTINGS', 'EMAIL_PARSER'].includes(itemId)) {
+      return false;
     }
     
     // 🔓 DEFAULT OPEN FOR ALL STAFF
@@ -129,6 +129,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
         { id: 'RATE_MASTER', label: 'Rate Master (Freight Rules)', icon: '💹' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
+        { id: 'EMAIL_PARSER', label: 'Email Bill Parser (Auto)', icon: '📧' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
         { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },
         { id: 'TOLL', label: 'Toll & Fastag', icon: '🛣️' },

@@ -90,6 +90,20 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ── 📧 Email parser: managed accounts hold IMAP app-passwords — ADMIN ONLY.
+    //    (Background parser uses the Admin SDK, which bypasses these rules.)
+    match /EMAIL_ACCOUNTS/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /EMAIL_SETTINGS/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── 🛣️ Toll auto-sync settings: portal login credentials — ADMIN ONLY.
+    match /TOLL_SETTINGS/{id} {
+      allow read, write: if isAdmin();
+    }
+
     // ── Everything else (books, masters, cards, journal, WA, …): STAFF ONLY ─
     match /{document=**} {
       allow read, write: if isStaff();
