@@ -92,6 +92,9 @@ export default function MonthlyBilling() {
   // 🏢 MULTI-COMPANY: which transport company is this bill going out under?
   const [opCompany, setOpCompany] = useState('');
   const [detectedCompanies, setDetectedCompanies] = useState([]); // [{name, count}]
+  // 🏭 LOCATION-WISE (IOCL format): ek customer ke kai plants/depots — bill
+  // har location ki alag banti hai. 'ALL' = location filter off.
+  const [locFilter, setLocFilter] = useState('ALL');
 
   // 🗓️ CUSTOMER BILLING CYCLE: '15_days' (fortnightly, Oil Cos) | '30_days'.
   // Read from the customer master the moment a customer is picked; drives the
@@ -154,7 +157,7 @@ export default function MonthlyBilling() {
   // kabhi leak nahi ho sakte. User ko dobara Fetch karna padta hai.
   useEffect(() => {
     setRows([]); setDetRows([]); setGenerated(false);
-    setDetectedCompanies([]); setOpCompany('');
+    setDetectedCompanies([]); setOpCompany(''); setLocFilter('ALL');
     setShortageAmt(''); setAdvanceAmt(''); setTdsPct('2');
     setInvoiceNo(''); setDetInvoiceNo('');
   }, [cust, companyFilterSel, month, period]);
@@ -241,6 +244,7 @@ export default function MonthlyBilling() {
       return {
         tripId: t.id,
         company: tripCompany(t),
+        loc: String(t.loading_point || t.Loading_Point || '').replace(/\s+/g, ' ').trim().toUpperCase() || 'OTHER',
         date: loadDate,
         cn: String(t.challan_no || t.Challan_No || t.trip_id || t.Trip_ID || '').trim(),
         vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
@@ -306,9 +310,12 @@ export default function MonthlyBilling() {
 
   // Rows restricted to the chosen operating company (unset-company trips ride along with a badge)
   const companyFilter = (r) => !r.company || !opCompany || r.company.toUpperCase() === opCompany.toUpperCase();
-  const visRows = rows.filter(companyFilter);
+  // 🏭 + location filter (IOCL: har plant ki alag bill)
+  const locationFilter = (r) => locFilter === 'ALL' || (r.loc || 'OTHER') === locFilter;
+  const visRows = rows.filter(r => companyFilter(r) && locationFilter(r));
   const visDetRows = detRows.filter(companyFilter);
-  const excludedCount = rows.length - visRows.length;
+  const excludedCount = rows.length - rows.filter(companyFilter).length;
+  const detectedLocations = [...new Set(rows.filter(companyFilter).map(r => r.loc || 'OTHER'))].sort();
 
   // 💰 LIVE TOTALS (recompute on every selection change)
   // 🎯 PRECISION RULE: freight is rounded PER TRIP first, then summed — so the
@@ -550,6 +557,8 @@ export default function MonthlyBilling() {
       // Shared invoice payload (both the cloud and fallback paths write this).
       const invoicePayload = {
         month,
+        // 🏭 IOCL-style location-wise bill: kis plant/depot ki bill hai
+        location: locFilter !== 'ALL' ? locFilter : (detectedLocations.length === 1 ? detectedLocations[0] : ''),
         billing_cycle: custCycle || '30_days', billing_period: period, period_from: periodRange().from, period_to: periodRange().to,
         invoice_no: invoiceNo, det_invoice_no: detInvoiceNo,
         total_qty: totalQty, freight_rate: parseFloat(freightRate) || 0, freight_total: freightTotal,
@@ -714,6 +723,20 @@ export default function MonthlyBilling() {
             {missingCoFields.length > 0 && (
               <div className="pt-anim-pop" style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(239,68,68,0.08)', border: '1px dashed #ef4444', fontSize: '12px', color: '#fca5a5' }}>
                 ⚠️ <b>{co.name}</b> ke Company Master mein missing: <b>{missingCoFields.join(', ').toUpperCase()}</b> — bill par ye blank print honge. CRM → Company Master mein bharein (kisi doosri company ka data kabhi use NahI hoga).
+              </div>
+            )}
+            {/* 🏭 LOCATION-WISE BILL (IOCL format): customer ke kai plants — har plant ki bill alag */}
+            {detectedLocations.length > 1 && (
+              <div style={{ marginTop: '12px' }}>
+                <label style={{ ...S.label, color: '#f59e0b' }}>🏭 LOCATION-WISE BILL — oil company har plant/depot ki ALAG bill leti hai; ek location chun kar bill banayein</label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button type="button" className={`pt-chip ${locFilter === 'ALL' ? 'is-on' : ''}`} onClick={() => setLocFilter('ALL')}>ALL ({rows.filter(companyFilter).length})</button>
+                  {detectedLocations.map(l => (
+                    <button type="button" key={l} className={`pt-chip ${locFilter === l ? 'is-on is-on--warning' : ''}`} onClick={() => setLocFilter(l)}>
+                      🏭 {l} ({rows.filter(companyFilter).filter(r => (r.loc || 'OTHER') === l).length})
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>

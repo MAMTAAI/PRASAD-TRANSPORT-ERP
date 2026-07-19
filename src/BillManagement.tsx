@@ -241,9 +241,10 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         const route = meta ? routesArr.find(r => r.id === meta.route_id) : null;
         const bt = meta?.billing_type || 'PER_KL';
 
-        // 🧮 AUTO-CALCULATION — qty default 0 (challan se bharna hai);
-        // rate: trip ka apna > route ka quarterly (loading-date wise) > 0.
-        const qty = parseFloat(t.qty || t.weight || t.quantity || 0);
+        // 🧮 AUTO-CALCULATION — qty AUTO from LOADING DETAILS (client rule:
+        // "baki ka data loading details me available hai — sirf rate edit ho").
+        // Priority: billing-entered qty > loaded_qty (loading module) > driver qty.
+        const qty = parseFloat(t.qty || t.weight || t.quantity || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0);
         const tripRate = parseFloat(t.rate || t.freight_rate || 0);
         const rate = tripRate > 0 ? tripRate : (meta?.rate || 0);
         const formulaGross = computeFreight(bt, { qty, rate, rtkm: meta?.rtkm || 0, capacityKl: meta?.capacityKl || 0 });
@@ -353,22 +354,36 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         return alert("⚠️ You can only generate a single bill for trips belonging to the SAME Customer.");
       }
 
+      // 🏭 LOCATION-WISE BILLING (IOCL format): oil company har plant/depot ki
+      // ALAG bill bhejti hai (7B03, 7R01, 7T04 alag-alag PDF). Mixed-location
+      // bill company se match nahi karega — isliye hard block.
+      const locs = [...new Set(selectedTripData.map(t => tripLocation(t)))];
+      if (locs.length > 1) {
+        setLoading(false);
+        return alert(`🏭 LOCATION-WISE BILLING (oil company format):\n\nAapne ${locs.length} alag locations ki trips select ki hain:\n• ${locs.join('\n• ')}\n\nIOCL/oil-company bill HAR LOCATION ki alag banti hai — location wale checkbox se ek location select karke bill banayein.`);
+      }
+      const billLocation = locs[0] || '';
+      const locCode = (billLocation.match(/\(([A-Z0-9]{3,6})\)\s*$/) || [])[1] || '';
+
       const customerName = firstCustomer || 'Corporate Customer';
-      const companyName = selectedTripData[0].company || 'M/S PRASAD TRANSPORT'; 
-      const branchName = selectedTripData[0].branch || 'ALL'; 
-      
+      const companyName = selectedTripData[0].company || 'M/S PRASAD TRANSPORT';
+      const branchName = selectedTripData[0].branch || 'ALL';
+
       const totalGross = selectedTripData.reduce((acc, curr) => acc + curr.calc_gross, 0);
       const totalPenalty = selectedTripData.reduce((acc, curr) => acc + curr.calc_penalty, 0);
       const totalTds = selectedTripData.reduce((acc, curr) => acc + curr.calc_tds, 0);
       const expectedNet = selectedTripData.reduce((acc, curr) => acc + curr.calc_net, 0);
 
-      const newBillNo = `INV-${customerName.substring(0,3).toUpperCase()}-${Math.floor(Math.random() * 9000 + 1000)}`;
+      // Bill no me plant code (IOCL jaisa): INV-IND-7B03-1234
+      const newBillNo = `INV-${customerName.substring(0,3).toUpperCase()}${locCode ? '-' + locCode : ''}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
       await addDoc(collection(db, "COMPANY_BILLS"), {
         bill_no: newBillNo,
         customer_name: customerName,
         company: companyName,
-        branch: branchName, 
+        branch: branchName,
+        location: billLocation,
+        location_code: locCode,
         bill_date: new Date().toISOString().split('T')[0],
         total_gross: totalGross,
         total_shortage_deduction: totalPenalty,
@@ -589,6 +604,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             <div>
               <p style="margin: 0 0 5px 0;"><strong>Billed To / Ship-to-Party:</strong></p>
               <h3 style="margin: 0;">${bill.customer_name}</h3>
+              ${bill.location ? `<p style="margin: 5px 0 0 0; font-weight: bold;">🏭 Plant/Location: ${bill.location}</p>` : ''}
             </div>
             <div style="text-align: right;">
               <p style="margin: 0 0 5px 0;"><strong>Invoice No:</strong> ${bill.bill_no}</p>
@@ -699,10 +715,18 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
   const oldestWait = filteredUnbilledTrips.reduce((mx, t) => Math.max(mx, daysSince(t.unloading_date || t.Unloading_Date)), 0);
   const outstandingDue = generatedBills.filter(b => b.status !== 'SETTLED').reduce((s, b) => s + (parseFloat(b.total_net_expected) || 0), 0);
 
-  // 👥 CUSTOMER-WISE pipeline: unloaded trips auto-land here grouped by client
+  // 🏭 LOCATION extractor: oil companies (IOCL) har plant/depot ki ALAG bill
+  // bhejti hain (7B03, 7R01, 7T04 …) — trips ka loading_point wahi location hai
+  // jo Customer master ke "Loading Depots" me add hoti hai.
+  const tripLocation = (t: any) => String(t.loading_point || t.Loading_Point || t.depot || '').replace(/\s+/g, ' ').trim().toUpperCase() || 'OTHER LOCATION';
+
+  // 👥 CUSTOMER → 🏭 LOCATION nested pipeline: IOCL bill format ke hisaab se
+  // trips pehle customer, phir plant/depot location me group hoti hain.
   const groupedUnbilled = filteredUnbilledTrips.reduce((acc: any, t: any) => {
     const c = t.customer_name || t.Customer || t.Registered_Assessee || 'Unknown Customer';
-    (acc[c] = acc[c] || []).push(t);
+    const l = tripLocation(t);
+    acc[c] = acc[c] || {};
+    (acc[c][l] = acc[c][l] || []).push(t);
     return acc;
   }, {});
 
@@ -816,19 +840,27 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             /* 📱 PHONE: tap-first smart cards, customer-wise — whole card is the tap target */
             <div className="pt-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {filteredUnbilledTrips.length === 0 ? <div style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No Unbilled Trips found.</div> :
-                Object.entries(groupedUnbilled).map(([cust, custTrips]: any) => (
+                Object.entries(groupedUnbilled).map(([cust, locMap]: any) => {
+                  const custTrips = Object.values(locMap).flat();
+                  return (
                   <div key={cust}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px', position: 'sticky', top: 0 }}>
                       <b style={{ color: '#38bdf8', fontSize: '13px' }}>👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length}</span></b>
-                      <button className="pt-chip" style={{ minHeight: '40px', padding: '6px 14px' }}
-                        onClick={() => setSelectedTripsForBill(prev => custTrips.every((t: any) => prev.includes(t.id))
-                          ? prev.filter(id => !custTrips.some((t: any) => t.id === id))
-                          : [...new Set([...prev, ...custTrips.map((t: any) => t.id)])])}>
-                        {custTrips.every((t: any) => selectedTripsForBill.includes(t.id)) ? '✓ Sab hataen' : 'Sab select'}
-                      </button>
                     </div>
+                    {Object.entries(locMap).map(([loc, locTrips]: any) => (
+                    <div key={loc} style={{ marginBottom: '12px' }}>
+                      {/* 🏭 Location-wise (IOCL format): ek location = ek bill */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 4px' }}>
+                        <b style={{ color: '#f59e0b', fontSize: '12px' }}>🏭 {loc} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {locTrips.length}</span></b>
+                        <button className="pt-chip" style={{ minHeight: '40px', padding: '6px 14px' }}
+                          onClick={() => setSelectedTripsForBill(prev => locTrips.every((t: any) => prev.includes(t.id))
+                            ? prev.filter(id => !locTrips.some((t: any) => t.id === id))
+                            : [...new Set([...prev, ...locTrips.map((t: any) => t.id)])])}>
+                          {locTrips.every((t: any) => selectedTripsForBill.includes(t.id)) ? '✓ Sab hataen' : 'Location select'}
+                        </button>
+                      </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {custTrips.map((t: any) => {
+                      {locTrips.map((t: any) => {
                         const on = selectedTripsForBill.includes(t.id);
                         const wait = daysSince(t.unloading_date || t.Unloading_Date);
                         return (
@@ -872,8 +904,11 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                         );
                       })}
                     </div>
+                    </div>
+                    ))}
                   </div>
-                ))}
+                  );
+                })}
             </div>
           ) : (
             <table>
@@ -894,7 +929,9 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
               </thead>
               <tbody>
                 {filteredUnbilledTrips.length === 0 ? <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px' }}>No Unbilled Trips found. Complete unloads first or clear filters.</td></tr> :
-                  Object.entries(groupedUnbilled).map(([cust, custTrips]: any) => (
+                  Object.entries(groupedUnbilled).map(([cust, locMap]: any) => {
+                    const custTrips = Object.values(locMap).flat();
+                    return (
                     <React.Fragment key={cust}>
                       {/* 👥 Customer group header — one client, one billing batch */}
                       <tr style={{ background: 'rgba(56,189,248,0.07)' }}>
@@ -905,11 +942,26 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                               ? [...new Set([...prev.filter(id => !custTrips.some((t: any) => t.id === id)), ...custTrips.map((t: any) => t.id)])]
                               : prev.filter(id => !custTrips.some((t: any) => t.id === id)))} />
                         </td>
-                        <td colSpan={4} style={{ fontWeight: 900, color: '#38bdf8', fontSize: '13px', letterSpacing: '0.5px' }}>👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length} trip(s)</span></td>
+                        <td colSpan={4} style={{ fontWeight: 900, color: '#38bdf8', fontSize: '13px', letterSpacing: '0.5px' }}>👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length} trip(s) · {Object.keys(locMap).length} location(s)</span></td>
                         <td colSpan={3}></td>
                         <td style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 900 }}>₹{custTrips.reduce((s: number, t: any) => s + t.calc_net, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                       </tr>
-                      {custTrips.map((t: any) => {
+                      {Object.entries(locMap).map(([loc, rawLocTrips]: any) => { const locTrips = rawLocTrips; return (
+                      <React.Fragment key={cust + loc}>
+                      {/* 🏭 LOCATION sub-header — IOCL har plant/depot ki ALAG bill bhejta hai; yahi se ek-location bill select hota hai */}
+                      <tr style={{ background: 'rgba(245,158,11,0.06)' }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input type="checkbox" title={`Select all ${loc} trips (location-wise bill)`} style={{ transform: 'scale(1.2)', cursor: 'pointer', accentColor: '#f59e0b' }}
+                            checked={locTrips.every((t: any) => selectedTripsForBill.includes(t.id))}
+                            onChange={e => setSelectedTripsForBill(prev => e.target.checked
+                              ? [...new Set([...prev.filter(id => !locTrips.some((t: any) => t.id === id)), ...locTrips.map((t: any) => t.id)])]
+                              : prev.filter(id => !locTrips.some((t: any) => t.id === id)))} />
+                        </td>
+                        <td colSpan={4} style={{ fontWeight: 'bold', color: '#f59e0b', fontSize: '12px', paddingLeft: '28px' }}>🏭 {loc} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {locTrips.length} trip(s)</span></td>
+                        <td colSpan={3}></td>
+                        <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 'bold', fontSize: '12px' }}>₹{locTrips.reduce((s: number, t: any) => s + t.calc_net, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                      </tr>
+                      {locTrips.map((t: any) => {
                         const wait = daysSince(t.unloading_date || t.Unloading_Date);
                         return (
                           <tr key={t.id} style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(16,185,129,0.1)' : 'transparent', transition: '0.2s' }}>
@@ -963,8 +1015,10 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                           </tr>
                         );
                       })}
+                      </React.Fragment>
+                      ); })}
                     </React.Fragment>
-                  ))}
+                  ); })}
               </tbody>
             </table>
           )}
@@ -988,7 +1042,8 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                 filteredGeneratedBills.map((b, i) => (
                 <tr key={i}>
                   <td>{b.bill_date || (b.createdAt && new Date(b.createdAt.toDate()).toISOString().split('T')[0])}</td>
-                  <td><b style={{ color: '#fff', fontSize: '15px' }}>{b.bill_no}</b> <br/><small style={{ color: '#94a3b8', fontWeight: 'bold' }}>{b.customer_name}</small></td>
+                  <td><b style={{ color: '#fff', fontSize: '15px' }}>{b.bill_no}</b> <br/><small style={{ color: '#94a3b8', fontWeight: 'bold' }}>{b.customer_name}</small>
+                    {b.location && <><br/><small style={{ color: '#f59e0b', fontWeight: 'bold' }}>🏭 {b.location}</small></>}</td>
                   <td><span className="badge" style={{ background: '#334155', color: '#fff', fontSize: '11px' }}>{b.trips?.length || 0} Trips</span></td>
                   <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>₹{parseFloat(b.total_tds_deduction || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                   <td style={{ color: '#10b981', fontWeight: '900', fontSize: '15px', textAlign: 'right' }}>₹{parseFloat(b.total_net_expected).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
