@@ -391,15 +391,19 @@ export default function LodingDetals() {
   };
 
   const handleManualSave = async () => {
-    if (!manualData.Loaded_Qty || !manualData.Challan_No || !manualData.Vehical_No) return alert("⚠️ Please enter Vehicle No, Loaded Qty and Challan No!");
-    
+    // 📋 POST-TRIP WORKFLOW: Loaded Qty ab MANDATORY NAHI — exact qty/rate company
+    // challan/invoice ke saath baad me aate hain aur billing screen par inline
+    // bharte hain. Qty khali chhodo to 0 save hota hai (bill se pehle bharna hoga).
+    if (!manualData.Challan_No || !manualData.Vehical_No) return alert("⚠️ Please enter Vehicle No and Challan No!");
+    if (!manualData.Loaded_Qty && !window.confirm("ℹ️ Loaded Qty khali hai — 0 save hoga.\n\nQty/Rate baad me Company Challan aane par Billing screen se bhar sakte hain. Continue?")) return;
+
     try {
       if (isNewEntry) {
         await addDoc(collection(db, "TRIPS"), {
           ...manualData, trip_id: manualData.Trip_ID, vehicle_no: manualData.Vehical_No, 
           customer_name: manualData.Customer, loading_point: manualData.Loading_Point,
           consignee_name: manualData.Consignee_Name, driver_name: manualData.Driver_Name,
-          driver_mobil_no: manualData.Driver_Mobil_No, loaded_qty: manualData.Loaded_Qty,
+          driver_mobil_no: manualData.Driver_Mobil_No, loaded_qty: manualData.Loaded_Qty || '0',
           loading_date: manualData.Loading_Date, challan_no: manualData.Challan_No,
           operating_company: manualData.Operating_Company, invoice_url: manualData.Invoice_URL, 
           office_approved_loading: true, trip_status: 'IN_TRANSIT', sync_to_customer_portal: true,
@@ -411,7 +415,7 @@ export default function LodingDetals() {
         await updateDoc(doc(db, "TRIPS", selectedTripId), {
           ...manualData, office_approved_loading: true, trip_status: 'IN_TRANSIT',
           sort_date: manualData.Loading_Date || new Date().toISOString().split('T')[0],
-          loaded_qty: manualData.Loaded_Qty, loading_date: manualData.Loading_Date,
+          loaded_qty: manualData.Loaded_Qty || '0', loading_date: manualData.Loading_Date,
           challan_no: manualData.Challan_No, loading_point: manualData.Loading_Point, 
           consignee_name: manualData.Consignee_Name, operating_company: manualData.Operating_Company, 
           invoice_url: manualData.Invoice_URL, sync_to_customer_portal: true 

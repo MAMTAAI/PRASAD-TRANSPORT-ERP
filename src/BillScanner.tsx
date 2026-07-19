@@ -141,6 +141,9 @@ export default function BillScanner() {
             billed_bill_no: billRef,
             billed_at: new Date().toISOString(),
           };
+          // 📥 Billed Quantity bhi trip record me (KL) — billing dashboards par
+          // Qty × Rate poora bhara dikhe. Litre rows KL me convert; TO as-is.
+          if (r.qty > 0) upd.qty = r.qty_unit === 'L' ? round2(r.qty / 1000) : r.qty;
           // Auto-fill unloading figures only where the trip doesn't have them —
           // the scan must never overwrite office-approved quantities.
           const hasUnloaded = parseFloat(trip.unloaded_qty || trip.Unloaded_Qty || 0) > 0;

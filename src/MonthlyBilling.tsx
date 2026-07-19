@@ -14,7 +14,7 @@
 // Detention rule (from the real annexure): start = plant-reporting + FREE
 // days (default 4); days counted INCLUSIVE of start and end.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, writeBatch, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
@@ -221,14 +221,19 @@ export default function MonthlyBilling() {
     if (defaults.detRate) setDetRate(String(defaults.detRate));
     if (defaults.freeDays !== undefined) setFreeDays(String(defaults.freeDays));
     const fd = parseInt(defaults.freeDays !== undefined ? defaults.freeDays : freeDays) || 0;
+    const defRate = parseFloat(defaults.freightRate || freightRate) || 0;
 
+    // 📋 POST-TRIP DATA ENTRY: loading ke waqt qty/rate exact nahi hote (company
+    // challan baad me aata hai) — isliye qty pehle billing-entered `qty`, phir
+    // loading figures se; rate trip ka apna (AI-scan/inline se aya) warna default.
     setRows(picked.map(t => ({
       tripId: t.id,
       company: tripCompany(t),
       date: toISODate(t.start_date || t.Loading_Date || t.loading_date),
       cn: String(t.challan_no || t.Challan_No || t.trip_id || t.Trip_ID || '').trim(),
       vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
-      qty: parseFloat(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
+      qty: parseFloat(t.qty || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
+      rate: parseFloat(t.rate || t.freight_rate || 0) || defRate,
       unloadDate: toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)),
       include: true,
     })));
@@ -293,7 +298,8 @@ export default function MonthlyBilling() {
   // invoice total ALWAYS equals the sum of the per-trip journal entries to the
   // paisa (totalQty×rate can drift by paise on fractional KL).
   const fRows = visRows.filter(r => r.include);
-  const tripFreightOf = (r) => round2((parseFloat(r.qty) || 0) * (parseFloat(freightRate) || 0));
+  // Per-trip rate (inline-editable); bill-level Freight Rate sirf default hai.
+  const tripFreightOf = (r) => round2((parseFloat(r.qty) || 0) * (parseFloat(r.rate) || 0));
   const totalQty = round2(fRows.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0));
   const freightTotal = round2(fRows.reduce((s, r) => s + tripFreightOf(r), 0));
   const dRows = visDetRows.filter(r => r.include && r.days > 0);
@@ -311,7 +317,15 @@ export default function MonthlyBilling() {
   // Sub Total = Freight + Detention + GST (RCM); Net Payable = Sub − Deductions.
   const netPayable = round2(grandWithGst - totalDeductions);
 
-  const editRow = (i, f, v) => setRows(p => p.map((r) => r.tripId === i ? { ...r, [f]: f === 'qty' ? (parseFloat(v) || 0) : v } : r));
+  const editRow = (i, f, v) => setRows(p => p.map((r) => r.tripId === i ? { ...r, [f]: (f === 'qty' || f === 'rate') ? (parseFloat(v) || 0) : v } : r));
+  // 💾 INSTANT PERSIST (onBlur): qty/rate turant TRIPS record me — Gross bhi
+  // saath me, taaki Pending Billing pipeline aur baaki reports par wahi dikhe.
+  const persistRow = async (r) => {
+    const qty = parseFloat(r.qty) || 0, rate = parseFloat(r.rate) || 0;
+    try {
+      await updateDoc(doc(db, 'TRIPS', r.tripId), { qty, rate, gross_freight: round2(qty * rate), freight_set_by: 'billing_inline' });
+    } catch (e) { console.error(e); alert(`❌ CN ${r.cn}: Qty/Rate save nahi hua — network check karein.`); }
+  };
   const editDet = (i, f, v) => setDetRows(p => p.map((r) => {
     if (r.tripId !== i) return r;
     const nr = { ...r, [f]: v };
@@ -399,7 +413,10 @@ export default function MonthlyBilling() {
 
     // Freight particulars: numbered CN lines exactly like the real bill.
     const freightLines = fRows.map((r, i) => `${i + 1}.Dt-${dmy(r.date)},CN-${r.cn},${r.vehicle},Qty-${r.qty} KL`).join('<br/>');
-    const freightParticulars = `<b>Transportion Bills (RCM)</b><br/><i>Bill for the Period: ${periodLabel()}</i><br/>${freightLines}<br/><br/><b>Total Freight = ${totalQty} KL Qty*Rate ${freightRate} KL</b>`;
+    // Mixed per-trip rates => 'Multiple' print hota hai (har CN ki rate trip record me saved hai).
+    const uniqueRates = [...new Set(fRows.map(r => parseFloat(r.rate) || 0))];
+    const rateLabel = uniqueRates.length === 1 ? uniqueRates[0] : 'Multiple';
+    const freightParticulars = `<b>Transportion Bills (RCM)</b><br/><i>Bill for the Period: ${periodLabel()}</i><br/>${freightLines}<br/><br/><b>Total Freight = ${totalQty} KL Qty*Rate ${rateLabel} KL</b>`;
 
     // Detention annexure grouped per vehicle with subtotals (real layout).
     const byVeh = {};
@@ -520,7 +537,7 @@ export default function MonthlyBilling() {
         shortage_amount: shortageDed, advance_deduction: advanceDed,
         total_deductions: totalDeductions, net_payable: netPayable,
       };
-      const tripsPayload = fRows.map(r => ({ id: r.tripId, cn: r.cn, gross_freight: perTripFreight[r.tripId], rate: parseFloat(freightRate) || 0 }));
+      const tripsPayload = fRows.map(r => ({ id: r.tripId, cn: r.cn, gross_freight: perTripFreight[r.tripId], rate: parseFloat(r.rate) || 0 }));
 
       // 🛡️ PRIMARY PATH: server-side Firestore TRANSACTION via Cloud Function —
       // rereads every trip on the server and aborts atomically on any company
@@ -542,7 +559,7 @@ export default function MonthlyBilling() {
         const batch = writeBatch(db);
         fRows.forEach(r => {
           batch.update(doc(db, 'TRIPS', r.tripId), {
-            gross_freight: perTripFreight[r.tripId], rate: parseFloat(freightRate) || 0,
+            gross_freight: perTripFreight[r.tripId], rate: parseFloat(r.rate) || 0,
             billing_status: 'BILLED', billed_bill_no: invoiceNo, billed_at: new Date().toISOString(),
             billed_company: co.name,
           });
@@ -639,7 +656,9 @@ export default function MonthlyBilling() {
               <div className="pt-anim-pop" style={{ marginTop: '6px', fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>⚠️ Is customer ke bill 15-din ke bante hain — Full Month chunne par confirm poocha jayega.</div>
             )}
           </div>
-          <div><label style={S.label}>Freight Rate (₹/KL)</label><input type="number" inputMode="decimal" style={S.input} value={freightRate} onChange={e => setFreightRate(e.target.value)} /></div>
+          <div><label style={S.label}>Freight Rate (₹/KL) — default</label><input type="number" inputMode="decimal" style={S.input} value={freightRate}
+            onChange={e => { const v = e.target.value; setFreightRate(v); setRows(p => p.map(r => ({ ...r, rate: parseFloat(v) || 0 }))); }}
+            title="Ye default sab rows par lagta hai — per-trip rate table me alag se badla ja sakta hai" /></div>
           <div><label style={S.label}>Detention ₹/Day</label><input type="number" inputMode="decimal" style={S.input} value={detRate} onChange={e => setDetRate(e.target.value)} /></div>
           <div><label style={S.label}>Free Days (Transit)</label><input type="number" style={S.input} value={freeDays} onChange={e => setFreeDays(e.target.value)} /></div>
         </div>
@@ -681,7 +700,7 @@ export default function MonthlyBilling() {
             <b style={{ color: '#10b981' }}>🚛 Transportation Bill — {fRows.length}/{visRows.length} LR/CN selected</b>
             <div style={{ overflowX: 'auto', marginTop: '10px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '640px' }}>
-                <thead><tr style={{ color: '#38bdf8', textAlign: 'left' }}>{['✓', 'Loading Date', 'CN No', 'Vehicle', 'Unloading', 'Qty (KL)', 'Freight ₹'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #334155' }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ color: '#38bdf8', textAlign: 'left' }}>{['✓', 'Loading Date', 'CN No', 'Vehicle', 'Unloading', 'Qty (KL)', 'Rate ₹/KL', 'Freight ₹'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #334155' }}>{h}</th>)}</tr></thead>
                 <tbody>{visRows.map((r) => (
                   <tr key={r.tripId} style={{ borderBottom: '1px solid #1e293b', opacity: r.include ? 1 : 0.4 }}>
                     <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#10b981' }} checked={r.include} onChange={e => editRow(r.tripId, 'include', e.target.checked)} /></td>
@@ -689,8 +708,10 @@ export default function MonthlyBilling() {
                     <td style={{ padding: '4px' }}><input style={{ ...S.cell, width: '100px' }} value={r.cn} onChange={e => editRow(r.tripId, 'cn', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input style={{ ...S.cell, width: '115px' }} value={r.vehicle} onChange={e => editRow(r.tripId, 'vehicle', e.target.value)} /></td>
                     <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.unloadDate) || '—'}</td>
-                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} /></td>
-                    <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>₹{inr((parseFloat(r.qty) || 0) * (parseFloat(freightRate) || 0))}</td>
+                    {/* ✏️ Excel-style inline: 0 par laal border = challan aane par yahin bharo; blur = TRIPS me instant save */}
+                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.qty) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} onBlur={() => persistRow(r)} /></td>
+                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
+                    <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>₹{inr(tripFreightOf(r))}</td>
                   </tr>))}
                 </tbody>
               </table>

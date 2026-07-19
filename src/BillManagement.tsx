@@ -111,8 +111,11 @@ vehicle_no: Indian plate printed on the bill (e.g. AS26C5102), else "". Empty st
     setReconciling(true);
     try {
       const prompt = `This is a transporter freight bill / payment advice from an Indian oil company (IOCL/HPCL/BPCL). Extract every trip row and reply ONLY JSON:
-{ "bill_no": "", "bill_date": "DD-MM-YYYY", "rows": [ { "vehicle_no": "", "date": "DD-MM-YYYY", "lr_no": "", "amount": 0 } ] }
-vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on that row. Empty string / 0 if absent.`;
+{ "bill_no": "", "bill_date": "DD-MM-YYYY", "rows": [ { "vehicle_no": "", "date": "DD-MM-YYYY", "lr_no": "", "qty_kl": 0, "rate": 0, "amount": 0 } ] }
+vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on that row.
+qty_kl: the BILLED QUANTITY of that row in KL (kilolitres) — if printed in litres divide by 1000; plain number.
+rate: the FREIGHT RATE (₹ per KL) of that row — the small per-unit figure, NOT the total; plain number, strip ₹ and commas.
+amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       const ai = await extractJsonFromImage(file, prompt);
       const rows = Array.isArray(ai.rows) ? ai.rows : [];
       if (!rows.length) { alert('⚠️ PDF se trip rows nahi mili — saaf PDF se try karein ya manual reconcile use karein.'); setReconciling(false); return; }
@@ -123,11 +126,20 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
         const m = matchTripForBill(allTrips, r.vehicle_no, parseDocDate(r.date), 3);
         if (m.trip) {
           if (m.trip.bill_reconciled) { already++; continue; }
+          // 📥 AUTO-FILL from company PDF: billed qty (KL) + rate seedha trip
+          // record me — billing dashboard par trip fully-calculated dikhti hai.
+          const scanQty = Number(r.qty_kl) || 0, scanRate = Number(r.rate) || 0;
           await updateDoc(doc(db, 'TRIPS', m.trip.id), {
             bill_reconciled: true,
             reconciled_bill_no: ai.bill_no || '',
             reconciled_at: new Date().toISOString(),
             reconciled_amount: Number(r.amount) || 0,
+            ...(scanQty > 0 ? { qty: scanQty } : {}),
+            ...(scanRate > 0 ? { rate: scanRate } : {}),
+            ...(scanQty > 0 && scanRate > 0
+              ? { gross_freight: Math.round(scanQty * scanRate * 100) / 100, freight_set_by: 'ai_company_pdf' }
+              : Number(r.amount) > 0 && !(parseFloat(m.trip.gross_freight || m.trip.Gross_Freight || 0) > 0)
+                ? { gross_freight: Number(r.amount), freight_set_by: 'ai_company_pdf' } : {}),
           });
           m.trip.bill_reconciled = true;
           matched++;
@@ -210,8 +222,9 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
       let tripsData = snap.docs.map(d => {
         const t = d.data();
         
-        // 🧮 AUTO-CALCULATION ENGINE FOR BILLING
-        const qty = parseFloat(t.qty || t.weight || t.quantity || 1);
+        // 🧮 AUTO-CALCULATION ENGINE FOR BILLING — qty default 0 (1 nahi):
+        // post-trip workflow me qty challan ke baad bharta hai; 0 = red highlight.
+        const qty = parseFloat(t.qty || t.weight || t.quantity || 0);
         const rate = parseFloat(t.rate || t.freight_rate || 0);
         const gross = parseFloat(t.gross_freight || t.Gross_Freight || (qty * rate)) || 0;
         const penalty = parseFloat(t.shortage_amt || t.Shortage_Amt || t.shortage || 0);
@@ -240,6 +253,26 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
       setUnbilledTrips(tripsData);
     } catch (e) { console.error(e); }
     setLoading(false);
+  };
+
+  // ✏️ EXCEL-STYLE INLINE QTY/RATE (post-trip data entry): dispatch ke waqt
+  // qty/rate nahi hote — company challan aane par admin YAHIN bhar deta hai.
+  // onChange = live recalc (Gross/TDS/Net); onBlur = TRIPS record instant save.
+  const editTripQtyRate = (tripId: string, field: 'qty' | 'rate', value: string) => {
+    setUnbilledTrips(prev => prev.map(t => {
+      if (t.id !== tripId) return t;
+      const nt = { ...t, [field === 'qty' ? 'calc_qty' : 'calc_rate']: parseFloat(value) || 0 };
+      const gross = Math.round(nt.calc_qty * nt.calc_rate * 100) / 100;
+      const tds = parseFloat((gross * 0.02).toFixed(2));
+      return { ...nt, calc_gross: gross, calc_tds: tds, calc_net: gross - nt.calc_penalty - tds };
+    }));
+  };
+  const persistTripQtyRate = async (t: any) => {
+    try {
+      await updateDoc(doc(db, 'TRIPS', t.id), {
+        qty: t.calc_qty, rate: t.calc_rate, gross_freight: t.calc_gross, freight_set_by: 'billing_inline',
+      });
+    } catch (e) { console.error(e); alert(`❌ ${t.vehicle_no || t.trip_id || ''}: Qty/Rate save nahi hua — network check karein.`); }
   };
 
   const fetchGeneratedBills = async () => {
@@ -763,7 +796,18 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
                               <b style={{ color: '#fff', fontSize: '16px' }}>{on ? '☑️ ' : ''}{t.vehicle_no || t.Vehical_No || t.vehical_no}</b>
                               <b style={{ color: '#10b981', fontSize: '17px' }}>₹{t.calc_net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</b>
                             </div>
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '8px' }}>{t.trip_id || t.Trip_ID} · Un: {t.unloading_date || t.Unloading_Date || '-'} · {t.calc_qty} × {t.calc_rate}</div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '8px' }}>{t.trip_id || t.Trip_ID} · Un: {t.unloading_date || t.Unloading_Date || '-'}</div>
+                            {/* ✏️ Inline qty × rate (tap card ko select nahi karta) — blur = TRIPS me save */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }} onClick={e => e.stopPropagation()}>
+                              <input type="number" inputMode="decimal" value={t.calc_qty} placeholder="Qty KL"
+                                onChange={e => editTripQtyRate(t.id, 'qty', e.target.value)} onBlur={() => persistTripQtyRate(t)}
+                                style={{ width: '80px', minHeight: '40px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_qty > 0 ? '#334155' : '#ef4444'}`, borderRadius: '8px', color: '#fff', padding: '8px', fontSize: '13px' }} />
+                              <span style={{ color: '#64748b' }}>×</span>
+                              <input type="number" inputMode="decimal" value={t.calc_rate} placeholder="Rate ₹"
+                                onChange={e => editTripQtyRate(t.id, 'rate', e.target.value)} onBlur={() => persistTripQtyRate(t)}
+                                style={{ width: '85px', minHeight: '40px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: '8px', color: '#fff', padding: '8px', fontSize: '13px' }} />
+                              <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold' }}>= ₹{t.calc_gross.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                            </div>
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                               {t.draft_invoice && <span className="pt-badge pt-badge--info">🧾 Auto-Draft</span>}
                               {t.calc_penalty > 0 && <span className="pt-badge pt-badge--danger">Short ₹{t.calc_penalty.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>}
@@ -827,7 +871,18 @@ vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on t
                               {t.draft_invoice && <><br/><span style={{ fontSize: '9px', fontWeight: 'bold', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '8px', padding: '1px 6px' }}>🧾 AUTO-DRAFT</span></>}
                             </td>
                             <td style={{ fontWeight: '900', color: '#fff', fontSize: '14px' }}>{t.vehicle_no || t.Vehical_No || t.vehical_no} <br/><span style={{fontSize:'10px', color:'#94a3b8', fontWeight:'normal'}}>{t.driver_name || t.Driver_Name || ''}</span></td>
-                            <td style={{ fontSize: '12px' }}>{t.calc_qty} <span style={{color:'#64748b'}}>x</span> {t.calc_rate}</td>
+                            <td style={{ fontSize: '12px' }}>
+                              {/* ✏️ Inline qty × rate — 0 = laal border (challan se bharna baaki); blur = TRIPS me save */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <input type="number" inputMode="decimal" value={t.calc_qty} title="Billed Qty (KL) — challan se"
+                                  onChange={e => editTripQtyRate(t.id, 'qty', e.target.value)} onBlur={() => persistTripQtyRate(t)}
+                                  style={{ width: '70px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_qty > 0 ? '#334155' : '#ef4444'}`, borderRadius: '6px', color: '#fff', padding: '6px', fontSize: '12px' }} />
+                                <span style={{ color: '#64748b' }}>×</span>
+                                <input type="number" inputMode="decimal" value={t.calc_rate} title="Freight Rate (₹/KL)"
+                                  onChange={e => editTripQtyRate(t.id, 'rate', e.target.value)} onBlur={() => persistTripQtyRate(t)}
+                                  style={{ width: '75px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: '6px', color: '#fff', padding: '6px', fontSize: '12px' }} />
+                              </div>
+                            </td>
                             <td style={{ color: '#38bdf8', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                             <td style={{ color: '#ef4444', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_penalty.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                             <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_tds.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
