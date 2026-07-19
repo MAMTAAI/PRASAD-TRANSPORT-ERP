@@ -19,6 +19,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   // 🔐 STATES FOR OFFICE STAFF
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   
   // 📱 STATES FOR OTP LOGIN
   const [mobile, setMobile] = useState('');
@@ -214,7 +215,14 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Password</label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm font-bold text-white outline-none focus:border-red-500 transition-colors shadow-inner" required />
+                  {/* 👁 Show/hide toggle — galat typing pakadne ke liye password dekh sakte hain */}
+                  <div className="relative">
+                    <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-4 pr-14 rounded-xl text-sm font-bold text-white outline-none focus:border-red-500 transition-colors shadow-inner" required />
+                    <button type="button" tabIndex={-1} onClick={() => setShowPassword(s => !s)} title={showPassword ? 'Password chhupayein' : 'Password dekhein'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xl px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors select-none">
+                      {showPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
                 </div>
                 <button type="submit" disabled={loading} className="w-full bg-red-600 hover:bg-red-500 text-white font-black text-sm py-4 rounded-xl shadow-[0_5px_15px_rgba(220,38,38,0.3)] transition-transform hover:-translate-y-0.5 mt-2">
                   {loading ? 'Authenticating...' : 'SECURE ERP LOGIN ➔'}
