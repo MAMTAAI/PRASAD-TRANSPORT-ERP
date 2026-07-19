@@ -24,6 +24,8 @@ export default function CustomerLedger() {
   const user = currentUser();
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [companyBills, setCompanyBills] = useState([]);   // Bill Management invoices
+  const [bankReceipts, setBankReceipts] = useState([]);   // settle-modal receipts
 
   // Filters
   const [company, setCompany] = useState('ALL');
@@ -36,15 +38,25 @@ export default function CustomerLedger() {
   const [saving, setSaving] = useState(false);
   const [pay, setPay] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', mode: 'Bank', ref: '', bank: '', remarks: '' });
 
-  // 🔥 REAL-TIME: invoices + payments live via onSnapshot.
+  // 🔥 REAL-TIME: sab sources live via onSnapshot — Auto-Billing invoices,
+  // manual receipts, Bill Management invoices, aur settle-modal bank receipts.
   useEffect(() => {
     const u1 = onSnapshot(collection(db, 'MONTHLY_INVOICES'), s => setInvoices(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
     const u2 = onSnapshot(collection(db, 'CUSTOMER_PAYMENTS'), s => setPayments(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(collection(db, 'COMPANY_BILLS'), s => setCompanyBills(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
+    const u4 = onSnapshot(collection(db, 'BANK_TRANSACTIONS'), s => setBankReceipts(
+      s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => /receipt/i.test(String(t.type || '')) && String(t.party_type || '') === 'Customer')
+    ), () => {});
+    return () => { u1(); u2(); u3(); u4(); };
   }, []);
 
-  const companies = useMemo(() => [...new Set([...invoices.map(i => i.company), ...payments.map(p => p.company)].filter(Boolean))].sort(), [invoices, payments]);
-  const customers = useMemo(() => [...new Set([...invoices.map(i => i.customer), ...payments.map(p => p.customer)].filter(Boolean))].sort(), [invoices, payments]);
+  const companies = useMemo(() => [...new Set([
+    ...invoices.map(i => i.company), ...payments.map(p => p.company), ...companyBills.map(b => b.company),
+  ].filter(c => c && c !== 'ALL'))].sort(), [invoices, payments, companyBills]);
+  const customers = useMemo(() => [...new Set([
+    ...invoices.map(i => i.customer), ...payments.map(p => p.customer),
+    ...companyBills.map(b => b.customer_name), ...bankReceipts.map(r => r.party_name),
+  ].filter(Boolean))].sort(), [invoices, payments, companyBills, bankReceipts]);
 
   const invDate = (i) => toISODate(i.period_to) || toISODate(i.createdAt?.toDate?.()) || toISODate(i.month ? `${i.month}-28` : '');
 
@@ -70,6 +82,26 @@ export default function CustomerLedger() {
         dr: round2(Number(p.amount) || 0), cr: 0,
       });
     });
+    // 🧾 Bill Management invoices (COMPANY_BILLS) — Cr rows.
+    companyBills.filter(b => match(b.company === 'ALL' ? '' : b.company, company) && String(b.customer_name || '').toUpperCase() === cust.toUpperCase()).forEach(b => {
+      const amt = round2(Number(b.total_net_expected) || 0);
+      if (amt <= 0) return;
+      rows.push({
+        date: toISODate(b.bill_date) || toISODate(b.createdAt?.toDate?.()), company: b.company === 'ALL' ? '' : b.company,
+        particulars: `🧾 Bill ${b.bill_no || ''} (${b.trips?.length || 0} trips · Bill Mgmt)${b.status === 'SETTLED' ? ' ✓ settled' : b.status === 'PARTIALLY_PAID' ? ' · partial' : ''}`,
+        dr: 0, cr: amt,
+      });
+    });
+    // 💰 Bill Management settle-modal receipts (BANK_TRANSACTIONS) — Dr rows.
+    bankReceipts.filter(r => match(r.company === 'ALL' ? '' : r.company, company) && String(r.party_name || '').toUpperCase() === cust.toUpperCase()).forEach(r => {
+      const amt = round2(Number(r.amount) || 0);
+      if (amt <= 0) return;
+      rows.push({
+        date: toISODate(r.date) || toISODate(r.created_at?.toDate?.()), company: r.company === 'ALL' ? '' : r.company,
+        particulars: `💰 Receipt ${r.ref_no || ''} (${r.bank_account || 'Bank'} · Bill Mgmt settle)${r.particulars ? ' — ' + String(r.particulars).slice(0, 60) : ''}`,
+        dr: amt, cr: 0,
+      });
+    });
     rows.sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.cr - a.cr));
     // Opening balance = sab kuch filter-range se PEHLE ka net.
     let opening = 0;
@@ -82,7 +114,7 @@ export default function CustomerLedger() {
     const billed = round2(inRange.reduce((s, r) => s + r.cr, 0));
     const received = round2(inRange.reduce((s, r) => s + r.dr, 0));
     return { rows: withBal, opening, billed, received, outstanding: bal };
-  }, [invoices, payments, cust, company, fromDate, toDate]);
+  }, [invoices, payments, companyBills, bankReceipts, cust, company, fromDate, toDate]);
 
   // 💾 Save payment: CUSTOMER_PAYMENTS doc + canonical journal entry.
   const savePayment = async () => {
@@ -132,7 +164,7 @@ export default function CustomerLedger() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
         <div>
           <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: 0, color: '#38bdf8' }}>📖 Customer Khata (Party Ledger)</h1>
-          <p style={{ color: '#94a3b8', margin: '4px 0 0', fontSize: '13px' }}>Invoice = Credit (lena baki) · Receipt = Debit (paisa aaya) · Balance = Live Outstanding. Real-time.</p>
+          <p style={{ color: '#94a3b8', margin: '4px 0 0', fontSize: '13px' }}>SAB bills ek statement mein — Auto-Billing + Bill Management · Receipts: manual entry + Bill-Mgmt settlements. Invoice = Cr (lena baki), Receipt = Dr, Balance = Live Outstanding. Real-time.</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button className="pt-btn pt-btn--ghost" style={{ minHeight: '48px' }} onClick={exportCsv}>📥 Export CSV</button>
