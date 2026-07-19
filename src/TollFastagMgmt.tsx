@@ -2,13 +2,47 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import {
+  parseFastagStatement, mapTollsToTrips, saveTollBatch,
+  groupTollsForClaim, generateClaimNo, nextClaimSeq, renderIoclClaimHtml,
+  saveClaim, amountInWordsINR,
+} from './lib/tollEngine';
+
+const KNOWN_COMPANIES = ['PRASAD TRANSPORT', 'JAISWAL ENTERPRISE', 'M/S GAUTAM PRASAD'];
+// Per-company claim defaults remembered on this machine (vendor/plant codes).
+const claimDefaults = (company: string) => {
+  try { return JSON.parse(localStorage.getItem(`pt_claim_defaults_${company}`) || 'null') || {}; } catch { return {}; }
+};
+const rememberClaimDefaults = (company: string, d: any) => {
+  try { localStorage.setItem(`pt_claim_defaults_${company}`, JSON.stringify(d)); } catch { /* best-effort */ }
+};
 
 export default function TollFastagMgmt() {
-  const [activeTab, setActiveTab] = useState('TRIP_ENTRY'); 
+  const [activeTab, setActiveTab] = useState('STATEMENT');
   const [transactions, setTransactions] = useState<any[]>([]);
   const [recharges, setRecharges] = useState<any[]>([]);
-  const [trips, setTrips] = useState<any[]>([]); 
+  const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [claims, setClaims] = useState<any[]>([]);
+
+  // 📄 STATEMENT SYNC state (multi-bank FASTag statement → parsed + mapped preview)
+  const [stmt, setStmt] = useState<any>(null);           // ParsedStatement
+  const [stmtMaps, setStmtMaps] = useState<any[]>([]);   // TollMap[]
+  const [stmtCompany, setStmtCompany] = useState('PRASAD TRANSPORT');
+  const [stmtFileName, setStmtFileName] = useState('');
+  const [parsing, setParsing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  // 🧾 IOCL CLAIM builder state
+  const today = new Date().toISOString().split('T')[0];
+  const [claimForm, setClaimForm] = useState({
+    company: 'PRASAD TRANSPORT', vendor_code: '0011024699',
+    plant_name: 'LPG BP-North Guwahati', plant_code: '7B03',
+    month: today.slice(0, 7), fortnight: '1st',
+  });
+  const [claimGroups, setClaimGroups] = useState<any[]>([]);
+  const [claimLoaded, setClaimLoaded] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const [rechargeData, setRechargeData] = useState({
     date: new Date().toISOString().split('T')[0], recharge_amount: '', payment_source: 'Bank Transfer', transaction_id: '', vehicle_group: 'All Fleet', remarks: ''
@@ -35,8 +69,123 @@ export default function TollFastagMgmt() {
 
       const rcSnap = await getDocs(collection(db, "TOLL_RECHARGES")).catch(() => ({docs:[]}));
       setRecharges(rcSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+
+      const clSnap = await getDocs(collection(db, "TOLL_CLAIMS")).catch(() => ({docs:[]}));
+      setClaims(clSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.claim_date).localeCompare(String(a.claim_date))));
     } catch (e) { console.error(e); }
     setLoading(false);
+  };
+
+  // ═══════════ 📄 STATEMENT SYNC: parse (PDF/CSV/Excel) → auto trip-map ═══════════
+  const handleStatementFile = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = '';
+    setParsing(true); setStmt(null); setStmtMaps([]);
+    try {
+      const parsed = await parseFastagStatement(file);
+      if (!parsed.txns.length) {
+        alert('⚠️ Statement se koi toll transaction nahi mila. ICICI PDF e-statement ya bank CSV/Excel format check karein.');
+        setParsing(false); return;
+      }
+      const maps = mapTollsToTrips(parsed.txns, trips);
+      setStmt(parsed);
+      setStmtMaps(maps);
+      setStmtFileName(file.name);
+      // Multi-company: auto-detect from the statement's Corporate Name.
+      if (parsed.company) {
+        const hit = KNOWN_COMPANIES.find(c => c.toUpperCase() === parsed.company.toUpperCase());
+        setStmtCompany(hit || parsed.company);
+      }
+    } catch (err: any) {
+      alert('❌ Statement parse nahi hui: ' + (err?.message || 'unknown error'));
+    }
+    setParsing(false);
+  };
+
+  const handleSaveStatement = async () => {
+    if (!stmtMaps.length) return;
+    const unmatched = stmtMaps.filter(m => !m.trip).length;
+    if (!window.confirm(`💾 Save ${stmtMaps.length} tolls under ${stmtCompany}?\n\n🎯 ${stmtMaps.length - unmatched} trip-mapped · ⚠️ ${unmatched} unmapped (baad mein Trip Entry se link kar sakte hain)\n\nDuplicate transactions auto-skip honge (safe re-upload).`)) return;
+    setSyncing(true);
+    try {
+      const res = await saveTollBatch(stmtMaps, { company: stmtCompany, source_file: stmtFileName });
+      alert(`✅ FASTag Sync Complete (${stmtCompany})!\n\n📥 New saved: ${res.saved}\n🎯 Trip-mapped: ${res.mapped}\n⚠️ Unmapped: ${res.unmatched}\n↺ Duplicates skipped: ${res.duplicates}\n\nJournal + trip P&L update ho gaye.`);
+      setStmt(null); setStmtMaps([]);
+      fetchData();
+    } catch (err: any) { alert('❌ Save failed: ' + (err?.message || '')); }
+    setSyncing(false);
+  };
+
+  // ═══════════ 🧾 IOCL CLAIM: gather eligible tolls → exact-format PDF ═══════════
+  const claimPeriod = () => {
+    const [y, m] = claimForm.month.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return claimForm.fortnight === '1st'
+      ? { from: `${claimForm.month}-01`, to: `${claimForm.month}-15` }
+      : { from: `${claimForm.month}-16`, to: `${claimForm.month}-${String(lastDay).padStart(2, '0')}` };
+  };
+
+  const handleLoadClaimTolls = () => {
+    const { from, to } = claimPeriod();
+    const eligible = transactions.filter(t =>
+      (t.claim_status || 'UNCLAIMED') !== 'CLAIMED' &&
+      (t.is_billable !== false) &&
+      t.linked_trip_id && t.linked_trip_id !== 'UNMAPPED' &&
+      (!t.company || !claimForm.company || String(t.company).toUpperCase() === claimForm.company.toUpperCase()) &&
+      t.Txn_Date >= from && t.Txn_Date <= to
+    );
+    setClaimGroups(groupTollsForClaim(eligible));
+    setClaimLoaded(true);
+  };
+
+  const handleGenerateClaim = async () => {
+    if (!claimGroups.length) return alert('⚠️ Pehle eligible tolls load karein.');
+    setGenerating(true);
+    try {
+      const { from, to } = claimPeriod();
+      const seq = await nextClaimSeq(today);
+      const total = Math.round(claimGroups.reduce((s, g) => s + g.total, 0) * 100) / 100;
+      const claim = {
+        claim_no: generateClaimNo(claimForm.vendor_code, today, seq),
+        claim_date: today,
+        vendor_name: claimForm.company, vendor_code: claimForm.vendor_code,
+        plant_name: claimForm.plant_name, plant_code: claimForm.plant_code,
+        period_from: from, period_to: to,
+        fortnight_label: claimForm.fortnight,
+        groups: claimGroups, total,
+      };
+      const w = window.open('', '_blank');
+      if (!w) { alert('Popup allow karein — claim print window khulti hai.'); setGenerating(false); return; }
+      w.document.write(renderIoclClaimHtml(claim));
+      w.document.close();
+      const ids = claimGroups.flatMap(g => g.txns.map(t => t.id));
+      await saveClaim(claim, ids);
+      rememberClaimDefaults(claimForm.company, { vendor_code: claimForm.vendor_code, plant_name: claimForm.plant_name, plant_code: claimForm.plant_code });
+      alert(`✅ Claim ${claim.claim_no} generated & saved!\n\n₹${total.toLocaleString('en-IN')} (${ids.length} tolls, ${claimGroups.length} trips)\nINR ${amountInWordsINR(total)}\n\nTolls ab CLAIMED mark ho gaye — dobara bill nahi banega.`);
+      setClaimGroups([]); setClaimLoaded(false);
+      fetchData();
+    } catch (err: any) { alert('❌ Claim generate failed: ' + (err?.message || '')); }
+    setGenerating(false);
+  };
+
+  const handleReprintClaim = (cl: any) => {
+    // Rehydrate stored txn ids from the live register.
+    const byId = new Map(transactions.map(t => [t.id, t]));
+    const groups = (cl.groups || []).map(g => ({ ...g, txns: (g.txns || []).map(id => byId.get(id)).filter(Boolean) }));
+    const w = window.open('', '_blank');
+    if (!w) return alert('Popup allow karein.');
+    w.document.write(renderIoclClaimHtml({ ...cl, groups }));
+    w.document.close();
+  };
+
+  const handleCompanyChange = (company: string) => {
+    const d = claimDefaults(company);
+    setClaimForm(f => ({
+      ...f, company,
+      vendor_code: d.vendor_code || (company === 'PRASAD TRANSPORT' ? '0011024699' : ''),
+      plant_name: d.plant_name || f.plant_name, plant_code: d.plant_code || f.plant_code,
+    }));
+    setClaimGroups([]); setClaimLoaded(false);
   };
 
   const handleTripSelect = (tripId: string) => {
@@ -86,96 +235,7 @@ export default function TollFastagMgmt() {
     setLoading(false);
   };
 
-  // 🤖 100% SMART CSV AUTO-MAPPER
-  const handleBulkUpload = (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event: any) => {
-      const csvData = event.target.result;
-      const rows = csvData.split(/\r?\n/);
-      if(rows.length < 2) return alert("⚠️ Empty or Invalid CSV File!");
-
-      const rawHeaders = rows[0].split(',').map((h: string) => h.trim().replace(/"/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')); 
-      
-      const getIndex = (keywords: string[]) => rawHeaders.findIndex(h => keywords.some(k => h.includes(k)));
-      
-      const vNoIdx = getIndex(['vehicle', 'plate', 'reg', 'lpn']);
-      const dateIdx = getIndex(['date', 'time', 'txn', 'activity', 'processed']);
-      const amtIdx = getIndex(['amount', 'fee', 'charge', 'deduction', 'debit', 'dr']);
-      const plazaIdx = getIndex(['plaza', 'toll', 'location', 'park']);
-      const refIdx = getIndex(['ref', 'txnno', 'transactionid']);
-
-      if (vNoIdx === -1 || amtIdx === -1) {
-          return alert("❌ Invalid CSV Format! Could not detect 'Vehicle No' or 'Amount' columns. Please check your bank CSV.");
-      }
-
-      setLoading(true);
-      let successCount = 0;
-      let mappedCount = 0;
-
-      for (let i = 1; i < rows.length; i++) {
-        if (!rows[i].trim()) continue;
-        
-        const values = rows[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((v: string) => v.trim().replace(/"/g, ''));
-        
-        const rawVNo = values[vNoIdx];
-        const rawAmt = values[amtIdx];
-        if (!rawVNo || !rawAmt) continue;
-
-        const cleanVNo = rawVNo.replace(/[^A-Za-z0-9]/g, '').toUpperCase(); 
-        const amt = parseFloat(rawAmt) || 0;
-        if (amt <= 0) continue; 
-
-        const rawDate = values[dateIdx] || '';
-        const plaza = plazaIdx > -1 ? values[plazaIdx] : 'Unknown Toll Plaza';
-        const ref = refIdx > -1 ? values[refIdx] : `TXN-AUTO-${Date.now()}`;
-
-        let formattedDate = new Date().toISOString().split('T')[0];
-        if(rawDate) {
-             const dateMatch = rawDate.match(/(\d{2,4})[-/](\d{1,2})[-/](\d{2,4})/);
-             if(dateMatch) {
-                 if(dateMatch[1].length === 4) {
-                     formattedDate = `${dateMatch[1]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[3].padStart(2,'0')}`;
-                 } else {
-                     formattedDate = `${dateMatch[3]}-${dateMatch[2].padStart(2,'0')}-${dateMatch[1].padStart(2,'0')}`;
-                 }
-             }
-        }
-
-        const matchedTrip = trips.find(t => {
-            const dbVNo = String(t.vehicle_no || t.vehical_no || t.Vehicle_No || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-            return dbVNo === cleanVNo && t.trip_status !== 'COMPLETED'; 
-        });
-
-        await addDoc(collection(db, "TOLL_TRANSACTIONS"), {
-            Vehicle_No: rawVNo.toUpperCase(), 
-            Amount: amt,
-            Txn_Date: formattedDate,
-            Toll_Plaza_Name: plaza,
-            Transaction_Ref: ref,
-            linked_trip_id: matchedTrip ? (matchedTrip.trip_id || matchedTrip.Trip_ID || matchedTrip.id) : 'UNMAPPED',
-            invoice_no: matchedTrip ? (matchedTrip.invoice_no || matchedTrip.Invoice_No || matchedTrip.challan_no) : '',
-            invoice_date: matchedTrip ? (matchedTrip.invoice_date || matchedTrip.Date) : '',
-            loading_loc: matchedTrip ? (matchedTrip.loading_point || matchedTrip.Loading_Location) : '',
-            dest_loc: matchedTrip ? (matchedTrip.unloading_point || matchedTrip.Destination) : '',
-            linked_customer: matchedTrip ? (matchedTrip.customer_name || matchedTrip.Customer || matchedTrip.registered_assessee) : 'N/A',
-            billing_type: 'Reimbursable (Bill to Co.)', 
-            is_billable: true,
-            createdAt: serverTimestamp()
-        });
-
-        successCount++;
-        if(matchedTrip) mappedCount++;
-      }
-      
-      setLoading(false);
-      alert(`✅ Fastag Sync Complete!\n\n📊 Total Processed: ${successCount} Tolls\n🔗 Auto-Mapped to Running Trips: ${mappedCount} Tolls\n\n(Note: Tolls for completed trips or resting vehicles are saved as UNMAPPED.)`);
-      fetchData();
-    };
-    reader.readAsText(file);
-  };
+  // (old naive CSV auto-mapper removed — Statement Sync tab supersedes it)
 
   const handleSaveRecharge = async () => { 
     if (!rechargeData.recharge_amount) return alert("⚠️ Please enter recharge amount!");
@@ -187,121 +247,7 @@ export default function TollFastagMgmt() {
     } catch (e) { alert("❌ Error saving recharge data."); }
   };
 
-  // 🖨️ PRINT IOCL/HPCL FORMAT CLAIM BILL
-  const handlePrintClaim = () => {
-    const billableTolls = transactions.filter(t => t.is_billable || t.billing_type === 'Reimbursable (Bill to Co.)');
-    if (billableTolls.length === 0) return alert("⚠️ No billable toll records found to generate claim!");
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return alert("Please allow popups.");
-
-    let totalAmount = 0;
-
-    const rowsHtml = billableTolls.map((t, idx) => {
-        const amt = parseFloat(t.Amount || t.amount || 0);
-        totalAmount += amt;
-        
-        return `
-        <tr>
-            <td style="text-align:center;">${idx + 1}</td>
-            <td style="font-weight:bold;">${t.Vehicle_No || t.vehicle_no || '-'}</td>
-            <td>${t.invoice_no || '-'}</td>
-            <td style="text-align:center;">${t.invoice_date || '-'}</td>
-            <td>${t.loading_loc || 'IOCL/BPCL'}</td>
-            <td>${t.dest_loc || '-'}</td>
-            <td style="font-size:10px;">${t.Transaction_Ref || t.txn_ref || t.Ref_No || '-'}</td>
-            <td style="text-align:center;">${t.Txn_Date || t.txn_date || '-'}</td>
-            <td style="text-align:right; font-weight:bold;">${amt.toFixed(2)}</td>
-            <td style="text-align:right; font-weight:bold;">${amt.toFixed(2)}</td>
-            <td style="text-align:center;">${t.remarks || 'Full'}</td>
-        </tr>
-        `;
-    }).join('');
-
-    const htmlContent = `
-    <html>
-    <head>
-        <title>Claim for Reimbursement of Toll Charges</title>
-        <style>
-            body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; color: #000; }
-            .header-table { width: 100%; margin-bottom: 20px; border-collapse: collapse; }
-            .header-table td { padding: 5px; }
-            .claim-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-            .claim-table th, .claim-table td { border: 1px solid #000; padding: 8px; font-size: 11px; }
-            .claim-table th { background-color: #f0f8ff; text-align: center; }
-            .title { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 20px; text-decoration: underline;}
-            .total-row td { font-weight: bold; background-color: #f9f9f9; }
-            @media print { body { padding: 0; } }
-        </style>
-    </head>
-    <body>
-        <div style="display:flex; justify-content: space-between; align-items:center; border-bottom: 2px solid #ea580c; padding-bottom: 10px; margin-bottom: 20px;">
-           <h2 style="color: #ea580c; margin:0;">IndianOil / HPCL</h2>
-           <h2 style="margin:0;">Claim for Reimbursement of Toll Charges</h2>
-        </div>
-
-        <table class="header-table">
-            <tr>
-                <td style="width: 15%;"><b>Vendor Name:</b></td>
-                <td style="width: 35%; color: #dc2626;"><b>PRASAD TRANSPORT</b></td>
-                <td style="width: 15%;"><b>Date:</b></td>
-                <td style="width: 35%;">${new Date().toLocaleDateString('en-GB')}</td>
-            </tr>
-            <tr>
-                <td><b>Plant Name:</b></td>
-                <td>LPG BP-North Guwahati / Champaran</td>
-                <td><b>Claim Type:</b></td>
-                <td>FASTag</td>
-            </tr>
-        </table>
-
-        <div style="margin-top: 20px; margin-bottom: 20px; text-align: justify; font-size: 11px;">
-            <b>Declaration:</b><br/>
-            ☑ I/we hereby declare that claimed toll charges have been incurred during the assigned journey of the following vehicles on the designated route demarcated by the Corporation. No other claim pertaining to Toll Reimbursement for the period is pending on behalf of the company. I/We certify that the claimed amount(s) are true to the best of my/our knowledge and belief.
-        </div>
-
-        <table class="claim-table">
-            <thead>
-                <tr>
-                    <th>SN</th>
-                    <th>Truck No</th>
-                    <th>Invoice No</th>
-                    <th>Invoice Date</th>
-                    <th>Loading Location</th>
-                    <th>Destination Name</th>
-                    <th>Transaction Ref No</th>
-                    <th>Txn Date</th>
-                    <th>Toll Amount</th>
-                    <th>Amount Payable</th>
-                    <th>Remarks</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rowsHtml}
-                <tr class="total-row">
-                    <td colspan="8" style="text-align: right; font-size: 14px;">TOTAL:</td>
-                    <td style="text-align: right; font-size: 14px;">${totalAmount.toFixed(2)}</td>
-                    <td style="text-align: right; font-size: 14px;">${totalAmount.toFixed(2)}</td>
-                    <td></td>
-                </tr>
-            </tbody>
-        </table>
-
-        <div style="margin-top: 50px; text-align: right; width: 100%;">
-            <b>Signature & Stamp (Transporter)</b><br/><br/><br/>
-            ------------------------------------------------
-        </div>
-
-        <script>
-            window.onload = function() { setTimeout(function() { window.print(); }, 500); }
-        </script>
-    </body>
-    </html>
-    `;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-  };
+  // (old flat claim print removed — IOCL Claims tab renders the exact format)
 
   // 📥 EXPORT CSV DATA FOR IOCL e-TRP PORTAL UPLOAD
   const handleExportCSV = () => {
@@ -376,13 +322,9 @@ export default function TollFastagMgmt() {
           <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7e22ce)' }} onClick={handleExportCSV}>
              📥 Download e-TRP Excel (CSV)
           </button>
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #ea580c)' }} onClick={handlePrintClaim}>
-             🖨️ Print Toll Claim Bill
+          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={() => setActiveTab('STATEMENT')}>
+             📄 Upload FASTag Statement
           </button>
-          <label className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-            {loading ? '⏳ Syncing...' : '📤 Upload Bank CSV (Auto-Map)'}
-            <input type="file" hidden accept=".csv" onChange={handleBulkUpload} disabled={loading} />
-          </label>
         </div>
       </div>
 
@@ -402,11 +344,177 @@ export default function TollFastagMgmt() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #334155' }}>
-        <button className={`tab-btn ${activeTab === 'TRIP_ENTRY' ? 'active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ TRIP-WISE TOLL ENTRY</button>
-        <button className={`tab-btn ${activeTab === 'TRANSACTIONS' ? 'active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
-        <button className={`tab-btn ${activeTab === 'RECHARGE' ? 'active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+        <button className={`pt-tab ${activeTab === 'STATEMENT' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('STATEMENT')}>📄 STATEMENT SYNC</button>
+        <button className={`pt-tab ${activeTab === 'CLAIMS' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('CLAIMS')}>🧾 IOCL TOLL CLAIMS {claims.length > 0 && <span className="pt-tab__count" style={{ background: '#f59e0b', color: '#0f172a' }}>{claims.length}</span>}</button>
+        <button className={`pt-tab ${activeTab === 'TRIP_ENTRY' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ MANUAL TOLL ENTRY</button>
+        <button className={`pt-tab ${activeTab === 'TRANSACTIONS' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
+        <button className={`pt-tab ${activeTab === 'RECHARGE' ? 'is-active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
       </div>
+
+      {/* ═══════════ 📄 TAB: STATEMENT SYNC (Multi-bank FASTag upload) ═══════════ */}
+      {activeTab === 'STATEMENT' && (
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #10b981' }}>
+          <h2 style={{ color: '#10b981', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>📄 FASTag Statement Sync — Multi-Bank, Offline</h2>
+          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>ICICI PDF e-statement, ya kisi bhi bank ka CSV/Excel upload karein. Har toll <b style={{ color: '#38bdf8' }}>vehicle + date/time window</b> se sahi trip par auto-map hota hai (Loading → Unloading ke beech). Duplicate kabhi save nahi hote.</p>
+
+          {!stmt && (
+            <label className="pt-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', border: '2px dashed #10b981', cursor: parsing ? 'wait' : 'pointer', textAlign: 'center' }}>
+              <div style={{ fontSize: '42px' }}>{parsing ? '⏳' : '📤'}</div>
+              <div style={{ fontWeight: 900, fontSize: '17px', color: '#10b981' }}>{parsing ? 'Parsing statement…' : 'Upload FASTag Statement'}</div>
+              <div style={{ color: '#94a3b8', fontSize: '12px' }}>PDF (ICICI e-statement) · CSV · Excel (.xlsx/.xls)</div>
+              <input type="file" hidden accept=".pdf,.csv,.xlsx,.xls" onChange={handleStatementFile} disabled={parsing} />
+            </label>
+          )}
+
+          {stmt && (
+            <div className="pt-anim-fade">
+              {/* Parse summary + company selector */}
+              <div className="pt-stagger" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#10b981' }}>Tolls Parsed</div><div className="pt-kpi__value">{stmtMaps.length}</div><div className="pt-kpi__sub">{stmt.bank || 'statement'} · {stmt.period_from || '?'} → {stmt.period_to || '?'}</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#38bdf8' }}>Trip-Mapped</div><div className="pt-kpi__value" style={{ color: '#38bdf8' }}>{stmtMaps.filter(m => m.confidence === 'MATCHED').length}</div><div className="pt-kpi__sub">+ {stmtMaps.filter(m => m.confidence === 'AMBIGUOUS').length} ambiguous (best-guess)</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#ef4444' }}>Unmapped</div><div className="pt-kpi__value" style={{ color: '#ef4444' }}>{stmtMaps.filter(m => !m.trip).length}</div><div className="pt-kpi__sub">koi trip window match nahi</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#f59e0b' }}>₹{stmtMaps.reduce((s, m) => s + m.txn.amount, 0).toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{stmtFileName}</div></div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '18px', background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '12px', padding: '15px' }}>
+                <div style={{ flex: '1 1 260px' }}>
+                  <label className="pt-label" style={{ color: '#10b981' }}>🏢 Corporate Account (Company Ledger) {stmt.company && <span className="pt-badge pt-badge--success" style={{ marginLeft: '6px' }}>auto-detected</span>}</label>
+                  <select className="pt-input" value={stmtCompany} onChange={e => setStmtCompany(e.target.value)}>
+                    {[...new Set([stmtCompany, ...KNOWN_COMPANIES, ...(stmt.company ? [stmt.company] : [])])].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <button className={`pt-btn pt-btn--success ${syncing ? 'is-loading' : ''}`} disabled={syncing} onClick={handleSaveStatement} style={{ minHeight: '48px', flex: '1 1 220px', fontWeight: 900 }}>
+                  {syncing ? 'Saving…' : `💾 Save ${stmtMaps.length} Tolls → ${stmtCompany.split(' ')[0]}`}
+                </button>
+                <button className="pt-btn pt-btn--ghost" onClick={() => { setStmt(null); setStmtMaps([]); }} style={{ minHeight: '48px' }}>✕ Discard</button>
+              </div>
+
+              {/* Mapped preview */}
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ minWidth: '860px' }}>
+                  <thead><tr><th>Vehicle</th><th>Date & Time</th><th>Plaza</th><th>Ref No</th><th style={{ textAlign: 'right' }}>₹</th><th>Mapped Trip</th></tr></thead>
+                  <tbody>
+                    {stmtMaps.map((m, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 900, color: '#fff' }}>{m.txn.vehicle_no}</td>
+                        <td style={{ fontSize: '12px' }}>{m.txn.txn_datetime}</td>
+                        <td style={{ fontSize: '12px' }}>{m.txn.plaza}</td>
+                        <td style={{ fontSize: '10px', color: '#94a3b8', maxWidth: '180px', wordBreak: 'break-all' }}>{m.txn.ref_no}</td>
+                        <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 'bold' }}>{m.txn.amount.toLocaleString('en-IN')}</td>
+                        <td>
+                          {m.trip
+                            ? <span className={`pt-badge ${m.confidence === 'MATCHED' ? 'pt-badge--success' : 'pt-badge--warning'}`}>{m.confidence === 'MATCHED' ? '🎯' : '⚠'} {m.trip.trip_id || m.trip.Trip_ID || m.trip.id}</span>
+                            : <span className="pt-badge pt-badge--danger">UNMAPPED</span>}
+                          {m.trip && <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '6px' }}>{m.trip.loading_point || ''} ➔ {m.trip.consignee_name || ''}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════ 🧾 TAB: IOCL TOLL CLAIMS (Auto-generate exact format) ═══════════ */}
+      {activeTab === 'CLAIMS' && (
+        <div className="pt-anim-up">
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #f59e0b', marginBottom: '20px' }}>
+            <h2 style={{ color: '#f59e0b', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>🧾 Auto-Generate IOCL Toll Claim (Exact Format)</h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>Mapped tolls se Summary + Annexure-I wala hubahu IOCL "Claim for Reimbursement of Toll" PDF banta hai — trip ke challan/loading/destination details auto-fill.</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '15px', marginBottom: '15px' }}>
+              <div>
+                <label className="pt-label" style={{ color: '#f59e0b' }}>Company (Vendor) *</label>
+                <select className="pt-input" value={claimForm.company} onChange={e => handleCompanyChange(e.target.value)}>
+                  {KNOWN_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div><label className="pt-label">Vendor Code (IOCL)</label><input className="pt-input" value={claimForm.vendor_code} onChange={e => setClaimForm({ ...claimForm, vendor_code: e.target.value })} placeholder="0011024699" /></div>
+              <div><label className="pt-label">Plant Name</label><input className="pt-input" value={claimForm.plant_name} onChange={e => setClaimForm({ ...claimForm, plant_name: e.target.value })} /></div>
+              <div><label className="pt-label">Plant Code</label><input className="pt-input" value={claimForm.plant_code} onChange={e => setClaimForm({ ...claimForm, plant_code: e.target.value })} placeholder="7B03" /></div>
+              <div><label className="pt-label">Claim Month</label><input type="month" className="pt-input" style={{ colorScheme: 'dark' }} value={claimForm.month} onChange={e => setClaimForm({ ...claimForm, month: e.target.value })} /></div>
+              <div>
+                <label className="pt-label">Fortnight</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {['1st', '2nd'].map(f => (
+                    <button key={f} className={`pt-chip ${claimForm.fortnight === f ? 'is-on is-on--warning' : ''}`} style={{ flex: 1 }} onClick={() => setClaimForm({ ...claimForm, fortnight: f })}>{f === '1st' ? '1st (1–15)' : '2nd (16–end)'}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <button className="pt-btn pt-btn--primary" style={{ minHeight: '48px', width: '100%', fontWeight: 900 }} onClick={handleLoadClaimTolls}>
+              🔍 Load Eligible Tolls ({claimPeriod().from} → {claimPeriod().to})
+            </button>
+
+            {claimLoaded && (
+              claimGroups.length === 0 ? (
+                <div className="pt-anim-pop" style={{ marginTop: '18px', textAlign: 'center', padding: '25px', color: '#64748b', border: '1px dashed #334155', borderRadius: '12px' }}>
+                  Is period mein {claimForm.company} ka koi unclaimed trip-mapped toll nahi mila. Pehle Statement Sync se tolls upload karein.
+                </div>
+              ) : (
+                <div className="pt-anim-up" style={{ marginTop: '20px' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ minWidth: '760px' }}>
+                      <thead><tr><th>SN</th><th>Truck No</th><th>Invoice (Challan)</th><th>Inv Date</th><th>Loading Location</th><th>Loc Code (edit)</th><th>Destination</th><th style={{ textAlign: 'center' }}>Tolls</th><th style={{ textAlign: 'right' }}>Net Payable ₹</th></tr></thead>
+                      <tbody>
+                        {claimGroups.map((g, i) => (
+                          <tr key={i}>
+                            <td>{i + 1}</td>
+                            <td style={{ fontWeight: 900, color: '#fff' }}>{g.truck_no}</td>
+                            <td>{g.invoice_no || <span style={{ color: '#ef4444' }}>challan missing</span>}</td>
+                            <td style={{ fontSize: '12px' }}>{g.invoice_date}</td>
+                            <td style={{ fontSize: '12px' }}>{g.loading_loc}</td>
+                            <td><input className="pt-input" style={{ minHeight: '38px', padding: '6px 10px', width: '90px' }} value={g.loading_code} placeholder="2377" onChange={e => setClaimGroups(gs => gs.map((x, xi) => xi === i ? { ...x, loading_code: e.target.value } : x))} /></td>
+                            <td style={{ fontSize: '12px' }}>{g.dest_name}</td>
+                            <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{g.txns.length}</span></td>
+                            <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ background: 'rgba(245,158,11,0.08)', fontWeight: 900 }}>
+                          <td colSpan={8} style={{ textAlign: 'right' }}>TOTAL CLAIM ({claimGroups.reduce((s, g) => s + g.txns.length, 0)} tolls):</td>
+                          <td style={{ textAlign: 'right', color: '#f59e0b', fontSize: '16px' }}>₹{claimGroups.reduce((s, g) => s + g.total, 0).toLocaleString('en-IN')}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <button className={`pt-btn ${generating ? 'is-loading' : ''}`} disabled={generating} onClick={handleGenerateClaim}
+                    style={{ minHeight: '52px', width: '100%', marginTop: '18px', fontWeight: 900, fontSize: '15px', background: 'linear-gradient(135deg, #f59e0b, #ea580c)', color: '#fff', border: 'none' }}>
+                    {generating ? 'Generating…' : '🖨️ Generate Claim — Summary + Annexure-I (Print & Save)'}
+                  </button>
+                </div>
+              )
+            )}
+          </div>
+
+          {/* Claims register */}
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📚 Generated Claims Register</h3>
+            {claims.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi claim generate nahi hua.</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ minWidth: '640px' }}>
+                  <thead><tr><th>Claim No</th><th>Company</th><th>Plant</th><th>Period</th><th style={{ textAlign: 'center' }}>Tolls</th><th style={{ textAlign: 'right' }}>Amount ₹</th><th style={{ textAlign: 'center' }}>Action</th></tr></thead>
+                  <tbody>
+                    {claims.map(cl => (
+                      <tr key={cl.id}>
+                        <td style={{ fontWeight: 900, color: '#fff' }}>{cl.claim_no}</td>
+                        <td style={{ fontSize: '12px' }}>{cl.vendor_name}</td>
+                        <td style={{ fontSize: '12px' }}>{cl.plant_name}</td>
+                        <td style={{ fontSize: '12px' }}>{cl.period_from} → {cl.period_to}</td>
+                        <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{cl.txn_count}</span></td>
+                        <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{Number(cl.total || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'center' }}><button className="pt-btn pt-btn--ghost" style={{ minHeight: '40px', padding: '6px 14px' }} onClick={() => handleReprintClaim(cl)}>🖨️ Reprint</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 🛣️ NEW TAB: TRIP-WISE TOLL ENTRY (MANUAL & BILLABLE) */}
       {activeTab === 'TRIP_ENTRY' && (
