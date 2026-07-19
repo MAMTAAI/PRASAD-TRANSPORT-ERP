@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import {
   parseFastagStatement, mapTollsToTrips, saveTollBatch, resolveVehiclesByTag,
@@ -50,6 +50,46 @@ export default function TollFastagMgmt() {
     date: new Date().toISOString().split('T')[0], recharge_amount: '', payment_source: 'Bank Transfer', transaction_id: '', vehicle_group: 'All Fleet', remarks: ''
   });
 
+  // ⚙️ TOLL PORTAL SETTINGS — Daily 24h Auto-Sync (TOLL_SETTINGS/auto_sync,
+  // admin-only). Background runner (toll-sync.cjs) inhi settings par chalta hai.
+  const [autoSync, setAutoSync] = useState({
+    master_switch: false, sync_time: '02:00',
+    portal_url: '', portal_user: '', portal_password: '', txn_page_url: '', company: 'PRASAD TRANSPORT',
+    last_sync_at: null, last_sync_result: '', last_sync_error: '', force_sync_requested: false,
+  });
+  const [autoSyncLocked, setAutoSyncLocked] = useState(false);
+  const [savingSync, setSavingSync] = useState(false);
+  const fetchAutoSync = async () => {
+    try {
+      const snap = await getDoc(doc(db, 'TOLL_SETTINGS', 'auto_sync'));
+      if (snap.exists()) setAutoSync(p => ({ ...p, ...snap.data(), portal_password: snap.data().portal_password ? '••••••••' : '' }));
+      setAutoSyncLocked(false);
+    } catch (e) {
+      if (/permission/i.test(e?.message || '')) setAutoSyncLocked(true);
+    }
+  };
+  const saveAutoSync = async (patch) => {
+    setSavingSync(true);
+    try {
+      const payload = { ...patch, updatedAt: serverTimestamp() };
+      // Masked password kabhi overwrite nahi hota — sirf naya type karne par save
+      if (payload.portal_password === '••••••••') delete payload.portal_password;
+      await setDoc(doc(db, 'TOLL_SETTINGS', 'auto_sync'), payload, { merge: true });
+      setAutoSync(p => ({ ...p, ...patch }));
+    } catch { alert('❌ Settings save nahi hui — admin login check karein.'); }
+    setSavingSync(false);
+  };
+  const forceSyncNow = async () => {
+    if (!autoSync.portal_url) return alert('⚠️ Pehle Portal URL + login credentials save karein.');
+    await saveAutoSync({ force_sync_requested: true });
+    alert('⚡ Force Sync request bhej di gayi — background runner (toll-sync.cjs) 30 second ke andar 24h data fetch karega.\n\nDuplicate tolls automatically skip honge (transaction-ref guardrail).');
+  };
+  // 12-hour label for the time dropdown: '02:00' -> '02:00 AM'
+  const hour12 = (hhmm) => {
+    const h = parseInt(hhmm.slice(0, 2), 10);
+    return `${String(h % 12 === 0 ? 12 : h % 12).padStart(2, '0')}:00 ${h < 12 ? 'AM' : 'PM'}`;
+  };
+
   const [tripToll, setTripToll] = useState({
     trip_id: '', vehicle_no: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0],
     loading_loc: '', dest_loc: '', txn_date: new Date().toISOString().split('T')[0],
@@ -58,6 +98,7 @@ export default function TollFastagMgmt() {
 
   useEffect(() => {
     fetchData();
+    fetchAutoSync();
   }, []);
 
   const fetchData = async () => {
@@ -363,7 +404,75 @@ export default function TollFastagMgmt() {
         <button className={`pt-tab ${activeTab === 'TRIP_ENTRY' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ MANUAL TOLL ENTRY</button>
         <button className={`pt-tab ${activeTab === 'TRANSACTIONS' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
         <button className={`pt-tab ${activeTab === 'RECHARGE' ? 'is-active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
+        <button className={`pt-tab ${activeTab === 'AUTO_SYNC' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('AUTO_SYNC')}>⚙️ AUTO-SYNC (24h) {autoSync.master_switch && <span className="pt-tab__count" style={{ background: '#10b981', color: '#0f172a' }}>ON</span>}</button>
       </div>
+
+      {/* ═══════════ ⚙️ TAB: TOLL PORTAL SETTINGS — Daily 24h Auto-Sync ═══════════ */}
+      {activeTab === 'AUTO_SYNC' && (
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: autoSync.master_switch ? '4px solid #10b981' : '4px solid #64748b' }}>
+          <h2 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>⚙️ Toll Portal Settings — Automatic Statement Sync</h2>
+          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>Background runner (toll-sync.cjs) FASTag portal me login karke pichhle 24 ghante ki toll transactions STRICTLY din me ek baar fetch karta hai. Duplicate entries transaction-ref guardrail se hamesha blocked rehti hain.</p>
+
+          {autoSyncLocked && (
+            <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ef4444', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
+              🔒 Ye settings sirf ADMIN ke liye hain (portal login credentials yahan store hote hain) — admin login ke bina save nahi hoga.
+            </div>
+          )}
+          <>
+              {/* 🔘 MASTER TOGGLE + PREFERRED TIME + STATUS */}
+              <div style={{ display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap', padding: '18px', background: 'rgba(16,185,129,0.05)', border: `1px solid ${autoSync.master_switch ? '#10b981' : '#334155'}`, borderRadius: '12px', marginBottom: '18px' }}>
+                <button onClick={() => saveAutoSync({ master_switch: !autoSync.master_switch })} disabled={savingSync}
+                  style={{ background: autoSync.master_switch ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', color: 'white', border: 'none', borderRadius: '999px', padding: '13px 26px', fontWeight: '900', fontSize: '15px', cursor: 'pointer', minWidth: '230px' }}>
+                  {autoSync.master_switch ? '🟢 Daily 24h Auto-Sync: ON' : '⚪ Daily 24h Auto-Sync: OFF'}
+                </button>
+                <div>
+                  <label className="pt-label" style={{ color: '#38bdf8' }}>Preferred Sync Time</label>
+                  <select className="pt-input" style={{ width: '150px' }} value={autoSync.sync_time}
+                    onChange={e => saveAutoSync({ sync_time: e.target.value })}>
+                    {Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`).map(t => (
+                      <option key={t} value={t}>{hour12(t)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: 1, minWidth: '240px', fontSize: '13px', fontWeight: 'bold', color: autoSync.master_switch ? '#10b981' : '#94a3b8' }}>
+                  {autoSync.master_switch
+                    ? `⏰ Next automatic scan scheduled in 24 hours at ${hour12(autoSync.sync_time)}`
+                    : '💤 Automatic sync is completely disabled'}
+                </div>
+              </div>
+
+              {/* 🔐 PORTAL CREDENTIALS */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '18px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569' }}>
+                <div><label className="pt-label">Portal Login URL *</label><input className="pt-input" placeholder="https://fastag.icicibank.com/…" value={autoSync.portal_url} onChange={e => setAutoSync({ ...autoSync, portal_url: e.target.value })} onBlur={() => saveAutoSync({ portal_url: autoSync.portal_url })} /></div>
+                <div><label className="pt-label">Portal Username *</label><input className="pt-input" value={autoSync.portal_user} onChange={e => setAutoSync({ ...autoSync, portal_user: e.target.value })} onBlur={() => saveAutoSync({ portal_user: autoSync.portal_user })} autoComplete="off" /></div>
+                <div><label className="pt-label">Portal Password *</label><input type="password" className="pt-input" value={autoSync.portal_password} onChange={e => setAutoSync({ ...autoSync, portal_password: e.target.value })} onBlur={() => saveAutoSync({ portal_password: autoSync.portal_password })} autoComplete="new-password" /></div>
+                <div><label className="pt-label">Transactions Page URL (optional)</label><input className="pt-input" placeholder="login ke baad wala txn page" value={autoSync.txn_page_url} onChange={e => setAutoSync({ ...autoSync, txn_page_url: e.target.value })} onBlur={() => saveAutoSync({ txn_page_url: autoSync.txn_page_url })} /></div>
+                <div>
+                  <label className="pt-label">Company Ledger</label>
+                  <select className="pt-input" value={autoSync.company} onChange={e => saveAutoSync({ company: e.target.value })}>
+                    {KNOWN_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* ⚡ FORCE SYNC + LAST RUN STATUS */}
+              <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #ea580c)' }} disabled={savingSync || autoSync.force_sync_requested} onClick={forceSyncNow}>
+                  {autoSync.force_sync_requested ? '⏳ Sync request pending…' : '⚡ Force Sync Now (last 24h)'}
+                </button>
+                <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                  <div>Last sync: <b style={{ color: '#cbd5e1' }}>{autoSync.last_sync_at?.seconds ? new Date(autoSync.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</b>{autoSync.last_sync_trigger ? ` (${autoSync.last_sync_trigger})` : ''}</div>
+                  {autoSync.last_sync_result && <div style={{ color: /FAIL/.test(autoSync.last_sync_result) ? '#ef4444' : '#10b981', fontWeight: 'bold' }}>{autoSync.last_sync_result}</div>}
+                  {autoSync.last_sync_error && <div style={{ color: '#ef4444' }}>⚠ {autoSync.last_sync_error}</div>}
+                </div>
+                <button className="pt-btn pt-btn--ghost" style={{ marginLeft: 'auto', minHeight: '40px' }} onClick={fetchAutoSync}>🔄 Refresh Status</button>
+              </div>
+              <p style={{ fontSize: '11px', color: '#64748b', margin: '14px 0 0' }}>
+                🛡️ Duplicate guardrail: har toll ka database ID uske Transaction Ref + Amount se banta hai — Force Sync kitni baar bhi dabao, same toll expense dobara kabhi save nahi hota (same rule Statement Sync upload par bhi lagta hai). Scheduled run din me sirf ek baar, chunee hui time par chalta hai; Master OFF par runner turant terminate ho jata hai.
+              </p>
+          </>
+        </div>
+      )}
 
       {/* ═══════════ 📄 TAB: STATEMENT SYNC (Multi-bank FASTag upload) ═══════════ */}
       {activeTab === 'STATEMENT' && (
