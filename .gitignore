@@ -46,3 +46,6 @@ whatsapp-server/.wwebjs_cache/
 *.sln
 *.sw?
 .screenshots/
+
+# AI stack launcher logs
+logs/

@@ -7,10 +7,65 @@ const fs = require('fs');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios'); 
 
+const crypto = require('crypto');
+
 const app = express();
-app.use(cors());
+
+// ── 🔐 CORS — allowlist, not wide-open. Once this bridge is exposed to the
+// public internet via the Cloudflare Tunnel, only our own front-ends should be
+// allowed to call it from a browser. Extra origins can be added via .env
+// (ALLOWED_ORIGINS=comma,separated). Requests with NO Origin header (curl, the
+// native Capacitor app, server-to-server) are allowed through — CORS only
+// governs browser cross-site calls.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
+  || 'https://www.prasadtransport.com,https://prasadtransport.com,http://localhost:5173,http://localhost:4173,capacitor://localhost,http://localhost'
+).split(',').map((s) => s.trim()).filter(Boolean);
+app.use(cors({
+  origin(origin, cb) {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error(`Origin not allowed by CORS: ${origin}`));
+  },
+  allowedHeaders: ['Content-Type', 'X-PT-Token'],
+  methods: ['GET', 'POST', 'OPTIONS'],
+}));
+
 // AI Bill Scanner sends multi-page base64 images in the chat body — default 100kb limit is far too small
 app.use(express.json({ limit: '50mb' }));
+
+// ── 🔑 Shared-secret gate for the AI routes. The tunnel makes this bridge
+// reachable from anywhere; PT_BRIDGE_TOKEN keeps random internet traffic out.
+// Each client app sends its secret as the `X-PT-Token` header (front-ends read
+// it from VITE_LLM_AUTH_TOKEN; server-to-server callers set the header directly).
+//
+// MULTIPLE tokens are supported — comma-separated — so every consumer gets its
+// OWN secret and can be rotated/revoked independently:
+//   PT_BRIDGE_TOKEN=<prasad-transport-token>,<jaiswal-capital-token>
+// If the var is UNSET the gate is disabled — that keeps pure-local dev (no
+// tunnel) frictionless. SET IT before opening the Cloudflare Tunnel.
+const BRIDGE_TOKENS = (process.env.PT_BRIDGE_TOKEN || '')
+  .split(',').map((t) => t.trim()).filter(Boolean);
+if (!BRIDGE_TOKENS.length) {
+  console.warn('⚠️  PT_BRIDGE_TOKEN is not set — AI routes are UNAUTHENTICATED. Fine for local-only use; set it before opening the Cloudflare Tunnel.');
+} else {
+  console.log(`🔒 AI routes protected — ${BRIDGE_TOKENS.length} client token(s) accepted.`);
+}
+function tokenMatches(supplied) {
+  const s = Buffer.from(supplied, 'utf8');
+  // Constant-time compare against EVERY accepted token; timingSafeEqual throws
+  // on length mismatch, so guard length first. Loop runs fully (no early return)
+  // to avoid leaking which token matched via timing.
+  let ok = false;
+  for (const token of BRIDGE_TOKENS) {
+    const t = Buffer.from(token, 'utf8');
+    if (s.length === t.length && crypto.timingSafeEqual(s, t)) ok = true;
+  }
+  return ok;
+}
+function requireToken(req, res, next) {
+  if (!BRIDGE_TOKENS.length) return next(); // gate disabled (local dev)
+  if (tokenMatches(req.get('X-PT-Token') || '')) return next();
+  return res.status(401).json({ success: false, error: 'Unauthorized: bad or missing X-PT-Token.' });
+}
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -240,7 +295,7 @@ app.get('/api/ai/health', (req, res) => {
   });
 });
 
-app.post('/api/ai/chat', async (req, res) => {
+app.post('/api/ai/chat', requireToken, async (req, res) => {
   const { engine = 'local', messages = [], options = {} } = req.body || {};
   if (!Array.isArray(messages) || !messages.length) {
     return res.status(400).json({ success: false, error: 'messages[] required' });
@@ -295,6 +350,59 @@ app.post('/api/ai/chat', async (req, res) => {
     const offline = error.code === 'ECONNREFUSED' || /ECONNREFUSED|ENOTFOUND/.test(error.message || '');
     console.error('❌ AI chat error:', error.message);
     return res.status(offline ? 503 : 500).json({ success: false, error: offline ? 'Local AI engine (Ollama) is not reachable from the bridge.' : (error.message || 'AI request failed') });
+  }
+});
+
+// =======================================================
+// ROUTE 5: 🦙 OLLAMA-NATIVE PASSTHROUGH (secure tunnel path)
+// The deployed HTTPS site can't reach http://localhost:11434 (Mixed Content +
+// it's the *visitor's* localhost, not this PC). So the browser's OllamaProvider
+// points VITE_LLM_BASE_URL at the Cloudflare Tunnel → this bridge, which relays
+// the SAME native Ollama requests to the real engine. Behaviour is identical to
+// talking to Ollama directly — including token-by-token streaming — so no
+// front-end logic changes, only the base URL + the X-PT-Token header.
+//
+// We expose ONLY the two endpoints the app uses (list models + chat), NOT the
+// full Ollama admin API (pull/delete/create), so an exposed URL can't be abused
+// to mutate models or hijack the GPU beyond a chat call.
+// =======================================================
+function ollamaUnreachable(err, res) {
+  const offline = err.code === 'ECONNREFUSED' || /ECONNREFUSED|ENOTFOUND|ETIMEDOUT/.test(err.message || '');
+  console.error('❌ Ollama passthrough error:', err.message);
+  return res.status(offline ? 503 : 500).json({
+    error: offline ? 'Local AI engine (Ollama) is not reachable from the bridge.' : (err.message || 'Ollama proxy error'),
+  });
+}
+
+// GET /api/tags — model list + reachability (OllamaProvider.health uses this)
+app.get('/api/tags', requireToken, async (req, res) => {
+  try {
+    const r = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 15000 });
+    return res.json(r.data);
+  } catch (err) {
+    return ollamaUnreachable(err, res);
+  }
+});
+
+// POST /api/chat — chat, streaming or one-shot. When the caller asks for a
+// stream (body.stream !== false), we pipe Ollama's NDJSON straight through so
+// the UI still renders tokens as they arrive.
+app.post('/api/chat', requireToken, async (req, res) => {
+  const body = req.body || {};
+  const wantStream = body.stream !== false; // Ollama defaults to streaming
+  try {
+    const upstream = await axios.post(`${OLLAMA_URL}/api/chat`, body, {
+      responseType: wantStream ? 'stream' : 'json',
+      timeout: 600000,
+    });
+    if (!wantStream) return res.json(upstream.data);
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    upstream.data.pipe(res);
+    upstream.data.on('error', (e) => { console.error('stream relay error:', e.message); try { res.end(); } catch { /* already closed */ } });
+    req.on('close', () => { try { upstream.data.destroy(); } catch { /* noop */ } }); // client bailed → stop pulling from Ollama
+  } catch (err) {
+    return ollamaUnreachable(err, res);
   }
 });
 

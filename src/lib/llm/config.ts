@@ -52,6 +52,14 @@ export const AI_ENGINES: { key: AiEngine; label: string }[] = [
  *  taaki Anthropic API key sirf server-side .env me rahe, browser me kabhi nahi. */
 export const BRIDGE_URL = (env.VITE_BRIDGE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
+/** 🔑 Shared secret sent as `X-PT-Token` when the AI engine is reached over the
+ *  public Cloudflare Tunnel (bridge PT_BRIDGE_TOKEN se match hona chahiye).
+ *  Local-only dev me khaali chhod dein — gate tab bypass ho jata hai.
+ *  NOTE: yeh browser bundle me embed hota hai, isliye yeh "casual/bot traffic"
+ *  block karne ke liye hai, secret vault nahi — asli auth ke liye Cloudflare
+ *  Access lagayen (CLOUDFLARE-TUNNEL-SETUP.md dekhein). */
+export const LLM_AUTH_TOKEN = env.VITE_LLM_AUTH_TOKEN || '';
+
 const ENV_MODEL = env.VITE_LLM_MODEL || 'gemma4:12b';
 const ENV_TEMP = num(env.VITE_LLM_TEMPERATURE, 0.4);
 

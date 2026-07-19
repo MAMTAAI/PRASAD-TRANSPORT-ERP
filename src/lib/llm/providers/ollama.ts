@@ -48,10 +48,21 @@ export class OllamaProvider implements LLMProvider {
   readonly name = 'ollama';
   private baseUrl: string;
   private timeoutMs: number;
+  private authToken: string;
 
-  constructor(baseUrl: string, timeoutMs: number) {
+  constructor(baseUrl: string, timeoutMs: number, authToken = '') {
     this.baseUrl = baseUrl;
     this.timeoutMs = timeoutMs;
+    this.authToken = authToken;
+  }
+
+  /** Common headers. `X-PT-Token` sirf tabhi lagta hai jab configure kiya ho
+   *  (tunnel path). Raw local Ollama ise ignore kar deta hai, to bhejna safe hai. */
+  private headers(json = false): Record<string, string> {
+    const h: Record<string, string> = {};
+    if (json) h['Content-Type'] = 'application/json';
+    if (this.authToken) h['X-PT-Token'] = this.authToken;
+    return h;
   }
 
   private withTimeout(signal?: AbortSignal): { signal: AbortSignal; clear: () => void } {
@@ -64,7 +75,7 @@ export class OllamaProvider implements LLMProvider {
   async health(): Promise<LLMHealth> {
     const base: LLMHealth = { online: false, baseUrl: this.baseUrl, models: [], primaryInstalled: false };
     try {
-      const res = await fetch(`${this.baseUrl}/api/tags`, { method: 'GET' });
+      const res = await fetch(`${this.baseUrl}/api/tags`, { method: 'GET', headers: this.headers() });
       if (!res.ok) return { ...base, error: `HTTP ${res.status}` };
       const data = await res.json();
       const models: string[] = (data.models || []).map((m: { name: string }) => m.name);
@@ -80,7 +91,7 @@ export class OllamaProvider implements LLMProvider {
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.headers(true),
         body: JSON.stringify(buildBody(messages, opts, false)),
         signal,
       });
@@ -108,7 +119,7 @@ export class OllamaProvider implements LLMProvider {
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.headers(true),
         body: JSON.stringify(buildBody(messages, opts, true)),
         signal,
       });

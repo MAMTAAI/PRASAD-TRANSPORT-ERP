@@ -6,7 +6,7 @@
 // • Auto-fallback: primary model -> lighter model on engine error.
 // • Clean "engine offline" signal so the UI can show a friendly message.
 
-import { LLM_CONFIG, BRIDGE_URL, getAiEngine } from './config';
+import { LLM_CONFIG, BRIDGE_URL, LLM_AUTH_TOKEN, getAiEngine } from './config';
 import { OllamaProvider } from './providers/ollama';
 import { ClaudeBridgeProvider } from './providers/claudeBridge';
 import type {
@@ -22,7 +22,7 @@ function makeProvider(): LLMProvider {
   switch (LLM_CONFIG.provider) {
     case 'ollama':
     default:
-      return new OllamaProvider(LLM_CONFIG.baseUrl, LLM_CONFIG.requestTimeoutMs);
+      return new OllamaProvider(LLM_CONFIG.baseUrl, LLM_CONFIG.requestTimeoutMs, LLM_AUTH_TOKEN);
   }
 }
 
@@ -30,7 +30,7 @@ function makeProvider(): LLMProvider {
 // Har call par engine selection padha jata hai — user dropdown se switch kare
 // to agla hi request naye engine par jata hai, reload ki zaroorat nahi.
 const localProvider = makeProvider();
-const cloudProvider = new ClaudeBridgeProvider(BRIDGE_URL, LLM_CONFIG.requestTimeoutMs);
+const cloudProvider = new ClaudeBridgeProvider(BRIDGE_URL, LLM_CONFIG.requestTimeoutMs, LLM_AUTH_TOKEN);
 const activeProvider = (): LLMProvider => getAiEngine() === 'cloud' ? cloudProvider : localProvider;
 
 function shouldFallback(err: unknown, opts: ChatOptions, primary: string): boolean {

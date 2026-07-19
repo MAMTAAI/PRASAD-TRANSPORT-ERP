@@ -10,11 +10,19 @@ import { LLMOfflineError, LLMError } from '../types';
 export class ClaudeBridgeProvider implements LLMProvider {
   readonly name = 'claude-bridge';
 
-  constructor(private baseUrl: string, private timeoutMs = 180000) {}
+  constructor(private baseUrl: string, private timeoutMs = 180000, private authToken = '') {}
+
+  /** Token header only when configured (tunnel path). Empty = local dev, gate off. */
+  private headers(json = false): Record<string, string> {
+    const h: Record<string, string> = {};
+    if (json) h['Content-Type'] = 'application/json';
+    if (this.authToken) h['X-PT-Token'] = this.authToken;
+    return h;
+  }
 
   async health(): Promise<LLMHealth> {
     try {
-      const r = await fetch(`${this.baseUrl}/api/ai/health`, { signal: AbortSignal.timeout(5000) });
+      const r = await fetch(`${this.baseUrl}/api/ai/health`, { headers: this.headers(), signal: AbortSignal.timeout(5000) });
       const data = await r.json();
       return {
         online: !!data.cloud_configured,
@@ -33,7 +41,7 @@ export class ClaudeBridgeProvider implements LLMProvider {
     try {
       r = await fetch(`${this.baseUrl}/api/ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.headers(true),
         signal: opts.signal ?? AbortSignal.timeout(this.timeoutMs),
         body: JSON.stringify({
           engine: 'cloud',
