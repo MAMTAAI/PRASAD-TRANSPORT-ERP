@@ -156,7 +156,7 @@ export default function FinancialReports() {
   let indirectIncomes = 0;
   let indirectExpenses = 0;
 
-  const dirExpBreakdown: any = { 'Fuel (Diesel/Petrol)': 0, 'Driver Bhatta/Salary': 0, 'Toll & Fastag': 0, 'Vehicle Compliance & RTO': 0, 'Other Direct Exp': 0 };
+  const dirExpBreakdown: any = { 'Fuel (Diesel/Petrol)': 0, 'Driver Bhatta/Salary': 0, 'Toll & Fastag': 0, 'Vehicle Compliance & RTO': 0, 'Tyres & Maintenance': 0, 'Other Direct Exp': 0 };
   const dirIncBreakdown: any = { 'Trip Freight Revenue': 0, 'Other Direct Incomes': 0 };
   const indExpBreakdown: any = { 'Office Rent & Utilities': 0, 'Staff Salary': 0, 'Misc Indirect Exp': 0 };
   const indIncBreakdown: any = { 'Discount Received': 0, 'Misc Indirect Inc': 0 };
@@ -216,14 +216,16 @@ export default function FinancialReports() {
            } else if (l.group === 'Indirect Incomes') {
               if (String(e.dr_cr).includes('Cr')) { indirectIncomes += amt; indIncBreakdown['Misc Indirect Inc'] += amt; } 
               else { indirectIncomes -= amt; indIncBreakdown['Misc Indirect Inc'] -= amt; }
-           } else if (l.group === 'Direct Expenses (Fuel, Toll, Driver Bhatta)' || l.group === 'Direct Expenses (Vehicle Compliance & Docs)') {
-              if (String(e.dr_cr).includes('Dr')) { 
-                  directExpenses += amt; 
+           } else if (l.group === 'Direct Expenses (Fuel, Toll, Driver Bhatta)' || l.group === 'Direct Expenses (Vehicle Compliance & Docs)' || l.group === 'Direct Expenses (Tyres & Maintenance)') {
+              if (String(e.dr_cr).includes('Dr')) {
+                  directExpenses += amt;
                   if(l.group.includes('Compliance')) dirExpBreakdown['Vehicle Compliance & RTO'] += amt;
+                  else if(l.group.includes('Tyres')) dirExpBreakdown['Tyres & Maintenance'] += amt;
                   else dirExpBreakdown['Other Direct Exp'] += amt;
-              } else { 
-                  directExpenses -= amt; 
+              } else {
+                  directExpenses -= amt;
                   if(l.group.includes('Compliance')) dirExpBreakdown['Vehicle Compliance & RTO'] -= amt;
+                  else if(l.group.includes('Tyres')) dirExpBreakdown['Tyres & Maintenance'] -= amt;
                   else dirExpBreakdown['Other Direct Exp'] -= amt;
               }
            } else if (l.group === 'Indirect Expenses (Office Rent, Salary)') {

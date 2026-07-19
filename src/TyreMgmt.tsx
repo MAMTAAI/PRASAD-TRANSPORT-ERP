@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
 
@@ -71,6 +71,23 @@ const getAxlePositions = (config: string) => {
   return [...basePositions, { id: 'GENERAL_REAR', label: 'General Rear Axle' }];
 };
 
+// 💰 P&L LINKAGE: scrapped/burst tyre ka poora accumulated cost (purchase +
+// resoles) is ledger me Dr hota hai — Company P&L me Direct Expenses ke andar
+// "Tyres & Maintenance" line ban kar dikhta hai (FinancialReports classifier).
+const TYRE_EXP_LEDGER_NAME = 'Tyre Consumption Expenses';
+const TYRE_EXP_GROUP = 'Direct Expenses (Tyres & Maintenance)';
+const ensureTyreExpenseLedger = async () => {
+  const snap = await getDocs(query(collection(db, 'LEDGERS'), where('ledger_name', '==', TYRE_EXP_LEDGER_NAME)));
+  if (!snap.empty) return snap.docs[0].id;
+  const ref = await addDoc(collection(db, 'LEDGERS'), {
+    name: TYRE_EXP_LEDGER_NAME, ledger_name: TYRE_EXP_LEDGER_NAME,
+    group: TYRE_EXP_GROUP, group_head: TYRE_EXP_GROUP,
+    op_balance: 0, company: 'ALL', branch: 'ALL', dr_cr: 'Dr (Debit)',
+    creation_type: 'AUTO_SYSTEM', linked_module: 'TYRE_EXPENSE', created_at: serverTimestamp(),
+  });
+  return ref.id;
+};
+
 export default function TyreMgmt() {
   const [activeTab, setActiveTab] = useState('INVENTORY');
   const [tyres, setTyres] = useState<any[]>([]);
@@ -104,6 +121,8 @@ export default function TyreMgmt() {
   const [dispatchSerialList, setDispatchSerialList] = useState<string[]>([]);
   const [resoleData, setResoleData] = useState({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled' });
   const [fitmentData, setFitmentData] = useState({ vehicle_no: '', tyre_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
+  // 🆕 Naye (stock me na milne wale) tyre ki procurement details — bina cost/vendor ke auto-add BLOCKED.
+  const [newTyreProc, setNewTyreProc] = useState({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28' });
   const [removeData, setRemoveData] = useState({ removal_km: '', removal_reason: 'SEND FOR RESOLE', removal_date: new Date().toISOString().split('T')[0] });
   const [newVendorData, setNewVendorData] = useState({ vendor_name: '', vendor_category: 'Tyre Shop / Factory', contact_person: '', mobile_no: '', gst_number: '', opening_balance: '0' });
 
@@ -210,6 +229,8 @@ export default function TyreMgmt() {
        alert("✅ Vendor & Ledger Created Successfully!");
        if (isTyreModalOpen) setPurchaseData({ ...purchaseData, vendor_name: newVendorData.vendor_name });
        if (isDispatchResoleModalOpen) setDispatchData({ ...dispatchData, vendor_name: newVendorData.vendor_name });
+       if (isFitmentModalOpen) setNewTyreProc({ ...newTyreProc, vendor_name: newVendorData.vendor_name });
+       if (isReceiveResoleModalOpen) setResoleData({ ...resoleData, vendor_name: newVendorData.vendor_name });
        setIsVendorModalOpen(false); setNewVendorData({ vendor_name: '', vendor_category: 'Tyre Shop / Factory', contact_person: '', mobile_no: '', gst_number: '', opening_balance: '0' }); fetchData();
     } catch(e) { alert("❌ Error adding vendor"); }
     setLoading(false);
@@ -258,20 +279,27 @@ Empty string / 0 if absent.`;
     if (!purchaseData.vendor_name) return alert("⚠️ Vendor Name is required!");
     setLoading(true);
     try {
+      // ⚛️ ATOMIC: saare tyres + Cash/Bank entry ek hi batch.commit me — aadha invoice kabhi save nahi hota.
+      const batch = writeBatch(db);
       let totalInvoiceValue = 0;
       for (const tyre of tyreList) {
           totalInvoiceValue += parseFloat(tyre.inv_amount);
-          await addDoc(collection(db, "TYRE_MASTER"), { 
-              serial_no: tyre.serial_no, brand: tyre.brand, type: tyre.type, 
+          batch.set(doc(collection(db, "TYRE_MASTER")), {
+              serial_no: tyre.serial_no, brand: tyre.brand, type: tyre.type,
               cost: parseFloat(tyre.inv_amount), base_cost: parseFloat(tyre.base_amount), gst_amount: parseFloat(tyre.gst_amount), gst_percent: tyre.gst_percent,
-              invoice_no: purchaseData.invoice_no, vendor: purchaseData.vendor_name, invoice_file_url: purchaseData.invoice_file_url, status: 'IN STOCK', total_km_run: 0, createdAt: serverTimestamp() 
+              invoice_no: purchaseData.invoice_no, vendor: purchaseData.vendor_name, invoice_file_url: purchaseData.invoice_file_url, status: 'IN STOCK', total_km_run: 0, createdAt: serverTimestamp()
           });
       }
-      if (purchaseData.vendor_name !== 'CASH PURCHASE') {
-          await addDoc(collection(db, "BANK_TRANSACTIONS"), {
-              date: purchaseData.invoice_date, type: 'Purchase (IN)', amount: totalInvoiceValue, party_name: purchaseData.vendor_name, ref_no: purchaseData.invoice_no, particulars: `Purchase of ${tyreList.length} Tyres (Brand: ${tyreList[0]?.brand}) | Inv: ${purchaseData.invoice_no}`, company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
-          });
-      }
+      // 🏦 Udhaar => vendor khata Purchase (IN); cash => Payment (OUT) — pehle
+      // cash purchase par KOI entry nahi banti thi (Cash Book me hole tha).
+      const isCashPur = purchaseData.vendor_name === 'CASH PURCHASE';
+      batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
+          date: purchaseData.invoice_date, type: isCashPur ? 'Payment (OUT)' : 'Purchase (IN)', amount: totalInvoiceValue,
+          party_name: isCashPur ? 'CASH' : purchaseData.vendor_name, ref_no: purchaseData.invoice_no,
+          particulars: `Purchase of ${tyreList.length} Tyres (Brand: ${tyreList[0]?.brand}) | Inv: ${purchaseData.invoice_no}`,
+          company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
+      });
+      await batch.commit();
       alert(`✅ Successfully Saved Invoice & Added ${tyreList.length} Tyres to Stock!\n(Total Amount: ₹${totalInvoiceValue.toLocaleString('en-IN')})`);
       setIsTyreModalOpen(false); setPurchaseData({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '' }); 
       setTyreList([]); setInvoiceFile(null); fetchData();
@@ -283,63 +311,113 @@ Empty string / 0 if absent.`;
       const cleanVNo = String(vNo || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
       const vObj = vehicles.find(v => String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVNo);
 
-      if(vObj) {
-          const currentKm = vObj.current_km || vObj.Current_KM || vObj.meter_reading || vObj.km_reading || '';
-          setFitmentData({...fitmentData, vehicle_no: vNo, position: '', fitting_km: currentKm}); 
-
-          const configMap = getAxlePositions(vObj.no_of_tyres || '10+1');
-          setAvailablePositions(configMap);
-          const fittedHere = fitments.filter(f => f.status === 'FITTED' && String(f.vehicle_no || f.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVNo);
-          setCurrentVehicleFitments(fittedHere);
-      } else {
-          setFitmentData({...fitmentData, vehicle_no: vNo, position: '', fitting_km: ''}); 
-          setAvailablePositions([]); setCurrentVehicleFitments([]);
-      }
+      const currentKm = vObj ? (vObj.current_km || vObj.Current_KM || vObj.meter_reading || vObj.km_reading || '') : '';
+      setFitmentData({...fitmentData, vehicle_no: vNo, position: '', fitting_km: currentKm});
+      // Vehicle master me na bhi mile to default 10+1 layout se position selection
+      // possible rahe — pehle positions hi nahi bante the aur fitment block ho jata tha.
+      setAvailablePositions(cleanVNo ? getAxlePositions(vObj ? (vObj.no_of_tyres || '10+1') : '10+1') : []);
+      const fittedHere = fitments.filter(f => f.status === 'FITTED' && String(f.vehicle_no || f.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVNo);
+      setCurrentVehicleFitments(cleanVNo ? fittedHere : []);
   };
 
   const handleFitTyre = async () => {
-    if (!fitmentData.vehicle_no || !fitmentData.tyre_serial || !fitmentData.position || !fitmentData.fitting_km) return alert("⚠️ Fill all fitment details!");
+    if (!fitmentData.vehicle_no || !fitmentData.tyre_serial || !fitmentData.fitting_km) return alert("⚠️ Fill all fitment details (Vehicle, Tyre Serial, Fitting KM)!");
+    if (!fitmentData.position) return alert("⚠️ Tyre Position chunna zaroori hai — truck map par green slot click karein ya Position dropdown se select karein!");
     const alreadyFitted = currentVehicleFitments.find(f => f.position === fitmentData.position);
     if(alreadyFitted) return alert(`❌ Error: Tyre (${alreadyFitted.tyre_serial}) is already fitted on [${fitmentData.position}]! Please remove it first.`);
+    const cleanSerial = fitmentData.tyre_serial.toUpperCase().trim();
+    const tyre = tyres.find(t => String(t.serial_no || '').toUpperCase() === cleanSerial);
+    // 🛡️ PROCUREMENT GUARD: naya tyre bina Purchase Cost + Vendor ke inventory me
+    // NAHI ghusega — cost 0 wale ghost tyres P&L ko galat karte the.
+    if (!tyre) {
+      if (!parseFloat(newTyreProc.cost) || parseFloat(newTyreProc.cost) <= 0) return alert(`🆕 NEW TYRE DETECTED (${cleanSerial}):\n\n⚠️ Purchase Cost (₹) bharna zaroori hai — bina cost ke tyre accounting/P&L me nahi aa sakta!`);
+      if (!newTyreProc.vendor_name) return alert(`🆕 NEW TYRE DETECTED (${cleanSerial}):\n\n⚠️ Vendor/Ledger chunna zaroori hai (ya 💵 CASH PURCHASE select karein)!`);
+    } else if (tyre.status === 'FITTED') {
+      return alert(`❌ Error: Tyre ${cleanSerial} is already fitted on another vehicle!`);
+    } else if (tyre.status === 'SCRAPPED') {
+      return alert(`❌ Error: Tyre ${cleanSerial} is SCRAPPED — scrap tyre dobara fit nahi ho sakta!`);
+    }
     try {
       setLoading(true);
-      const cleanSerial = fitmentData.tyre_serial.toUpperCase().trim();
-      const tyre = tyres.find(t => t.serial_no.toUpperCase() === cleanSerial);
-      let tyreIdToUpdate = null;
-
+      // ⚛️ ATOMIC LIFECYCLE WRITE: tyre status flip + fitment record (+ naye tyre
+      // ki purchase accounting) — sab ek hi batch.commit me, aadha data kabhi nahi.
+      const batch = writeBatch(db);
+      const fitKm = parseFloat(fitmentData.fitting_km) || 0;
       if (!tyre) {
-          const newTyreRef = await addDoc(collection(db, "TYRE_MASTER"), { serial_no: cleanSerial, brand: 'UNKNOWN', type: 'NEW', cost: 0, status: 'FITTED', total_km_run: 0, createdAt: serverTimestamp() });
-          tyreIdToUpdate = newTyreRef.id;
+          const cost = parseFloat(newTyreProc.cost);
+          const gstPct = parseFloat(newTyreProc.gst_percent) || 0;
+          const baseAmt = cost / (1 + (gstPct / 100));
+          const autoRef = `AUTO-FIT-${cleanSerial}`;
+          const tyreRef = doc(collection(db, "TYRE_MASTER"));
+          batch.set(tyreRef, {
+              serial_no: cleanSerial, brand: (newTyreProc.brand || 'UNKNOWN').toUpperCase(), type: newTyreProc.type,
+              cost, base_cost: Math.round(baseAmt * 100) / 100, gst_amount: Math.round((cost - baseAmt) * 100) / 100, gst_percent: newTyreProc.gst_percent,
+              vendor: newTyreProc.vendor_name, invoice_no: autoRef,
+              status: 'FITTED', total_km_run: 0, createdAt: serverTimestamp(),
+          });
+          // 🏦 Cash & Bank Book: cash purchase => Payment (OUT); udhaar => vendor khata Purchase (IN).
+          const isCash = newTyreProc.vendor_name === 'CASH PURCHASE';
+          batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
+              date: fitmentData.fitment_date, type: isCash ? 'Payment (OUT)' : 'Purchase (IN)', amount: cost,
+              party_name: isCash ? 'CASH' : newTyreProc.vendor_name, ref_no: autoRef,
+              particulars: `Tyre ${cleanSerial} purchase (auto-added during fitment on ${fitmentData.vehicle_no})`,
+              company: 'PRASAD TRANSPORT', createdAt: serverTimestamp(),
+          });
       } else {
-          if (tyre.status === 'FITTED') { setLoading(false); return alert(`❌ Error: Tyre ${cleanSerial} is already fitted on another vehicle!`); }
-          tyreIdToUpdate = tyre.id; await updateDoc(doc(db, "TYRE_MASTER", tyreIdToUpdate), { status: 'FITTED' });
+          batch.update(doc(db, "TYRE_MASTER", tyre.id), { status: 'FITTED' });
       }
-      await addDoc(collection(db, "TYRE_FITMENTS"), { ...fitmentData, tyre_serial: cleanSerial, status: 'FITTED', createdAt: serverTimestamp() });
-      alert("✅ Tyre Fitted Successfully!");
+      batch.set(doc(collection(db, "TYRE_FITMENTS")), { ...fitmentData, tyre_serial: cleanSerial, fitting_km: fitKm, status: 'FITTED', createdAt: serverTimestamp() });
+      await batch.commit();
+      alert(!tyre
+        ? `✅ Tyre Fitted!\n\n🆕 New tyre ${cleanSerial} inventory me add hua @ ₹${parseFloat(newTyreProc.cost).toLocaleString('en-IN')}\n🏦 Accounting entry posted (${newTyreProc.vendor_name}).`
+        : "✅ Tyre Fitted Successfully!");
       setIsFitmentModalOpen(false); setFitmentData({ vehicle_no: '', tyre_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
+      setNewTyreProc({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28' });
       setAvailablePositions([]); setCurrentVehicleFitments([]); fetchData();
-    } catch (e) { alert("❌ Error fitting tyre."); setLoading(false); }
+    } catch (e) { console.error(e); alert("❌ Error fitting tyre."); setLoading(false); }
   };
 
   const handleRemoveTyre = async () => {
     if (!removeData.removal_km) return alert("⚠️ Enter Removal KM!");
+    const fittingKm = parseFloat(selectedFitment.fitting_km || 0); const removalKm = parseFloat(removeData.removal_km || 0);
+    if (removalKm <= fittingKm) return alert(`❌ Invalid Entry: Removal KM (${removalKm}) must be strictly greater than Fitting KM (${fittingKm})!`);
+    const kmRunThisTime = removalKm - fittingKm;
+    const tyre = tyres.find(t => t.serial_no === selectedFitment.tyre_serial);
+    if (!tyre) return alert("❌ Tyre Master record missing!");
     try {
-      const fittingKm = parseFloat(selectedFitment.fitting_km || 0); const removalKm = parseFloat(removeData.removal_km || 0);
-      if (removalKm <= fittingKm) return alert(`❌ Invalid Entry: Removal KM (${removalKm}) must be strictly greater than Fitting KM (${fittingKm})!`);
-      const kmRunThisTime = removalKm - fittingKm;
-      const tyre = tyres.find(t => t.serial_no === selectedFitment.tyre_serial);
-      if (!tyre) return alert("❌ Tyre Master record missing!");
-      
+      setLoading(true);
       const newTotalKm = (parseFloat(tyre.total_km_run) || 0) + kmRunThisTime;
-      const newTyreStatus = removeData.removal_reason === 'SCRAP/AUCTION' ? 'SCRAPPED' : removeData.removal_reason === 'SEND FOR RESOLE' ? 'SENT FOR RESOLE' : 'IN STOCK';
-      
-      await updateDoc(doc(db, "TYRE_FITMENTS", selectedFitment.id), { ...removeData, status: 'REMOVED', km_yield: kmRunThisTime });
-      await updateDoc(doc(db, "TYRE_MASTER", tyre.id), { status: newTyreStatus, total_km_run: newTotalKm });
-      
-      alert(`✅ Tyre Removed Successfully!\n\nIt ran for ${kmRunThisTime} KMs during this fitment.`);
+      // BURST bhi SCRAPPED hai — dono me tyre ki zindagi khatam, cost P&L me jaati hai.
+      const isConsumed = removeData.removal_reason === 'SCRAP/AUCTION' || removeData.removal_reason === 'BURST';
+      const newTyreStatus = isConsumed ? 'SCRAPPED' : removeData.removal_reason === 'SEND FOR RESOLE' ? 'SENT FOR RESOLE' : 'IN STOCK';
+
+      // 💸 Consumed tyre => poora accumulated cost (purchase + resoles) Direct
+      // Expense. Ledger id batch se pehle resolve hota hai; entry batch me jaati hai.
+      const consumedCost = parseFloat(tyre.cost || 0);
+      const expLedgerId = (isConsumed && consumedCost > 0) ? await ensureTyreExpenseLedger() : null;
+
+      // ⚛️ ATOMIC: fitment close + tyre status + expense entry — ek hi batch.commit.
+      const batch = writeBatch(db);
+      batch.update(doc(db, "TYRE_FITMENTS", selectedFitment.id), { ...removeData, removal_km: removalKm, status: 'REMOVED', km_yield: kmRunThisTime });
+      batch.update(doc(db, "TYRE_MASTER", tyre.id), { status: newTyreStatus, total_km_run: newTotalKm, ...(isConsumed ? { scrapped_on: removeData.removal_date, scrap_reason: removeData.removal_reason } : {}) });
+      if (expLedgerId) {
+          const vehNo = selectedFitment.vehicle_no || selectedFitment.vehical_no || '';
+          const cleanVeh = String(vehNo).replace(/[^A-Z0-9]/ig, '').toUpperCase();
+          const vObj = vehicles.find(v => String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVeh);
+          batch.set(doc(collection(db, "LEDGER_ENTRIES")), {
+              ledgerId: expLedgerId, date: removeData.removal_date,
+              particulars: `Tyre ${tyre.serial_no} consumed (${removeData.removal_reason}) — Vehicle ${vehNo} | Total Life: ${newTotalKm.toLocaleString('en-IN')} KM`,
+              dr_cr: 'Dr (Debit)', amount: consumedCost,
+              company: vObj?.company_name || vObj?.Company_Name || 'ALL', branch: vObj?.branch_name || vObj?.branch || 'ALL',
+              source: 'AUTO_TYRE_SCRAP', linked_tyre_id: tyre.id, created_at: serverTimestamp(),
+          });
+      }
+      await batch.commit();
+
+      alert(`✅ Tyre Removed Successfully!\n\n📏 KM Yield this fitment: ${kmRunThisTime.toLocaleString('en-IN')} KM${expLedgerId ? `\n💸 ₹${consumedCost.toLocaleString('en-IN')} posted to P&L — Direct Expenses ➜ ${TYRE_EXP_LEDGER_NAME}.` : ''}`);
       setIsRemoveModalOpen(false); setRemoveData({ removal_km: '', removal_reason: 'SEND FOR RESOLE', removal_date: new Date().toISOString().split('T')[0] });
       setSelectedFitment(null); fetchData();
-    } catch (e) { alert("❌ Error removing tyre."); }
+    } catch (e) { console.error(e); alert("❌ Error removing tyre."); setLoading(false); }
   };
 
   const handleAddDispatchSerial = () => {
@@ -373,13 +451,21 @@ Empty string / 0 if absent.`;
       if (!resoleData.cost || !resoleData.invoice_no) return alert("⚠️ Resole Cost and Invoice No are required!");
       setLoading(true);
       try {
-          const resoleCost = parseFloat(resoleData.cost); const oldCost = parseFloat(selectedResoleTyre.cost || 0); const newTotalCost = oldCost + resoleCost; 
-          const factoryVendor = selectedResoleTyre.dispatch_vendor || 'UNKNOWN FACTORY';
-          await updateDoc(doc(db, "TYRE_MASTER", selectedResoleTyre.id), { status: 'RESOLED', type: 'RESOLED', cost: newTotalCost, last_resole_date: resoleData.invoice_date, last_resole_vendor: factoryVendor, dispatch_vendor: '', dispatch_challan: '' });
+          const resoleCost = parseFloat(resoleData.cost); const oldCost = parseFloat(selectedResoleTyre.cost || 0); const newTotalCost = oldCost + resoleCost;
+          // Modal me chuna vendor priority par — pehle yeh field ignore hota tha.
+          const factoryVendor = resoleData.vendor_name || selectedResoleTyre.dispatch_vendor || 'UNKNOWN FACTORY';
           const gstPct = parseFloat(resoleData.gst_percent) || 0;
-          if (factoryVendor !== 'CASH PURCHASE') {
-              await addDoc(collection(db, "BANK_TRANSACTIONS"), { date: resoleData.invoice_date, type: 'Purchase (IN)', amount: resoleCost, party_name: factoryVendor, ref_no: resoleData.invoice_no, particulars: `Resole Charges for Serial: ${selectedResoleTyre.serial_no} | GST: ${gstPct}%`, company: 'PRASAD TRANSPORT', createdAt: serverTimestamp() });
-          }
+          // ⚛️ ATOMIC: tyre wapas stock + Cash/Bank entry ek saath.
+          const batch = writeBatch(db);
+          batch.update(doc(db, "TYRE_MASTER", selectedResoleTyre.id), { status: 'RESOLED', type: 'RESOLED', cost: newTotalCost, last_resole_date: resoleData.invoice_date, last_resole_vendor: factoryVendor, dispatch_vendor: '', dispatch_challan: '' });
+          const isCashResole = factoryVendor === 'CASH PURCHASE';
+          batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
+              date: resoleData.invoice_date, type: isCashResole ? 'Payment (OUT)' : 'Purchase (IN)', amount: resoleCost,
+              party_name: isCashResole ? 'CASH' : factoryVendor, ref_no: resoleData.invoice_no,
+              particulars: `Resole Charges for Serial: ${selectedResoleTyre.serial_no} | GST: ${gstPct}%`,
+              company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
+          });
+          await batch.commit();
           alert("✅ Tyre received from Factory, Added to Stock & Accounts Updated!");
           setIsReceiveResoleModalOpen(false); setSelectedResoleTyre(null);
           setResoleData({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled' }); fetchData();
@@ -388,6 +474,9 @@ Empty string / 0 if absent.`;
   };
 
   const availableTyres = tyres.filter(t => t.status === 'IN STOCK' || t.status === 'RESOLED');
+  // 🆕 Typed serial master me kahin nahi hai => naya tyre => procurement fields dikhao.
+  const cleanFitSerial = String(fitmentData.tyre_serial || '').trim().toUpperCase();
+  const isNewTyreSerial = !!cleanFitSerial && !tyres.find(t => String(t.serial_no || '').toUpperCase() === cleanFitSerial);
   const activeFitments = fitments.filter(f => f.status === 'FITTED');
   const fitmentHistory = fitments.filter(f => f.status === 'REMOVED');
   const resoleTyres = tyres.filter(t => t.status === 'SENT FOR RESOLE' || t.status === 'AT FACTORY'); 
@@ -1112,7 +1201,25 @@ Empty string / 0 if absent.`;
                    )}
                 </div>
               )}
-              
+
+              {availablePositions.length > 0 && (
+                <div>
+                  <label style={{ fontSize:'12px', color:'#f59e0b', fontWeight:'bold' }}>2b. Tyre Position (Dropdown) * — map ki jagah yahan se bhi chun sakte hain</label>
+                  <select
+                    className="modern-input"
+                    style={{ border: '1px solid #f59e0b', fontWeight: 'bold' }}
+                    value={fitmentData.position}
+                    onChange={e => setFitmentData({ ...fitmentData, position: e.target.value })}
+                  >
+                    <option value="">-- Select Tyre Position * --</option>
+                    {availablePositions.map(p => {
+                      const occupied = currentVehicleFitments.find(f => f.position === p.label);
+                      return <option key={p.id} value={p.label} disabled={!!occupied}>{p.label}{occupied ? ` — ⛔ FITTED: ${occupied.tyre_serial}` : ''}</option>;
+                    })}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>3. Enter / Select Tyre No *</label>
                 <input 
@@ -1127,9 +1234,55 @@ Empty string / 0 if absent.`;
                   {availableTyres.map(t => <option key={t.id} value={t.serial_no}>{t.serial_no} ({t.type})</option>)}
                 </datalist>
                 <small style={{color: '#94a3b8', fontSize: '10px', marginTop: '5px', display: 'block'}}>
-                   💡 If tyre is not in stock, typing a new number will Auto-Add it to inventory.
+                   💡 Naya number type karne par niche Purchase Cost & Vendor bharna hoga — bina cost ke tyre add nahi hoga (P&L accuracy).
                 </small>
               </div>
+
+              {/* 🆕 NEW TYRE => MANDATORY PROCUREMENT (cost 0 wale ghost tyres ab possible nahi) */}
+              {isNewTyreSerial && (
+                <div style={{ padding: '18px', background: 'rgba(16,185,129,0.05)', border: '1px dashed #10b981', borderRadius: '10px' }}>
+                  <p style={{ margin: '0 0 12px 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold' }}>
+                    🆕 NEW TYRE DETECTED: <span style={{color:'#fff'}}>{cleanFitSerial}</span> stock me nahi hai — procurement details bharein (P&L ke liye mandatory)
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>Purchase Cost (Total ₹) *</label>
+                      <input type="number" className="modern-input" style={{ border: '1px solid #10b981', color: '#10b981', fontWeight: 'bold' }} placeholder="e.g. 18500" value={newTyreProc.cost} onChange={e => setNewTyreProc({ ...newTyreProc, cost: e.target.value })} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>Vendor / Ledger *</label>
+                        <span onClick={() => setIsVendorModalOpen(true)} style={{ fontSize:'11px', color:'#10b981', cursor: 'pointer', fontWeight: 'bold' }}>+ New Vendor</span>
+                      </div>
+                      <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={newTyreProc.vendor_name} onChange={e => setNewTyreProc({ ...newTyreProc, vendor_name: e.target.value })}>
+                        <option value="">-- Choose Vendor * --</option>
+                        <option value="CASH PURCHASE">💵 CASH PURCHASE (No Ledger)</option>
+                        {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Brand / Make</label>
+                      <input className="modern-input" placeholder="e.g. MRF" value={newTyreProc.brand} onChange={e => setNewTyreProc({ ...newTyreProc, brand: e.target.value.toUpperCase() })} />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Type</label>
+                        <select className="modern-input" value={newTyreProc.type} onChange={e => setNewTyreProc({ ...newTyreProc, type: e.target.value })}>
+                          <option value="NEW">Brand New</option>
+                          <option value="RESOLED">Resoled</option>
+                          <option value="SECOND_HAND">Old / 2nd Hand</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>GST %</label>
+                        <select className="modern-input" value={newTyreProc.gst_percent} onChange={e => setNewTyreProc({ ...newTyreProc, gst_percent: e.target.value })}>
+                          <option value="28">28%</option><option value="18">18%</option><option value="0">0%</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                 <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Fitment Date</label><input type="date" className="modern-input" value={fitmentData.fitment_date} onChange={e=>setFitmentData({...fitmentData, fitment_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
@@ -1172,6 +1325,7 @@ Empty string / 0 if absent.`;
                     <option value="SEND FOR RESOLE">♻️ Send for Resoling</option>
                     <option value="PUNCTURE/REPAIR">🛠️ Puncture / Repair</option>
                     <option value="SCRAP/AUCTION">🗑️ Damaged / Scrap</option>
+                    <option value="BURST">🔥 Tyre Burst (Scrap + P&L Expense)</option>
                   </select>
                 </div>
 

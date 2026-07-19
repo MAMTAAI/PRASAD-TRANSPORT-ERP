@@ -59,7 +59,7 @@ export default function LedgerMgmt() {
 
   const accountGroups = [
     "Capital Account", "Current Assets", "Current Liabilities",
-    "Direct Expenses (Fuel, Toll, Driver Bhatta)", "Direct Expenses (Vehicle Compliance & Docs)",
+    "Direct Expenses (Fuel, Toll, Driver Bhatta)", "Direct Expenses (Vehicle Compliance & Docs)", "Direct Expenses (Tyres & Maintenance)",
     "Direct Incomes (Freight/Trip Revenue)", "Fixed Assets (Trucks, Office)", 
     "Indirect Expenses (Office Rent, Salary)", "Indirect Incomes", 
     "Loans (Liability)", "Suspense A/c", "Sundry Debtors (Customers)", "Sundry Creditors (Vendors)"
