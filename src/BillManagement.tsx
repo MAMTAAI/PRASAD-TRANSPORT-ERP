@@ -10,6 +10,7 @@ import {
   submitRetroExpense,
 } from './lib/postTripEngine';
 import { getField, toISODate } from './lib/accounting/tripMath';
+import { tripFreightMeta, computeFreight, BILLING_TYPES } from './lib/freightEngine';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
 
@@ -223,31 +224,57 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       // completed-unbilled trips pipeline se GAYAB thin, sirf 1 dikhti thi.
       // Ab: poora TRIPS read + lenient filter (MonthlyBilling jaisa) —
       // "BILLED nahi hai" = unbilled, missing field bhi included.
-      const snap = await getDocs(collection(db, "TRIPS"));
+      // 💰 + SMART FREIGHT ENGINE: Route & RTKM master se billing formula,
+      // RTKM aur trip ki LOADING DATE wala quarterly rate auto-attach hota
+      // hai — admin ko sirf rate select/confirm karna hota hai.
+      const [snap, rSnap] = await Promise.all([
+        getDocs(collection(db, "TRIPS")),
+        getDocs(collection(db, "RTKM_MASTER")).catch(() => ({ docs: [] })),
+      ]);
+      const routesArr = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       let tripsData = snap.docs.filter(d => (d.data().billing_status || '') !== 'BILLED').map(d => {
         const t = d.data();
-        
-        // 🧮 AUTO-CALCULATION ENGINE FOR BILLING — qty default 0 (1 nahi):
-        // post-trip workflow me qty challan ke baad bharta hai; 0 = red highlight.
+
+        const loadDate = String(t.loading_date || t.Loading_Date || t.start_date || t.date || '').slice(0, 10);
+        const meta = tripFreightMeta(routesArr, { id: d.id, ...t }, loadDate);
+        const route = meta ? routesArr.find(r => r.id === meta.route_id) : null;
+        const bt = meta?.billing_type || 'PER_KL';
+
+        // 🧮 AUTO-CALCULATION — qty default 0 (challan se bharna hai);
+        // rate: trip ka apna > route ka quarterly (loading-date wise) > 0.
         const qty = parseFloat(t.qty || t.weight || t.quantity || 0);
-        const rate = parseFloat(t.rate || t.freight_rate || 0);
-        const gross = parseFloat(t.gross_freight || t.Gross_Freight || (qty * rate)) || 0;
+        const tripRate = parseFloat(t.rate || t.freight_rate || 0);
+        const rate = tripRate > 0 ? tripRate : (meta?.rate || 0);
+        const formulaGross = computeFreight(bt, { qty, rate, rtkm: meta?.rtkm || 0, capacityKl: meta?.capacityKl || 0 });
+        const gross = parseFloat(t.gross_freight || t.Gross_Freight || 0) || formulaGross;
         const penalty = parseFloat(t.shortage_amt || t.Shortage_Amt || t.shortage || 0);
-        
+
         // 📉 TDS @ 2% Auto-Calculation
-        const tds = parseFloat((gross * 0.02).toFixed(2)); 
+        const tds = parseFloat((gross * 0.02).toFixed(2));
         const net = gross - penalty - tds;
 
-        return { 
-          id: d.id, 
+        // Rate SELECTION options: route ki saari quarterly rates + legacy rate.
+        const rateOptions = [...new Set([
+          ...(Array.isArray(route?.rate_history) ? route.rate_history.map(x => Number(x.rate_value) || 0) : []),
+          parseFloat(route?.Rate_Per_Unit || route?.rate_per_unit || 0) || 0,
+        ].filter(v => v > 0))];
+
+        return {
+          id: d.id,
           ...t,
           calc_qty: qty,
           calc_rate: rate,
           calc_gross: gross,
           calc_penalty: penalty,
           calc_tds: tds,
-          calc_net: net
+          calc_net: net,
+          calc_bt: bt,
+          calc_rtkm: meta?.rtkm || 0,
+          calc_capacity: meta?.capacityKl || 0,
+          calc_rate_source: tripRate > 0 ? 'trip' : (meta && meta.rate > 0 ? meta.rate_source : 'none'),
+          calc_rate_options: rateOptions,
+          calc_route_label: route ? `${route.Depot_Link || route.depot_link || ''} ➔ ${route.Consignee_Name || route.consignee_name || ''}`.trim() : '',
         };
       });
 
@@ -276,7 +303,8 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
     setUnbilledTrips(prev => prev.map(t => {
       if (t.id !== tripId) return t;
       const nt = { ...t, [field === 'qty' ? 'calc_qty' : 'calc_rate']: parseFloat(value) || 0 };
-      const gross = Math.round(nt.calc_qty * nt.calc_rate * 100) / 100;
+      // 💰 Gross = route ke billing formula se (IOCL: Qty × RTKM × Rate bhi) — sirf qty×rate nahi.
+      const gross = computeFreight(nt.calc_bt || 'PER_KL', { qty: nt.calc_qty, rate: nt.calc_rate, rtkm: nt.calc_rtkm || 0, capacityKl: nt.calc_capacity || 0 });
       const tds = parseFloat((gross * 0.02).toFixed(2));
       return { ...nt, calc_gross: gross, calc_tds: tds, calc_net: gross - nt.calc_penalty - tds };
     }));
@@ -810,7 +838,12 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                               <b style={{ color: '#fff', fontSize: '16px' }}>{on ? '☑️ ' : ''}{t.vehicle_no || t.Vehical_No || t.vehical_no}</b>
                               <b style={{ color: '#10b981', fontSize: '17px' }}>₹{t.calc_net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</b>
                             </div>
-                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '8px' }}>{t.trip_id || t.Trip_ID} · Un: {t.unloading_date || t.Unloading_Date || '-'}</div>
+                            <div style={{ fontSize: '11px', color: '#94a3b8', marginBottom: '4px' }}>{t.trip_id || t.Trip_ID} · Un: {t.unloading_date || t.Unloading_Date || '-'}</div>
+                            {(t.calc_route_label || t.calc_rtkm > 0) && (
+                              <div style={{ fontSize: '10px', color: '#38bdf8', marginBottom: '8px' }}>
+                                {t.calc_route_label}{t.calc_rtkm > 0 && <b style={{ color: '#f59e0b' }}> · 📏 {t.calc_rtkm} km</b>}
+                              </div>
+                            )}
                             {/* ✏️ Inline qty × rate (tap card ko select nahi karta) — blur = TRIPS me save */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }} onClick={e => e.stopPropagation()}>
                               <input type="number" inputMode="decimal" value={t.calc_qty} placeholder="Qty KL"
@@ -820,6 +853,14 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                               <input type="number" inputMode="decimal" value={t.calc_rate} placeholder="Rate ₹"
                                 onChange={e => editTripQtyRate(t.id, 'rate', e.target.value)} onBlur={() => persistTripQtyRate(t)}
                                 style={{ width: '85px', minHeight: '40px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: '8px', color: '#fff', padding: '8px', fontSize: '13px' }} />
+                              {(t.calc_rate_options || []).length > 0 && (
+                                <select value="" title="Saved rates"
+                                  onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(t.calc_bt || 'PER_KL', { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
+                                  style={{ minHeight: '40px', width: '34px', background: 'rgba(192,132,252,0.15)', border: '1px solid #c084fc', borderRadius: '8px', color: '#c084fc', fontSize: '13px' }}>
+                                  <option value="">▾</option>
+                                  {t.calc_rate_options.map((rv, i) => <option key={i} value={rv}>₹{rv}</option>)}
+                                </select>
+                              )}
                               <span style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold' }}>= ₹{t.calc_gross.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
                             </div>
                             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -884,7 +925,16 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                               {t.trip_id || t.Trip_ID} <br/> <span style={{color:'#f59e0b'}}>{t.lr_no || t.lr_number || ''}</span>
                               {t.draft_invoice && <><br/><span style={{ fontSize: '9px', fontWeight: 'bold', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '8px', padding: '1px 6px' }}>🧾 AUTO-DRAFT</span></>}
                             </td>
-                            <td style={{ fontWeight: '900', color: '#fff', fontSize: '14px' }}>{t.vehicle_no || t.Vehical_No || t.vehical_no} <br/><span style={{fontSize:'10px', color:'#94a3b8', fontWeight:'normal'}}>{t.driver_name || t.Driver_Name || ''}</span></td>
+                            <td style={{ fontWeight: '900', color: '#fff', fontSize: '14px' }}>{t.vehicle_no || t.Vehical_No || t.vehical_no} <br/><span style={{fontSize:'10px', color:'#94a3b8', fontWeight:'normal'}}>{t.driver_name || t.Driver_Name || ''}</span>
+                              {/* 📏 Route master se From ➔ To + RTKM (Smart Freight) */}
+                              {(t.calc_route_label || (t.loading_point || t.consignee_name)) && (
+                                <div style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'normal', maxWidth: '260px', whiteSpace: 'normal' }}>
+                                  {t.calc_route_label || `${t.loading_point || t.Loading_Point || ''} ➔ ${t.consignee_name || t.Consignee_Name || ''}`}
+                                  {t.calc_rtkm > 0 && <b style={{ color: '#f59e0b' }}> · 📏 {t.calc_rtkm} km</b>}
+                                  {t.calc_bt && t.calc_bt !== 'PER_KL' && <b style={{ color: '#c084fc' }}> · ⚙ {BILLING_TYPES.find(b => b.key === t.calc_bt)?.label}</b>}
+                                </div>
+                              )}
+                            </td>
                             <td style={{ fontSize: '12px' }}>
                               {/* ✏️ Inline qty × rate — 0 = laal border (challan se bharna baaki); blur = TRIPS me save */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -892,9 +942,18 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                                   onChange={e => editTripQtyRate(t.id, 'qty', e.target.value)} onBlur={() => persistTripQtyRate(t)}
                                   style={{ width: '70px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_qty > 0 ? '#334155' : '#ef4444'}`, borderRadius: '6px', color: '#fff', padding: '6px', fontSize: '12px' }} />
                                 <span style={{ color: '#64748b' }}>×</span>
-                                <input type="number" inputMode="decimal" value={t.calc_rate} title="Freight Rate (₹/KL)"
+                                <input type="number" inputMode="decimal" value={t.calc_rate} title="Freight Rate"
                                   onChange={e => editTripQtyRate(t.id, 'rate', e.target.value)} onBlur={() => persistTripQtyRate(t)}
                                   style={{ width: '75px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: '6px', color: '#fff', padding: '6px', fontSize: '12px' }} />
+                                {/* 🎯 RATE SELECTION: route master ki quarterly rates — choose karo, calc + save auto */}
+                                {(t.calc_rate_options || []).length > 0 && (
+                                  <select title="Route master ki saved rates me se chunein" value=""
+                                    onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(t.calc_bt || 'PER_KL', { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
+                                    style={{ width: '26px', background: 'rgba(192,132,252,0.15)', border: '1px solid #c084fc', borderRadius: '6px', color: '#c084fc', padding: '5px 2px', fontSize: '11px', cursor: 'pointer' }}>
+                                    <option value="">▾</option>
+                                    {t.calc_rate_options.map((rv, i) => <option key={i} value={rv}>₹{rv}</option>)}
+                                  </select>
+                                )}
                               </div>
                             </td>
                             <td style={{ color: '#38bdf8', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>

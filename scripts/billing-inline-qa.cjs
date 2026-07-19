@@ -21,7 +21,7 @@ const OUT = path.join(__dirname, '..', 'mobile-shots');
   await page.waitForTimeout(4000);
 
   const qtyInputs = await page.locator('input[title="Billed Qty (KL) — challan se"]').count();
-  const rateInputs = await page.locator('input[title="Freight Rate (₹/KL)"]').count();
+  const rateInputs = await page.locator('input[title^="Freight Rate"]').count();
   await page.screenshot({ path: path.join(OUT, 'billing-inline-qty-rate.png'), fullPage: false });
   console.log(`pending-rows qty-inputs: ${qtyInputs}, rate-inputs: ${rateInputs} ${qtyInputs > 0 && qtyInputs === rateInputs ? '=> OK' : '=> CHECK (0 rows? filter?)'}`);
   console.log(`console-errors: ${errors.length}`);

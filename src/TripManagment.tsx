@@ -565,6 +565,19 @@ export default function TripManagment() {
     return hit;
   };
 
+  // 📏 Trip ka RTKM: pehle trip ki apni value, warna Route & RTKM master se
+  // (consignee match). Live Tracking + History dono me route ke saath dikhta hai.
+  const tripRtkm = (t: any) => {
+    const own = parseFloat(t.rtkm || t.RTKM || 0) || 0;
+    if (own > 0) return own;
+    const r = findRoute(t.consignee_name || t.Consignee_Name);
+    return parseFloat(r?.RTKM_Distance || r?.rtkm_distance || 0) || 0;
+  };
+  const RtkmBadge = ({ t }: any) => {
+    const km = tripRtkm(t);
+    return km > 0 ? <span style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '11px' }}> · 📏 {km} km</span> : null;
+  };
+
   // 🔥 FILTER LOGIC FOR TRIPS — memoized; recomputes only when trips or the
   // (debounced) filters change, not on every keystroke/modal state change.
   const activeTrips = useMemo(() => trips.filter(t => t.trip_status !== 'COMPLETED').filter(t => {
@@ -960,7 +973,7 @@ export default function TripManagment() {
                 </div>
                 <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold', margin: '3px 0' }}>{t.trip_id || t.Trip_ID}</div>
                 <div style={{ fontSize: '13px', color: '#cbd5e1', margin: '4px 0 10px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
+                  {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                 </div>
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '10px' }}>
                   <TripMeter label="⛽ HSD" used={hsdIssued} target={hTarget} unit="L" color="#10b981" />
@@ -1018,7 +1031,7 @@ export default function TripManagment() {
                      <span style={{fontSize:'11px', color:'#38bdf8', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span>
                      {(() => { const p = tripStatusPill(t.trip_status); return <span className={`pt-pill ${p.cls}`} style={{marginLeft:'8px'}}>{p.label}</span>; })()}
                      <br/>
-                     {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
+                     {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                   </td>
                   <td style={{...styles.td, color: '#10b981'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
                   <td style={{...styles.td, color: '#f59e0b'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>
@@ -1046,7 +1059,7 @@ export default function TripManagment() {
                 <span style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>{t.trip_id || t.Trip_ID}</span>
               </div>
               <div style={{ fontSize: '12px', color: '#cbd5e1', margin: '6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}
+                {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
               </div>
               <div style={{ fontSize: '11px', color: '#94a3b8' }}>Ld: {t.start_date || t.Loading_Date || '-'} · Un: {t.unloading_date || '-'} · {t.driver_name || t.Driver_Name || '—'}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', gap: '8px' }}>
@@ -1094,7 +1107,7 @@ export default function TripManagment() {
                   </td>
                   <td style={styles.td}>
                     <span style={{fontSize:'11px', color:'#f59e0b', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span> | <span style={{fontSize:'11px', color:'#cbd5e1'}}>Ch: {t.challan_no || t.Challan_No || '-'}</span><br/>
-                    {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<br/>
+                    {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} /><br/>
                     <span style={{fontSize:'10px', color:'#10b981', fontWeight:'bold'}}>{t.Operating_Company || t.operating_company || 'PRASAD TRANSPORT'}</span> | <span style={{fontSize:'10px', color:'#94a3b8'}}>{t.customer_name || t.Customer || t.Registered_Assessee || ''}</span>
                   </td>
                   <td style={styles.td}>
