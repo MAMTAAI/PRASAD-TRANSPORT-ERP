@@ -28,6 +28,7 @@ export default function Customer() {
     opening_balance: '0', total_freight: '0', total_shortage: '0', total_tds: '0', total_received: '0', current_outstanding: '0',
     credit_limit: '0', payment_terms: '30 Days', account_manager: '',
     billing_cycle: '30_days', // '15_days' (Oil Cos, fortnightly) | '30_days' (regular monthly)
+    detention_applicable: false, // ⏱️ oil companies: NO; AADHAR-style monthly clients: YES
     portal_access: false,
     portal_features: { live_tracking: true, ledger_invoices: true, place_orders: false, download_pods: true },
     locations: [], consignees: [] 
@@ -415,6 +416,13 @@ export default function Customer() {
                   <select className="modern-input" style={{ borderColor: '#c084fc' }} value={formData.billing_cycle || '30_days'} onChange={e=>setFormData({...formData, billing_cycle: e.target.value})}>
                     <option value="30_days">30 Days — Monthly (Regular)</option>
                     <option value="15_days">15 Days — Fortnightly (Oil Companies)</option>
+                  </select>
+                </div>
+                <div><label style={{ fontSize:'11px', color:'#f59e0b', fontWeight:'bold' }}>⏱️ Detention Billing</label>
+                  {/* Har company ka bill style alag: oil-company Transportation Bills me detention NAHI hota; AADHAR jaise clients ke monthly bills me hota hai */}
+                  <select className="modern-input" style={{ borderColor: '#f59e0b' }} value={formData.detention_applicable === true ? 'YES' : 'NO'} onChange={e=>setFormData({...formData, detention_applicable: e.target.value === 'YES'})}>
+                    <option value="NO">Not Applicable (Oil Companies)</option>
+                    <option value="YES">Applicable (AADHAR-style bills)</option>
                   </select>
                 </div>
                 <div><label style={{ fontSize:'11px', color:'#38bdf8' }}>Key Account Manager</label><input className="modern-input" placeholder="Admin/Staff Name" value={formData.account_manager} onChange={e=>setFormData({...formData, account_manager: e.target.value})} /></div>

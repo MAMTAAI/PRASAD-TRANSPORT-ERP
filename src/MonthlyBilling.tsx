@@ -145,6 +145,17 @@ export default function MonthlyBilling() {
     const rec = customers.find(c => String(c.customer_name || '').toLowerCase() === cust.toLowerCase());
     return rec?.billing_cycle === '15_days' ? '15_days' : rec?.billing_cycle === '30_days' ? '30_days' : '';
   }, [customers, cust]);
+
+  // ⏱️ DETENTION — har company ka bill style alag: oil companies (IOCL/BPCL/
+  // HPCL) ke Transportation Bills me detention hota hi nahi; ye sirf AADHAR
+  // jaise industrial clients ke monthly bills me lagta hai. Customer master ka
+  // `detention_applicable` flag decide karta hai (legacy unset => AADHAR-only).
+  const detentionApplicable = useMemo(() => {
+    const rec = customers.find(c => String(c.customer_name || '').toLowerCase() === cust.toLowerCase());
+    if (rec?.detention_applicable === true) return true;
+    if (rec?.detention_applicable === false) return false;
+    return /AADHAR/i.test(cust); // legacy fallback: sirf AADHAR
+  }, [customers, cust]);
   // Smart default: 15-day customer → 1st Half auto-selected; 30-day → full month.
   useEffect(() => {
     if (custCycle === '15_days') setPeriod(p => p === 'FULL' ? 'H1' : p);
@@ -331,7 +342,7 @@ export default function MonthlyBilling() {
   });
   const totalQty = round2(fRows.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0));
   const freightTotal = round2(fRows.reduce((s, r) => s + tripFreightOf(r), 0));
-  const dRows = visDetRows.filter(r => r.include && r.days > 0);
+  const dRows = detentionApplicable ? visDetRows.filter(r => r.include && r.days > 0) : [];
   const totalDetDays = dRows.reduce((s, r) => s + r.days, 0);
   const detTotal = round2(totalDetDays * (parseFloat(detRate) || 0));
   const taxable = round2(freightTotal + detTotal);
@@ -772,7 +783,13 @@ export default function MonthlyBilling() {
             </div>
           </div>
 
-          {/* Detention rows */}
+          {/* Detention rows — sirf detention-applicable customers (AADHAR-style bills) */}
+          {!detentionApplicable && (
+            <div style={{ ...S.card, borderStyle: 'dashed', opacity: 0.8 }} className="pt-anim-up">
+              <span style={{ color: '#64748b', fontSize: '12px' }}>⏱️ Detention: <b>{cust}</b> par lagoo NAHI (oil-company Transportation Bill format me detention nahi hota). Zaroorat ho to Customer Master me "Detention Billing" ON karein.</span>
+            </div>
+          )}
+          {detentionApplicable && (
           <div style={S.card} className="pt-anim-up">
             <b style={{ color: '#f59e0b' }}>⏱️ Detention — {dRows.length} chargeable · rule: reporting + {freeDays} free days, days inclusive</b>
             <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 8px' }}>Reporting = driver ka 🏭 plant stamp (fallback loading+1). Start/End/Days sab editable.</p>
@@ -795,15 +812,16 @@ export default function MonthlyBilling() {
               </table>
             </div>
           </div>
+          )}
 
           {/* Invoice numbers + actions */}
           <div style={S.card} className="pt-anim-up">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '12px', marginBottom: '14px' }}>
               <div><label style={S.label}>Freight Invoice No ({co.name})</label><input style={S.input} value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} /></div>
-              <div><label style={S.label}>Detention Invoice No</label><input style={S.input} value={detInvoiceNo} onChange={e => setDetInvoiceNo(e.target.value)} /></div>
+              {detentionApplicable && <div><label style={S.label}>Detention Invoice No</label><input style={S.input} value={detInvoiceNo} onChange={e => setDetInvoiceNo(e.target.value)} /></div>}
             </div>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <button onClick={printInvoices} style={{ ...S.btn('#8b5cf6', false), flex: isMobile ? 1 : 'none' }}>🖨️ Preview PDF — Tax Invoice + Detention + Annexure</button>
+              <button onClick={printInvoices} style={{ ...S.btn('#8b5cf6', false), flex: isMobile ? 1 : 'none' }}>🖨️ Preview PDF — {detentionApplicable ? 'Tax Invoice + Detention + Annexure' : 'Tax Invoice (Transportation Bill)'}</button>
               <button onClick={saveAndPost} disabled={saving} style={{ ...S.btn('#10b981', saving), flex: isMobile ? 1 : 'none' }}>{saving ? '⌛ Saving…' : '💾 Save & Mark as Billed (+ Journal)'}</button>
             </div>
           </div>
@@ -835,7 +853,7 @@ export default function MonthlyBilling() {
             <div style={{ display: 'flex', gap: 'clamp(8px, 2vw, 22px)', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 900 }}>🏢 {co.name}</div>
               <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>FREIGHT ({totalQty} KL)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#10b981' }}>₹{inr(freightTotal)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>DETENTION ({totalDetDays}d)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{inr(detTotal)}</div></div>
+              {detentionApplicable && <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>DETENTION ({totalDetDays}d)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{inr(detTotal)}</div></div>}
               <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>CGST+SGST 5% <span style={{ color: '#64748b' }}>(RCM)</span></div><div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>₹{inr(cgst)} + ₹{inr(sgst)}</div></div>
               <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>SUB TOTAL</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#cbd5e1' }}>₹{inr(grandWithGst)}</div></div>
               <div><div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>DEDUCTIONS (TDS+Short+Adv)</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#ef4444' }}>− ₹{inr(totalDeductions)}</div></div>
