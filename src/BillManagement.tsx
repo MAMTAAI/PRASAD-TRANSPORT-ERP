@@ -10,7 +10,7 @@ import {
   submitRetroExpense,
 } from './lib/postTripEngine';
 import { getField, toISODate } from './lib/accounting/tripMath';
-import { tripFreightMeta, computeFreight, BILLING_TYPES } from './lib/freightEngine';
+import { tripFreightMeta, computeFreight, effectiveBillingType, BILLING_TYPES } from './lib/freightEngine';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
 
@@ -247,7 +247,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         const qty = parseFloat(t.qty || t.weight || t.quantity || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0);
         const tripRate = parseFloat(t.rate || t.freight_rate || 0);
         const rate = tripRate > 0 ? tripRate : (meta?.rate || 0);
-        const formulaGross = computeFreight(bt, { qty, rate, rtkm: meta?.rtkm || 0, capacityKl: meta?.capacityKl || 0 });
+        const formulaGross = computeFreight(effectiveBillingType(bt, rate, meta?.rtkm || 0), { qty, rate, rtkm: meta?.rtkm || 0, capacityKl: meta?.capacityKl || 0 });
         const gross = parseFloat(t.gross_freight || t.Gross_Freight || 0) || formulaGross;
         const penalty = parseFloat(t.shortage_amt || t.Shortage_Amt || t.shortage || 0);
 
@@ -305,7 +305,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       if (t.id !== tripId) return t;
       const nt = { ...t, [field === 'qty' ? 'calc_qty' : 'calc_rate']: parseFloat(value) || 0 };
       // 💰 Gross = route ke billing formula se (IOCL: Qty × RTKM × Rate bhi) — sirf qty×rate nahi.
-      const gross = computeFreight(nt.calc_bt || 'PER_KL', { qty: nt.calc_qty, rate: nt.calc_rate, rtkm: nt.calc_rtkm || 0, capacityKl: nt.calc_capacity || 0 });
+      const gross = computeFreight(effectiveBillingType(nt.calc_bt, nt.calc_rate, nt.calc_rtkm || 0), { qty: nt.calc_qty, rate: nt.calc_rate, rtkm: nt.calc_rtkm || 0, capacityKl: nt.calc_capacity || 0 });
       const tds = parseFloat((gross * 0.02).toFixed(2));
       return { ...nt, calc_gross: gross, calc_tds: tds, calc_net: gross - nt.calc_penalty - tds };
     }));
@@ -923,7 +923,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                                 style={{ width: '85px', minHeight: '40px', background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: '8px', color: '#fff', padding: '8px', fontSize: '13px' }} />
                               {(t.calc_rate_options || []).length > 0 && (
                                 <select value="" title="Saved rates"
-                                  onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(t.calc_bt || 'PER_KL', { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
+                                  onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(effectiveBillingType(t.calc_bt, parseFloat(e.target.value) || 0, t.calc_rtkm || 0), { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
                                   style={{ minHeight: '40px', width: '34px', background: 'rgba(192,132,252,0.15)', border: '1px solid #c084fc', borderRadius: '8px', color: '#c084fc', fontSize: '13px' }}>
                                   <option value="">▾</option>
                                   {t.calc_rate_options.map((rv, i) => <option key={i} value={rv}>₹{rv}</option>)}
@@ -1036,7 +1036,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                                 {/* 🎯 RATE SELECTION: route master ki quarterly rates — choose karo, calc + save auto */}
                                 {(t.calc_rate_options || []).length > 0 && (
                                   <select title="Route master ki saved rates me se chunein" value=""
-                                    onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(t.calc_bt || 'PER_KL', { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
+                                    onChange={e => { if (e.target.value) { editTripQtyRate(t.id, 'rate', e.target.value); persistTripQtyRate({ ...t, calc_rate: parseFloat(e.target.value) || 0, calc_gross: computeFreight(effectiveBillingType(t.calc_bt, parseFloat(e.target.value) || 0, t.calc_rtkm || 0), { qty: t.calc_qty, rate: parseFloat(e.target.value) || 0, rtkm: t.calc_rtkm || 0, capacityKl: t.calc_capacity || 0 }) }); } }}
                                     style={{ width: '26px', background: 'rgba(192,132,252,0.15)', border: '1px solid #c084fc', borderRadius: '6px', color: '#c084fc', padding: '5px 2px', fontSize: '11px', cursor: 'pointer' }}>
                                     <option value="">▾</option>
                                     {t.calc_rate_options.map((rv, i) => <option key={i} value={rv}>₹{rv}</option>)}

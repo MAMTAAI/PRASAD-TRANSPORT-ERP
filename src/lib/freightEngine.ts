@@ -46,6 +46,17 @@ export function resolveRate(route: any, dateISO: string): { rate: number; source
   return { rate: 0, source: 'none' };
 }
 
+/** 🧠 SAFETY NET (owner-reported bug 2026-07-19): route ka RTKM to mila par
+ *  master me Billing_Type set nahi tha => row PER_KL rehi aur 40 × 3.4324 =
+ *  ₹137 ban gaya (hona tha 618.3 × 40 × 3.4324). Rule: rate ≤ ₹25 aur RTKM
+ *  maujood = ye TONNE-KM rate hai (IOCL 3.43 jaisa) — koi asli per-KL freight
+ *  rate ₹25 se kam nahi hota. Aise case me formula khud RTKM_QTY ho jata hai. */
+export const effectiveBillingType = (bt: any, rate: number, rtkm: number): BillingType => {
+  const t = ((bt || 'PER_KL') as BillingType);
+  if (t === 'PER_KL' && Number(rtkm) > 0 && Number(rate) > 0 && Number(rate) <= 25) return 'RTKM_QTY';
+  return t;
+};
+
 /** Formula engine — arithmetic hamesha code me, kabhi AI/user assumptions me nahi. */
 export function computeFreight(bt: BillingType | string, p: { qty?: number; rate?: number; rtkm?: number; capacityKl?: number }): number {
   const qty = Number(p.qty) || 0, rate = Number(p.rate) || 0, rtkm = Number(p.rtkm) || 0, cap = Number(p.capacityKl) || 0;

@@ -52,5 +52,12 @@ check('exact route match', F.findRouteForTrip(routes, trip)?.id, 'r1');
 check('inactive route skipped', F.findRouteForTrip(routes, { customer_name: 'BPCL', consignee_name: 'MISSAMARI AFS' }), null);
 check('no consignee = no match', F.findRouteForTrip(routes, { customer_name: 'IOCL' }), null);
 
+// ── effectiveBillingType safety net (owner-reported: 40 × 3.4324 = ₹137 bug) ──
+check('rtkm+small rate => RTKM_QTY', F.effectiveBillingType('PER_KL', 3.4324, 618.3), 'RTKM_QTY');
+check('owner case: 618.3 × 40 × 3.4324', F.computeFreight(F.effectiveBillingType('PER_KL', 3.4324, 618.3), { qty: 40, rate: 3.4324, rtkm: 618.3 }), 84890.12);
+check('normal per-KL rate untouched', F.effectiveBillingType('PER_KL', 1500, 618.3), 'PER_KL');
+check('no rtkm => per-KL stays', F.effectiveBillingType('PER_KL', 3.43, 0), 'PER_KL');
+check('explicit FIXED never overridden', F.effectiveBillingType('FIXED', 3.43, 618.3), 'FIXED');
+
 console.log(`\n${pass}/${pass + fail} checks passed`);
 process.exit(fail ? 1 : 0);

@@ -20,7 +20,7 @@ import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
-import { tripFreightMeta, computeFreight, BILLING_TYPES } from './lib/freightEngine';
+import { tripFreightMeta, computeFreight, effectiveBillingType, BILLING_TYPES } from './lib/freightEngine';
 import { useIsMobile } from './hooks/useIsMobile';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -337,7 +337,10 @@ export default function MonthlyBilling() {
   // 💰 SMART FREIGHT: har row apne billing formula se compute hoti hai —
   // PER_KL: Qty×Rate · RTKM_QTY (IOCL): Qty×RTKM×Rate · RTKM_CAPACITY:
   // RTKM×Cap×Rate · FIXED: flat. Rate inline-editable rehta hai.
-  const tripFreightOf = (r) => computeFreight(r.billing_type || 'PER_KL', {
+  // effectiveBillingType: RTKM ho aur rate chota (≤₹25 = tonne-km) ho to
+  // formula apne aap RTKM×Qty×Rate — master me Billing_Type bhoole to bhi sahi.
+  const rowBt = (r) => effectiveBillingType(r.billing_type, parseFloat(r.rate) || 0, parseFloat(r.rtkm) || 0);
+  const tripFreightOf = (r) => computeFreight(rowBt(r), {
     qty: parseFloat(r.qty) || 0, rate: parseFloat(r.rate) || 0,
     rtkm: parseFloat(r.rtkm) || 0, capacityKl: parseFloat(r.capacityKl) || 0,
   });
@@ -779,10 +782,10 @@ export default function MonthlyBilling() {
                     <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
                     <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>
                       ₹{inr(tripFreightOf(r))}
-                      {(r.billing_type && r.billing_type !== 'PER_KL') && (
-                        <span title={`${BILLING_TYPES.find(b => b.key === r.billing_type)?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}${r.rate_source === 'history' ? ' · quarterly rate (route master)' : ''}`}
+                      {rowBt(r) !== 'PER_KL' && (
+                        <span title={`${BILLING_TYPES.find(b => b.key === rowBt(r))?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}${r.rate_source === 'history' ? ' · quarterly rate (route master)' : ''}`}
                           style={{ display: 'block', fontSize: '9px', color: '#c084fc', fontWeight: 'bold' }}>
-                          ⚙ {BILLING_TYPES.find(b => b.key === r.billing_type)?.label || r.billing_type}{r.rate_source === 'history' ? ' ·Q' : ''}
+                          ⚙ {BILLING_TYPES.find(b => b.key === rowBt(r))?.label || rowBt(r)}{r.rate_source === 'history' ? ' ·Q' : ''}
                         </span>
                       )}
                     </td>
