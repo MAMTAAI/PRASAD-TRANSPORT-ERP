@@ -81,6 +81,8 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
       if (itemId === 'BILLING') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
+      if (itemId === 'CUST_LEDGER') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
+      if (itemId === 'CA_PNL') return checkView('Finance Hub');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
       if (itemId === 'VENDOR') return checkView('Vendor Master');
       return false;
@@ -119,7 +121,9 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'DASHBOARD', label: 'Finance Hub', icon: '💰' },
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
+        { id: 'CUST_LEDGER', label: 'Customer Khata (Live)', icon: '🧾' },
         { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
+        { id: 'CA_PNL', label: 'Company P&L (Live)', icon: '📈' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
         { id: 'EXPENSE_APPROVALS', label: 'Pending Expenses', icon: '⏳' },
         { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
