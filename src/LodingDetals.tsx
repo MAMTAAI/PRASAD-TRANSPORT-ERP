@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, Timestamp, query, orderBy, limit, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractLoadingSlip } from './lib/aiScanner';
+import { parseDocDate } from './lib/postTripEngine';
 import { speak } from './lib/voice/tts';
 
 export default function LodingDetals() {
@@ -143,18 +144,10 @@ export default function LodingDetals() {
       speak(text); // 🔊 100% LOCAL voice (browser on-device TTS) — no cloud.
   };
 
-  const formatForDatePicker = (dateStr: string) => {
-    if (!dateStr) return "";
-    try {
-      const parts = dateStr.match(/\d+/g);
-      if (parts && parts.length >= 3) {
-        const d = parts[0], m = parts[1], y = parts[2];
-        if (y.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-        if (d.length === 4) return `${d}-${m.padStart(2, '0')}-${y.padStart(2, '0')}`;
-      }
-      return dateStr;
-    } catch (e) { return ""; }
-  };
+  // 📅 Hardened AI-date parsing (shared engine): handles DD-MM-YYYY, DD/MM/YY,
+  // DD.MM.YYYY (IOCL SAP), YYYY-MM-DD and day/month swaps — returns '' instead
+  // of feeding an invalid string into the date picker.
+  const formatForDatePicker = (dateStr: string) => parseDocDate(dateStr);
 
   const getVehicleDetails = (vNo: string) => {
     let dName = '';

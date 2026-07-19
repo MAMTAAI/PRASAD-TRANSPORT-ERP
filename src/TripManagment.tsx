@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
+import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
 
@@ -524,18 +525,30 @@ export default function TripManagment() {
       const finalBal = round2(gross - expenses - penalty);
 
       const completionStamp = new Date().toISOString();
+      const unloadDate = unloadData.unloading_date || completionStamp.split('T')[0];
+      const shortageQty = parseFloat(unloadData.shortage_qty || '0') || 0;
+      // 🧾 Auto-draft invoice for the Pending Billing dashboard (client format math)
+      const draft = buildDraftInvoice(activeTrip, { unloaded_qty: unloadData.unloaded_qty, shortage_qty: shortageQty, penalty_amount: penalty });
       await updateDoc(doc(db, "TRIPS", activeTrip.id), {
         ...unloadData,
         trip_status: 'COMPLETED',
         final_balance: finalBal,
         total_advances: advances,
+        // Party-side deduction mirrors the driver penalty on the client bill
+        shortage_amt: penalty, Shortage_Amt: penalty,
+        draft_invoice: draft,
+        ...((activeTrip.billing_status || '') === 'BILLED' ? {} : { billing_status: 'PENDING' }),
         // Unify the two completion doors (TripManagment vs UnlodingDetals):
         // both now stamp approval + completed_at so registers/filters agree.
         office_approved_unloading: true,
         completed_at: completionStamp,
-        unloading_date: unloadData.unloading_date || completionStamp.split('T')[0]
+        unloading_date: unloadDate
       });
-      alert(`✅ Trip Completed!\n\n💰 Settlement (Freight − Kharcha − Penalty): ₹${finalBal.toLocaleString('en-IN')}\n🤝 Driver advances outstanding (khata se vasooli): ₹${advances.toLocaleString('en-IN')}`);
+      // ⚖️ Auto-Shortage Recovery: idempotent debit to the driver's khata + journal
+      const debited = penalty > 0
+        ? await postShortageRecovery(activeTrip, { shortage_qty: shortageQty, penalty_amount: penalty, date: unloadDate }).catch(() => false)
+        : false;
+      alert(`✅ Trip Completed!\n\n💰 Settlement (Freight − Kharcha − Penalty): ₹${finalBal.toLocaleString('en-IN')}\n🤝 Driver advances outstanding (khata se vasooli): ₹${advances.toLocaleString('en-IN')}${debited ? `\n💸 Shortage penalty ₹${penalty.toLocaleString('en-IN')} driver khata mein auto-debit ho gaya.` : ''}\n🧾 Draft invoice ready — Bill Management → Pending Billing.`);
       setShowUnloadModal(false);
       fetchData();
     } catch(e) { alert("Error completing trip"); }

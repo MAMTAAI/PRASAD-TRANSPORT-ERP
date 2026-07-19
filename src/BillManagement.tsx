@@ -1,39 +1,86 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, where, Timestamp, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
 import { postEntry } from './lib/accounting/journal';
 import { logAudit } from './lib/audit';
+import {
+  matchTripForBill, classifyExpenseType, parseDocDate, fetchTripsForMatching,
+  submitRetroExpense,
+} from './lib/postTripEngine';
+import { getField, toISODate } from './lib/accounting/tripMath';
 
 export default function BillManagement() {
   const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS');
-  // 📄 Scan a purchase/vendor/pump bill locally (Gemma vision) → record + journal.
+  // 📄 Scan a purchase/vendor/pump bill locally (Gemma vision) → auto-map to the
+  // right trip_id: active trip → journal + trip P&L directly; COMPLETED trip →
+  // Pending Expenses queue (admin approval, retro-adjust). No match → general.
   const [scanningBill, setScanningBill] = useState(false);
   const [scannedBill, setScannedBill] = useState<any>(null);
 
   const handleScanPurchaseBill = async (e: any) => {
     const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = '';
     setScanningBill(true); setScannedBill(null);
     try {
-      const prompt = `Extract from this purchase/vendor/pump bill and reply ONLY JSON:
-{ "vendor_name": "", "bill_no": "", "bill_date": "DD-MM-YYYY", "total_amount": 0, "gst_amount": 0, "description": "" }
-Empty string / 0 if absent.`;
+      const prompt = `Extract from this purchase/vendor/fuel-pump/toll bill and reply ONLY JSON:
+{ "vendor_name": "", "bill_no": "", "bill_date": "DD-MM-YYYY", "vehicle_no": "", "total_amount": 0, "gst_amount": 0, "description": "" }
+vehicle_no: Indian plate printed on the bill (e.g. AS26C5102), else "". Empty string / 0 if absent.`;
       const ai = await extractJsonFromImage(file, prompt);
       const amount = Number(String(ai.total_amount).replace(/[^0-9.]/g, '')) || 0;
       const billNo = ai.bill_no || `PB-${Date.now().toString().slice(-6)}`;
+      const billDate = parseDocDate(ai.bill_date);
       if (amount <= 0) { alert('⚠️ Bill amount nahi mila — saaf photo/PDF se try karein.'); setScanningBill(false); return; }
-      setScannedBill({ ...ai, bill_no: billNo, total_amount: amount });
+
+      // 🎯 Trip mapping: bill vehicle + date → the specific trip_id
+      let match: any = { trip: null, confidence: 'NONE', candidates: [] };
+      if (ai.vehicle_no) {
+        try { match = matchTripForBill(await fetchTripsForMatching(), ai.vehicle_no, billDate); } catch { /* matching optional */ }
+      }
+      const trip = match.trip;
+      const tripId = trip ? String(getField(trip, ['trip_id', 'Trip_ID']) || trip.id) : '';
+      const tripStatus = trip ? String(getField(trip, ['trip_status', 'Trip_Status']) || '') : '';
+      const etype = classifyExpenseType(`${ai.vendor_name} ${ai.description}`);
+      setScannedBill({ ...ai, bill_no: billNo, total_amount: amount, matched_trip: tripId, trip_status: tripStatus });
+
       // ADD-ONLY purchase bill record (idempotent doc id by bill_no — no duplicate).
       await setDoc(doc(db, 'PURCHASE_BILLS', String(billNo).replace(/[^A-Za-z0-9_-]/g, '_')), {
-        vendor_name: ai.vendor_name || '', bill_no: billNo, bill_date: ai.bill_date || '',
+        vendor_name: ai.vendor_name || '', bill_no: billNo, bill_date: billDate || ai.bill_date || '',
+        vehicle_no: ai.vehicle_no || '', trip_id: tripId, trip_match: match.confidence,
         total_amount: amount, gst_amount: Number(ai.gst_amount) || 0, description: ai.description || '',
         source: 'ai_scan', updated_at: serverTimestamp(),
       });
-      // Journal: Dr Purchases/Expense, Cr Vendor (idempotent by bill_no).
-      await postEntry({ source_type: 'PURCHASE_BILL', source_ref: String(billNo), date: ai.bill_date || '', narration: `Purchase bill ${billNo} — ${ai.vendor_name || ''}`, lines: [ { ledger: 'Purchases / Expense', dr_cr: 'Dr', amount }, { ledger: `Creditors: ${ai.vendor_name || 'Unknown Vendor'}`, dr_cr: 'Cr', amount } ] }).catch(() => {});
-      logAudit({ action: 'PURCHASE_BILL_SCAN', target: billNo, details: `${ai.vendor_name || ''} ₹${amount}` });
-      alert(`✅ Bill scan ho gaya (local Gemma): ${ai.vendor_name || ''} ₹${amount} — record + journal updated.`);
+
+      if (trip && tripStatus === 'COMPLETED') {
+        // 🔒 Closed trip: never touch settled books directly — route to the
+        // Pending Expenses queue; journal posts only on ADMIN approval.
+        await submitRetroExpense({
+          expense_type: etype, vendor_name: ai.vendor_name || '', bill_no: billNo,
+          bill_date: billDate, amount, gst_amount: Number(ai.gst_amount) || 0,
+          description: ai.description || '', source: 'ai_scan',
+          entered_by: JSON.parse(localStorage.getItem('prasad_user') || '{}')?.name || 'scan',
+          match_confidence: match.confidence,
+        }, trip);
+        logAudit({ action: 'PURCHASE_BILL_SCAN', target: billNo, details: `→ EXPENSE_APPROVALS (closed trip ${tripId}) ₹${amount}` });
+        alert(`🎯 Bill Trip ${tripId} (${ai.vehicle_no}) se match hui — trip CLOSED hai.\n\n⏳ Pending Expenses queue mein bheja: Admin approval ke baad trip P&L retro-adjust hoga.`);
+      } else {
+        // Active trip (or no match): post journal now; tag the trip when known.
+        const ledger = etype === 'FUEL' ? 'Diesel / Fuel Expense' : etype === 'TOLL' ? 'Toll & Fastag Expense' : 'Purchases / Expense';
+        await postEntry({
+          source_type: 'PURCHASE_BILL', source_ref: String(billNo), date: billDate || ai.bill_date || '',
+          narration: `Purchase bill ${billNo} — ${ai.vendor_name || ''}${tripId ? ` [Trip ${tripId}]` : ''}`,
+          lines: [
+            { ledger, dr_cr: 'Dr', amount },
+            { ledger: `Creditors: ${ai.vendor_name || 'Unknown Vendor'}`, dr_cr: 'Cr', amount },
+          ],
+        }).catch(() => {});
+        if (trip) await updateDoc(doc(db, 'TRIPS', trip.id), { total_expense: increment(amount) }).catch(() => {});
+        logAudit({ action: 'PURCHASE_BILL_SCAN', target: billNo, details: `${ai.vendor_name || ''} ₹${amount}${tripId ? ` → trip ${tripId}` : ''}` });
+        alert(trip
+          ? `✅ Bill scan + 🎯 Trip ${tripId} (active) se map ho gayi: ₹${amount} trip kharcha + journal updated.${match.confidence === 'AMBIGUOUS' ? '\n⚠️ Ek se zyada trips possible the — Pending Expenses se verify kar sakte hain.' : ''}`
+          : `✅ Bill scan ho gayi: ${ai.vendor_name || ''} ₹${amount} — general journal updated (koi trip match nahi mili).`);
+      }
     } catch (err: any) {
       const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
       alert(offline ? '❌ Local AI engine (Ollama) band hai.' : '❌ Bill padhi nahi gayi.');
@@ -44,8 +91,67 @@ Empty string / 0 if absent.`;
   const [unbilledTrips, setUnbilledTrips] = useState<any[]>([]);
   const [generatedBills, setGeneratedBills] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   const [selectedTripsForBill, setSelectedTripsForBill] = useState<string[]>([]);
+  // 🧾 2-STEP BILLING: step 1 = select trips, step 2 = preview in client format → confirm
+  const [showPreview, setShowPreview] = useState(false);
+  // 📄 Company-PDF reconciliation (oil company's finalized bill → trip-wise match)
+  const [reconciling, setReconciling] = useState(false);
+
+  // 📄 COMPANY PDF RECONCILIATION: upload the oil company's finalized bill —
+  // AI extracts the trip rows, maps each row trip-wise (vehicle + date), and
+  // marks those trips' billing as RECONCILED. Payment stays "PENDING PAYMENT"
+  // until money actually hits the bank (settle modal = manual override).
+  const handleReconcileCompanyPdf = async (e: any) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    e.target.value = '';
+    setReconciling(true);
+    try {
+      const prompt = `This is a transporter freight bill / payment advice from an Indian oil company (IOCL/HPCL/BPCL). Extract every trip row and reply ONLY JSON:
+{ "bill_no": "", "bill_date": "DD-MM-YYYY", "rows": [ { "vehicle_no": "", "date": "DD-MM-YYYY", "lr_no": "", "amount": 0 } ] }
+vehicle_no: Indian plate, uppercase, no spaces. date: the trip/loading date on that row. Empty string / 0 if absent.`;
+      const ai = await extractJsonFromImage(file, prompt);
+      const rows = Array.isArray(ai.rows) ? ai.rows : [];
+      if (!rows.length) { alert('⚠️ PDF se trip rows nahi mili — saaf PDF se try karein ya manual reconcile use karein.'); setReconciling(false); return; }
+      const allTrips = await fetchTripsForMatching();
+      let matched = 0, already = 0;
+      const missed: any[] = [];
+      for (const r of rows) {
+        const m = matchTripForBill(allTrips, r.vehicle_no, parseDocDate(r.date), 3);
+        if (m.trip) {
+          if (m.trip.bill_reconciled) { already++; continue; }
+          await updateDoc(doc(db, 'TRIPS', m.trip.id), {
+            bill_reconciled: true,
+            reconciled_bill_no: ai.bill_no || '',
+            reconciled_at: new Date().toISOString(),
+            reconciled_amount: Number(r.amount) || 0,
+          });
+          m.trip.bill_reconciled = true;
+          matched++;
+        } else missed.push(r.vehicle_no || '?');
+      }
+      logAudit({ action: 'COMPANY_PDF_RECONCILE', target: ai.bill_no || file.name, details: `${matched} trips reconciled, ${missed.length} unmatched` });
+      alert(`📄 Company Bill Reconciliation (${ai.bill_no || 'PDF'}):\n\n✅ ${matched} trips trip-wise match hokar RECONCILED mark ho gaye${already ? `\n↺ ${already} pehle se reconciled the` : ''}${missed.length ? `\n⚠️ ${missed.length} rows match nahi hui (${[...new Set(missed)].slice(0, 5).join(', ')}) — Generated Invoices se manual reconcile karein.` : ''}\n\n💰 Payment abhi bhi PENDING PAYMENT rahega jab tak bank mein receipt settle na ho.`);
+      fetchUnbilledTrips(); fetchGeneratedBills();
+    } catch (err: any) {
+      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
+      alert(offline ? '❌ Local AI engine (Ollama) band hai.' : '❌ PDF padhi nahi gayi — manual reconcile available hai.');
+    }
+    setReconciling(false);
+  };
+
+  // ✔ MANUAL OVERRIDE (2-step: button → confirm): mark a whole invoice reconciled
+  const handleManualReconcile = async (bill: any) => {
+    if (!window.confirm(`✔ Invoice ${bill.bill_no} ko RECONCILED mark karein?\n\n(Company ki finalized bill se cross-check ho chuki hai — payment status alag se track hoga.)`)) return;
+    try {
+      await updateDoc(doc(db, 'COMPANY_BILLS', bill.id), { reconciled: true, reconciled_at: new Date().toISOString() });
+      for (const t of (bill.trips || [])) {
+        if (t.trip_db_id) await updateDoc(doc(db, 'TRIPS', t.trip_db_id), { bill_reconciled: true, reconciled_bill_no: bill.bill_no }).catch(() => {});
+      }
+      logAudit({ action: 'MANUAL_RECONCILE', target: bill.bill_no, details: `${bill.trips?.length || 0} trips` });
+      fetchGeneratedBills();
+    } catch (e) { alert('❌ Reconcile mark nahi hua.'); }
+  };
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [fileName, setFileName] = useState('');
@@ -504,6 +610,29 @@ Empty string / 0 if absent.`;
     return matchDate && matchCustomer && matchSearch;
   });
 
+  // 🧮 PENDING BILLING DASHBOARD KPIs
+  const daysSince = (d: any) => {
+    const iso = toISODate(d);
+    if (!iso) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  };
+  const pendingValue = filteredUnbilledTrips.reduce((s, t) => s + (t.calc_net || 0), 0);
+  const draftsReady = filteredUnbilledTrips.filter(t => t.draft_invoice).length;
+  const oldestWait = filteredUnbilledTrips.reduce((mx, t) => Math.max(mx, daysSince(t.unloading_date || t.Unloading_Date)), 0);
+  const outstandingDue = generatedBills.filter(b => b.status !== 'SETTLED').reduce((s, b) => s + (parseFloat(b.total_net_expected) || 0), 0);
+
+  // 👥 CUSTOMER-WISE pipeline: unloaded trips auto-land here grouped by client
+  const groupedUnbilled = filteredUnbilledTrips.reduce((acc: any, t: any) => {
+    const c = t.customer_name || t.Customer || t.Registered_Assessee || 'Unknown Customer';
+    (acc[c] = acc[c] || []).push(t);
+    return acc;
+  }, {});
+
+  const selectedTripData = unbilledTrips.filter(t => selectedTripsForBill.includes(t.id));
+  const previewCustomer = selectedTripData[0] ? (selectedTripData[0].customer_name || selectedTripData[0].Customer || selectedTripData[0].Registered_Assessee || '') : '';
+  const previewSameCustomer = selectedTripData.every(t => (t.customer_name || t.Customer || t.Registered_Assessee) === (selectedTripData[0]?.customer_name || selectedTripData[0]?.Customer || selectedTripData[0]?.Registered_Assessee));
+  const previewTotals = selectedTripData.reduce((a, t) => ({ gross: a.gross + t.calc_gross, pen: a.pen + t.calc_penalty, tds: a.tds + t.calc_tds, net: a.net + t.calc_net }), { gross: 0, pen: 0, tds: 0, net: 0 });
+
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
@@ -528,16 +657,35 @@ Empty string / 0 if absent.`;
         </div>
       </div>
 
-      {/* 📄 SCAN PURCHASE BILL (local Gemma 4 vision → record + journal) */}
+      {/* 📊 PENDING BILLING DASHBOARD — the whole post-trip pipeline at a glance */}
+      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '20px' }}>
+        {[
+          { label: 'Trips Awaiting Bill', value: String(filteredUnbilledTrips.length), color: '#f59e0b', sub: oldestWait > 0 ? `oldest waiting ${oldestWait}d` : 'sab fresh' },
+          { label: 'Pending Billing Value', value: `₹${pendingValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: '#38bdf8', sub: `${draftsReady} auto-drafts ready` },
+          { label: 'Outstanding Receivables', value: `₹${outstandingDue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, color: '#ef4444', sub: `${generatedBills.filter(b => b.status !== 'SETTLED').length} bills PENDING PAYMENT` },
+        ].map(k => (
+          <div key={k.label} style={{ flex: '1 1 200px', background: 'rgba(30,41,59,0.5)', border: `1px solid ${k.color}44`, borderRadius: '14px', padding: '16px 20px' }}>
+            <div style={{ fontSize: '11px', color: k.color, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>{k.label}</div>
+            <div style={{ fontSize: '26px', fontWeight: 900, color: '#f8fafc', margin: '4px 0 2px' }}>{k.value}</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 📄 AI DOCUMENT DESK: purchase-bill scan (→ trip kharcha) + company-PDF reconciliation */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', background: 'rgba(192,132,252,0.06)', padding: '15px', border: '1px dashed #c084fc', borderRadius: '10px', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: '220px' }}>
-          <div style={{ color: '#c084fc', fontWeight: 'bold', fontSize: '14px' }}>📄 Scan Purchase Bill <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px' }}>100% LOCAL</span></div>
-          <div style={{ color: '#94a3b8', fontSize: '12px' }}>Vendor/pump bill (PDF/photo) upload → Gemma 4 padhega → record + journal auto-update.</div>
-          {scannedBill && <div style={{ marginTop: '6px', fontSize: '12px', color: '#10b981' }}>✅ {scannedBill.vendor_name} · Bill {scannedBill.bill_no} · ₹{Number(scannedBill.total_amount).toLocaleString('en-IN')}</div>}
+          <div style={{ color: '#c084fc', fontWeight: 'bold', fontSize: '14px' }}>🤖 Mamta AI Document Desk <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px' }}>100% LOCAL</span></div>
+          <div style={{ color: '#94a3b8', fontSize: '12px' }}>Vendor/pump bill → trip_id se auto-map (closed trip → Admin approval queue). Company ka finalized bill PDF → trip-wise RECONCILE.</div>
+          {scannedBill && <div style={{ marginTop: '6px', fontSize: '12px', color: '#10b981' }}>✅ {scannedBill.vendor_name} · Bill {scannedBill.bill_no} · ₹{Number(scannedBill.total_amount).toLocaleString('en-IN')}{scannedBill.matched_trip && <b style={{ color: '#38bdf8' }}> · 🎯 Trip {scannedBill.matched_trip}{scannedBill.trip_status === 'COMPLETED' ? ' (→ approval queue)' : ''}</b>}</div>}
         </div>
         <label className="pt-btn pt-btn--ai" style={{ cursor: scanningBill ? 'not-allowed' : 'pointer' }}>
-          {scanningBill ? '⏳ Scanning…' : '📎 Upload & Scan'}
+          {scanningBill ? '⏳ Scanning…' : '📎 Scan Vendor/Fuel Bill'}
           <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanPurchaseBill} disabled={scanningBill} />
+        </label>
+        <label className="pt-btn pt-btn--success" style={{ cursor: reconciling ? 'not-allowed' : 'pointer' }}>
+          {reconciling ? '⏳ Reconciling…' : '📄 Reconcile Company PDF'}
+          <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleReconcileCompanyPdf} disabled={reconciling} />
         </label>
       </div>
 
@@ -568,17 +716,20 @@ Empty string / 0 if absent.`;
       </div>
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #334155' }}>
-        <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>🚚 UNBILLED TRIPS {filteredUnbilledTrips.length > 0 && <span style={{background: '#ef4444', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '10px', marginLeft: '5px'}}>{filteredUnbilledTrips.length}</span>}</button>
+        <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span style={{background: '#ef4444', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '10px', marginLeft: '5px'}}>{filteredUnbilledTrips.length}</span>}</button>
         <button className={`tab-btn ${activeTab === 'GENERATED_BILLS' ? 'active' : ''}`} onClick={() => setActiveTab('GENERATED_BILLS')}>🧾 GENERATED INVOICES</button>
       </div>
 
       {activeTab === 'UNBILLED_TRIPS' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #10b981' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ color: '#10b981', margin: 0 }}>Trips Ready for Billing</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+            <div>
+              <h3 style={{ color: '#10b981', margin: 0 }}>🚚 Pending Billing — Customer-wise Pipeline</h3>
+              <p style={{ margin: '3px 0 0', color: '#94a3b8', fontSize: '12px' }}>Unloading complete hote hi trips yahan auto-aati hain, draft bill ke saath. Step 1: trips select karein → Step 2: preview & confirm.</p>
+            </div>
             {selectedTripsForBill.length > 0 && (
-              <button className="glow-btn" onClick={handleGenerateInvoice}>
-                🧾 Generate Bulk Invoice ({selectedTripsForBill.length} Trips)
+              <button className="glow-btn" onClick={() => setShowPreview(true)}>
+                🧾 Review & Generate ({selectedTripsForBill.length} Trips) →
               </button>
             )}
           </div>
@@ -601,25 +752,49 @@ Empty string / 0 if absent.`;
                 </tr>
               </thead>
               <tbody>
-                {filteredUnbilledTrips.length === 0 ? <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px' }}>No Unbilled Trips found. Complete unloads first or clear filters.</td></tr> : 
-                  filteredUnbilledTrips.map(t => (
-                  <tr key={t.id} style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(16,185,129,0.1)' : 'transparent', transition: '0.2s' }}>
-                    <td style={{ textAlign: 'center' }}>
-                      <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer', accentColor: '#10b981' }} checked={selectedTripsForBill.includes(t.id)} onChange={() => toggleTripSelection(t.id)} />
-                    </td>
-                    <td>
-                      <div style={{fontSize:'11px', color:'#94a3b8'}}>Ld: {t.loading_date || t.start_date || t.date || '-'}</div>
-                      <div style={{fontSize:'12px', fontWeight:'bold', color:'#fff'}}>Un: {t.unloading_date || t.Unloading_Date || '-'}</div>
-                    </td>
-                    <td style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>{t.trip_id || t.Trip_ID} <br/> <span style={{color:'#f59e0b'}}>{t.lr_no || t.lr_number || ''}</span></td>
-                    <td style={{ fontWeight: '900', color: '#fff', fontSize: '14px' }}>{t.vehicle_no || t.Vehical_No || t.vehical_no} <br/><span style={{fontSize:'10px', color:'#94a3b8', fontWeight:'normal'}}>{t.customer_name || t.Customer}</span></td>
-                    <td style={{ fontSize: '12px' }}>{t.calc_qty} <span style={{color:'#64748b'}}>x</span> {t.calc_rate}</td>
-                    <td style={{ color: '#38bdf8', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                    <td style={{ color: '#ef4444', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_penalty.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                    <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_tds.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                    <td style={{ color: '#10b981', fontWeight: 'bold', textAlign: 'right', fontSize:'15px' }}>{t.calc_net.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                  </tr>
-                ))}
+                {filteredUnbilledTrips.length === 0 ? <tr><td colSpan={9} style={{ textAlign: 'center', padding: '30px' }}>No Unbilled Trips found. Complete unloads first or clear filters.</td></tr> :
+                  Object.entries(groupedUnbilled).map(([cust, custTrips]: any) => (
+                    <React.Fragment key={cust}>
+                      {/* 👥 Customer group header — one client, one billing batch */}
+                      <tr style={{ background: 'rgba(56,189,248,0.07)' }}>
+                        <td style={{ textAlign: 'center' }}>
+                          <input type="checkbox" title={`Select all ${cust} trips`} style={{ transform: 'scale(1.3)', cursor: 'pointer', accentColor: '#38bdf8' }}
+                            checked={custTrips.every((t: any) => selectedTripsForBill.includes(t.id))}
+                            onChange={e => setSelectedTripsForBill(prev => e.target.checked
+                              ? [...new Set([...prev.filter(id => !custTrips.some((t: any) => t.id === id)), ...custTrips.map((t: any) => t.id)])]
+                              : prev.filter(id => !custTrips.some((t: any) => t.id === id)))} />
+                        </td>
+                        <td colSpan={4} style={{ fontWeight: 900, color: '#38bdf8', fontSize: '13px', letterSpacing: '0.5px' }}>👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length} trip(s)</span></td>
+                        <td colSpan={3}></td>
+                        <td style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 900 }}>₹{custTrips.reduce((s: number, t: any) => s + t.calc_net, 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                      </tr>
+                      {custTrips.map((t: any) => {
+                        const wait = daysSince(t.unloading_date || t.Unloading_Date);
+                        return (
+                          <tr key={t.id} style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(16,185,129,0.1)' : 'transparent', transition: '0.2s' }}>
+                            <td style={{ textAlign: 'center' }}>
+                              <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer', accentColor: '#10b981' }} checked={selectedTripsForBill.includes(t.id)} onChange={() => toggleTripSelection(t.id)} />
+                            </td>
+                            <td>
+                              <div style={{fontSize:'11px', color:'#94a3b8'}}>Ld: {t.loading_date || t.start_date || t.date || '-'}</div>
+                              <div style={{fontSize:'12px', fontWeight:'bold', color:'#fff'}}>Un: {t.unloading_date || t.Unloading_Date || '-'}</div>
+                              {wait > 0 && <span style={{ fontSize: '9px', fontWeight: 'bold', color: wait > 7 ? '#ef4444' : '#f59e0b', border: `1px solid ${wait > 7 ? '#ef4444' : '#f59e0b'}`, borderRadius: '8px', padding: '1px 6px' }}>⏱ {wait}d waiting</span>}
+                            </td>
+                            <td style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold' }}>
+                              {t.trip_id || t.Trip_ID} <br/> <span style={{color:'#f59e0b'}}>{t.lr_no || t.lr_number || ''}</span>
+                              {t.draft_invoice && <><br/><span style={{ fontSize: '9px', fontWeight: 'bold', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '8px', padding: '1px 6px' }}>🧾 AUTO-DRAFT</span></>}
+                            </td>
+                            <td style={{ fontWeight: '900', color: '#fff', fontSize: '14px' }}>{t.vehicle_no || t.Vehical_No || t.vehical_no} <br/><span style={{fontSize:'10px', color:'#94a3b8', fontWeight:'normal'}}>{t.driver_name || t.Driver_Name || ''}</span></td>
+                            <td style={{ fontSize: '12px' }}>{t.calc_qty} <span style={{color:'#64748b'}}>x</span> {t.calc_rate}</td>
+                            <td style={{ color: '#38bdf8', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                            <td style={{ color: '#ef4444', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_penalty.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                            <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>{t.calc_tds.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                            <td style={{ color: '#10b981', fontWeight: 'bold', textAlign: 'right', fontSize:'15px' }}>{t.calc_net.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
               </tbody>
             </table>
           )}
@@ -628,13 +803,18 @@ Empty string / 0 if absent.`;
 
       {activeTab === 'GENERATED_BILLS' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #38bdf8' }}>
-          <h3 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '15px' }}>Generated Invoices Tracking</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
+            <h3 style={{ color: '#38bdf8', margin: 0 }}>Generated Invoices — Receivables Tracking</h3>
+            <div style={{ fontSize: '13px', color: '#ef4444', fontWeight: 900, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '10px', padding: '8px 14px' }}>
+              💰 Outstanding Dues: ₹{outstandingDue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+            </div>
+          </div>
           <table>
             <thead>
-              <tr><th>Bill Date</th><th>Invoice No / Party</th><th>Trips Included</th><th style={{ textAlign: 'right' }}>TDS Cut</th><th style={{ textAlign: 'right' }}>Expected Net Pay</th><th>Status</th><th style={{ textAlign: 'center' }}>Action</th></tr>
+              <tr><th>Bill Date</th><th>Invoice No / Party</th><th>Trips Included</th><th style={{ textAlign: 'right' }}>TDS Cut</th><th style={{ textAlign: 'right' }}>Expected Net Pay</th><th>Reconcile</th><th>Payment Status</th><th style={{ textAlign: 'center' }}>Action</th></tr>
             </thead>
             <tbody>
-              {filteredGeneratedBills.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>No Invoices found.</td></tr> : 
+              {filteredGeneratedBills.length === 0 ? <tr><td colSpan={8} style={{ textAlign: 'center', padding: '30px' }}>No Invoices found.</td></tr> :
                 filteredGeneratedBills.map((b, i) => (
                 <tr key={i}>
                   <td>{b.bill_date || (b.createdAt && new Date(b.createdAt.toDate()).toISOString().split('T')[0])}</td>
@@ -643,8 +823,13 @@ Empty string / 0 if absent.`;
                   <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>₹{parseFloat(b.total_tds_deduction || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                   <td style={{ color: '#10b981', fontWeight: '900', fontSize: '15px', textAlign: 'right' }}>₹{parseFloat(b.total_net_expected).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                   <td>
-                    <span className="badge" style={{ background: b.status === 'SETTLED' ? 'rgba(16,185,129,0.2)' : b.status === 'PARTIALLY_PAID' ? 'rgba(56,189,248,0.2)' : 'rgba(245,158,11,0.2)', color: b.status === 'SETTLED' ? '#10b981' : b.status === 'PARTIALLY_PAID' ? '#38bdf8' : '#f59e0b', border: `1px solid ${b.status === 'SETTLED' ? '#10b981' : b.status === 'PARTIALLY_PAID' ? '#38bdf8' : '#f59e0b'}` }}>
-                      {b.status}
+                    {b.reconciled
+                      ? <span className="badge" style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid #10b981' }}>✔ RECONCILED</span>
+                      : <button onClick={() => handleManualReconcile(b)} title="Company ki finalized bill se cross-check ho jane par manually mark karein" style={{ background: 'transparent', color: '#94a3b8', border: '1px dashed #64748b', padding: '5px 10px', borderRadius: '12px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>Mark ✔</button>}
+                  </td>
+                  <td>
+                    <span className="badge" style={{ background: b.status === 'SETTLED' ? 'rgba(16,185,129,0.2)' : b.status === 'PARTIALLY_PAID' ? 'rgba(56,189,248,0.2)' : 'rgba(239,68,68,0.15)', color: b.status === 'SETTLED' ? '#10b981' : b.status === 'PARTIALLY_PAID' ? '#38bdf8' : '#ef4444', border: `1px solid ${b.status === 'SETTLED' ? '#10b981' : b.status === 'PARTIALLY_PAID' ? '#38bdf8' : '#ef4444'}` }}>
+                      {b.status === 'PENDING_PAYMENT' ? '⏳ PENDING PAYMENT' : (b.status || '').replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td style={{ textAlign: 'center' }}>
@@ -652,7 +837,7 @@ Empty string / 0 if absent.`;
                       <button onClick={() => handlePrintInvoice(b)} style={{ background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px solid #38bdf8', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }} title="Print Invoice">
                         🖨️
                       </button>
-                      <button onClick={() => openAdjustmentModal(b)} style={{ background: '#f59e0b', color: '#000', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }} title="Smart Checklist & Settle Payment">
+                      <button onClick={() => openAdjustmentModal(b)} style={{ background: '#f59e0b', color: '#000', border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }} title="Smart Checklist & Settle Payment (2-step manual override)">
                         ⚖️ Edit / Settle
                       </button>
                       <button onClick={() => handleDeleteBill(b)} style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '8px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }} title="Delete Bill & Revert Trips">
@@ -664,6 +849,60 @@ Empty string / 0 if absent.`;
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* 🧾 STEP 2 OF 2: INVOICE PREVIEW (client format) → CONFIRM & GENERATE */}
+      {showPreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '900px', border: '1px solid #10b981', background: '#0f172a', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '5px' }}>
+              <div>
+                <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', letterSpacing: '1px' }}>STEP 2 OF 2 — VERIFY BEFORE GENERATING</div>
+                <h2 style={{ margin: '5px 0 0', color: '#10b981', fontSize: '22px' }}>🧾 Invoice Preview — {previewCustomer || 'No customer'}</h2>
+              </div>
+              <button onClick={() => setShowPreview(false)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '26px', cursor: 'pointer' }}>✕</button>
+            </div>
+            {!previewSameCustomer && (
+              <div style={{ margin: '12px 0', padding: '12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', borderRadius: '8px', color: '#fca5a5', fontSize: '13px', fontWeight: 'bold' }}>
+                ⚠️ Alag-alag customers ki trips select hain — ek bill sirf EK customer ka ban sakta hai. Wapas jakar selection theek karein.
+              </div>
+            )}
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '10px 0 15px' }}>Client-format (RCM / TDS 194C) figures — yahi invoice mein print honge:</p>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ minWidth: '700px' }}>
+                <thead><tr><th>Trip / LR</th><th>Vehicle</th><th>Un Date</th><th style={{textAlign:'right'}}>Qty × Rate</th><th style={{textAlign:'right'}}>Gross ₹</th><th style={{textAlign:'right'}}>Short/Pen ₹</th><th style={{textAlign:'right'}}>TDS 2% ₹</th><th style={{textAlign:'right'}}>Net ₹</th></tr></thead>
+                <tbody>
+                  {selectedTripData.map(t => (
+                    <tr key={t.id}>
+                      <td style={{ fontSize: '12px' }}>{t.trip_id || t.Trip_ID}<br/><span style={{ color: '#f59e0b', fontSize: '10px' }}>{t.lr_no || t.lr_number || ''}</span></td>
+                      <td style={{ fontWeight: 'bold', color: '#fff' }}>{t.vehicle_no || t.Vehical_No}</td>
+                      <td style={{ fontSize: '12px' }}>{t.unloading_date || t.Unloading_Date || '-'}</td>
+                      <td style={{ textAlign: 'right', fontSize: '12px' }}>{t.calc_qty} × {t.calc_rate}</td>
+                      <td style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 'bold' }}>{t.calc_gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                      <td style={{ textAlign: 'right', color: '#ef4444' }}>{t.calc_penalty.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                      <td style={{ textAlign: 'right', color: '#f59e0b' }}>{t.calc_tds.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                      <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{t.calc_net.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: 'rgba(16,185,129,0.08)', fontWeight: 900 }}>
+                    <td colSpan={4} style={{ textAlign: 'right', color: '#fff' }}>TOTALS ({selectedTripData.length} trips):</td>
+                    <td style={{ textAlign: 'right', color: '#38bdf8' }}>{previewTotals.gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                    <td style={{ textAlign: 'right', color: '#ef4444' }}>{previewTotals.pen.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                    <td style={{ textAlign: 'right', color: '#f59e0b' }}>{previewTotals.tds.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                    <td style={{ textAlign: 'right', color: '#10b981', fontSize: '15px' }}>{previewTotals.net.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '25px' }}>
+              <button onClick={() => setShowPreview(false)} style={{ flex: 1, padding: '14px', background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>← Back (Edit Selection)</button>
+              <button disabled={!previewSameCustomer || loading} onClick={async () => { await handleGenerateInvoice(); setShowPreview(false); }}
+                style={{ flex: 2, padding: '14px', background: previewSameCustomer ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 900, fontSize: '15px', cursor: previewSameCustomer ? 'pointer' : 'not-allowed' }}>
+                {loading ? '⏳ Generating…' : `✅ Confirm & Generate Invoice — ₹${previewTotals.net.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

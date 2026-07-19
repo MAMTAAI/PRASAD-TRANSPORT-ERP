@@ -20,12 +20,14 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
   // 🔴 LIVE pending counts (replaces the old hardcoded "3" badge)
   const [pendingKyc, setPendingKyc] = useState(0);
   const [pendingReq, setPendingReq] = useState(0);
+  const [pendingExp, setPendingExp] = useState(0);
   useEffect(() => {
     const u1 = onSnapshot(query(collection(db, 'ONBOARDING_APPLICATIONS'), where('status', '==', 'SUBMITTED')), s => setPendingKyc(s.size), () => {});
     const u2 = onSnapshot(query(collection(db, 'DRIVER_REQUESTS'), where('status', '==', 'PENDING')), s => setPendingReq(s.size), () => {});
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(query(collection(db, 'EXPENSE_APPROVALS'), where('status', '==', 'PENDING')), s => setPendingExp(s.size), () => {});
+    return () => { u1(); u2(); u3(); };
   }, []);
-  const badgeFor = (id) => (id === 'ONBOARDING' || id === 'BAZAAR_ADMIN') ? pendingKyc : id === 'DRIVER' ? pendingReq : 0;
+  const badgeFor = (id) => (id === 'ONBOARDING' || id === 'BAZAAR_ADMIN') ? pendingKyc : id === 'DRIVER' ? pendingReq : id === 'EXPENSE_APPROVALS' ? pendingExp : 0;
 
   useEffect(() => {
     if (!isMobile && window.innerWidth < 1024) {
@@ -78,6 +80,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
       if (itemId === 'BILLING') return checkView('Billing & Invoicing');
+      if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
       if (itemId === 'VENDOR') return checkView('Vendor Master');
       return false;
@@ -118,6 +121,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
         { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },
+        { id: 'EXPENSE_APPROVALS', label: 'Pending Expenses', icon: '⏳' },
         { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },

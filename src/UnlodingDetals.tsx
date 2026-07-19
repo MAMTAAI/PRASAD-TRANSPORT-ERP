@@ -2,18 +2,21 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
 
 export default function UnloadingDetails() {
-  const [activeTab, setActiveTab] = useState('MANUAL'); 
+  const [activeTab, setActiveTab] = useState('MANUAL');
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedTripId, setSelectedTripId] = useState('');
 
   const [unloadingData, setUnloadingData] = useState({
-    Trip_ID: '', Vehical_No: '', Loading_Point: '', Consignee_Name: '', 
-    Loaded_Qty: 0, Unloading_Date: new Date().toISOString().split('T')[0], 
-    Unloaded_Qty: '', Shortage_Qty: 0, Remarks: ''
+    Trip_ID: '', Vehical_No: '', Loading_Point: '', Consignee_Name: '',
+    Loaded_Qty: 0, Unloading_Date: new Date().toISOString().split('T')[0],
+    Unloaded_Qty: '', Shortage_Qty: 0, Penalty_Rate: '', Penalty_Amount: '', Remarks: ''
   });
+  // 📱 APP-SYNC cards: per-trip penalty rate (₹/unit) for driver approvals
+  const [cardPenaltyRates, setCardPenaltyRates] = useState<any>({});
 
   useEffect(() => {
     fetchTrips();
@@ -39,46 +42,80 @@ export default function UnloadingDetails() {
       const loaded = parseFloat(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0);
       
       setUnloadingData({
-        Trip_ID: t.trip_id || t.Trip_ID || t.id, 
+        Trip_ID: t.trip_id || t.Trip_ID || t.id,
         Vehical_No: t.vehicle_no || t.vehical_no || t.Vehical_No || '',
-        Loading_Point: t.loading_point || t.Loading_Point || '', 
+        Loading_Point: t.loading_point || t.Loading_Point || '',
         Consignee_Name: t.consignee_name || t.Consignee_Name || '',
-        Loaded_Qty: loaded, 
-        Unloading_Date: new Date().toISOString().split('T')[0], 
-        Unloaded_Qty: t.driver_unloaded_qty || '', 
-        Shortage_Qty: 0, 
+        Loaded_Qty: loaded,
+        Unloading_Date: new Date().toISOString().split('T')[0],
+        Unloaded_Qty: t.driver_unloaded_qty || '',
+        Shortage_Qty: 0,
+        Penalty_Rate: '', Penalty_Amount: '',
         Remarks: ''
       });
     } else {
-      setUnloadingData({ Trip_ID: '', Vehical_No: '', Loading_Point: '', Consignee_Name: '', Loaded_Qty: 0, Unloading_Date: new Date().toISOString().split('T')[0], Unloaded_Qty: '', Shortage_Qty: 0, Remarks: '' });
+      setUnloadingData({ Trip_ID: '', Vehical_No: '', Loading_Point: '', Consignee_Name: '', Loaded_Qty: 0, Unloading_Date: new Date().toISOString().split('T')[0], Unloaded_Qty: '', Shortage_Qty: 0, Penalty_Rate: '', Penalty_Amount: '', Remarks: '' });
     }
   };
 
-  // 🧮 Auto Calculate Shortage
-  const handleUnloadedQtyChange = (e: any) => {
-    const unloaded = parseFloat(e.target.value) || 0;
-    const shortage = (unloadingData.Loaded_Qty - unloaded).toFixed(2);
-    setUnloadingData({ ...unloadingData, Unloaded_Qty: e.target.value, Shortage_Qty: parseFloat(shortage) });
+  // 🧮 Auto Calculate Shortage + Driver Penalty (Shortage × Rate, override allowed)
+  const recalc = (patch: any) => {
+    setUnloadingData(prev => {
+      const next = { ...prev, ...patch };
+      if (patch.Unloaded_Qty !== undefined) {
+        const unloaded = parseFloat(patch.Unloaded_Qty) || 0;
+        next.Shortage_Qty = parseFloat(Math.max(0, next.Loaded_Qty - unloaded).toFixed(2));
+      }
+      if (patch.Penalty_Amount === undefined) {
+        const rate = parseFloat(next.Penalty_Rate) || 0;
+        next.Penalty_Amount = (rate > 0 && next.Shortage_Qty > 0) ? String(Math.round(next.Shortage_Qty * rate)) : next.Penalty_Amount;
+      }
+      return next;
+    });
+  };
+  const handleUnloadedQtyChange = (e: any) => recalc({ Unloaded_Qty: e.target.value });
+
+  // 🏁 Close trip: shortage → auto driver-khata debit; billing → auto-draft invoice.
+  const closeTripCore = async (trip: any, figures: { unloaded: number; shortage: number; penalty: number; date: string; remarks?: string }) => {
+    const { unloaded, shortage, penalty, date, remarks } = figures;
+    const draft = buildDraftInvoice(trip, { unloaded_qty: unloaded, shortage_qty: shortage, penalty_amount: penalty });
+    const alreadyBilled = (trip.billing_status || '') === 'BILLED';
+    await updateDoc(doc(db, "TRIPS", trip.id), {
+      office_approved_unloading: true,
+      trip_status: 'COMPLETED',
+      Unloaded_Qty: unloaded, unloaded_qty: unloaded,
+      Shortage_Qty: shortage, shortage_qty: shortage,
+      // 💸 Driver liability + party-side deduction reflect the same shortage ₹
+      shortage_penalty: penalty, shortage_amt: penalty, Shortage_Amt: penalty,
+      Unloading_Date: date, unloading_date: date,
+      ...(remarks !== undefined ? { unloading_remarks: remarks } : {}),
+      // 🧾 Auto-draft invoice → Pending Billing dashboard picks this up
+      draft_invoice: draft,
+      ...(alreadyBilled ? {} : { billing_status: 'PENDING' }),
+      completed_at: Timestamp.now()
+    });
+    // ⚖️ Auto-Shortage Recovery: debit the driver's khata immediately (idempotent)
+    const debited = penalty > 0 ? await postShortageRecovery(trip, { shortage_qty: shortage, penalty_amount: penalty, date }) : false;
+    return { draft, debited };
   };
 
   const handleManualSave = async () => {
     if (!unloadingData.Unloaded_Qty) return alert("⚠️ Please enter Unloaded Quantity!");
-    
+    const trip = trips.find(t => t.id === selectedTripId);
+    if (!trip) return alert("⚠️ Trip not found — refresh and retry.");
+    const penalty = parseFloat(unloadingData.Penalty_Amount) || 0;
+    if (unloadingData.Shortage_Qty > 0 && penalty <= 0) {
+      if (!window.confirm(`⚠️ Shortage ${unloadingData.Shortage_Qty} units hai par Penalty ₹0 — bina driver-recovery ke close karein?`)) return;
+    }
     try {
-      // ✅ Safety Fix: Saving both formats for database safety
-      await updateDoc(doc(db, "TRIPS", selectedTripId), {
-        office_approved_unloading: true, 
-        trip_status: 'COMPLETED', 
-        Unloaded_Qty: unloadingData.Unloaded_Qty,
-        unloaded_qty: unloadingData.Unloaded_Qty,
-        Shortage_Qty: unloadingData.Shortage_Qty,
-        shortage_qty: unloadingData.Shortage_Qty,
-        Unloading_Date: unloadingData.Unloading_Date,
-        unloading_date: unloadingData.Unloading_Date,
-        unloading_remarks: unloadingData.Remarks,
-        completed_at: Timestamp.now()
+      const { debited } = await closeTripCore(trip, {
+        unloaded: parseFloat(unloadingData.Unloaded_Qty) || 0,
+        shortage: unloadingData.Shortage_Qty,
+        penalty,
+        date: unloadingData.Unloading_Date,
+        remarks: unloadingData.Remarks,
       });
-      alert("✅ Unloading Saved! Trip is now COMPLETED.");
+      alert(`✅ Unloading Saved! Trip COMPLETED.\n🧾 Draft invoice ready — Pending Billing mein dikhega.${debited ? `\n💸 ₹${penalty.toLocaleString('en-IN')} driver khata (${trip.driver_name || trip.Driver_Name || 'driver'}) mein SHORTAGE debit ho gaya.` : ''}`);
       setSelectedTripId('');
       fetchTrips();
     } catch (e) { alert("❌ Error saving unloading entry."); }
@@ -88,20 +125,17 @@ export default function UnloadingDetails() {
     try {
       const loaded = parseFloat(trip.loaded_qty || trip.Loaded_Qty || trip.driver_loaded_qty || 0);
       const unloaded = parseFloat(trip.driver_unloaded_qty || 0);
-      const shortage = (loaded - unloaded).toFixed(2);
-
-      await updateDoc(doc(db, "TRIPS", trip.id), {
-        office_approved_unloading: true, 
-        trip_status: 'COMPLETED', 
-        Unloaded_Qty: unloaded,
-        unloaded_qty: unloaded,
-        Shortage_Qty: parseFloat(shortage),
-        shortage_qty: parseFloat(shortage),
-        Unloading_Date: new Date().toISOString().split('T')[0],
-        unloading_date: new Date().toISOString().split('T')[0],
-        completed_at: Timestamp.now()
+      const shortage = parseFloat(Math.max(0, loaded - unloaded).toFixed(2));
+      const rate = parseFloat(cardPenaltyRates[trip.id]) || 0;
+      const penalty = shortage > 0 && rate > 0 ? Math.round(shortage * rate) : 0;
+      if (shortage > 0 && penalty <= 0) {
+        if (!window.confirm(`⚠️ Shortage ${shortage} units hai par Penalty Rate nahi dala — bina driver-recovery ke approve karein?`)) return;
+      }
+      const { debited } = await closeTripCore(trip, {
+        unloaded, shortage, penalty,
+        date: new Date().toISOString().split('T')[0],
       });
-      alert("✅ Driver Unloading Data Approved! Trip COMPLETED.");
+      alert(`✅ Driver Unloading Approved! Trip COMPLETED.\n🧾 Draft invoice ready.${debited ? `\n💸 ₹${penalty.toLocaleString('en-IN')} driver khata mein SHORTAGE debit ho gaya.` : ''}`);
       fetchTrips();
     } catch (e) { alert("❌ Error approving data."); }
   };
@@ -117,7 +151,9 @@ export default function UnloadingDetails() {
     const unloaded = trip.Unloaded_Qty || trip.unloaded_qty || trip.driver_unloaded_qty;
     const shortage = trip.Shortage_Qty || trip.shortage_qty || '0';
 
-    const message = `🏁 *UNLOADING CONFIRMATION*\n\nTrip Completed Successfully.\n\n*Trip ID:* ${tripId}\n*Vehicle:* ${vehicle}\n\n*Loaded Qty:* ${loaded} Ltrs\n*Unloaded Qty:* ${unloaded} Ltrs\n*Shortage:* ${shortage} Ltrs\n\nThank you for your service.\n\nRegards,\nPrasad Transport ERP`;
+    const penaltyAmt = parseFloat(trip.shortage_penalty || trip.shortage_amt || 0) || 0;
+    const penaltyLine = penaltyAmt > 0 ? `\n*Shortage Penalty:* ₹${penaltyAmt.toLocaleString('en-IN')} (aapke khata mein debit — hisaab par vasooli hogi)` : '';
+    const message = `🏁 *UNLOADING CONFIRMATION*\n\nTrip Completed Successfully.\n\n*Trip ID:* ${tripId}\n*Vehicle:* ${vehicle}\n\n*Loaded Qty:* ${loaded} Ltrs\n*Unloaded Qty:* ${unloaded} Ltrs\n*Shortage:* ${shortage} Ltrs${penaltyLine}\n\nThank you for your service.\n\nRegards,\nPrasad Transport ERP`;
     
     let phone = mobile.replace(/\s+/g, ''); 
     if (phone.length === 10) phone = '91' + phone;
@@ -194,6 +230,22 @@ export default function UnloadingDetails() {
                 </div>
               </div>
 
+              {/* ⚖️ AUTO-SHORTAGE RECOVERY (Driver Liability) */}
+              <h4 style={{ color: '#f59e0b', borderBottom: '1px dashed #f59e0b', paddingBottom: '10px', marginBottom: '15px' }}>⚖️ Driver Shortage Recovery (Auto-Debit to Khata)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px', background: 'rgba(245, 158, 11, 0.05)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.2)' }}>
+                <div>
+                  <label style={{ color: '#f59e0b', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty Rate (₹ per unit short)</label>
+                  <input type="number" value={unloadingData.Penalty_Rate} onChange={e => recalc({ Penalty_Rate: e.target.value })} style={{ ...inputStyle, borderColor: '#f59e0b' }} placeholder="e.g. 90 (HSD rate)" />
+                </div>
+                <div>
+                  <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty ₹ (Auto = Shortage × Rate, editable)</label>
+                  <input type="number" value={unloadingData.Penalty_Amount} onChange={e => recalc({ Penalty_Amount: e.target.value })} style={{ ...inputStyle, borderColor: '#ef4444', color: '#ef4444', fontSize: '18px', fontWeight: 'bold' }} placeholder="0" />
+                </div>
+                <div style={{ alignSelf: 'end', fontSize: '12px', color: '#94a3b8', lineHeight: 1.6 }}>
+                  💸 Save par yeh amount <b style={{ color: '#f59e0b' }}>driver ke khata mein SHORTAGE debit</b> hoga aur client bill se bhi deduct dikhega. ₹0 = koi recovery nahi.
+                </div>
+              </div>
+
               <div>
                   <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '5px' }}>Remarks / Shortage Note</label>
                   <input type="text" value={unloadingData.Remarks} onChange={e => setUnloadingData({...unloadingData, Remarks: e.target.value})} style={inputStyle} placeholder="e.g. Temperature loss or pilferage" />
@@ -237,7 +289,21 @@ export default function UnloadingDetails() {
                       <a href={t.driver_unloading_photo} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#10b981', textDecoration: 'none', marginTop: '5px', display: 'inline-block' }}>📎 View Receipt / Dip Photo</a>
                     )}
                   </div>
-                  
+
+                  {parseFloat(shortage) > 0 && (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px', background: 'rgba(245,158,11,0.08)', border: '1px dashed #f59e0b', borderRadius: '10px', padding: '10px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '10px', color: '#f59e0b', fontWeight: 'bold', display: 'block' }}>PENALTY RATE ₹/Ltr</label>
+                        <input type="number" value={cardPenaltyRates[t.id] || ''} onChange={e => setCardPenaltyRates({ ...cardPenaltyRates, [t.id]: e.target.value })} placeholder="e.g. 90"
+                          style={{ width: '100%', padding: '8px', background: '#0f172a', border: '1px solid #f59e0b', color: '#fff', borderRadius: '6px', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>DRIVER DEBIT</div>
+                        <div style={{ fontSize: '18px', fontWeight: 900, color: '#ef4444' }}>₹{((parseFloat(cardPenaltyRates[t.id]) || 0) * parseFloat(shortage) > 0 ? Math.round((parseFloat(cardPenaltyRates[t.id]) || 0) * parseFloat(shortage)) : 0).toLocaleString('en-IN')}</div>
+                      </div>
+                    </div>
+                  )}
+
                   <button onClick={() => handleApproveDriverUnloading(t)} style={{ width: '100%', background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Approve & Close Trip</button>
                 </div>
               )
@@ -258,12 +324,14 @@ export default function UnloadingDetails() {
                 <th style={{ padding: '15px', color: '#38bdf8' }}>Loaded Qty</th>
                 <th style={{ padding: '15px', color: '#10b981' }}>Unloaded Qty</th>
                 <th style={{ padding: '15px', color: '#ef4444' }}>Shortage</th>
+                <th style={{ padding: '15px', color: '#ef4444' }}>Penalty ₹ (Driver)</th>
                 <th style={{ padding: '15px' }}>Driver_Name</th>
+                <th style={{ padding: '15px', color: '#10b981' }}>Billing</th>
                 <th style={{ padding: '15px', textAlign: 'center' }}>Notify Driver</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? <tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr> : completedTrips.length === 0 ? <tr><td colSpan={8} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No Completed Trips Found.</td></tr> : 
+              {loading ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr> : completedTrips.length === 0 ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No Completed Trips Found.</td></tr> :
                 completedTrips.map((t) => (
                 <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '12px' }}>
                   <td style={{ padding: '12px 15px' }}>{t.Trip_ID || t.trip_id}<br/><span className="pt-pill pt-pill--completed" style={{ marginTop: '4px' }}>Completed</span></td>
@@ -272,7 +340,15 @@ export default function UnloadingDetails() {
                   <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.Loaded_Qty || t.loaded_qty || t.driver_loaded_qty}</td>
                   <td style={{ padding: '12px 15px', color: '#10b981', fontWeight: 'bold' }}>{t.Unloaded_Qty || t.unloaded_qty || t.driver_unloaded_qty}</td>
                   <td style={{ padding: '12px 15px', color: '#ef4444', fontWeight: '900' }}>{t.Shortage_Qty || t.shortage_qty || '0'}</td>
+                  <td style={{ padding: '12px 15px', color: '#ef4444', fontWeight: '900' }}>{(parseFloat(t.shortage_penalty || t.shortage_amt || 0) || 0) > 0 ? `₹${(parseFloat(t.shortage_penalty || t.shortage_amt || 0)).toLocaleString('en-IN')} 💸` : '—'}</td>
                   <td style={{ padding: '12px 15px' }}>{t.Driver_Name || t.driver_name}</td>
+                  <td style={{ padding: '12px 15px' }}>
+                    {t.billing_status === 'BILLED'
+                      ? <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '2px 8px' }}>BILLED</span>
+                      : t.draft_invoice
+                        ? <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '10px', padding: '2px 8px' }}>DRAFT READY</span>
+                        : <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#f59e0b', border: '1px solid #f59e0b', borderRadius: '10px', padding: '2px 8px' }}>PENDING</span>}
+                  </td>
                   
                   {/* 💬 SMART WHATSAPP NOTIFICATION BUTTON */}
                   <td style={{ padding: '12px 15px', textAlign: 'center' }}>

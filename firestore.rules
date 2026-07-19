@@ -80,6 +80,16 @@ service cloud.firestore {
       allow update, delete: if isStaff();
     }
 
+    // ── Retro-expense approval queue: staff may file/edit while PENDING;
+    //    only ADMIN can approve/reject (status change) or delete ───────────
+    match /EXPENSE_APPROVALS/{id} {
+      allow read, create: if isStaff();
+      allow update: if isAdmin()
+        || (isStaff() && resource.data.status == 'PENDING'
+            && request.resource.data.status == 'PENDING');
+      allow delete: if isAdmin();
+    }
+
     // ── Everything else (books, masters, cards, journal, WA, …): STAFF ONLY ─
     match /{document=**} {
       allow read, write: if isStaff();
