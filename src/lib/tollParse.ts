@@ -127,20 +127,45 @@ export function rowsToTxns(rows: any[][]): { txns: TollTxn[]; skipped: number } 
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i]; if (!r || !r.length) continue;
     const plate = normalizePlate(vI > -1 ? r[vI] : '');
+    const tag = String(tagI > -1 ? (r[tagI] ?? '') : '').trim();
     const amt = parseFloat(String(drI > -1 ? r[drI] : '').replace(/[^0-9.]/g, '')) || 0;
     const dt = parseDdMmYyyyTime(String(dI > -1 ? r[dI] : ''));
-    if (!plate || amt <= 0 || !dt) { skipped++; continue; }
+    // Plate na ho par TAG ho to row RAKHTE hain — vehicle master ke fastag_id
+    // se resolveVehiclesByTag() plate bhar dega (pehle aisi rows skip ho jati thin).
+    if ((!plate && !tag) || amt <= 0 || !dt) { skipped++; continue; }
     const desc = String(pI > -1 ? r[pI] : '');
     const plaza = (desc.match(/Plaza Name\s*:\s*(.*?)\s*-\s*Lane/i)?.[1] || desc).trim();
     txns.push({
-      vehicle_no: plate, tag_account: String(tagI > -1 ? (r[tagI] ?? '') : ''),
+      vehicle_no: plate, tag_account: tag,
       txn_datetime: dt.iso, txn_date: dt.date, plaza,
       lane: (desc.match(/Lane\s*ID\s*:\s*([A-Za-z0-9]+)/i)?.[1] || ''),
-      ref_no: String(rI > -1 ? (r[rI] ?? '') : '').trim() || `AUTO-${plate}-${dt.iso.replace(/[^0-9]/g, '')}`,
+      ref_no: String(rI > -1 ? (r[rI] ?? '') : '').trim() || `AUTO-${plate || tag.replace(/[^A-Za-z0-9]/g, '').slice(-10)}-${dt.iso.replace(/[^0-9]/g, '')}`,
       amount: amt,
     });
   }
   return { txns, skipped };
+}
+
+// ── FASTag ↔ Vehicle Master cross-reference ──────────────────────────────
+/** Vehicle Master ke `fastag_id` se tag-only txns par plate bharta hai —
+ *  bank statements jinme sirf Tag ID hota hai wo bhi sahi vehicle par map hoti
+ *  hain. Statement ki apni plate ko kabhi overwrite nahi karta. Pure function
+ *  (unit-testable); MUTATES txns in place and returns the resolved count. */
+export function resolveVehiclesByTag(txns: TollTxn[], vehicles: any[]): number {
+  const normTag = (s: any) => String(s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const tagMap = new Map<string, string>();
+  for (const v of vehicles) {
+    const tag = normTag(v?.fastag_id);
+    const plate = normalizePlate(getField(v, ['vehicle_no', 'Vehicle_No', 'vehical_no', 'Vehical_No']));
+    if (tag && plate) tagMap.set(tag, plate);
+  }
+  let resolved = 0;
+  for (const t of txns) {
+    if (t.vehicle_no || !t.tag_account) continue;
+    const plate = tagMap.get(normTag(t.tag_account));
+    if (plate) { t.vehicle_no = plate; resolved++; }
+  }
+  return resolved;
 }
 
 export function parseCsvText(text: string): any[][] {

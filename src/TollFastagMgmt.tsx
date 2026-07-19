@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import {
-  parseFastagStatement, mapTollsToTrips, saveTollBatch,
+  parseFastagStatement, mapTollsToTrips, saveTollBatch, resolveVehiclesByTag,
   groupTollsForClaim, generateClaimNo, nextClaimSeq, renderIoclClaimHtml,
   saveClaim, amountInWordsINR,
 } from './lib/tollEngine';
@@ -25,6 +25,8 @@ export default function TollFastagMgmt() {
   const [loading, setLoading] = useState(false);
   const [claims, setClaims] = useState<any[]>([]);
 
+  // 🏷️ Vehicle Master — fastag_id se tag-only statement rows ki plate resolve hoti hai
+  const [vehiclesMaster, setVehiclesMaster] = useState<any[]>([]);
   // 📄 STATEMENT SYNC state (multi-bank FASTag statement → parsed + mapped preview)
   const [stmt, setStmt] = useState<any>(null);           // ParsedStatement
   const [stmtMaps, setStmtMaps] = useState<any[]>([]);   // TollMap[]
@@ -64,6 +66,10 @@ export default function TollFastagMgmt() {
       const trSnap = await getDocs(collection(db, "TRIPS")).catch(() => ({docs:[]}));
       setTrips(trSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.created_at || b.Date || 0).getTime() - new Date(a.created_at || a.Date || 0).getTime()));
 
+      // 🏷️ Vehicle Master (fastag_id ↔ plate cross-reference ke liye)
+      const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({docs:[]}));
+      setVehiclesMaster(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
       const txSnap = await getDocs(collection(db, "TOLL_TRANSACTIONS")).catch(() => ({docs:[]}));
       setTransactions(txSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.Txn_Date || b.createdAt).getTime() - new Date(a.Txn_Date || a.createdAt).getTime()));
 
@@ -86,6 +92,13 @@ export default function TollFastagMgmt() {
       if (!parsed.txns.length) {
         alert('⚠️ Statement se koi toll transaction nahi mila. ICICI PDF e-statement ya bank CSV/Excel format check karein.');
         setParsing(false); return;
+      }
+      // 🏷️ CROSS-REFERENCE: jis row me sirf Tag ID hai (plate nahi), uski
+      // vehicle Vehicle Master ke fastag_id mapping se resolve hoti hai.
+      const tagResolved = resolveVehiclesByTag(parsed.txns, vehiclesMaster);
+      const stillNoVehicle = parsed.txns.filter(t => !t.vehicle_no).length;
+      if (tagResolved > 0 || stillNoVehicle > 0) {
+        alert(`🏷️ FASTag Cross-Reference:\n\n✅ ${tagResolved} txns ki vehicle Tag ID se resolve hui (Vehicle Master mapping)${stillNoVehicle ? `\n⚠️ ${stillNoVehicle} txns me vehicle abhi bhi unknown — Vehicle Master me un Tags ka "FASTag ID (Auto-Toll Map)" bharein, phir dobara upload karein.` : ''}`);
       }
       const maps = mapTollsToTrips(parsed.txns, trips);
       setStmt(parsed);

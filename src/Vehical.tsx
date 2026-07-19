@@ -50,19 +50,44 @@ export default function Vehical() {
     fetchMasters(); 
   }, []);
 
+  const [fetchError, setFetchError] = useState('');
+
+  // 🧱 OLD-DATA FALLBACK: purani vehicles me naye fields nahi hote — defaults
+  // bhar kar normalize karte hain taaki HAR historical vehicle render ho,
+  // search/filters kaam karein, aur FASTag mapping stable rahe.
+  const normalizeVehicle = (v: any) => ({
+    ...v,
+    vehicle_no: v.vehicle_no || v.Vehicle_No || v.vehical_no || v.Vehical_No || '',
+    own_attach: v.own_attach || v.asset_type || 'Own',
+    owner_name: v.owner_name || v.Owner_Name || v.asset_owner_name || '',
+    company_name: v.company_name || v.Company_Name || v.operating_company || '',
+    status: v.status || 'System Active',
+    fastag_id: v.fastag_id || '',
+    no_of_tyres: v.no_of_tyres || v.No_of_Tyres || '10+1',
+    vehicle_category: v.vehicle_category || 'Bulk Trucks',
+  });
+
   const fetchVehicles = async () => {
-    setLoading(true);
+    setLoading(true); setFetchError('');
     try {
-      const vSnap1 = await getDocs(collection(db, "VEHICLES")).catch(()=>({docs:[]}));
-      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(()=>({docs:[]}));
-      
+      // ⚠️ Errors ab SWALLOW nahi hote: pehle .catch(()=>empty) tha, jisse
+      // permission-denied par fleet chupchaap khali dikhta tha ("data gayab").
+      const vSnap1 = await getDocs(collection(db, "VEHICLES"));
+      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(() => ({ docs: [] })); // legacy collection: ho to merge, na ho to skip
+
       const allVehicles = [
-          ...vSnap1.docs.map(d => ({ id: d.id, _collection: 'VEHICLES', ...d.data() })),
-          ...vSnap2.docs.map(d => ({ id: d.id, _collection: 'ASSETS', ...d.data() }))
+          ...vSnap1.docs.map(d => normalizeVehicle({ id: d.id, _collection: 'VEHICLES', ...d.data() })),
+          ...vSnap2.docs.map(d => normalizeVehicle({ id: d.id, _collection: 'ASSETS', ...d.data() }))
       ];
-      
+
       setVehicles(scopeCurrent(allVehicles)); // 🔐 RBAC: scoped roles see only their own vehicles
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error("Vehicle fetch failed:", e);
+      setVehicles([]);
+      setFetchError(/permission|insufficient/i.test(String(e?.message || e))
+        ? '🔐 PERMISSION BLOCKED: Aapki login session purani/expired hai — vehicles database access nahi mila. LOGOUT karke email/password se dobara login karein, saara data wapas aa jayega. (Data delete NAHI hua hai.)'
+        : `❌ Vehicles load nahi hui: ${e?.message || 'network error'} — internet check karke refresh karein.`);
+    }
     setLoading(false);
   };
 
@@ -260,9 +285,26 @@ export default function Vehical() {
         </div>
       </div>
 
+      {/* 🚨 FETCH ERROR BANNER — khali list ka reason ab hamesha dikhta hai */}
+      {fetchError && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '2px dashed #ef4444', borderRadius: '15px', padding: '20px', marginBottom: '25px', color: '#fca5a5', fontWeight: 'bold', fontSize: '14px', lineHeight: 1.6 }}>
+          {fetchError}
+          <div style={{ marginTop: '12px' }}>
+            <button onClick={fetchVehicles} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Retry</button>
+          </div>
+        </div>
+      )}
+
       {/* 🚛 Grid List */}
       {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', fontSize: '18px' }}>🔄 Syncing with Global Database...</p> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '30px' }}>
+          {!fetchError && filteredVehicles.length === 0 && (
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px', color: '#94a3b8', fontSize: '15px' }}>
+              {vehicles.length === 0
+                ? '🚛 Database me abhi koi vehicle nahi mili. "+ Initialize Vehicle" se pehli vehicle add karein.'
+                : `🔍 ${vehicles.length} vehicles me se koi filter/search se match nahi hui — filters clear karke dekhein.`}
+            </div>
+          )}
           {filteredVehicles.map((v) => {
             const isActive = String(v.status || 'Active').toLowerCase().includes('active');
             return (

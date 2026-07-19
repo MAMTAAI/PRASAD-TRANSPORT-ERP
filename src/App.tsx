@@ -86,14 +86,34 @@ export default function App() {
       try {
         const parsedUser = JSON.parse(savedUser);
         setUser(parsedUser);
-        setShowPublicWebsite(false); 
+        setShowPublicWebsite(false);
       } catch (e) {
         console.error("Error parsing user data", e);
       }
     }
     // Wait for the Firebase (anonymous) auth token before any Firestore reads —
     // security rules reject requests made without it.
-    authReady.then(() => setAuthLoading(false));
+    authReady.then(() => {
+      // 🔐 STALE-SESSION GUARD (root cause of "purana data gayab"): Phase-1 se
+      // pehle ka localStorage login Firebase me sirf ANONYMOUS hota hai — rules
+      // isStaff() (password login) mangte hain, isliye VEHICLES jaise staff-only
+      // collections chupchaap khali aa jate the (TRIPS dikhti thi, fleet nahi).
+      // Aisi stale session ko yahin pakad kar dobara login karwate hain.
+      // ('@local' emails = Playwright QA bypass — unhe nahi chhedte.)
+      try {
+        const saved = JSON.parse(localStorage.getItem('prasad_user') || 'null');
+        const fbUser = auth.currentUser;
+        const isPasswordLogin = !!fbUser && (fbUser.providerData || []).some((p) => p?.providerId === 'password');
+        const isQaBypass = String(saved?.email || '').endsWith('@local');
+        if (saved && !isPasswordLogin && !isQaBypass) {
+          localStorage.removeItem('prasad_user');
+          setUser(null);
+          setShowPublicWebsite(false); // login screen dikhao, public site nahi
+          alert('🔐 Aapka purana login session expire ho gaya hai (naya security system).\n\nKripya apne email/password se DOBARA LOGIN karein — uske baad Vehicle Master samet saara purana data wapas dikhega.');
+        }
+      } catch { /* guard is best-effort */ }
+      setAuthLoading(false);
+    });
     
     // ✨ SPLASH SCREEN TIMER 
     const splashTimer = setTimeout(() => {
