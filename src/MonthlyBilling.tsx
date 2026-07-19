@@ -20,6 +20,7 @@ import { db } from './firebase';
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
+import { tripFreightMeta, computeFreight, BILLING_TYPES } from './lib/freightEngine';
 import { useIsMobile } from './hooks/useIsMobile';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -72,6 +73,8 @@ export default function MonthlyBilling() {
   const [trips, setTrips] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [companiesList, setCompaniesList] = useState([]);
+  // 📍 Route & RTKM master — Smart Freight Engine ke formulas + quarterly rates
+  const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [cust, setCust] = useState('');
@@ -104,15 +107,17 @@ export default function MonthlyBilling() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [tSnap, cSnap, coSnap1, coSnap2] = await Promise.all([
+      const [tSnap, cSnap, coSnap1, coSnap2, rSnap] = await Promise.all([
         getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANY')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANIES')).catch(() => ({ docs: [] })),
+        getDocs(collection(db, 'RTKM_MASTER')).catch(() => ({ docs: [] })),
       ]);
       setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
       setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setCompaniesList([...coSnap1.docs, ...coSnap2.docs].map(d => ({ id: d.id, ...d.data() })));
+      setRoutes(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -226,17 +231,29 @@ export default function MonthlyBilling() {
     // 📋 POST-TRIP DATA ENTRY: loading ke waqt qty/rate exact nahi hote (company
     // challan baad me aata hai) — isliye qty pehle billing-entered `qty`, phir
     // loading figures se; rate trip ka apna (AI-scan/inline se aya) warna default.
-    setRows(picked.map(t => ({
-      tripId: t.id,
-      company: tripCompany(t),
-      date: toISODate(t.start_date || t.Loading_Date || t.loading_date),
-      cn: String(t.challan_no || t.Challan_No || t.trip_id || t.Trip_ID || '').trim(),
-      vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
-      qty: parseFloat(t.qty || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
-      rate: parseFloat(t.rate || t.freight_rate || 0) || defRate,
-      unloadDate: toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)),
-      include: true,
-    })));
+    // 💰 SMART FREIGHT ENGINE: route master se billing formula + trip ki
+    // LOADING DATE wala quarterly rate auto-resolve hota hai (IOCL pattern:
+    // Qty × RTD × Rate/t-km). Trip par explicit rate ho to wahi jeet-ta hai.
+    setRows(picked.map(t => {
+      const loadDate = toISODate(t.start_date || t.Loading_Date || t.loading_date);
+      const meta = tripFreightMeta(routes, t, loadDate);
+      const tripRate = parseFloat(t.rate || t.freight_rate || 0) || 0;
+      return {
+        tripId: t.id,
+        company: tripCompany(t),
+        date: loadDate,
+        cn: String(t.challan_no || t.Challan_No || t.trip_id || t.Trip_ID || '').trim(),
+        vehicle: String(t.vehicle_no || t.Vehical_No || '').replace(/\s+/g, ''),
+        qty: parseFloat(t.qty || t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || 0) || 0,
+        rate: tripRate > 0 ? tripRate : (meta && meta.rate > 0 ? meta.rate : defRate),
+        billing_type: meta?.billing_type || 'PER_KL',
+        rtkm: meta?.rtkm || 0,
+        capacityKl: meta?.capacityKl || 0,
+        rate_source: tripRate > 0 ? 'trip' : (meta && meta.rate > 0 ? meta.rate_source : 'default'),
+        unloadDate: toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)),
+        include: true,
+      };
+    }));
     // ⏱️ Detention (real rule): reporting + FREE days = detention start;
     // days counted inclusive. Best reporting source: driver's 🏭 plant stamp.
     setDetRows(picked.map(t => {
@@ -298,8 +315,13 @@ export default function MonthlyBilling() {
   // invoice total ALWAYS equals the sum of the per-trip journal entries to the
   // paisa (totalQty×rate can drift by paise on fractional KL).
   const fRows = visRows.filter(r => r.include);
-  // Per-trip rate (inline-editable); bill-level Freight Rate sirf default hai.
-  const tripFreightOf = (r) => round2((parseFloat(r.qty) || 0) * (parseFloat(r.rate) || 0));
+  // 💰 SMART FREIGHT: har row apne billing formula se compute hoti hai —
+  // PER_KL: Qty×Rate · RTKM_QTY (IOCL): Qty×RTKM×Rate · RTKM_CAPACITY:
+  // RTKM×Cap×Rate · FIXED: flat. Rate inline-editable rehta hai.
+  const tripFreightOf = (r) => computeFreight(r.billing_type || 'PER_KL', {
+    qty: parseFloat(r.qty) || 0, rate: parseFloat(r.rate) || 0,
+    rtkm: parseFloat(r.rtkm) || 0, capacityKl: parseFloat(r.capacityKl) || 0,
+  });
   const totalQty = round2(fRows.reduce((s, r) => s + (parseFloat(r.qty) || 0), 0));
   const freightTotal = round2(fRows.reduce((s, r) => s + tripFreightOf(r), 0));
   const dRows = visDetRows.filter(r => r.include && r.days > 0);
@@ -323,7 +345,8 @@ export default function MonthlyBilling() {
   const persistRow = async (r) => {
     const qty = parseFloat(r.qty) || 0, rate = parseFloat(r.rate) || 0;
     try {
-      await updateDoc(doc(db, 'TRIPS', r.tripId), { qty, rate, gross_freight: round2(qty * rate), freight_set_by: 'billing_inline' });
+      // gross_freight = row ke billing formula ka result (sirf qty×rate nahi)
+      await updateDoc(doc(db, 'TRIPS', r.tripId), { qty, rate, gross_freight: tripFreightOf(r), freight_set_by: 'billing_inline' });
     } catch (e) { console.error(e); alert(`❌ CN ${r.cn}: Qty/Rate save nahi hua — network check karein.`); }
   };
   const editDet = (i, f, v) => setDetRows(p => p.map((r) => {
@@ -711,7 +734,15 @@ export default function MonthlyBilling() {
                     {/* ✏️ Excel-style inline: 0 par laal border = challan aane par yahin bharo; blur = TRIPS me instant save */}
                     <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.qty) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} onBlur={() => persistRow(r)} /></td>
                     <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
-                    <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>₹{inr(tripFreightOf(r))}</td>
+                    <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>
+                      ₹{inr(tripFreightOf(r))}
+                      {(r.billing_type && r.billing_type !== 'PER_KL') && (
+                        <span title={`${BILLING_TYPES.find(b => b.key === r.billing_type)?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}${r.rate_source === 'history' ? ' · quarterly rate (route master)' : ''}`}
+                          style={{ display: 'block', fontSize: '9px', color: '#c084fc', fontWeight: 'bold' }}>
+                          ⚙ {BILLING_TYPES.find(b => b.key === r.billing_type)?.label || r.billing_type}{r.rate_source === 'history' ? ' ·Q' : ''}
+                        </span>
+                      )}
+                    </td>
                   </tr>))}
                 </tbody>
               </table>

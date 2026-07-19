@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { BILLING_TYPES, resolveRate } from './lib/freightEngine';
 
 // 🛠️ Fleet fuel-economy config (km per litre) by vehicle capacity, used to
 // derive Fixed HSD = RTKM ÷ mileage when a route has no saved value.
@@ -55,8 +56,14 @@ export default function LocationRtkmMaster() {
     RTKM_Distance: '',
     Fixed_HSD: '',
     Fixed_Cash: '',
-    Status: 'Active'
+    Status: 'Active',
+    // 💰 SMART FREIGHT ENGINE: billing formula (oil companies simple Qty×Rate
+    // use nahi kartin — IOCL me Qty × RTD × Rate/tonne-km hota hai)
+    Billing_Type: 'PER_KL'
   });
+  // 🗓️ Quarterly date-effective rates: [{valid_from, valid_to, rate_value}] —
+  // trip ki LOADING DATE jis quarter me girti hai, wahi rate billing me lagta hai.
+  const [rateHistory, setRateHistory] = useState<any[]>([]);
 
   useEffect(() => {
     fetchRoutes();
@@ -155,27 +162,32 @@ export default function LocationRtkmMaster() {
       return;
     }
 
+    // 🗓️ Rate history clean-up: khali/0 rows hatao, dates validate karo.
+    const cleanRates = rateHistory
+      .filter(r => r.valid_from && parseFloat(r.rate_value) > 0)
+      .map(r => ({ valid_from: r.valid_from, valid_to: r.valid_to || '', rate_value: parseFloat(r.rate_value) }))
+      .sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+    const badRange = cleanRates.find(r => r.valid_to && r.valid_to < r.valid_from);
+    if (badRange) { alert(`⚠️ Rate period galat hai: Valid-To (${badRange.valid_to}) Valid-From (${badRange.valid_from}) se pehle nahi ho sakta!`); return; }
+    if (formData.Billing_Type !== 'PER_KL' && cleanRates.length === 0) {
+      if (!window.confirm('⚠️ Aapne special Billing Type chuna hai par koi Quarterly Rate nahi bhara — billing me rate 0 aayega.\n\nPhir bhi save karein?')) return;
+    }
+
     setIsSubmitting(true);
     try {
+      const payload = {
+        ...formData,
+        rate_history: cleanRates,
+        customer_name: formData.Customer,
+        depot_link: formData.Depot_Link,
+        consignee_name: formData.Consignee_Name,
+        rtkm_distance: formData.RTKM_Distance,
+      };
       if (editingId) {
-        await updateDoc(doc(db, "RTKM_MASTER", editingId), {
-          ...formData,
-          customer_name: formData.Customer, 
-          depot_link: formData.Depot_Link,
-          consignee_name: formData.Consignee_Name,
-          rtkm_distance: formData.RTKM_Distance,
-          updatedAt: serverTimestamp()
-        });
+        await updateDoc(doc(db, "RTKM_MASTER", editingId), { ...payload, updatedAt: serverTimestamp() });
         alert("✅ मास्टर डेटा सफलतापूर्वक अपडेट हो गया!");
       } else {
-        await addDoc(collection(db, "RTKM_MASTER"), {
-          ...formData,
-          customer_name: formData.Customer,
-          depot_link: formData.Depot_Link,
-          consignee_name: formData.Consignee_Name,
-          rtkm_distance: formData.RTKM_Distance,
-          createdAt: serverTimestamp()
-        });
+        await addDoc(collection(db, "RTKM_MASTER"), { ...payload, createdAt: serverTimestamp() });
         alert(`✅ नया रूट सफलतापूर्वक सेव हुआ!`);
       }
       
@@ -201,8 +213,10 @@ export default function LocationRtkmMaster() {
       RTKM_Distance: r.RTKM_Distance || r.rtkm_distance || '',
       Fixed_HSD: r.Fixed_HSD || '',
       Fixed_Cash: r.Fixed_Cash || '',
-      Status: r.Status || 'Active'
+      Status: r.Status || 'Active',
+      Billing_Type: r.Billing_Type || 'PER_KL'
     });
+    setRateHistory(Array.isArray(r.rate_history) ? r.rate_history.map(x => ({ ...x })) : []);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -235,8 +249,10 @@ export default function LocationRtkmMaster() {
       RTKM_Distance: '',
       Fixed_HSD: '',
       Fixed_Cash: '',
-      Status: 'Active'
+      Status: 'Active',
+      Billing_Type: 'PER_KL'
     }));
+    setRateHistory([]);
   };
 
   let filteredRoutes = routes;
@@ -374,6 +390,56 @@ export default function LocationRtkmMaster() {
             </div>
           </div>
 
+          {/* 💰 SMART FREIGHT ENGINE: billing formula + date-effective quarterly rates */}
+          <div style={{ padding: '20px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px dashed #10b981', marginBottom: '30px' }}>
+            <label style={{ ...labelStyle, color: '#10b981', fontSize: '14px' }}>💰 Smart Freight Calculation (Billing Formula + Quarterly Rates)</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginTop: '10px' }}>
+              <div>
+                <label style={labelStyle}>Billing Type / Formula *</label>
+                <select style={{ ...inputStyle, borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={formData.Billing_Type} onChange={e => setFormData({ ...formData, Billing_Type: e.target.value })}>
+                  {BILLING_TYPES.map(bt => <option key={bt.key} value={bt.key}>{bt.label} — {bt.formula}</option>)}
+                </select>
+                <small style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginTop: '5px' }}>
+                  IOCL LPG bills: Qty(TO) × RTD(km) × Rate/t-km — "RTKM × Qty" chunein.
+                </small>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '15px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label style={{ ...labelStyle, color: '#c084fc' }}>🗓️ Quarterly Rate Revisions (trip ki Loading Date se sahi rate auto-lagta hai)</label>
+                <button type="button" onClick={() => setRateHistory([...rateHistory, { valid_from: '', valid_to: '', rate_value: '' }])}
+                  style={{ background: 'rgba(192,132,252,0.15)', color: '#c084fc', border: '1px solid #c084fc', padding: '6px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                  ➕ Add Rate Period
+                </button>
+              </div>
+              {rateHistory.length === 0 && (
+                <p style={{ color: '#64748b', fontSize: '12px', margin: '10px 0 0' }}>Koi rate period nahi — billing me trip par manual/default rate lagega. Har quarter ka naya rate yahan add karein.</p>
+              )}
+              {rateHistory.map((rh, idx) => (
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 44px', gap: '10px', marginTop: '10px', alignItems: 'center' }}>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: '10px', marginBottom: '3px' }}>Valid From *</label>
+                    <input type="date" style={{ ...inputStyle, padding: '9px', colorScheme: 'dark' }} value={rh.valid_from}
+                      onChange={e => setRateHistory(rateHistory.map((x, i) => i === idx ? { ...x, valid_from: e.target.value } : x))} />
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: '10px', marginBottom: '3px' }}>Valid To (khaali = current)</label>
+                    <input type="date" style={{ ...inputStyle, padding: '9px', colorScheme: 'dark' }} value={rh.valid_to}
+                      onChange={e => setRateHistory(rateHistory.map((x, i) => i === idx ? { ...x, valid_to: e.target.value } : x))} />
+                  </div>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: '10px', marginBottom: '3px', color: '#10b981' }}>Rate Value *</label>
+                    <input type="number" step="any" placeholder="e.g. 3.432495" style={{ ...inputStyle, padding: '9px', borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={rh.rate_value}
+                      onChange={e => setRateHistory(rateHistory.map((x, i) => i === idx ? { ...x, rate_value: e.target.value } : x))} />
+                  </div>
+                  <button type="button" title="Remove period" onClick={() => setRateHistory(rateHistory.filter((_, i) => i !== idx))}
+                    style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: '8px', height: '38px', marginTop: '16px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div style={{ display: 'flex', gap: '15px' }}>
             {editingId && (
               <button type="button" onClick={resetForm} style={{ flex: 1, background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '15px', borderRadius: '8px', fontWeight: '900', fontSize: '16px', cursor: 'pointer', transition: '0.3s' }}>
@@ -420,6 +486,7 @@ export default function LocationRtkmMaster() {
               <th style={{ padding: '15px 10px', color: '#38bdf8' }}>ITEM TYPE</th>
               <th style={{ padding: '15px 10px', color: '#c084fc' }}>VEHICLE CAP.</th>
               <th style={{ padding: '15px 10px', color: '#f59e0b' }}>RTKM</th>
+              <th style={{ padding: '15px 10px', color: '#10b981' }}>BILLING / RATE</th>
               <th style={{ padding: '15px 10px', color: '#f59e0b' }}>HSD</th>
               <th style={{ padding: '15px 10px', color: '#f59e0b' }}>CASH</th>
               <th style={{ padding: '15px 10px', textAlign: 'center' }}>STATUS</th>
@@ -428,9 +495,9 @@ export default function LocationRtkmMaster() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} style={{ padding: '30px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr>
+              <tr><td colSpan={11} style={{ padding: '30px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr>
             ) : filteredRoutes.length === 0 ? (
-              <tr><td colSpan={10} style={{ padding: '30px', textAlign: 'center', color: '#ef4444' }}>No matching routes found!</td></tr>
+              <tr><td colSpan={11} style={{ padding: '30px', textAlign: 'center', color: '#ef4444' }}>No matching routes found!</td></tr>
             ) : (
               filteredRoutes.map(r => {
                 const isActive = r.Status !== 'Inactive';
@@ -446,6 +513,21 @@ export default function LocationRtkmMaster() {
                     </td>
                     
                     <td style={{ padding: '15px 10px', fontWeight: 'bold', color: isActive ? '#fff' : '#64748b' }}>{r.RTKM_Distance || r.rtkm_distance}</td>
+                    <td style={{ padding: '15px 10px' }}>
+                      {(() => {
+                        const bt = BILLING_TYPES.find(b => b.key === (r.Billing_Type || 'PER_KL'));
+                        const cur = resolveRate(r, new Date().toISOString().slice(0, 10));
+                        return (
+                          <div title={bt?.formula}>
+                            <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 8px' }}>{bt?.label || 'Per KL'}</span>
+                            <div style={{ fontSize: '12px', marginTop: '4px', color: cur.rate > 0 ? '#10b981' : '#64748b', fontWeight: 'bold' }}>
+                              {cur.rate > 0 ? `₹${cur.rate}` : 'No rate'}
+                              {cur.source === 'history' && <span style={{ color: '#c084fc', fontSize: '9px' }}> ·Q</span>}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td style={{ padding: '15px 10px' }}>
                       {(r.Fixed_HSD && parseFloat(r.Fixed_HSD) > 0)
                         ? `${r.Fixed_HSD} L`
