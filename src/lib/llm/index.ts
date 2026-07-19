@@ -6,15 +6,17 @@
 // • Auto-fallback: primary model -> lighter model on engine error.
 // • Clean "engine offline" signal so the UI can show a friendly message.
 
-import { LLM_CONFIG } from './config';
+import { LLM_CONFIG, BRIDGE_URL, getAiEngine } from './config';
 import { OllamaProvider } from './providers/ollama';
+import { ClaudeBridgeProvider } from './providers/claudeBridge';
 import type {
   ChatMessage, ChatOptions, ChatResult, LLMHealth, LLMProvider, StreamChunk,
 } from './types';
 import { LLMOfflineError, LLMError } from './types';
 
 export * from './types';
-export { LLM_CONFIG } from './config';
+export { LLM_CONFIG, getAiEngine, setAiEngine, AI_ENGINES } from './config';
+export type { AiEngine } from './config';
 
 function makeProvider(): LLMProvider {
   switch (LLM_CONFIG.provider) {
@@ -24,10 +26,18 @@ function makeProvider(): LLMProvider {
   }
 }
 
-const provider = makeProvider();
+// 🔀 DUAL-AI: local (Ollama — unchanged default) + cloud (Claude via bridge).
+// Har call par engine selection padha jata hai — user dropdown se switch kare
+// to agla hi request naye engine par jata hai, reload ki zaroorat nahi.
+const localProvider = makeProvider();
+const cloudProvider = new ClaudeBridgeProvider(BRIDGE_URL, LLM_CONFIG.requestTimeoutMs);
+const activeProvider = (): LLMProvider => getAiEngine() === 'cloud' ? cloudProvider : localProvider;
 
 function shouldFallback(err: unknown, opts: ChatOptions, primary: string): boolean {
   if (opts.noFallback) return false;
+  // Model-fallback sirf LOCAL engine ka concept hai (12b -> e4b). Cloud par
+  // Anthropic SDK khud retries karta hai; gemma fallback wahan meaningless hai.
+  if (getAiEngine() === 'cloud') return false;
   if (LLM_CONFIG.fallbackModel === primary) return false;
   // Don't fallback on user-cancellation or full server-offline (fallback can't help).
   if (err instanceof DOMException && err.name === 'AbortError') return false;
@@ -35,13 +45,14 @@ function shouldFallback(err: unknown, opts: ChatOptions, primary: string): boole
   return err instanceof LLMError;
 }
 
-/** Is the local engine reachable, and which models are installed? */
+/** Is the ACTIVE engine reachable (local: Ollama; cloud: bridge + key)? */
 export function llmHealth(): Promise<LLMHealth> {
-  return provider.health();
+  return activeProvider().health();
 }
 
 /** One-shot chat. Returns the full answer (and which model produced it). */
 export async function llmChat(messages: ChatMessage[], opts: ChatOptions = {}): Promise<ChatResult> {
+  const provider = activeProvider();
   const primary = opts.model || LLM_CONFIG.model;
   const base = { ...opts, temperature: opts.temperature ?? LLM_CONFIG.temperature };
   try {
@@ -55,6 +66,7 @@ export async function llmChat(messages: ChatMessage[], opts: ChatOptions = {}): 
 
 /** Streaming chat. Yields incremental chunks; falls back if the primary fails before streaming. */
 export async function* llmChatStream(messages: ChatMessage[], opts: ChatOptions = {}): AsyncGenerator<StreamChunk> {
+  const provider = activeProvider();
   const primary = opts.model || LLM_CONFIG.model;
   const base = { ...opts, temperature: opts.temperature ?? LLM_CONFIG.temperature };
   try {

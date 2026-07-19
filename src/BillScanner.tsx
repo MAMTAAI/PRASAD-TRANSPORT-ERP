@@ -8,6 +8,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { collection, getDocs, doc, writeBatch, increment, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { extractBill, matchRowsToTrips, matchRowsToFuelEntries, classifyDocument, extractBpclFreightBill } from './lib/billScanner';
+import { getAiEngine, setAiEngine, AI_ENGINES } from './lib/llm';
 import { CARD_PROVIDERS } from './lib/fleetCard';
 import { postEntry } from './lib/accounting/journal';
 import { round2, getTripFreight } from './lib/accounting/tripMath';
@@ -19,6 +20,10 @@ const fmtINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 export default function BillScanner() {
   const { isMobile } = useIsMobile();
   const [kind, setKind] = useState('FREIGHT');           // FREIGHT | HSD
+  // 🔀 DUAL-AI ENGINE: 'local' (Ollama) | 'cloud' (Claude Haiku via bridge).
+  // localStorage me persist — user ka preferred engine hamesha yaad rahta hai.
+  const [aiEngine, setAiEngineState] = useState(getAiEngine());
+  const switchEngine = (e) => { setAiEngine(e); setAiEngineState(e); };
   const [files, setFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [progress, setProgress] = useState('');
@@ -85,8 +90,13 @@ export default function BillScanner() {
       }
       setProgress('');
     } catch (e) {
-      const offline = e?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(e?.message || '');
-      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke dobara try karein.' : `❌ Scan failed: ${e?.message || 'unknown error'}`);
+      const offline = e?.name === 'LLMOfflineError' || /ollama|engine|reach|bridge/i.test(e?.message || '');
+      // Engine-specific offline message: "Ollama band hai" alert SIRF local mode me
+      alert(offline
+        ? (aiEngine === 'cloud'
+          ? '❌ Cloud AI unavailable — bridge server (bridge.cjs) chalu hai? ANTHROPIC_API_KEY set hai? Ya Local AI par switch karein.'
+          : '❌ Local AI engine (Ollama) band hai. Use chalu karke dobara try karein — ya upar se ☁️ Cloud AI select karein.')
+        : `❌ Scan failed: ${e?.message || 'unknown error'}`);
       setProgress('');
     }
     setScanning(false);
@@ -263,7 +273,23 @@ export default function BillScanner() {
   return (
     <div style={S.page}>
       <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>🤖 AI Bill Scanner</h1>
-      <p style={{ color: '#94a3b8', margin: '0 0 18px 0', fontSize: '13px' }}>Mamta AI (100% local) — freight invoice ya HSD pump bill scan karke seedha Trips + Ledger me file karein.</p>
+      <p style={{ color: '#94a3b8', margin: '0 0 14px 0', fontSize: '13px' }}>Mamta AI — freight invoice ya HSD pump bill scan karke seedha Trips + Ledger me file karein.</p>
+
+      {/* 🔀 AI ENGINE SELECTION — Local (Ollama, free) vs Cloud (Claude Haiku) */}
+      <div style={{ ...S.card, padding: '14px 18px', border: aiEngine === 'cloud' ? '1px solid #c084fc' : '1px solid #10b981', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ fontSize: '12px', fontWeight: 'bold', color: aiEngine === 'cloud' ? '#c084fc' : '#10b981', whiteSpace: 'nowrap' }}>
+          🧠 AI Engine Selection
+        </label>
+        <select value={aiEngine} onChange={e => switchEngine(e.target.value)}
+          style={{ ...S.input, width: isMobile ? '100%' : '340px', borderColor: aiEngine === 'cloud' ? '#c084fc' : '#10b981', fontWeight: 'bold' }}>
+          {AI_ENGINES.map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
+        </select>
+        <span style={{ fontSize: '11px', color: '#64748b' }}>
+          {aiEngine === 'cloud'
+            ? '☁️ Scans Anthropic API (Claude Haiku) par jayenge — mobile/remote se bhi chalta hai, per-scan cost lagti hai. API key sirf bridge server par rehti hai.'
+            : '💻 Scans isi computer par Ollama + Gemma se honge — bilkul free, data machine se bahar nahi jata.'}
+        </span>
+      </div>
 
       {/* Kind toggle */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>

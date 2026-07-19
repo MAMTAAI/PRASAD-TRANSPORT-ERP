@@ -30,6 +30,28 @@ export function setAiOverrides(next: AiOverrides): void {
   try { localStorage.setItem(LS_KEY, JSON.stringify({ ...getAiOverrides(), ...next })); } catch { /* ignore */ }
 }
 
+// 🔀 DUAL-AI ENGINE SELECTION — 'local' (Ollama, free) | 'cloud' (Claude Haiku
+// via bridge server — mobile & remote). Choice localStorage me persist hoti hai
+// taaki user ka preferred engine yaad rahe. Ollama code untouched — cloud ek
+// ADDITIONAL selectable provider hai, replacement nahi.
+export type AiEngine = 'local' | 'cloud';
+const ENGINE_KEY = 'pt_ai_engine';
+export function getAiEngine(): AiEngine {
+  try { return localStorage.getItem(ENGINE_KEY) === 'cloud' ? 'cloud' : 'local'; }
+  catch { return 'local'; }
+}
+export function setAiEngine(engine: AiEngine): void {
+  try { localStorage.setItem(ENGINE_KEY, engine); } catch { /* ignore */ }
+}
+export const AI_ENGINES: { key: AiEngine; label: string }[] = [
+  { key: 'local', label: '💻 Local AI (Ollama - Free)' },
+  { key: 'cloud', label: '☁️ Cloud AI (Claude Haiku - Mobile & Remote)' },
+];
+
+/** Bridge server (bridge.cjs) — cloud AI requests isi se hokar jaati hain
+ *  taaki Anthropic API key sirf server-side .env me rahe, browser me kabhi nahi. */
+export const BRIDGE_URL = (env.VITE_BRIDGE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+
 const ENV_MODEL = env.VITE_LLM_MODEL || 'gemma4:12b';
 const ENV_TEMP = num(env.VITE_LLM_TEMPERATURE, 0.4);
 

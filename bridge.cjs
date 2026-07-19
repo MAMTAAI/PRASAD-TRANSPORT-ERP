@@ -9,7 +9,8 @@ const axios = require('axios');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// AI Bill Scanner sends multi-page base64 images in the chat body — default 100kb limit is far too small
+app.use(express.json({ limit: '50mb' }));
 
 const upload = multer({ dest: 'uploads/' });
 
@@ -177,6 +178,124 @@ app.post('/speak', async (req, res) => {
         console.error("TTS API Error:", error.message);
         res.status(500).json({ success: false, message: "Voice generation failed." });
     }
+});
+
+// =======================================================
+// ROUTE 4: 🤖 DUAL-AI ENGINE — Claude (cloud) / Ollama (local) chat controller
+// Frontend sends {engine, messages, options}; `engine` decides the route:
+//   'cloud' -> Anthropic API (Claude Haiku), key from process.env.ANTHROPIC_API_KEY
+//   'local' -> proxied to the Ollama server (same structure the frontend uses
+//              directly; yahan bhi support hai taaki remote/mobile clients jo
+//              localhost:11434 tak nahi pahunch sakte, bridge ke through local
+//              engine bhi chala sakein)
+// Messages use the app's provider-neutral ChatMessage shape:
+//   { role, content, images?: [base64-no-prefix] }
+// =======================================================
+const Anthropic = require('@anthropic-ai/sdk');
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
+const OLLAMA_URL = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
+
+// Anthropic structured outputs demand strict schemas: every object node needs
+// additionalProperties:false. Ollama's grammar mode doesn't — so we upgrade the
+// frontend's existing schemas here instead of duplicating them per engine.
+function toStrictSchema(node) {
+  if (!node || typeof node !== 'object') return node;
+  const out = Array.isArray(node) ? node.map(toStrictSchema) : { ...node };
+  if (!Array.isArray(node)) {
+    if (out.type === 'object') {
+      out.additionalProperties = false;
+      if (!out.required && out.properties) out.required = Object.keys(out.properties);
+    }
+    for (const k of ['properties', 'items']) if (out[k]) out[k] = toStrictSchema(out[k]);
+    if (out.properties) for (const p of Object.keys(out.properties)) out.properties[p] = toStrictSchema(out.properties[p]);
+  }
+  return out;
+}
+
+// ChatMessage[] (Ollama-style: content + images[]) -> Anthropic SDK content blocks
+function toClaudeMessages(messages) {
+  const system = messages.filter(m => m.role === 'system').map(m => m.content).join('\n\n');
+  const turns = messages.filter(m => m.role !== 'system').map(m => ({
+    role: m.role === 'assistant' ? 'assistant' : 'user',
+    content: [
+      // images pehle, phir text — vision best practice (document before question)
+      ...(m.images || []).map(b64 => ({
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/jpeg', data: b64 },
+      })),
+      { type: 'text', text: m.content || ' ' },
+    ],
+  }));
+  return { system, turns };
+}
+
+// Health: UI isse batati hai ki cloud engine ready hai ya nahi (bina key bheje)
+app.get('/api/ai/health', (req, res) => {
+  res.json({
+    ok: true,
+    cloud_configured: !!anthropic,
+    cloud_model: CLAUDE_MODEL,
+    ollama_url: OLLAMA_URL,
+  });
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+  const { engine = 'local', messages = [], options = {} } = req.body || {};
+  if (!Array.isArray(messages) || !messages.length) {
+    return res.status(400).json({ success: false, error: 'messages[] required' });
+  }
+
+  try {
+    if (engine === 'cloud') {
+      // ── CLOUD: Anthropic API (Claude Haiku) ──────────────────────────────
+      if (!anthropic) {
+        return res.status(503).json({ success: false, error: 'ANTHROPIC_API_KEY .env me set nahi hai — bridge restart karke dobara try karein.' });
+      }
+      const { system, turns } = toClaudeMessages(messages);
+      const params = {
+        model: options.model || CLAUDE_MODEL,
+        max_tokens: 8192,
+        messages: turns,
+      };
+      if (system) params.system = system;
+      if (typeof options.temperature === 'number') params.temperature = options.temperature;
+      // Ollama `format: <schema>` ka Claude equivalent: structured outputs
+      if (options.format && typeof options.format === 'object') {
+        params.output_config = { format: { type: 'json_schema', schema: toStrictSchema(options.format) } };
+      }
+      const msg = await anthropic.messages.create(params);
+      if (msg.stop_reason === 'refusal') {
+        return res.status(422).json({ success: false, error: 'Cloud AI ne is request ko decline kar diya (safety). Local AI engine try karein.' });
+      }
+      const text = (msg.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+      return res.json({ success: true, engine: 'cloud', model: msg.model, content: text, stop_reason: msg.stop_reason, usage: msg.usage });
+    }
+
+    // ── LOCAL: proxy to Ollama (structure unchanged — same body Ollama expects) ──
+    const ollamaBody = {
+      model: options.model || process.env.OLLAMA_MODEL || 'gemma4:12b',
+      messages: messages.map(m => ({ role: m.role, content: m.content, ...(m.images?.length ? { images: m.images } : {}) })),
+      stream: false,
+      options: {
+        ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+        ...(options.numCtx ? { num_ctx: options.numCtx } : {}),
+      },
+      ...(options.format ? { format: options.format } : {}),
+      ...(options.think === false ? { think: false } : {}),
+    };
+    const r = await axios.post(`${OLLAMA_URL}/api/chat`, ollamaBody, { timeout: 180000 });
+    return res.json({ success: true, engine: 'local', model: r.data?.model, content: r.data?.message?.content || '' });
+  } catch (error) {
+    // Typed Anthropic errors -> clean status + message for the frontend
+    if (Anthropic && error instanceof Anthropic.APIError) {
+      console.error(`❌ Claude API ${error.status}:`, error.message);
+      return res.status(error.status || 500).json({ success: false, error: `Cloud AI error (${error.status}): ${error.message}` });
+    }
+    const offline = error.code === 'ECONNREFUSED' || /ECONNREFUSED|ENOTFOUND/.test(error.message || '');
+    console.error('❌ AI chat error:', error.message);
+    return res.status(offline ? 503 : 500).json({ success: false, error: offline ? 'Local AI engine (Ollama) is not reachable from the bridge.' : (error.message || 'AI request failed') });
+  }
 });
 
 // --- 4. START SERVER ---

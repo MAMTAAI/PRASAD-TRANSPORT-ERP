@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",
@@ -21,7 +22,9 @@
     "express": "^5.2.1",
     "firebase": "^12.11.0",
     "googleapis": "^171.4.0",
+    "imapflow": "^1.4.7",
     "lucide-react": "^0.344.0",
+    "mailparser": "^3.9.14",
     "multer": "^2.1.1",
     "nodemailer": "^8.0.2",
     "pdfjs-dist": "^6.0.227",
