@@ -65,19 +65,25 @@ if (Test-PortUp 3000) {
   else { Write-Warning "Bridge did not open 3000 within 20s - check logs\bridge.err.log" }
 }
 
-# -- 3. CLOUDFLARED (optional) ------------------------------------------------
+# -- 3. CLOUDFLARED named tunnel (optional) -----------------------------------
+# Runs the locally-configured named tunnel via config.yml (tunnel id + creds),
+# so it needs NO cert.pem. Idempotent: skips if cloudflared is already running.
 if ($WithCloudflared) {
-  if (Get-Command cloudflared -ErrorAction SilentlyContinue) {
-    Write-Host "[start] cloudflared tunnel run $TunnelName ..." -ForegroundColor Green
-    Start-Process -FilePath 'cloudflared' -ArgumentList "tunnel run $TunnelName" -WindowStyle Hidden `
+  $cfExe = Join-Path $env:LOCALAPPDATA 'Programs\cloudflared\cloudflared.exe'
+  $cfCfg = Join-Path $env:USERPROFILE '.cloudflared\config.yml'
+  if (Get-Process cloudflared -ErrorAction SilentlyContinue) {
+    Write-Host "[skip] cloudflared already running." -ForegroundColor DarkGray
+  } elseif ((Test-Path $cfExe) -and (Test-Path $cfCfg)) {
+    Write-Host "[start] cloudflared named tunnel -> ollama.prasadtransport.com ..." -ForegroundColor Green
+    Start-Process -FilePath $cfExe -ArgumentList 'tunnel','--config',"`"$cfCfg`"",'run' -WindowStyle Hidden `
       -RedirectStandardOutput (Join-Path $LogDir 'cloudflared.out.log') `
       -RedirectStandardError  (Join-Path $LogDir 'cloudflared.err.log') | Out-Null
-    Write-Host "        cloudflared launched (verify: cloudflared tunnel info $TunnelName)." -ForegroundColor Green
+    Write-Host "        cloudflared launched." -ForegroundColor Green
   } else {
-    Write-Warning "cloudflared not found on PATH - install it (CLOUDFLARE-TUNNEL-SETUP.md Part 3) or run it as a service."
+    Write-Warning "cloudflared exe or ~/.cloudflared/config.yml missing - re-run the tunnel setup."
   }
 } else {
-  Write-Host "[info] cloudflared not managed here (expected to run as a Windows service)." -ForegroundColor DarkGray
+  Write-Host "[info] cloudflared not managed here (pass -WithCloudflared to auto-run the named tunnel)." -ForegroundColor DarkGray
 }
 
 Write-Host "=== done ===" -ForegroundColor Cyan
