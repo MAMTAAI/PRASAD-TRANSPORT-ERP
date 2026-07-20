@@ -30,6 +30,7 @@ export default function MasterTripSettlement() {
   const [settlements, setSettlements] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [rtkmMaster, setRtkmMaster] = useState<any[]>([]); // fixed-expense fallback for old trips
 
   // 🎛️ Filters
   const [vehicleFilter, setVehicleFilter] = useState('');
@@ -52,17 +53,19 @@ export default function MasterTripSettlement() {
     setLoading(true);
     try {
       const safe = (p) => p.catch(() => ({ docs: [] }));
-      const [tSnap, fSnap, dtSnap, sSnap, drSnap, vSnap] = await Promise.all([
+      const [tSnap, fSnap, dtSnap, sSnap, drSnap, vSnap, rSnap] = await Promise.all([
         safe(getDocs(collection(db, 'TRIPS'))),
         safe(getDocs(collection(db, 'FUEL_ENTRIES'))),
         safe(getDocs(collection(db, 'DRIVER_TRANSACTIONS'))),
         safe(getDocs(collection(db, 'TRIP_SETTLEMENTS'))),
         safe(getDocs(collection(db, 'DRIVERS'))),
         safe(getDocs(collection(db, 'VEHICLES'))),
+        safe(getDocs(collection(db, 'RTKM_MASTER'))),
       ]);
       const m = (s) => s.docs.map(d => ({ id: d.id, ...d.data() }));
       setTrips(m(tSnap)); setFuelEntries(m(fSnap)); setDriverTxns(m(dtSnap));
       setSettlements(m(sSnap)); setDrivers(m(drSnap)); setVehicles(m(vSnap));
+      setRtkmMaster(m(rSnap));
     } catch (e) { console.error('Settlement fetch error:', e); }
     setLoading(false);
   };
@@ -102,6 +105,36 @@ export default function MasterTripSettlement() {
   };
 
   const tripAllowance = (t: any) => round2(num(getField(t, ['fixed_cash', 'Fixed_Cash'])));
+
+  // 🎯 FIXED EXPENSES (Trip Command Center parity) — targets stamped on the
+  // trip; older trips fall back to the RTKM Master route (same consignee
+  // matcher the Command Center fuel modal uses). Display-only: settlement
+  // math/totals deliberately do NOT read from this.
+  const looseMatch = (a: any, b: any) => {
+    if (!a || !b) return false;
+    const s1 = String(a).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const s2 = String(b).toLowerCase().replace(/[^a-z0-9]/g, '');
+    return s1 === s2 || s1.includes(s2) || s2.includes(s1);
+  };
+  const tripFixed = (t: any) => {
+    let hsdL = num(getField(t, ['fixed_hsd', 'Fixed_HSD']));
+    let cash = num(getField(t, ['fixed_cash', 'Fixed_Cash']));
+    let fromMaster = false;
+    if (hsdL <= 0 && cash <= 0) {
+      const consignee = getField(t, ['Consignee_Name', 'consignee_name']);
+      const route = rtkmMaster.find(m => looseMatch(m.Consignee_Name || m.consignee_name || m.unloading_point || m.Destination, consignee));
+      if (route) {
+        hsdL = num(getField(route, ['Fixed_HSD_Qty', 'Fixed_HSD', 'fixed_hsd']));
+        cash = num(getField(route, ['Fixed_Cash_Amt', 'Fixed_Cash', 'fixed_cash']));
+        fromMaster = hsdL > 0 || cash > 0;
+      }
+    }
+    return {
+      hsdL: round2(hsdL), cash: round2(cash), fromMaster,
+      toll: round2(num(getField(t, ['toll_amt', 'toll_amount', 'Toll_Amt']))),
+      hsdIssuedL: round2(num(getField(t, ['hsd_issued']))),
+    };
+  };
 
   // ── Unsettled trip list for current filters ────────────────────────────
   const filterReady = !!(vehicleFilter || driverFilter);
@@ -389,7 +422,31 @@ export default function MasterTripSettlement() {
                               <tr style={{ borderBottom: '1px solid #334155', background: 'rgba(15,23,42,0.6)' }}>
                                 <td></td>
                                 <td colSpan={6} style={{ padding: '5px 14px 15px' }}>
-                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '15px' }}>
+                                    {(() => {
+                                      const fx = tripFixed(t);
+                                      const hsdBal = round2(fx.hsdL - fx.hsdIssuedL);
+                                      const cashBal = round2(fx.cash - cash);
+                                      const balCol = (v: number) => v < 0 ? '#ef4444' : '#10b981';
+                                      const Row = ({ label, target, actual, bal, unit }: any) => (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#cbd5e1', padding: '4px 0', borderBottom: '1px dotted #334155' }}>
+                                          <span style={{ color: '#94a3b8' }}>{label}</span>
+                                          <span>Target <b style={{ color: '#c084fc' }}>{target}{unit}</b> · Actual <b style={{ color: '#38bdf8' }}>{actual}{unit}</b> · Bal <b style={{ color: balCol(bal) }}>{bal}{unit}</b></span>
+                                        </div>
+                                      );
+                                      return (
+                                        <div>
+                                          <div style={{ fontSize: '11px', color: '#c084fc', fontWeight: 'bold', marginBottom: '6px' }}>🎯 FIXED EXPENSES (TRIP TARGET){fx.fromMaster && <span style={{ color: '#f59e0b', fontWeight: 'normal' }}> · from Route Master</span>}</div>
+                                          {fx.hsdL <= 0 && fx.cash <= 0 && fx.toll <= 0
+                                            ? <small style={{ color: '#64748b' }}>Is trip/route par koi fixed target set nahi hai.</small>
+                                            : <>
+                                                {fx.hsdL > 0 && <Row label="⛽ Fixed HSD" target={fx.hsdL} actual={fx.hsdIssuedL} bal={hsdBal} unit=" L" />}
+                                                {fx.cash > 0 && <Row label="💵 Fixed Cash (Bhatta)" target={fx.cash} actual={round2(cash)} bal={cashBal} unit=" ₹" />}
+                                                {fx.toll > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#cbd5e1', padding: '4px 0' }}><span style={{ color: '#94a3b8' }}>🛣️ Toll (recorded)</span><b style={{ color: '#38bdf8' }}>{inr(fx.toll)}</b></div>}
+                                              </>}
+                                        </div>
+                                      );
+                                    })()}
                                     <div>
                                       <div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold', marginBottom: '6px' }}>⛽ DATE-WISE HSD ISSUED</div>
                                       {fuelRows.length === 0 ? <small style={{ color: '#64748b' }}>Koi fuel entry nahi{hsd.amt > 0 ? ` (trip par ₹${hsd.amt} recorded)` : ''}.</small> :
