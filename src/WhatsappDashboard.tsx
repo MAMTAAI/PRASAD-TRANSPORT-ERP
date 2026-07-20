@@ -6,10 +6,25 @@ import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'fireb
 import MamtaChat from './MamtaChat';
 import useIsMobile from './hooks/useIsMobile';
 
+// 🌐 Engine endpoints: the hardened LOCAL engine (this PC, persistent session)
+// is preferred; the legacy Render deploy stays as fallback for other machines.
+const WA_LOCAL = 'http://localhost:5001';
+const WA_CLOUD = 'https://prasad-api.onrender.com';
+
+// 👣 Logged-in ERP user → mandatory footprint on every outbound message.
+const getErpUser = () => {
+  try {
+    const u = JSON.parse(localStorage.getItem('prasad_user') || '{}');
+    return { id: u.email || u.id || u.uid || 'unknown', name: u.full_name || u.name || 'Admin' };
+  } catch { return { id: 'unknown', name: 'Admin' }; }
+};
+
 const WhatsappDashboard = () => {
   const { isMobile } = useIsMobile(); // 📱 responsive layout
-  // 👤 USER SESSION
-  const [activeUser, setActiveUser] = useState('Admin');
+  // 👤 USER SESSION — defaults to the real logged-in ERP user (audit trail)
+  const erpUser = getErpUser();
+  const [activeUser, setActiveUser] = useState(erpUser.name);
+  const [waApi, setWaApi] = useState(WA_CLOUD); // switches to WA_LOCAL when reachable
   const [tab, setTab] = useState('TRIP CHAT'); 
   const [isWa, setIsWa] = useState(false);
   const [qr, setQr] = useState('');
@@ -80,20 +95,32 @@ const WhatsappDashboard = () => {
     const unsubChats = onSnapshot(collection(db, "WA_CHATS"), s => { const fetchedChats = s.docs.map(d => ({ id: d.id, ...d.data() })); fetchedChats.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); setChatMsgs(fetchedChats); });
     const unsubTrips = onSnapshot(collection(db, "TRIPS"), s => { const activeErpTrips = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.trip_status !== 'COMPLETED' && t.trip_status !== 'UNLOADED'); setLiveTrips(activeErpTrips); });
 
-    const checkServer = async () => { 
-        try { 
-            // 🚨 UPDATED TO LIVE SERVER
-            const res = await fetch(`https://prasad-api.onrender.com/api/status/${activeUser}`); 
-            const data = await res.json(); 
-            setIsWa(data.connected); 
-            setQr(data.qr); 
-            setEngStatus(data.status); 
-        } catch (e) { 
-            setIsWa(false); 
-            setEngStatus('OFFLINE'); 
-        } 
+    // 🩺 Live health poll — LOCAL engine first (persistent 24/7), cloud fallback.
+    let apiBase = WA_CLOUD;
+    const probe = async (base, ms = 2500) => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), ms);
+      try {
+        const res = await fetch(`${base}/api/status/${encodeURIComponent(activeUser)}`, { signal: ctl.signal });
+        clearTimeout(t);
+        return await res.json();
+      } finally { clearTimeout(t); }
     };
-    checkServer(); 
+    const checkServer = async () => {
+      try {
+        let data;
+        try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
+        catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
+        setWaApi(apiBase);
+        setIsWa(data.connected);
+        setQr(data.qr);
+        setEngStatus(data.status || (data.connected ? 'ONLINE' : 'OFFLINE'));
+      } catch (e) {
+        setIsWa(false);
+        setEngStatus('OFFLINE');
+      }
+    };
+    checkServer();
     const interval = setInterval(checkServer, 3000);
     
     return () => { unsubWa(); unsubDr(); unsubCu(); unsubVe(); unsubRu(); unsubSc(); unsubLe(); unsubLogs(); unsubChats(); unsubTrips(); clearInterval(interval); };
@@ -138,12 +165,11 @@ const WhatsappDashboard = () => {
     if(!msg || selPhones.length === 0) return showToast("⚠️ नंबर और मैसेज चुनें!", "error");
     showToast(`🚀 ${selPhones.length} लोगों को भेज रहे हैं...`, "accent"); 
     logActivity(`Broadcasted to ${selPhones.length} contacts.`);
-    for (const p of selPhones) { 
-        try { 
-            // 🚨 UPDATED TO LIVE SERVER
-            await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg }) }); 
-            await new Promise(r => setTimeout(r, 2000)); 
-        } catch(e) {} 
+    for (const p of selPhones) {
+        try {
+            await fetch(`${waApi}/api/send-whatsapp`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg, sentByUserId: erpUser.id, sentByUserName: activeUser }) });
+            await new Promise(r => setTimeout(r, 2000));
+        } catch(e) {}
     }
     showToast("✅ ब्रॉडकास्ट पूरा हुआ!", "success"); 
     setSelPhones([]); 
@@ -171,13 +197,14 @@ const WhatsappDashboard = () => {
       const text = chatInput; 
       setChatInput(''); 
       try {
-        // 🚨 UPDATED TO LIVE SERVER
-        await fetch('https://prasad-api.onrender.com/api/send-whatsapp', { 
-            method:'POST', headers:{'Content-Type':'application/json'}, 
-            body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole }) 
+        const res = await fetch(`${waApi}/api/send-whatsapp`, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole, sentByUserId: erpUser.id, sentByUserName: activeUser })
         });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || out.success === false) throw new Error(out.message || 'send failed');
         logActivity(`Sent Trip Msg to ${chatRole} (${activeTrip.trip_id})`);
-      } catch(e) { showToast("❌ Error sending message", "error"); }
+      } catch(e) { showToast(`❌ Message nahi gaya: ${String(e.message || e).slice(0, 60)}`, "error"); }
   };
 
   // 🔍 FILTERS
@@ -202,7 +229,7 @@ const WhatsappDashboard = () => {
       <div style={{ width: isMobile ? '100%' : '270px', padding: isMobile ? '12px' : '25px', borderRight: isMobile ? 'none' : `1px solid ${theme.border}`, borderBottom: isMobile ? `1px solid ${theme.border}` : 'none', display:'flex', flexDirection:'column' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
           <h2 style={{ color: theme.wa, marginBottom: isMobile ? '10px' : '20px', letterSpacing: '1px', fontSize: isMobile ? '18px' : '24px' }}>PRASAD <span style={{color:'white'}}>PRO</span></h2>
-          <div style={{ fontSize: isMobile ? '11px' : '13px', color: isWa ? theme.wa : theme.danger, fontWeight:'bold', whiteSpace:'nowrap' }}>● {isWa ? 'Online' : 'Offline'}</div>
+          <div onClick={() => !isWa && setTab('CONNECT')} title={isWa ? `Engine: ${engStatus}` : 'Click karke QR scan karein'} style={{ fontSize: isMobile ? '11px' : '13px', color: isWa ? theme.wa : engStatus === 'WAITING_FOR_SCAN' ? '#FACC15' : theme.danger, fontWeight:'bold', whiteSpace:'nowrap', cursor: isWa ? 'default' : 'pointer' }}>● {isWa ? 'Online' : engStatus === 'WAITING_FOR_SCAN' ? 'Scan QR ▶' : engStatus === 'RECONNECTING' ? 'Reconnecting…' : 'Offline ▶'}</div>
         </div>
 
         {!isMobile && (
@@ -296,7 +323,7 @@ const WhatsappDashboard = () => {
                               
                               {currentChatHistory.map(msg => (
                                   <div key={msg.id} style={{alignSelf: msg.type === 'outgoing' ? 'flex-end' : 'flex-start', maxWidth:'70%', background: msg.type === 'outgoing' ? theme.wa : theme.inputBg, color: msg.type === 'outgoing' ? 'black' : 'white', padding:'12px 18px', borderRadius: msg.type === 'outgoing' ? '20px 20px 0 20px' : '20px 20px 20px 0', border:`1px solid ${theme.border}`, boxShadow:'0 5px 15px rgba(0,0,0,0.1)'}}>
-                                      {msg.type === 'outgoing' && <div style={{fontSize:'10px', fontWeight:'bold', color: msg.userId === 'Mamta AI' ? '#6B21A8' : '#064E3B', marginBottom:'3px'}}>✓ Sent by {msg.userId}</div>}
+                                      {msg.type === 'outgoing' && <div style={{fontSize:'10px', fontWeight:'bold', color: (msg.sentByUserName || msg.userId) === 'Mamta AI' ? '#6B21A8' : '#064E3B', marginBottom:'3px'}}>✓ Sent by {msg.sentByUserName || msg.userId || 'Unknown'}</div>}
                                       <div style={{fontSize:'15px'}}>{msg.text}</div>
                                       <div style={{fontSize:'10px', textAlign:'right', marginTop:'5px', opacity:0.7}}>{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                                   </div>
