@@ -349,10 +349,19 @@ export default function TripManagment() {
       setActiveTab('COMPLETED');
   };
 
+  // 📅 Fresh date on every open — the old inline open left whatever date the
+  // last save (or a previous day's session) had in state.
+  const openPaymentModal = (trip: any) => {
+    setActiveTrip(trip);
+    setPaymentData(prev => ({ ...prev, date: new Date().toISOString().split('T')[0] }));
+    setShowPaymentModal(true);
+  };
+
   const handleDriverPayment = async () => {
     if (!paymentData.amount || !activeTrip || savingPayment) return;
     const amt = round2(parseFloat(paymentData.amount));
     if (!Number.isFinite(amt) || amt <= 0) return alert("⚠️ Enter a valid amount!");
+    if (!paymentData.date) return alert("⚠️ Payment Date required hai — date select karein!");
     setSavingPayment(true);
     try {
       const updateField = paymentData.mode === 'Office Cash' ? 'office_cash_paid' : 'bank_paid';
@@ -426,6 +435,7 @@ export default function TripManagment() {
     if(!activeTrip || savingMemo) return;
     const hasValidPump = pumps.some(p => p.vendor_id && p.qty);
     if (!hasValidPump) return alert("⚠️ Please select a 'Petrol Pump' and enter 'Liters'!");
+    if (!memoData.date) return alert("⚠️ Transaction / Issue Date required hai — date select karein!");
     // 💰 TRUTH FIX: without a rate the diesel value saves as ₹0 and the whole
     // HSD cost silently vanishes from trip settlement. Rate is now mandatory.
     const missingRate = pumps.find(p => p.vendor_id && p.qty && !(parseFloat(p.rate) > 0));
@@ -742,6 +752,10 @@ export default function TripManagment() {
               <select style={{...styles.input, borderColor: '#8b5cf6'}} value={paymentData.mode} onChange={e=>setPaymentData({...paymentData, mode: e.target.value})}>
                 <option value="Office Cash">🏢 Office Cash</option><option value="Bank Transfer">🏦 Bank / UPI Transfer</option>
               </select>
+              <div>
+                <label style={{ fontSize: '11px', color: '#8b5cf6', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>📅 Payment Date (backdate allowed) *</label>
+                <input type="date" style={{...styles.input, colorScheme: 'dark', borderColor: '#8b5cf6'}} value={paymentData.date} onChange={e=>setPaymentData({...paymentData, date: e.target.value})} />
+              </div>
               <input type="number" style={styles.input} placeholder="Amount (₹)" value={paymentData.amount} onChange={e=>setPaymentData({...paymentData, amount: e.target.value})} />
               <input type="text" style={styles.input} placeholder="Remarks / Ref No." value={paymentData.remarks} onChange={e=>setPaymentData({...paymentData, remarks: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
@@ -770,6 +784,7 @@ export default function TripManagment() {
                   <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Vehicle</label><input style={styles.input} value={activeTrip.vehicle_no || activeTrip.Vehical_No} readOnly /></div>
                   <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Driver</label><input style={styles.input} value={activeTrip.driver_name || activeTrip.Driver_Name} readOnly /></div>
                   <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile</label><input style={styles.input} value={memoData.driver_mobile} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#f59e0b', fontWeight: 'bold' }}>📅 Transaction / Issue Date *</label><input type="date" style={{...styles.input, colorScheme: 'dark', borderColor: '#f59e0b'}} value={memoData.date} onChange={e=>setMemoData({...memoData, date: e.target.value})} /></div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
@@ -984,7 +999,7 @@ export default function TripManagment() {
                   {phone && <a href={`tel:${phone}`} style={{ color: '#10b981', fontWeight: 'bold', textDecoration: 'none', padding: '6px 12px', border: '1px solid #10b981', borderRadius: '8px' }}>📞 Call</a>}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => { setActiveTrip(t); setShowPaymentModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💸 Pay</button>
+                  <button onClick={() => openPaymentModal(t)} style={{ flex: 1, minHeight: '48px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💸 Pay</button>
                   <button onClick={() => openFuelModal(t)} style={{ flex: 1, minHeight: '48px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>⛽ Fuel</button>
                   <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Unload</button>
                   <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
@@ -1037,7 +1052,7 @@ export default function TripManagment() {
                   <td style={{...styles.td, color: '#f59e0b'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>
                   <td style={{...styles.td, textAlign: 'center'}}><button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{...styles.btn, background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8'}}>📍 Map</button></td>
                   <td style={{...styles.td, textAlign: 'center'}}>
-                    <button onClick={() => { setActiveTrip(t); setShowPaymentModal(true); }} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
+                    <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
                     <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
                     <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{...styles.btn, background: '#10b981', marginTop:'5px'}}>✅ Unload</button>
                   </td>
