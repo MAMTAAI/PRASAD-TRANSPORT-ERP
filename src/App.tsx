@@ -17,7 +17,7 @@ const DRIVER = lazy(() => import('./DRIVER'));
 const TripManagment = lazy(() => import('./TripManagment'));
 const FuelMgmt = lazy(() => import('./FuelMgmt'));
 const LodingDetals = lazy(() => import('./LodingDetals'));
-const UnlodingDetals = lazy(() => import('./UnlodingDetals'));
+const MasterTripSettlement = lazy(() => import('./MasterTripSettlement'));
 const VehicleDocs = lazy(() => import('./VehicleDocs'));
 const TyreMgmt = lazy(() => import('./TyreMgmt'));
 const VehicleMaintenance = lazy(() => import('./VehicleMaintenance'));
@@ -194,7 +194,7 @@ export default function App() {
       if (itemId === 'DRIVER') return checkView('Driver Master');
       if (itemId === 'TRIP' || itemId === 'LOCATION_RTKM') return checkView('Trip Management');
       if (itemId === 'FUEL' || itemId === 'MAINTENANCE' || itemId === 'TYRE' || itemId === 'DOCS') return checkView('Fuel & Maintenance');
-      if (itemId === 'LOADING' || itemId === 'UNLOADING') return checkView('Loading / Unloading');
+      if (itemId === 'LOADING' || itemId === 'UNLOADING' || itemId === 'SETTLEMENT') return checkView('Loading / Unloading');
     }
     
     if (module === 'ACCOUNTS') {
@@ -320,7 +320,9 @@ export default function App() {
       case 'TRIP': return <TripManagment />;
       case 'FUEL': return <FuelMgmt />;
       case 'LOADING': return <LodingDetals />;
-      case 'UNLOADING': return <UnlodingDetals />;
+      case 'SETTLEMENT': return <MasterTripSettlement />;
+      // Legacy key (stale saved nav state) → same module, unloading lives in its tab
+      case 'UNLOADING': return <MasterTripSettlement />;
       case 'DOCS': return <VehicleDocs />;
       case 'TYRE': return <TyreMgmt />;
       case 'MAINTENANCE': return <VehicleMaintenance />;

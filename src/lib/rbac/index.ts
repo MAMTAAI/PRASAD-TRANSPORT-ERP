@@ -25,8 +25,8 @@ interface RoleCaps { modules: string[] | '*'; financials: boolean; write: boolea
 const MATRIX: Record<string, RoleCaps> = {
   admin:        { modules: '*', financials: true, write: true },
   superadmin:   { modules: '*', financials: true, write: true },
-  manager:      { modules: ['DASHBOARD', 'TRIP', 'LOADING', 'UNLOADING', 'VEHICLE', 'MARKET_VEHICLE', 'DRIVER', 'VEHICLE_DRIVER_LINK', 'LOCATION_RTKM', 'FUEL', 'DOCS', 'TYRE', 'MAINTENANCE', 'BAZAAR_ADMIN', 'WHATSAPP'], financials: false, write: true },
-  operator:     { modules: ['DASHBOARD', 'TRIP', 'LOADING', 'UNLOADING', 'VEHICLE', 'DRIVER', 'FUEL', 'DOCS'], financials: false, write: true },
+  manager:      { modules: ['DASHBOARD', 'TRIP', 'LOADING', 'UNLOADING', 'SETTLEMENT', 'VEHICLE', 'MARKET_VEHICLE', 'DRIVER', 'VEHICLE_DRIVER_LINK', 'LOCATION_RTKM', 'FUEL', 'DOCS', 'TYRE', 'MAINTENANCE', 'BAZAAR_ADMIN', 'WHATSAPP'], financials: false, write: true },
+  operator:     { modules: ['DASHBOARD', 'TRIP', 'LOADING', 'UNLOADING', 'SETTLEMENT', 'VEHICLE', 'DRIVER', 'FUEL', 'DOCS'], financials: false, write: true },
   accounts:     { modules: ['DASHBOARD', 'BANK', 'LEDGER', 'PNL', 'BILLING', 'LOAN', 'TOLL', 'GST', 'TDS', 'VENDOR', 'CUSTOMER'], financials: true, write: true },
   vendor:       { modules: ['DASHBOARD', 'MARKET_VEHICLE', 'TRIP'], financials: false, write: false },
   customer:     { modules: ['DASHBOARD', 'TRIP'], financials: false, write: false },

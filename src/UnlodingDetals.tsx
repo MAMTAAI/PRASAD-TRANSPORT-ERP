@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
+import { toISODate } from './lib/accounting/tripMath';
 import { useIsMobile } from './hooks/useIsMobile';
 
 export default function UnloadingDetails() {
@@ -169,7 +170,10 @@ export default function UnloadingDetails() {
   // never reappear as "pending approval" — approving it again would overwrite
   // the settled quantities and shortage figures.
   const pendingDriverApprovals = trips.filter(t => t.driver_unloaded_qty && !t.office_approved_unloading && t.office_approved_loading && t.trip_status !== 'COMPLETED');
-  const completedTrips = trips.filter(t => t.office_approved_unloading || t.trip_status === 'COMPLETED').sort((a:any, b:any) => new Date(b.completed_at?.toDate() || 0).getTime() - new Date(a.completed_at?.toDate() || 0).getTime());
+  // completed_at is a Firestore Timestamp from this screen but an ISO STRING
+  // when the trip was closed via Trip Command Center — .toDate() on a string
+  // crashed the whole module. toISODate() absorbs both shapes.
+  const completedTrips = trips.filter(t => t.office_approved_unloading || t.trip_status === 'COMPLETED').sort((a:any, b:any) => toISODate(b.completed_at).localeCompare(toISODate(a.completed_at)));
 
   const inputStyle = { width: '100%', padding: '12px 14px', minHeight: '48px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '12px', fontSize: '15px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
   const autoFillStyle = { ...inputStyle, background: 'rgba(56, 189, 248, 0.05)', border: '1px dashed #38bdf8', color: '#94a3b8' };

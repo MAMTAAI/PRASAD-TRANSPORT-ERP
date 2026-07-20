@@ -4,6 +4,7 @@ import { collection, getDocs, doc, updateDoc, addDoc, deleteDoc, Timestamp, quer
 import { db } from './firebase';
 import { extractLoadingSlip } from './lib/aiScanner';
 import { parseDocDate } from './lib/postTripEngine';
+import { resolveRate } from './lib/freightEngine';
 import { speak } from './lib/voice/tts';
 
 export default function LodingDetals() {
@@ -350,16 +351,23 @@ export default function LodingDetals() {
     );
     
     if (selectedRoute) {
-      setManualData(prev => ({
-        ...prev,
-        Loading_Point: selectedRoute.Depot_Link || selectedRoute.depot_link || '',
-        Consignee_Name: selectedRoute.Consignee_Name || selectedRoute.consignee_name || '',
-        Customer: selectedRoute.Registered_Assessee || selectedRoute.customer_name || '',
-        Registered_Assessee: selectedRoute.Registered_Assessee || selectedRoute.customer_name || '',
-        RTKM: selectedRoute.RTKM_Distance || selectedRoute.rtkm_distance || '',
-        Rate: selectedRoute.Rate_Per_Unit || selectedRoute.rate_per_unit || '',
-        Product_Type: selectedRoute.Item_Type || selectedRoute.item_type || 'HSD'
-      }));
+      setManualData(prev => {
+        // 💰 Rate lives in the master's date-effective rate_history (quarterly
+        // slabs), not a flat field — resolve for THIS trip's loading date.
+        // The old read of Rate_Per_Unit only worked for legacy docs, so Rate
+        // stayed blank on every new route. Field stays manually editable.
+        const { rate } = resolveRate(selectedRoute, prev.Loading_Date || new Date().toISOString().split('T')[0]);
+        return {
+          ...prev,
+          Loading_Point: selectedRoute.Depot_Link || selectedRoute.depot_link || '',
+          Consignee_Name: selectedRoute.Consignee_Name || selectedRoute.consignee_name || '',
+          Customer: selectedRoute.Registered_Assessee || selectedRoute.customer_name || prev.Customer,
+          Registered_Assessee: selectedRoute.Registered_Assessee || selectedRoute.customer_name || prev.Registered_Assessee,
+          RTKM: String(selectedRoute.RTKM_Distance || selectedRoute.rtkm_distance || ''),
+          Rate: rate > 0 ? String(rate) : prev.Rate,
+          Product_Type: selectedRoute.Item_Type || selectedRoute.item_type || 'HSD'
+        };
+      });
     }
   };
 
@@ -782,7 +790,7 @@ export default function LodingDetals() {
                   />
                   <datalist id="master-route-list">
                     {rtkmMaster.map(r => (
-                      <option key={r.id} value={`${r.Depot_Link || r.depot_link} ➔ ${r.Consignee_Name || r.consignee_name} | Rate: ₹${r.Rate_Per_Unit || r.rate_per_unit || '0'}`} />
+                      <option key={r.id} value={`${r.Depot_Link || r.depot_link} ➔ ${r.Consignee_Name || r.consignee_name} | Rate: ₹${resolveRate(r, manualData.Loading_Date || new Date().toISOString().split('T')[0]).rate || '0'}`} />
                     ))}
                   </datalist>
                 </div>

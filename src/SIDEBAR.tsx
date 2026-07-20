@@ -72,7 +72,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       if (itemId === 'DRIVER') return checkView('Driver Master');
       if (itemId === 'TRIP' || itemId === 'LOCATION_RTKM') return checkView('Trip Management');
       if (itemId === 'FUEL' || itemId === 'MAINTENANCE' || itemId === 'TYRE' || itemId === 'DOCS') return checkView('Fuel & Maintenance');
-      if (itemId === 'LOADING' || itemId === 'UNLOADING') return checkView('Loading / Unloading');
+      if (itemId === 'LOADING' || itemId === 'UNLOADING' || itemId === 'SETTLEMENT') return checkView('Loading / Unloading');
       return false;
     }
     
@@ -104,7 +104,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'BAZAAR_ADMIN', label: 'Bazaar Admin (KYC/Bids)', icon: '🌍' }, 
         { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
         { id: 'LOADING', label: 'Loading Details', icon: '📦' },
-        { id: 'UNLOADING', label: 'Unloading Details', icon: '📥' },
+        { id: 'SETTLEMENT', label: 'Master Trip Settlement', icon: '🧾' },
         { id: 'VEHICLE', label: 'Our Vehicle Fleet', icon: '🚛' },
         { id: 'MARKET_VEHICLE', label: 'Market Vehicles (Vendors)', icon: '🚚' }, 
         { id: 'DRIVER', label: 'Driver Master', icon: '👨‍✈️' },
