@@ -315,18 +315,42 @@ export default function LodingDetals() {
     }
   };
 
+  // 📋 LOADING ADVICE auto-attach (OPTIONAL — never blocks a direct entry).
+  // If the picked vehicle has an open pre-trip advice, offer to attach it:
+  // the SAME TRIPS doc gets updated to a real trip, so every advance already
+  // issued against the advice rides along automatically. Declining (or no
+  // advice existing) leaves the direct fresh-entry flow exactly as before.
+  const findOpenAdvice = (vNo: string) => {
+    const clean = String(vNo || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
+    if (!clean) return null;
+    return trips.find(t => t.trip_status === 'ADVICE' &&
+      String(t.vehicle_no || t.Vehical_No || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === clean) || null;
+  };
+  const maybeAttachAdvice = (vNo: string): boolean => {
+    if (!(isNewEntry && selectedTripId === 'NEW')) return false;
+    const adv = findOpenAdvice(vNo);
+    if (!adv) return false;
+    const cashAdv = (parseFloat(adv.office_cash_paid || 0) + parseFloat(adv.bank_paid || 0) + parseFloat(adv.pump_cash_advance || 0));
+    if (window.confirm(`📋 ${vNo} par OPEN LOADING ADVICE mili!\n\nAdvise No: ${adv.advice_no || '—'} | LR: ${adv.trip_id}\nAdvances issued: ₹${cashAdv.toLocaleString('en-IN')} cash + ${parseFloat(adv.hsd_issued || 0)} L HSD\n\nOK = Advice ATTACH karke isi ko trip banayein (advances saath aayenge)\nCancel = Fresh direct entry karein (advice open rahegi)`)) {
+      handleEditTrip(adv);
+      return true;
+    }
+    return false;
+  };
+
   const handleVehicleBlur = () => {
     setTimeout(() => setShowVehDropdown(false), 200);
     if (vehSearch) {
         // 🔥 This will find details and also detect the operating company based on vehicle
         const { dName, dMobile, opCompany } = getVehicleDetails(vehSearch.toUpperCase());
-        setManualData(prev => ({ 
-            ...prev, 
-            Vehical_No: vehSearch.toUpperCase(), 
-            Driver_Name: dName || prev.Driver_Name, 
-            Driver_Mobil_No: dMobile || prev.Driver_Mobil_No, 
+        setManualData(prev => ({
+            ...prev,
+            Vehical_No: vehSearch.toUpperCase(),
+            Driver_Name: dName || prev.Driver_Name,
+            Driver_Mobil_No: dMobile || prev.Driver_Mobil_No,
             Operating_Company: opCompany // 🔄 Company updates -> Triggers ID Gen
         }));
+        maybeAttachAdvice(vehSearch.toUpperCase());
     }
   };
 
@@ -334,9 +358,10 @@ export default function LodingDetals() {
     setVehSearch(vNo);
     setShowVehDropdown(false);
     const { dName, dMobile, opCompany } = getVehicleDetails(vNo);
-    setManualData(prev => ({ 
-      ...prev, Vehical_No: vNo, Driver_Name: dName, Driver_Mobil_No: dMobile, Operating_Company: opCompany 
+    setManualData(prev => ({
+      ...prev, Vehical_No: vNo, Driver_Name: dName, Driver_Mobil_No: dMobile, Operating_Company: opCompany
     }));
+    maybeAttachAdvice(vNo);
   };
 
   const handleRouteSearchChange = (val: string) => {
@@ -423,7 +448,11 @@ export default function LodingDetals() {
         });
         alert(`✅ Entry Saved for ${manualData.Operating_Company}! LR No: ${manualData.Trip_ID}`);
       } else {
+        // 📋 Advice → trip conversion: advice docs carry no billing_status, so
+        // stamp it here or the billing pipeline never sees the trip.
+        const prior = trips.find(t => t.id === selectedTripId);
         await updateDoc(doc(db, "TRIPS", selectedTripId), {
+          ...(prior?.trip_status === 'ADVICE' && prior?.billing_status !== 'BILLED' ? { billing_status: 'PENDING' } : {}),
           ...manualData, office_approved_loading: true, trip_status: 'IN_TRANSIT',
           sort_date: manualData.Loading_Date || new Date().toISOString().split('T')[0],
           loaded_qty: manualData.Loaded_Qty || '0', loading_date: manualData.Loading_Date,
@@ -756,7 +785,7 @@ export default function LodingDetals() {
               <option value="">-- Choose Option --</option>
               <option value="NEW" style={{ background: '#10b981', color: '#0f172a', fontWeight: 'bold' }}>➕ CREATE FRESH DIRECT ENTRY</option>
               <optgroup label="Auto-Fill from Pending Trips:">
-                {pendingManualTrips.map(t => <option key={t.id} value={t.id}>{t.vehicle_no || t.vehical_no} | {t.loading_point} ➔ {t.consignee_name}</option>)}
+                {pendingManualTrips.map(t => <option key={t.id} value={t.id}>{t.trip_status === 'ADVICE' ? `📋 ADVICE ${t.advice_no || t.trip_id} | ` : ''}{t.vehicle_no || t.vehical_no} | {t.loading_point} ➔ {t.consignee_name}</option>)}
               </optgroup>
             </select>
           </div>

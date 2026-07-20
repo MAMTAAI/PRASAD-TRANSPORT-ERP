@@ -140,6 +140,7 @@ export default function MasterTripSettlement() {
   const filterReady = !!(vehicleFilter || driverFilter);
   const unsettledTrips = !filterReady ? [] : trips.filter(t => {
     if (t.settlement_status) return false; // SETTLED or CARRIED_FORWARD
+    if (t.trip_status === 'ADVICE') return false; // pre-trip advice — settle only after it becomes a real trip
     if (vehicleFilter && normV(tripVehicle(t)) !== normV(vehicleFilter)) return false;
     if (driverFilter && tripDriver(t).toUpperCase() !== driverFilter.toUpperCase()) return false;
     return isDateInRange(tripDate(t), fromDate || undefined, toDate || undefined);
