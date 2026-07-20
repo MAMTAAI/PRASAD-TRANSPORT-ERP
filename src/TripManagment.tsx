@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
 import { sendWhatsApp, waResultText } from './lib/waSend';
@@ -144,104 +144,6 @@ export default function TripManagment() {
     });
   };
   const [trackMode, setTrackMode] = useState('ROUTE');
-
-  // 📋 LOADING ADVICE (pre-trip): oil company issues a Safety Checklist-cum-
-  // Loading Advise BEFORE loading; advances must flow against it immediately.
-  // An advice IS a TRIPS doc with trip_status 'ADVICE' — so the existing
-  // Pay/Fuel modals work unchanged and nothing ever needs re-linking. Fully
-  // OPTIONAL: direct Loading Entries keep working exactly as before.
-  const [adviceData, setAdviceData] = useState({
-    advice_no: '', advice_date: new Date().toISOString().split('T')[0], advice_valid_till: '',
-    vehicle_no: '', driver_name: '', driver_mobil_no: '',
-    loading_point: '', consignee_name: '', customer_name: '',
-    operating_company: '', fixed_hsd: '', fixed_cash: '', rtkm: ''
-  });
-  const [savingAdvice, setSavingAdvice] = useState(false);
-
-  const handleAdviceVehicleChange = (vNo: string) => {
-    const selectedVeh = vehicles.find(v => checkMatch(v.vehicle_no || v.vehical_no || v.registration_no, vNo));
-    let dName = selectedVeh ? (selectedVeh.driver_name || selectedVeh.assigned_pilot || '') : '';
-    let dMob = selectedVeh ? (selectedVeh.driver_mobile || selectedVeh.driver_mobil_no || selectedVeh.pilot_mobile || '') : '';
-    if (dName && !dMob) { const drv = drivers.find(d => d.name === dName); if (drv) dMob = drv.mobile_no || drv.mobile || drv.phone || ''; }
-    const opCo = selectedVeh ? (selectedVeh.company_name || selectedVeh.owner_name || selectedVeh.operating_company || '') : '';
-    setAdviceData(prev => ({ ...prev, vehicle_no: vNo.toUpperCase(), driver_name: dName || prev.driver_name, driver_mobil_no: dMob || prev.driver_mobil_no, operating_company: opCo || prev.operating_company }));
-  };
-
-  const handleAdviceRouteSelect = (consignee: string) => {
-    const route = findRoute(consignee);
-    setAdviceData(prev => ({
-      ...prev, consignee_name: consignee,
-      loading_point: getVal(route, ['depotlink', 'loadingpoint', 'depot']) || prev.loading_point,
-      customer_name: getVal(route, ['registeredassessee', 'customer', 'customername']) || prev.customer_name,
-      fixed_hsd: String(getVal(route, ['fixedhsdqty', 'fixedhsd', 'hsd']) || ''),
-      fixed_cash: String(getVal(route, ['fixedcashamt', 'fixedcash', 'cash']) || ''),
-      rtkm: String(getVal(route, ['rtkmdistance', 'rtkm']) || ''),
-    }));
-  };
-
-  // LR-series Trip ID at ADVICE time — advances stamp this id into FUEL_ENTRIES
-  // and DRIVER_TRANSACTIONS immediately, so it must be final and never change
-  // at loading. Highest existing number is looked up server-side (both casings).
-  const generateAdviceTripId = async (companyName: string) => {
-    const cUp = String(companyName || '').toUpperCase();
-    let prefix = 'TRP';
-    if (cUp.includes('PRASAD') && !cUp.includes('GAUTAM')) prefix = 'PT';
-    else if (cUp.includes('JAISWAL')) prefix = 'JE';
-    else if (cUp.includes('GAUTAM')) prefix = 'GP';
-    let highest = 0;
-    const scan = (id: any) => {
-      const m = String(id || '').trim().toUpperCase().match(new RegExp('^' + prefix + '(\\d+)$'));
-      if (m) highest = Math.max(highest, parseInt(m[1], 10));
-    };
-    try {
-      for (const field of ['Trip_ID', 'trip_id']) {
-        const snap = await getDocs(query(collection(db, 'TRIPS'), where(field, '>=', prefix), where(field, '<', prefix + ''), orderBy(field, 'desc'), limit(20)));
-        snap.docs.forEach(d => { const x = d.data(); scan(x.Trip_ID); scan(x.trip_id); });
-      }
-    } catch (e) { console.warn('ID range query fallback:', e); }
-    trips.forEach(t => { scan(t.Trip_ID); scan(t.trip_id); });
-    return `${prefix}${String(highest + 1).padStart(5, '0')}`;
-  };
-
-  const adviceAdvances = (t: any) => (parseFloat(t.office_cash_paid || 0) + parseFloat(t.bank_paid || 0) + parseFloat(t.pump_cash_advance || 0));
-
-  const handleSaveAdvice = async () => {
-    if (savingAdvice) return;
-    if (!adviceData.advice_no.trim() || !adviceData.vehicle_no) return alert('⚠️ Advise No aur Vehicle No dono zaroori hain!');
-    const openAdvice = trips.find(t => t.trip_status === 'ADVICE' && checkMatch(t.vehicle_no || t.Vehical_No, adviceData.vehicle_no));
-    if (openAdvice && !window.confirm(`⚠️ ${adviceData.vehicle_no} par pehle se open Advice #${openAdvice.advice_no || openAdvice.trip_id} hai. Phir bhi nayi advice banayein?`)) return;
-    setSavingAdvice(true);
-    try {
-      const tripId = await generateAdviceTripId(adviceData.operating_company);
-      await addDoc(collection(db, 'TRIPS'), {
-        trip_id: tripId, Trip_ID: tripId,
-        vehicle_no: adviceData.vehicle_no, Vehical_No: adviceData.vehicle_no,
-        driver_name: adviceData.driver_name, Driver_Name: adviceData.driver_name,
-        driver_mobil_no: adviceData.driver_mobil_no,
-        loading_point: adviceData.loading_point, consignee_name: adviceData.consignee_name,
-        customer_name: adviceData.customer_name, operating_company: adviceData.operating_company,
-        advice_no: adviceData.advice_no.trim(), advice_date: adviceData.advice_date,
-        advice_valid_till: adviceData.advice_valid_till, advice_terminal: adviceData.consignee_name,
-        rtkm: adviceData.rtkm, fixed_hsd: adviceData.fixed_hsd, fixed_cash: adviceData.fixed_cash,
-        start_date: adviceData.advice_date, sort_date: adviceData.advice_date,
-        trip_status: 'ADVICE', office_approved_loading: false,
-        total_expense: 0, office_cash_paid: 0, bank_paid: 0, hsd_issued: 0, pump_cash_advance: 0, total_advances: 0,
-        created_at: serverTimestamp()
-      });
-      alert(`✅ Loading Advice saved! LR/Trip ID reserved: ${tripId}\nAb isi par Pay/Fuel se advance issue kar sakte hain.\nAsli Loading Entry karne par yeh automatically trip ban jayegi.`);
-      setAdviceData({ advice_no: '', advice_date: new Date().toISOString().split('T')[0], advice_valid_till: '', vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '', customer_name: '', operating_company: '', fixed_hsd: '', fixed_cash: '', rtkm: '' });
-      fetchData();
-    } catch (e) { console.error(e); alert('❌ Advice save nahi hui.'); }
-    setSavingAdvice(false);
-  };
-
-  const handleCancelAdvice = async (t: any) => {
-    if (adviceAdvances(t) > 0 || parseFloat(t.hsd_issued || 0) > 0 || parseFloat(t.total_expense || 0) > 0) {
-      return alert(`❌ Is advice par advances issue ho chuke hain (₹${adviceAdvances(t)} cash / ${t.hsd_issued || 0}L HSD) — delete NahI ho sakti.\nDriver khata trail bachane ke liye ise Loading Entry se trip banayein, ya driver se recovery karke settle karein.`);
-    }
-    if (!window.confirm(`Advice #${t.advice_no || t.trip_id} (${t.vehicle_no}) cancel karein? (koi advance issue nahi hua hai — safe delete)`)) return;
-    try { await deleteDoc(doc(db, 'TRIPS', t.id)); fetchData(); } catch (e) { alert('❌ Cancel error.'); }
-  };
 
   useEffect(() => { fetchData(); }, []);
 
@@ -692,8 +594,6 @@ export default function TripManagment() {
 
   // 🔥 FILTER LOGIC FOR TRIPS — memoized; recomputes only when trips or the
   // (debounced) filters change, not on every keystroke/modal state change.
-  const adviceTrips = useMemo(() => trips.filter(t => t.trip_status === 'ADVICE')
-    .sort((a, b) => String(b.advice_date || '').localeCompare(String(a.advice_date || ''))), [trips]);
   const activeTrips = useMemo(() => trips.filter(t => t.trip_status !== 'COMPLETED' && t.trip_status !== 'ADVICE').filter(t => {
       if(!debouncedSearch) return true;
       const q = debouncedSearch.toLowerCase();
@@ -1006,72 +906,8 @@ export default function TripManagment() {
         <button onClick={() => setActiveTab('NEW')} style={{ padding: '12px 25px', background: activeTab === 'NEW' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'NEW' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'NEW' ? '3px solid #38bdf8' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>
            {editingTripId ? '✏️ EDIT TRIP' : '➕ START NEW TRIP'}
         </button>
-        <button onClick={() => {setActiveTab('ADVICE'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'ADVICE' ? 'rgba(245, 158, 11, 0.1)' : 'transparent', color: activeTab === 'ADVICE' ? '#f59e0b' : '#94a3b8', border: 'none', borderBottom: activeTab === 'ADVICE' ? '3px solid #f59e0b' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>📋 LOADING ADVICE {adviceTrips.length > 0 && <span style={{ background: '#f59e0b', color: '#0f172a', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', marginLeft: '4px' }}>{adviceTrips.length}</span>}</button>
         <button onClick={() => {setActiveTab('COMPLETED'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'COMPLETED' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'COMPLETED' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'COMPLETED' ? '3px solid #38bdf8' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>✅ TRIP HISTORY</button>
       </div>
-
-      {/* 📋 LOADING ADVICE — pre-trip advances against oil-company Loading Advise (OPTIONAL; direct Loading Entry unaffected) */}
-      {activeTab === 'ADVICE' && (
-        <div>
-          <div style={{ background: '#1e293b', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '15px', padding: '25px', marginBottom: '25px' }}>
-            <h3 style={{ margin: '0 0 5px 0', color: '#f59e0b' }}>📋 New Loading Advice (Pre-Trip)</h3>
-            <p style={{ margin: '0 0 20px 0', color: '#94a3b8', fontSize: '12px' }}>Oil company ka Safety Checklist-cum-Loading Advise aate hi register karein — LR/Trip ID reserve hoga aur usi par Advance HSD/Cash issue kar sakenge. Loading Entry baad mein isi ko trip bana degi. <b style={{color:'#10b981'}}>Optional hai</b> — bina advice ke direct Loading Entry pehle jaisi hi chalegi.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
-              <div><label style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Advise No * (e.g. 7B03…LA0033)</label><input style={{...styles.input, borderColor: '#f59e0b'}} value={adviceData.advice_no} onChange={e=>setAdviceData({...adviceData, advice_no: e.target.value})} placeholder="Advise No from document" /></div>
-              <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>Advise Date</label><input type="date" style={{...styles.input, colorScheme: 'dark'}} value={adviceData.advice_date} onChange={e=>setAdviceData({...adviceData, advice_date: e.target.value})} /></div>
-              <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>Valid Till</label><input type="date" style={{...styles.input, colorScheme: 'dark'}} value={adviceData.advice_valid_till} onChange={e=>setAdviceData({...adviceData, advice_valid_till: e.target.value})} /></div>
-              <div><label style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Vehicle (TT) No *</label>
-                <input list="advice-vehicle-list" style={{...styles.input, borderColor: '#38bdf8'}} value={adviceData.vehicle_no} onChange={e=>handleAdviceVehicleChange(e.target.value)} placeholder="AS 26C 5108" />
-                <datalist id="advice-vehicle-list">{vehicles.map(v => <option key={v.id} value={v.vehicle_no || v.vehical_no || v.registration_no} />)}</datalist>
-              </div>
-              <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>Driver</label>
-                <select style={styles.input} value={adviceData.driver_name} onChange={e=>{ const d = drivers.find(x=>x.name===e.target.value); setAdviceData({...adviceData, driver_name: e.target.value, driver_mobil_no: d ? (d.mobile_no || d.mobile || d.phone || '') : adviceData.driver_mobil_no}); }}>
-                  <option value="">{adviceData.driver_name ? adviceData.driver_name + ' (from vehicle link)' : '-- Select Driver --'}</option>
-                  {drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                </select>
-              </div>
-              <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>Target Route / Terminal</label>
-                <select style={styles.input} value={adviceData.consignee_name} onChange={e=>handleAdviceRouteSelect(e.target.value)}>
-                  <option value="">-- Route from RTKM Master --</option>
-                  {rtkmMaster.map(r => <option key={r.id} value={r.Consignee_Name || r.consignee_name}>{(r.Depot_Link || r.depot_link) + ' ➔ ' + (r.Consignee_Name || r.consignee_name)}</option>)}
-                </select>
-              </div>
-              <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>Operating Company</label><input style={styles.input} value={adviceData.operating_company} onChange={e=>setAdviceData({...adviceData, operating_company: e.target.value})} placeholder="PRASAD / GAUTAM / JAISWAL…" /></div>
-              <div style={{ alignSelf: 'end', fontSize: '11px', color: '#94a3b8' }}>{(adviceData.fixed_hsd || adviceData.fixed_cash) && <>🎯 Route targets: <b style={{color:'#38bdf8'}}>{adviceData.fixed_hsd || 0} L HSD</b> · <b style={{color:'#10b981'}}>₹{adviceData.fixed_cash || 0} Cash</b></>}</div>
-            </div>
-            <button onClick={handleSaveAdvice} disabled={savingAdvice} style={{ marginTop: '20px', padding: '13px 35px', background: savingAdvice ? '#64748b' : 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '900', cursor: 'pointer', fontSize: '15px' }}>{savingAdvice ? '⌛ Saving…' : '📋 Register Advice & Reserve LR No'}</button>
-          </div>
-
-          <div style={{ background: '#1e293b', borderRadius: '15px', overflowX: 'auto', border: '1px solid #334155' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap', fontSize: '13px' }}>
-              <thead style={{ background: '#0f172a', color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase' }}>
-                <tr><th style={{padding:'14px'}}>Advise No / LR</th><th style={{padding:'14px'}}>Vehicle / Driver</th><th style={{padding:'14px'}}>Route</th><th style={{padding:'14px'}}>Validity</th><th style={{padding:'14px', textAlign:'right'}}>Advances So Far</th><th style={{padding:'14px', textAlign:'center'}}>Actions</th></tr>
-              </thead>
-              <tbody>
-                {adviceTrips.length === 0 ? <tr><td colSpan={6} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>Koi open Loading Advice nahi. (Direct Loading Entry hamesha available hai — advice optional hai.)</td></tr> :
-                  adviceTrips.map(t => {
-                    const daysLeft = t.advice_valid_till ? Math.ceil((new Date(t.advice_valid_till).getTime() - Date.now()) / 86400000) : null;
-                    return (
-                      <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1' }}>
-                        <td style={{ padding: '12px 14px' }}><b style={{ color: '#f59e0b' }}>{t.advice_no || '—'}</b><br/><small style={{ color: '#38bdf8' }}>LR: {t.trip_id}</small><br/><small style={{ color: '#94a3b8' }}>{t.advice_date}</small></td>
-                        <td style={{ padding: '12px 14px' }}><b style={{ color: '#fff' }}>{t.vehicle_no}</b><br/><small style={{ color: '#94a3b8' }}>{t.driver_name || '—'}</small></td>
-                        <td style={{ padding: '12px 14px', fontSize: '12px' }}>{(t.loading_point || '?')} ➔ {(t.consignee_name || t.advice_terminal || '?')}</td>
-                        <td style={{ padding: '12px 14px' }}>{daysLeft === null ? <span style={{color:'#64748b'}}>—</span> : daysLeft < 0 ? <span className="badge" style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid #ef4444', padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' }}>⛔ EXPIRED</span> : <span style={{ color: daysLeft <= 3 ? '#f59e0b' : '#10b981', fontWeight: 'bold', fontSize: '12px' }}>{daysLeft}d left</span>}<br/><small style={{color:'#64748b'}}>{t.advice_valid_till || ''}</small></td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right' }}><b style={{ color: '#f59e0b' }}>₹{adviceAdvances(t).toLocaleString('en-IN')}</b><br/><small style={{ color: '#38bdf8' }}>{parseFloat(t.hsd_issued || 0)} L HSD</small></td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px'}}>💸 Pay</button>
-                          <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
-                          <button onClick={() => handleCancelAdvice(t)} style={{...styles.btn, background: 'transparent', color: '#ef4444', border: '1px solid #ef4444'}}>✕</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-          <p style={{ color: '#64748b', fontSize: '12px', marginTop: '12px' }}>💡 Loading Entry (Loading Details module) mein yeh vehicle select karte hi open advice automatically attach ho jayegi — saare advances trip ke saath carry honge.</p>
-        </div>
-      )}
 
       {activeTab === 'NEW' && (
         <div style={{...styles.glassCard, borderTop: '4px solid #38bdf8'}}>

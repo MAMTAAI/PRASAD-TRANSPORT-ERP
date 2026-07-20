@@ -6,6 +6,7 @@ import { extractLoadingSlip } from './lib/aiScanner';
 import { parseDocDate } from './lib/postTripEngine';
 import { resolveRate } from './lib/freightEngine';
 import { sendWhatsApp, waResultText } from './lib/waSend';
+import LoadingAdvice from './LoadingAdvice';
 import { speak } from './lib/voice/tts';
 
 export default function LodingDetals() {
@@ -772,9 +773,13 @@ export default function LodingDetals() {
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', borderBottom: '1px solid #334155', paddingBottom: '10px' }}>
         <button onClick={() => setActiveTab('MANUAL')} style={{ padding: '10px 20px', background: activeTab === 'MANUAL' ? 'rgba(16, 185, 129, 0.1)' : 'transparent', color: activeTab === 'MANUAL' ? '#10b981' : '#94a3b8', border: 'none', borderBottom: activeTab === 'MANUAL' ? '3px solid #10b981' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>✍️ DIRECT ENTRY</button>
+        <button onClick={() => setActiveTab('ADVICE')} style={{ padding: '10px 20px', background: activeTab === 'ADVICE' ? 'rgba(245, 158, 11, 0.1)' : 'transparent', color: activeTab === 'ADVICE' ? '#f59e0b' : '#94a3b8', border: 'none', borderBottom: activeTab === 'ADVICE' ? '3px solid #f59e0b' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>📋 LOADING ADVICE {trips.filter(t => t.trip_status === 'ADVICE').length > 0 && <span style={{ background: '#f59e0b', color: '#0f172a', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', marginLeft: '4px' }}>{trips.filter(t => t.trip_status === 'ADVICE').length}</span>}</button>
         <button onClick={() => setActiveTab('AUTO')} style={{ padding: '10px 20px', background: activeTab === 'AUTO' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'AUTO' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'AUTO' ? '3px solid #38bdf8' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>📱 APP SYNC {pendingDriverApprovals.length > 0 && <span style={{background:'#ef4444', color:'white', padding:'2px 8px', borderRadius:'10px', marginLeft:'5px', fontSize:'11px'}}>{pendingDriverApprovals.length}</span>}</button>
         <button onClick={() => setActiveTab('REGISTER')} style={{ padding: '10px 20px', background: activeTab === 'REGISTER' ? 'rgba(245, 158, 11, 0.1)' : 'transparent', color: activeTab === 'REGISTER' ? '#f59e0b' : '#94a3b8', border: 'none', borderBottom: activeTab === 'REGISTER' ? '3px solid #f59e0b' : '3px solid transparent', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}>📋 SHEET VIEW</button>
       </div>
+
+      {/* 📋 LOADING ADVICE — pre-trip register + advance issue (relocated from Trip Command Center) */}
+      {activeTab === 'ADVICE' && <LoadingAdvice onChanged={fetchTripsAndMaster} />}
 
       {activeTab === 'MANUAL' && (
         <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '15px', padding: '30px' }}>
