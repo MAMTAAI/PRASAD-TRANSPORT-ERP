@@ -9,7 +9,9 @@ export const firebaseConfig = {
   apiKey: "AIzaSyBzbSLXzmbOvaQlCZKFuUcJqPLGp_a6Bv8", // current Browser key (old value was a hand-typed variant rejected by Identity Toolkit)
   authDomain: "prasad-transport-grup.firebaseapp.com",
   projectId: "prasad-transport-grup",
-  storageBucket: "prasad-transport-grup.appspot.com",
+  // ⚠️ Bucket lives on the newer firebasestorage.app domain — the old
+  // appspot.com name 404s, which silently killed every photo/KYC upload.
+  storageBucket: "prasad-transport-grup.firebasestorage.app",
   messagingSenderId: "837828662164",
   appId: "1:837828662164:web:e10fbd98e869f009cd3581"
 };

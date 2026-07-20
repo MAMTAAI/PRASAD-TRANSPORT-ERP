@@ -52,8 +52,18 @@ export default function DriverMgmt() {
   const [activeTab, setActiveTab] = useState('MASTER');
   const [drivers, setDrivers] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [pendingRequests, setPendingRequests] = useState<any[]>([]); 
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 🔎 Driver list search — searchInput follows every keystroke, searchQuery
+  // is the debounced value the filter actually runs on.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [assignments, setAssignments] = useState<any[]>([]); // Vehicle_Assignments → search by vehicle no.
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput), 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const [uploadingField, setUploadingField] = useState<string | null>(null);
   const [localPicPreview, setLocalPicPreview] = useState<string | null>(null);
@@ -101,6 +111,9 @@ export default function DriverMgmt() {
 
       const tSnap = await getDocs(collection(db, "DRIVER_TRANSACTIONS"));
       setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()));
+
+      const aSnap = await getDocs(collection(db, "Vehicle_Assignments"));
+      setAssignments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -307,6 +320,9 @@ export default function DriverMgmt() {
 
   const handleSaveDriver = async () => {
     if (!driverData.name || !driverData.mobile) return alert("⚠️ Name and Mobile are required!");
+    // A file still uploading means its URL isn't in driverData yet — saving now
+    // would register the driver WITHOUT that photo/document.
+    if (uploadingField) return alert("⏳ File upload abhi chal raha hai — upload complete hone ke baad save karein.");
     try {
       if (editingId) {
         await updateDoc(doc(db, "DRIVERS", editingId), driverData);
@@ -363,6 +379,22 @@ export default function DriverMgmt() {
   const totalShortage = driverTxns.filter(t => t.txn_type === 'SHORTAGE_DEDUCTION').reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
   const totalPaid = driverTxns.filter(t => t.txn_type === 'FINAL_PAYMENT').reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
   const netPayable = totalSalary - (totalAdvance + totalShortage + totalPaid);
+
+  // 🔎 Vehicle numbers linked to a driver (active links first, by id then by name
+  // — old assignments saved before driverId existed only carry driverName).
+  const linkedVehicles = (d: any) => assignments
+    .filter(a => String(a.status || '').toUpperCase() === 'LINKED'
+      && (a.driverId === d.id || (a.driverName || '').toUpperCase() === (d.name || '').toUpperCase()))
+    .map(a => a.vehicleName).filter(Boolean);
+
+  // Vehicle numbers compare without spaces/dashes so "WB01 2000" matches "wb012000".
+  const normVehicle = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const q = searchQuery.trim().toLowerCase();
+  const filteredDrivers = !q ? drivers : drivers.filter(d =>
+    (d.name || '').toLowerCase().includes(q) ||
+    String(d.mobile || '').includes(q) ||
+    linkedVehicles(d).some(v => normVehicle(v).includes(normVehicle(q)))
+  );
 
   const activeDriversCount = drivers.filter(d => d.status === 'ACTIVE' || !d.status).length;
   const pendingApprovalsCount = drivers.filter(d => d.approval_status === 'PENDING' || !d.approval_status).length;
@@ -502,6 +534,24 @@ export default function DriverMgmt() {
       {/* 👨‍✈️ TAB 1: DRIVER MASTER */}
       {activeTab === 'MASTER' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
+          {/* 🔎 GLOBAL SEARCH — driver name / mobile / linked vehicle number */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: '480px' }}>
+              <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '15px', pointerEvents: 'none' }}>🔎</span>
+              <input
+                className="modern-input"
+                style={{ paddingLeft: '42px', paddingRight: searchInput ? '38px' : '16px', border: '1px solid #38bdf8' }}
+                placeholder="Search Driver Name / Mobile / Vehicle Number..."
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+              />
+              {searchInput && (
+                <button onClick={() => { setSearchInput(''); setSearchQuery(''); }} title="Clear search"
+                  style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+              )}
+            </div>
+            {q && <span style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{filteredDrivers.length} of {drivers.length} drivers</span>}
+          </div>
           {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Drivers from Server...</p> : (
             <table>
               <thead>
@@ -514,8 +564,8 @@ export default function DriverMgmt() {
                 </tr>
               </thead>
               <tbody>
-                {drivers.length === 0 ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>No Drivers found.</td></tr> : 
-                  drivers.map((d) => (
+                {filteredDrivers.length === 0 ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>{q ? `No drivers match "${searchQuery}".` : 'No Drivers found.'}</td></tr> :
+                  filteredDrivers.map((d) => (
                   <tr key={d.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -525,6 +575,8 @@ export default function DriverMgmt() {
                         <div>
                           <b style={{ color: '#fff', fontSize: '16px' }}>{d.name}</b><br/>
                           <span style={{ color: '#94a3b8', fontSize: '12px' }}>📱 {d.mobile}</span><br/>
+                          {linkedVehicles(d).length > 0 && <span style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🚛 {linkedVehicles(d).join(', ')}</span>}
+                          {linkedVehicles(d).length > 0 && <br/>}
                           <button onClick={() => sendDriverWhatsApp(d)} style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid #22c55e', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', marginTop: '5px' }}>💬 WhatsApp</button>
                         </div>
                       </div>
