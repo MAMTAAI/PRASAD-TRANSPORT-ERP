@@ -426,10 +426,9 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       return;
     }
     const message = `*⛽ FUEL MEMO ALERT* \n\nDear ${slip.vendor_name},\n\nPlease provide fuel to our vehicle based on the following approved memo:\n\n🚛 *Vehicle No:* ${slip.vehicle_no}\n👤 *Driver:* ${slip.driver_name || 'N/A'}\n📍 *Route:* ${slip.route_name || 'N/A'}\n\n💧 *Quantity Approved:* ${slip.liters} Liters (${slip.fuel_type})\n📝 *Memo No:* ${slip.memo_no}\n📅 *Date:* ${slip.date}\n\nKindly process the fueling and add it to our billing cycle.\n\nRegards,\n*Prasad Transport ERP*`;
-    const encodedMessage = encodeURIComponent(message);
-    let phone = slip.pump_mobile.replace(/\s+/g, '');
-    if (phone.length === 10) phone = '91' + phone;
-    window.open(`https://wa.me/${phone}?text=${encodedMessage}`, '_blank');
+    // 💬 Dual-mode: PRASAD PRO auto-send (footprint) → phone WhatsApp fallback
+    import('./lib/waSend').then(({ sendWhatsApp, waResultText }) =>
+      sendWhatsApp({ phone: slip.pump_mobile, message, tripId: slip.trip_id }).then(r => alert(waResultText(r))));
   };
 
   const sendFuelSlipToPumpGroup = async (slip: any) => {

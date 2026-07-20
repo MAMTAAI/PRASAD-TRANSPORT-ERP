@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
+import { sendWhatsApp, waResultText } from './lib/waSend';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
 
@@ -589,12 +590,12 @@ export default function TripManagment() {
     setSavingMemo(false);
   };
 
-  const sendFuelMemoWhatsApp = (slip: any) => {
+  const sendFuelMemoWhatsApp = async (slip: any) => {
     if (!slip.pump_mobile) return alert("⚠️ Mobile not found for this Pump!");
     const message = `*⛽ FUEL MEMO ALERT* \n\nDear ${slip.vendor_name},\n\n🚛 *Vehicle No:* ${slip.vehicle_no}\n👤 *Driver:* ${slip.driver_name || 'N/A'}\n📍 *Route:* ${slip.route_name}\n\n💧 *Quantity:* ${slip.liters} Liters (${slip.fuel_type})\n💵 *Cash Adv:* ₹${slip.cash_given_to_pump || 0}\n📅 *Date:* ${slip.date}`;
-    let phone = slip.pump_mobile.replace(/\s+/g, '');
-    if (phone.length === 10) phone = '91' + phone;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // 💬 Dual-mode: PRASAD PRO auto-send (footprint logged) → wa.me deep link fallback
+    const r = await sendWhatsApp({ phone: slip.pump_mobile, message, tripId: slip.trip_id });
+    alert(waResultText(r));
   };
 
   // 📡 Re-read this trip's doc so the Live GPS view shows the freshest ping
@@ -620,9 +621,7 @@ export default function TripManagment() {
       const dMobile = activeTrip.driver_mobil_no || activeTrip.Driver_Mobil_No || memoData.driver_mobile;
       if (!dMobile || dMobile === 'N/A') return alert("⚠️ Driver mobile number not found!");
       const message = `📍 *LIVE LOCATION REQUIRED*\n\nDear ${activeTrip.driver_name || activeTrip.Driver_Name || 'Driver'},\n\nPlease share your *Live Location* on WhatsApp immediately for tracking Trip: ${activeTrip.trip_id || activeTrip.Trip_ID} (${activeTrip.vehicle_no || activeTrip.Vehical_No}).\n\n- Control Room, Prasad Transport`;
-      let phone = dMobile.replace(/\s+/g, '');
-      if (phone.length === 10) phone = '91' + phone;
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+      sendWhatsApp({ phone: dMobile, message, tripId: activeTrip.trip_id || activeTrip.Trip_ID, role: 'Driver' }).then(r => alert(waResultText(r)));
   };
 
   const handleCompleteTrip = async () => {

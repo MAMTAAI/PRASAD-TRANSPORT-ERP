@@ -5,6 +5,7 @@ import { db } from './firebase';
 import { extractLoadingSlip } from './lib/aiScanner';
 import { parseDocDate } from './lib/postTripEngine';
 import { resolveRate } from './lib/freightEngine';
+import { sendWhatsApp, waResultText } from './lib/waSend';
 import { speak } from './lib/voice/tts';
 
 export default function LodingDetals() {
@@ -481,9 +482,8 @@ export default function LodingDetals() {
     const company = trip.Operating_Company || trip.operating_company || 'Prasad Transport';
     const invoiceLink = trip.invoice_url || trip.Invoice_URL ? `\n*Invoice/LR PDF:* ${trip.invoice_url || trip.Invoice_URL}` : '';
     const message = `🏢 *${company.toUpperCase()} - DISPATCH ALERT*\n\nDear ${customerName},\nYour material has been loaded and dispatched successfully.\n\n*LR / Trip ID:* ${trip.Trip_ID || trip.trip_id}\n*Vehicle:* ${trip.Vehical_No || trip.vehicle_no || trip.vehical_no}\n*Product:* ${trip.Product_Type || 'Material'}\n*Loaded Qty:* ${trip.Loaded_Qty || trip.loaded_qty || trip.driver_loaded_qty}\n*Challan No:* ${trip.Challan_No || trip.challan_no || '-'}\n\n*From:* ${trip.Loading_Point || trip.loading_point}\n*To:* ${trip.Consignee_Name || trip.consignee_name}${invoiceLink}\n\nYou can track this live on your Customer Portal.\n\nRegards,\n${company} Team`;
-    let phone = mobile.replace(/\s+/g, ''); 
-    if (phone.length === 10) phone = '91' + phone;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // 💬 Dual-mode: PRASAD PRO auto-send (footprint) → phone WhatsApp fallback
+    sendWhatsApp({ phone: mobile, message, tripId: trip.Trip_ID || trip.trip_id, role: 'Customer' }).then(r => alert(waResultText(r)));
   };
 
   // 🖨️ 4-COPY MULTI-PAGE PDF GENERATOR (FIXED COMPANY NAME - NO PT/JE PREFIX)

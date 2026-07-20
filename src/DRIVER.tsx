@@ -5,6 +5,7 @@ import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
+import { sendWhatsApp, waResultText } from './lib/waSend';
 
 // 📅 Document expiry status -> design-system pill (valid / expiring / expired).
 const parseExpiry = (s: string): number | null => {
@@ -366,11 +367,12 @@ export default function DriverMgmt() {
     } catch (e) { alert("❌ Error saving transaction."); }
   };
 
-  const sendDriverWhatsApp = (driver: any) => {
+  const sendDriverWhatsApp = async (driver: any) => {
     if (!driver.mobile) { alert("⚠️ Mobile number not found!"); return; }
     const message = `Hello ${driver.name},\n\nThis is a message from Prasad Transport ERP.\n\nPlease contact the transport office for your next trip assignment.\n\nDrive safe! 🚛`;
-    let phone = driver.mobile.replace(/\s+/g, ''); if (phone.length === 10) phone = '91' + phone;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // 💬 Dual-mode: PRASAD PRO auto-send (footprint) → phone WhatsApp fallback
+    const r = await sendWhatsApp({ phone: driver.mobile, message, role: 'Driver' });
+    alert(waResultText(r));
   };
 
   const driverTxns = transactions.filter(t => t.driver_name === selectedDriver);

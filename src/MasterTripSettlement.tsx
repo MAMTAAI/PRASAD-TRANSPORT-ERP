@@ -13,6 +13,7 @@ import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'fi
 import { db } from './firebase';
 import { getField, toISODate, isDateInRange, round2, getTripFreight, getTripAdvances } from './lib/accounting/tripMath';
 import { postEntry } from './lib/accounting/journal';
+import { sendWhatsApp, waResultText } from './lib/waSend';
 import UnloadingDetails from './UnlodingDetals';
 
 const num = (v: any) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -271,6 +272,19 @@ export default function MasterTripSettlement() {
 
   const resetSelection = () => { setSelectedIds(new Set()); setExtraExpenses([]); setExpandedId(''); };
 
+  // 💬 Settlement hisaab WhatsApp — dual mode (PRASAD PRO auto-send → phone WhatsApp)
+  const sendSettlementWhatsApp = async () => {
+    if (!selectedTrips.length) return alert('⚠️ Pehle trips select karein!');
+    const driverName = driverFilter || tripDriver(selectedTrips[0]);
+    const drv = drivers.find(d => (d.name || '').toUpperCase() === driverName.toUpperCase());
+    const mobile = drv?.mobile || drv?.mobile_no || drv?.phone;
+    if (!mobile) return alert(`⚠️ ${driverName || 'Driver'} ka mobile number Driver Master mein nahi mila!`);
+    const lines = selectedTrips.map(t => `• ${tripDate(t)} ${bizId(t)} — Cash ${inr(tripCash(t))}, HSD ${inr(tripHsd(t).amt)}`).join('\n');
+    const message = `🧾 *TRIP SETTLEMENT SUMMARY*\n\nDear ${driverName},\n\n${selectedTrips.length} trips ka hisaab:\n${lines}\n\n(+) Bhatta: ${inr(totAllowance)}\n(+) Extra Kharcha: ${inr(totExtra)}\n(−) Cash Advances: ${inr(totCash)}${includeHsd ? `\n(−) HSD: ${inr(totHsdAmt)}` : ''}${cfNet ? `\n(±) Purana Balance: ${inr(cfNet)}` : ''}\n\n*NET BALANCE: ${inr(Math.abs(netBalance))} ${netBalance >= 0 ? '(aapko milega)' : '(aapse recovery hogi)'}*\n\nRegards,\nPrasad Transport ERP`;
+    const r = await sendWhatsApp({ phone: mobile, message, role: 'Driver' });
+    alert(waResultText(r));
+  };
+
   // ── UI helpers ─────────────────────────────────────────────────────────
   const inputStyle = { width: '100%', padding: '12px 14px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '10px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
   const vehicleOptions = [...new Set([
@@ -511,10 +525,11 @@ export default function MasterTripSettlement() {
                     <div style={{ fontSize: '11px', fontWeight: 'bold', color: netBalance >= 0 ? '#10b981' : '#ef4444', textTransform: 'uppercase' }}>{netBalance >= 0 ? '💰 Net Payable to Driver' : '⚠️ Recover from Driver'}</div>
                     <div style={{ fontSize: '30px', fontWeight: '900', color: netBalance >= 0 ? '#10b981' : '#ef4444' }}>{inr(Math.abs(netBalance))}</div>
                   </div>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button disabled={posting || !selectedTrips.length} onClick={handleCarryForward} style={{ flex: 1, background: 'rgba(245,158,11,0.15)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', opacity: !selectedTrips.length ? 0.4 : 1 }}>🔁 Carry Forward Balance</button>
-                    <button disabled={posting || !selectedTrips.length} onClick={handlePostToLedger} style={{ flex: 1, background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: '#fff', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', boxShadow: '0 5px 18px rgba(16,185,129,0.35)', opacity: !selectedTrips.length ? 0.4 : 1 }}>{posting ? '⏳ Posting…' : '📓 Post to Driver Ledger'}</button>
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button disabled={posting || !selectedTrips.length} onClick={handleCarryForward} style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'rgba(245,158,11,0.15)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', opacity: !selectedTrips.length ? 0.4 : 1 }}>🔁 Carry Forward Balance</button>
+                    <button disabled={posting || !selectedTrips.length} onClick={handlePostToLedger} style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: '#fff', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', boxShadow: '0 5px 18px rgba(16,185,129,0.35)', opacity: !selectedTrips.length ? 0.4 : 1 }}>{posting ? '⏳ Posting…' : '📓 Post to Driver Ledger'}</button>
                   </div>
+                  <button disabled={!selectedTrips.length} onClick={sendSettlementWhatsApp} style={{ width: '100%', marginTop: '10px', minHeight: '48px', background: 'rgba(34,197,94,0.12)', border: '1px solid #22c55e', color: '#22c55e', padding: '12px', borderRadius: '12px', fontWeight: '900', cursor: 'pointer', fontSize: '13px', opacity: !selectedTrips.length ? 0.4 : 1 }}>💬 WhatsApp Hisaab to Driver</button>
                 </div>
               </div>
             </>

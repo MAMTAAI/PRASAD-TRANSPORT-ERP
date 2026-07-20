@@ -4,6 +4,7 @@ import { collection, getDocs, doc, updateDoc, Timestamp } from 'firebase/firesto
 import { db } from './firebase';
 import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
 import { toISODate } from './lib/accounting/tripMath';
+import { sendWhatsApp, waResultText } from './lib/waSend';
 import { useIsMobile } from './hooks/useIsMobile';
 
 export default function UnloadingDetails() {
@@ -157,11 +158,8 @@ export default function UnloadingDetails() {
     const penaltyAmt = parseFloat(trip.shortage_penalty || trip.shortage_amt || 0) || 0;
     const penaltyLine = penaltyAmt > 0 ? `\n*Shortage Penalty:* ₹${penaltyAmt.toLocaleString('en-IN')} (aapke khata mein debit — hisaab par vasooli hogi)` : '';
     const message = `🏁 *UNLOADING CONFIRMATION*\n\nTrip Completed Successfully.\n\n*Trip ID:* ${tripId}\n*Vehicle:* ${vehicle}\n\n*Loaded Qty:* ${loaded} Ltrs\n*Unloaded Qty:* ${unloaded} Ltrs\n*Shortage:* ${shortage} Ltrs${penaltyLine}\n\nThank you for your service.\n\nRegards,\nPrasad Transport ERP`;
-    
-    let phone = mobile.replace(/\s+/g, ''); 
-    if (phone.length === 10) phone = '91' + phone;
-
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
+    // 💬 Dual-mode: PRASAD PRO auto-send (footprint) → phone WhatsApp fallback
+    sendWhatsApp({ phone: mobile, message, tripId, role: 'Driver' }).then(r => alert(waResultText(r)));
   };
 
   // 🔍 Filters
