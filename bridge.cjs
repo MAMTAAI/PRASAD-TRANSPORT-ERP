@@ -26,7 +26,7 @@ app.use(cors({
     return cb(new Error(`Origin not allowed by CORS: ${origin}`));
   },
   allowedHeaders: ['Content-Type', 'X-PT-Token', 'X-KG-Domain'],
-  exposedHeaders: ['X-KG-Facts'],
+  exposedHeaders: ['X-KG-Facts', 'X-AI-Engine'],
   methods: ['GET', 'POST', 'OPTIONS'],
 }));
 
@@ -254,6 +254,35 @@ const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: proces
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
 const OLLAMA_URL = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
 
+// ── 🎮 UPSTREAM AI ENGINE ROUTING ─────────────────────────────────────
+// Primary can be a REMOTE engine (RTX 3060 PC via the Cloudflare Tunnel —
+// that endpoint is itself a token-gated bridge, so OLLAMA_AUTH_TOKEN is
+// sent as X-PT-Token). OLLAMA_MODEL_OVERRIDE pins every upstream call to
+// one model (e.g. gemma4:12b) no matter what the client asked for.
+// If the primary fails for ANY reason (PC off, tunnel down, model
+// missing), one retry goes to OLLAMA_FALLBACK_URL with the fallback
+// model — AI degrades to the on-box engine instead of dying.
+const OLLAMA_AUTH_TOKEN = process.env.OLLAMA_AUTH_TOKEN || '';
+const OLLAMA_MODEL_OVERRIDE = process.env.OLLAMA_MODEL_OVERRIDE || '';
+const OLLAMA_FALLBACK_URL = (process.env.OLLAMA_FALLBACK_URL || '').replace(/\/+$/, '');
+const OLLAMA_FALLBACK_MODEL = process.env.OLLAMA_FALLBACK_MODEL || '';
+const ollamaHeaders = () => (OLLAMA_AUTH_TOKEN ? { 'X-PT-Token': OLLAMA_AUTH_TOKEN } : {});
+const engineLabel = (url) => (/localhost|127\.0\.0\.1/.test(url) ? 'aws-local' : 'rtx3060');
+
+async function ollamaPost(pathname, body, axiosOpts = {}) {
+  const primaryBody = OLLAMA_MODEL_OVERRIDE ? { ...body, model: OLLAMA_MODEL_OVERRIDE } : body;
+  try {
+    const resp = await axios.post(`${OLLAMA_URL}${pathname}`, primaryBody, { ...axiosOpts, headers: { ...(axiosOpts.headers || {}), ...ollamaHeaders() } });
+    return { resp, engine: OLLAMA_URL };
+  } catch (err) {
+    if (!OLLAMA_FALLBACK_URL) throw err;
+    console.warn(`⚠️  Primary AI engine failed (${err.message}) — falling back to ${OLLAMA_FALLBACK_URL}`);
+    const fbBody = OLLAMA_FALLBACK_MODEL ? { ...body, model: OLLAMA_FALLBACK_MODEL } : body;
+    const resp = await axios.post(`${OLLAMA_FALLBACK_URL}${pathname}`, fbBody, axiosOpts);
+    return { resp, engine: OLLAMA_FALLBACK_URL };
+  }
+}
+
 // Anthropic structured outputs demand strict schemas: every object node needs
 // additionalProperties:false. Ollama's grammar mode doesn't — so we upgrade the
 // frontend's existing schemas here instead of duplicating them per engine.
@@ -295,6 +324,9 @@ app.get('/api/ai/health', (req, res) => {
     cloud_configured: !!anthropic,
     cloud_model: CLAUDE_MODEL,
     ollama_url: OLLAMA_URL,
+    model_override: OLLAMA_MODEL_OVERRIDE || null,
+    fallback_url: OLLAMA_FALLBACK_URL || null,
+    fallback_model: OLLAMA_FALLBACK_MODEL || null,
   });
 });
 
@@ -346,8 +378,8 @@ app.post('/api/ai/chat', requireToken, async (req, res) => {
       ...(options.format ? { format: options.format } : {}),
       ...(options.think === false ? { think: false } : {}),
     };
-    const r = await axios.post(`${OLLAMA_URL}/api/chat`, ollamaBody, { timeout: 180000 });
-    return res.json({ success: true, engine: 'local', model: r.data?.model, content: r.data?.message?.content || '' });
+    const { resp: r, engine } = await ollamaPost('/api/chat', ollamaBody, { timeout: 300000 });
+    return res.json({ success: true, engine: 'local', ai_engine: engineLabel(engine), model: r.data?.model, content: r.data?.message?.content || '' });
   } catch (error) {
     // Typed Anthropic errors -> clean status + message for the frontend
     if (Anthropic && error instanceof Anthropic.APIError) {
@@ -384,10 +416,14 @@ function ollamaUnreachable(err, res) {
 // GET /api/tags — model list + reachability (OllamaProvider.health uses this)
 app.get('/api/tags', requireToken, async (req, res) => {
   try {
-    const r = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 15000 });
+    const r = await axios.get(`${OLLAMA_URL}/api/tags`, { timeout: 15000, headers: ollamaHeaders() });
     return res.json(r.data);
   } catch (err) {
-    return ollamaUnreachable(err, res);
+    if (!OLLAMA_FALLBACK_URL) return ollamaUnreachable(err, res);
+    try {
+      const r = await axios.get(`${OLLAMA_FALLBACK_URL}/api/tags`, { timeout: 15000 });
+      return res.json(r.data);
+    } catch (e2) { return ollamaUnreachable(e2, res); }
   }
 });
 
@@ -401,10 +437,11 @@ app.post('/api/chat', requireToken, async (req, res) => {
   const kgHit = kgInject(body, kgDomainForReq(req));
   if (kgHit) res.setHeader('X-KG-Facts', String(kgHit.facts));
   try {
-    const upstream = await axios.post(`${OLLAMA_URL}/api/chat`, body, {
+    const { resp: upstream, engine } = await ollamaPost('/api/chat', body, {
       responseType: wantStream ? 'stream' : 'json',
       timeout: 600000,
     });
+    res.setHeader('X-AI-Engine', engineLabel(engine));
     if (!wantStream) return res.json(upstream.data);
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Cache-Control', 'no-cache');
@@ -493,7 +530,7 @@ app.post('/api/kg/learn', requireToken, async (req, res) => {
     } } },
   };
   try {
-    const r = await axios.post(`${OLLAMA_URL}/api/chat`, {
+    const { resp: r } = await ollamaPost('/api/chat', {
       model: (req.body && req.body.model) || process.env.OLLAMA_MODEL || 'gemma3:4b',
       stream: false,
       format: schema,
@@ -501,7 +538,7 @@ app.post('/api/kg/learn', requireToken, async (req, res) => {
         { role: 'system', content: 'Extract factual knowledge-graph triples from the text. Types are short snake_case nouns (truck, driver, client, location, company, stock, sector, macro_event...). Relations are short snake_case verbs (driven_by, delivers_to, works_for, impacts_positive, impacts_negative...). Extract ONLY facts stated in the text — never invent.' },
         { role: 'user', content: text.slice(0, 4000) },
       ],
-    }, { timeout: 180000 });
+    }, { timeout: 300000 });
     const parsed = JSON.parse(r.data?.message?.content || '{}');
     const edges = (parsed.triples || [])
       .filter((t) => t.src_name && t.dst_name && t.rel)
