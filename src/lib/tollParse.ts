@@ -8,12 +8,22 @@ import { getField, toISODate, round2 } from './accounting/tripMath';
 export interface TollTxn {
   vehicle_no: string;      // normalized plate (NL01AA3054)
   tag_account: string;
-  txn_datetime: string;    // 'YYYY-MM-DD HH:mm:ss'
+  txn_datetime: string;    // 'YYYY-MM-DD HH:mm:ss' — toll_reader time (crossing) for API txns
   txn_date: string;        // 'YYYY-MM-DD'
   plaza: string;
   lane: string;
   ref_no: string;          // Unique Transaction ID / RRN
   amount: number;          // debit
+  // ── Optional fields set by the API-provider normalizers (GTROPY etc.) ──
+  ext_txn_id?: string;     // provider's globally-unique txn id → THE dedup key
+  entry_type?: 'debit' | 'credit';
+  account_id?: string;     // FASTag wallet/account the txn hit (for balance sync)
+  plaza_code?: string;
+  lat?: number;
+  long?: number;
+  mode?: string;           // nfc / npci etc.
+  provider?: string;       // provider doc id (traceability)
+  provider_type?: string;  // 'gtropy' | 'icici' | ...
 }
 
 export interface ParsedStatement {
@@ -172,6 +182,173 @@ export function parseCsvText(text: string): any[][] {
   return text.split(/\r?\n/).filter(l => l.trim()).map(line =>
     line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, '')));
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// 🔌 MULTI-PROVIDER FASTag API NORMALIZERS (GTROPY, ICICI, Wheelseye, …)
+// ──────────────────────────────────────────────────────────────────────────
+// Pure functions (no HTTP, no Firestore) so both the browser and the Node
+// background runner (toll-sync.cjs, bundled via esbuild) normalize identically.
+// The HTTP fetch + pagination lives in toll-sync.cjs; persistence in tollEngine.
+// ══════════════════════════════════════════════════════════════════════════
+
+const MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+};
+
+/** Parse the flexible date/time shapes FASTag APIs emit, e.g.
+ *  '02-Mar-2026 14:06:54' (GTROPY), '02-03-2026 14:06', or plain ISO.
+ *  → { iso: 'YYYY-MM-DD HH:mm:ss', date: 'YYYY-MM-DD' } | null */
+export function parseFlexibleDateTime(s: any): { iso: string; date: string } | null {
+  const str = String(s || '').trim();
+  if (!str) return null;
+  // DD-Mon-YYYY [HH:mm[:ss]]  (month name)
+  const mn = str.match(/(\d{1,2})[-/\s]([A-Za-z]{3,})[-/\s](\d{4})(?:[\sT]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (mn) {
+    const mo = MONTHS[mn[2].slice(0, 3).toLowerCase()];
+    if (mo) {
+      const date = `${mn[3]}-${mo}-${mn[1].padStart(2, '0')}`;
+      return { iso: `${date} ${(mn[4] || '00').padStart(2, '0')}:${mn[5] || '00'}:${mn[6] || '00'}`, date };
+    }
+  }
+  // Numeric DD-MM-YYYY HH:mm:ss (reuse the existing strict parser)
+  const num = parseDdMmYyyyTime(str);
+  if (num) return num;
+  // Last resort: native Date (handles ISO 8601 with offset)
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
+    return { iso: iso.slice(0, 19).replace('T', ' '), date: iso.slice(0, 10) };
+  }
+  return null;
+}
+
+const numOrUndef = (v: any): number | undefined => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/** One GTROPY `account_transactions` record → TollTxn.
+ *  Debit = toll crossing (maps to a trip); credit = wallet top-up (balance only).
+ *  txn_datetime uses **toll_reader time** (actual plaza crossing) so trip
+ *  windows match the moment the vehicle physically crossed, not settlement. */
+export function normalizeGtropyTxn(raw: any, providerId = '', providerType = 'gtropy'): TollTxn | null {
+  if (!raw) return null;
+  const entry = String(raw.entry_type || '').toLowerCase() === 'credit' ? 'credit' : 'debit';
+  // JSON key is documented both as "toll_reader time" (space) and
+  // "toll_reader_time" (underscore) — accept either, fall back to settlement.
+  const crossing = raw['toll_reader time'] ?? raw['toll_reader_time'] ?? raw.toll_reader_time;
+  const dt = parseFlexibleDateTime(crossing) || parseFlexibleDateTime(raw.transacted_at);
+  const amount = Math.abs(parseFloat(raw.amount) || 0);
+  const extId = String(raw.ext_txn_id || raw.id || '').trim();
+  if (!dt || amount <= 0 || !extId) return null;
+  return {
+    vehicle_no: normalizePlate(raw.vehicle_number),
+    tag_account: String(raw.account_id || '').trim(),
+    account_id: String(raw.account_id || '').trim(),
+    txn_datetime: dt.iso,
+    txn_date: dt.date,
+    plaza: String(raw.plaza_name || '').trim(),
+    plaza_code: String(raw.plaza_code || '').trim(),
+    lane: String(raw.plaza_lane_id || '').trim(),
+    // Human-friendly ref for the log/annexure; ext_txn_id carries dedup identity.
+    ref_no: String(raw.reference_number || raw.npci_reference_number || extId).trim(),
+    ext_txn_id: extId,
+    entry_type: entry,
+    amount,
+    mode: String(raw.mode || '').trim(),
+    lat: numOrUndef(raw.lat),
+    long: numOrUndef(raw.long),
+    provider: providerId,
+    provider_type: providerType,
+  };
+}
+
+export interface NormalizedBatch {
+  debits: TollTxn[];   // toll crossings → TOLL_TRANSACTIONS + trip mapping
+  credits: TollTxn[];  // wallet top-ups → balance only
+  skipped: number;     // rows that failed to normalize
+}
+
+/** Normalize a raw provider response array by provider type. Extend the switch
+ *  as each provider's response shape is confirmed; unknown types return empty
+ *  so the runner logs "adapter not implemented" rather than crashing. */
+export function normalizeProviderTxns(providerType: string, rawArr: any[], providerId = ''): NormalizedBatch {
+  const out: NormalizedBatch = { debits: [], credits: [], skipped: 0 };
+  const list = Array.isArray(rawArr) ? rawArr : [];
+  const push = (t: TollTxn | null) => {
+    if (!t) { out.skipped++; return; }
+    (t.entry_type === 'credit' ? out.credits : out.debits).push(t);
+  };
+  // ICICI / SBI corporate FASTag APIs mirror the GTROPY shape closely, so they
+  // share its normalizer until a real sample proves otherwise.
+  switch (String(providerType || '').toLowerCase()) {
+    case 'gtropy':
+    case 'icici':
+    case 'sbi':
+      for (const r of list) push(normalizeGtropyTxn(r, providerId, providerType));
+      break;
+    default:
+      // No adapter yet — caller sees 0 txns and a clear log line.
+      break;
+  }
+  return out;
+}
+
+export interface ProviderTemplate {
+  type: string;
+  label: string;
+  base_url: string;
+  method: 'GET' | 'POST';
+  auth_style: string;          // how the token is presented (docs hint for admin)
+  date_format: string;         // start_time/end_time format the API expects
+  page_size: number;           // default rows per page (end_index - start_index)
+  fields: ('base_url' | 'auth_token' | 'username' | 'password')[];
+  implemented: boolean;
+  notes: string;
+}
+
+/** Catalog that prefills the "Add Provider" form. GTROPY is fully wired;
+ *  the others expose the same credential fields and are ready to light up the
+ *  moment their normalizer/fetch adapter is confirmed. */
+export const PROVIDER_TEMPLATES: ProviderTemplate[] = [
+  {
+    type: 'gtropy', label: 'GTROPY FASTag', method: 'GET',
+    base_url: 'https://thexyz.co.in/api/v3/expense_engine/lq/account_transactions',
+    auth_style: 'Authorization: <token> (raw header, no "Bearer")',
+    date_format: 'DD-MM-YYYY', page_size: 1000,
+    fields: ['base_url', 'auth_token'], implemented: true,
+    notes: 'GET with headers Authorization=<token>; query start_time,end_time,start_index,end_index. Response = array of account_transactions.',
+  },
+  {
+    type: 'icici', label: 'ICICI FASTag (Corporate)', method: 'GET',
+    base_url: '', auth_style: 'Authorization / Bearer token',
+    date_format: 'DD-MM-YYYY', page_size: 1000,
+    fields: ['base_url', 'auth_token', 'username', 'password'], implemented: true,
+    notes: 'Uses the GTROPY-shaped normalizer by default — verify against a live sample before enabling auto-sync.',
+  },
+  {
+    type: 'sbi', label: 'SBI FASTags', method: 'GET',
+    base_url: '', auth_style: 'Authorization / Bearer token',
+    date_format: 'DD-MM-YYYY', page_size: 1000,
+    fields: ['base_url', 'auth_token', 'username', 'password'], implemented: true,
+    notes: 'Uses the GTROPY-shaped normalizer by default — verify against a live sample before enabling auto-sync.',
+  },
+  {
+    type: 'wheelseye', label: 'Wheelseye', method: 'GET',
+    base_url: '', auth_style: 'API key / token',
+    date_format: 'DD-MM-YYYY', page_size: 1000,
+    fields: ['base_url', 'auth_token', 'username', 'password'], implemented: false,
+    notes: 'Adapter pending — add a case in normalizeProviderTxns() once the response shape is confirmed.',
+  },
+  {
+    type: 'blackbuck', label: 'BlackBuck', method: 'GET',
+    base_url: '', auth_style: 'API key / token',
+    date_format: 'DD-MM-YYYY', page_size: 1000,
+    fields: ['base_url', 'auth_token', 'username', 'password'], implemented: false,
+    notes: 'Adapter pending — add a case in normalizeProviderTxns() once the response shape is confirmed.',
+  },
+];
 
 // ── Auto trip-mapping engine ─────────────────────────────────────────────
 /** Map each toll txn to the trip whose Loading_Date ≤ txn datetime ≤

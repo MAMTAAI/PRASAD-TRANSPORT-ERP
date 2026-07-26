@@ -52,9 +52,14 @@ export async function parseFastagStatement(file: File): Promise<ParsedStatement>
 }
 
 // ── Idempotent batch save (multi-company) ────────────────────────────────
+// Dedup identity: API providers (GTROPY etc.) carry a globally-unique
+// ext_txn_id — that is THE key. Statement/portal rows fall back to the legacy
+// ref_no(+amount) scheme. MUST stay identical to tollDocId in toll-sync.cjs.
 const tollDocId = (txn: TollTxn) =>
-  `TFS_${txn.ref_no.replace(/[^A-Za-z0-9]/g, '_').slice(0, 120)}` +
-  (/AUTO-/.test(txn.ref_no) ? '' : `_${txn.amount}`);
+  txn.ext_txn_id
+    ? `TFX_${String(txn.ext_txn_id).replace(/[^A-Za-z0-9]/g, '_').slice(0, 160)}`
+    : `TFS_${txn.ref_no.replace(/[^A-Za-z0-9]/g, '_').slice(0, 120)}` +
+      (/AUTO-/.test(txn.ref_no) ? '' : `_${txn.amount}`);
 
 export interface SaveResult { saved: number; duplicates: number; mapped: number; unmatched: number; }
 

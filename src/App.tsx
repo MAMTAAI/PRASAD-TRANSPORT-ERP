@@ -20,6 +20,7 @@ const LodingDetals = lazy(() => import('./LodingDetals'));
 const MasterTripSettlement = lazy(() => import('./MasterTripSettlement'));
 const VehicleDocs = lazy(() => import('./VehicleDocs'));
 const TyreMgmt = lazy(() => import('./TyreMgmt'));
+const BatteryMgmt = lazy(() => import('./BatteryMgmt'));
 const VehicleMaintenance = lazy(() => import('./VehicleMaintenance'));
 const CashBankBook = lazy(() => import('./CashBankBook'));
 const LedgerMgmt = lazy(() => import('./LedgerMgmt'));
@@ -325,6 +326,7 @@ export default function App() {
       case 'UNLOADING': return <MasterTripSettlement />;
       case 'DOCS': return <VehicleDocs />;
       case 'TYRE': return <TyreMgmt />;
+      case 'BATTERY': return <BatteryMgmt />;
       case 'MAINTENANCE': return <VehicleMaintenance />;
       case 'BANK': return <CashBankBook />;
       case 'LEDGER': return <LedgerMgmt />;

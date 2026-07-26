@@ -104,6 +104,22 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // ── 🔌 FASTag API providers: hold auth tokens / passwords — ADMIN ONLY.
+    //    (The background runner uses the Admin SDK, which bypasses these rules.)
+    match /FASTAG_PROVIDERS/{id} {
+      allow read, write: if isAdmin();
+    }
+    // Wallet balances + credit ledger are derived data — staff may read; only
+    // the runner (Admin SDK) writes them.
+    match /FASTAG_ACCOUNTS/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+    match /FASTAG_CREDITS/{id} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
     // ── Everything else (books, masters, cards, journal, WA, …): STAFF ONLY ─
     match /{document=**} {
       allow read, write: if isStaff();

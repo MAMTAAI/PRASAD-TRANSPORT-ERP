@@ -24,7 +24,7 @@ function TripMeter({ label, used, target, unit, color }) {
   );
 }
 import { db } from './firebase';
-import { getDrivingDistance } from './lib/maps';
+import { getDrivingDistance, loadGoogleMaps } from './lib/maps';
 import { scopeCurrent } from './lib/rbac';
 import { logAudit } from './lib/audit';
 
@@ -46,6 +46,156 @@ const getVal = (obj, keysArr) => {
   }
   return '';
 };
+
+// ── 🛣️ FASTag "last passed toll" helpers ────────────────────────────────
+/** 'YYYY-MM-DD HH:mm:ss' (IST wall-clock from GTROPY) → "2 hrs ago". */
+const timeAgo = (iso: any): string => {
+  if (!iso) return '';
+  const t = Date.parse(String(iso).replace(' ', 'T'));
+  if (!Number.isFinite(t)) return '';
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.floor(s / 60); if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h} hr${h > 1 ? 's' : ''} ago`;
+  const d = Math.floor(h / 24); return `${d} day${d > 1 ? 's' : ''} ago`;
+};
+/** '2026-07-23 10:04:51' → '23-07-2026 10:04' for display. */
+const fmtToll = (iso: any): string => {
+  const s = String(iso || '').replace('T', ' ');
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})[ ]?(\d{2}:\d{2})?/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}${m[4] ? ' ' + m[4] : ''}` : (s || '—');
+};
+const escapeHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+/** Normalize a TOLL_TRANSACTIONS doc → the compact shape the UI needs. */
+const normalizeToll = (x: any) => ({
+  plaza: x.Toll_Plaza_Name || x.Plaza || 'Toll Plaza',
+  datetime: x.txn_datetime || x.Txn_Date || '',
+  lat: x.lat, long: x.long,
+  amount: Number(x.Amount) || 0,
+  ref: x.Transaction_Ref || x.ext_txn_id || '',
+  vehicle: x.Vehicle_No || x.vehicle_no || '',
+});
+/** True only when a toll carries usable map coordinates (strict null checks). */
+const tollHasCoords = (toll: any) => {
+  if (!toll) return false;
+  const lat = Number(toll.lat), lng = Number(toll.long);
+  return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+};
+
+// ── 🗺️ FASTag Route Map (Google Maps JS API) ────────────────────────────
+// Renders the trip's origin→destination route + a distinct marker at the last
+// FASTag toll crossing, auto-bounding to show both. Mounts only while its tab
+// is active; the effect's cleanup removes every marker/renderer/listener so the
+// map is torn down cleanly each time the modal (or tab) closes — no leaks.
+function FastagRouteMap({ origin, destination, toll }: { origin: string; destination: string; toll: any }) {
+  const mapRef = React.useRef<HTMLDivElement | null>(null);
+  const [status, setStatus] = React.useState<'loading' | 'ready' | 'error'>('loading');
+  const [errMsg, setErrMsg] = React.useState('');
+  const hasCoords = tollHasCoords(toll);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const cleanups: Array<() => void> = [];
+    let map: any = null;
+    (async () => {
+      try {
+        await loadGoogleMaps();
+        if (cancelled || !mapRef.current) return;
+        const g = (window as any).google;
+        map = new g.maps.Map(mapRef.current, {
+          center: { lat: 26.15, lng: 91.75 }, zoom: 6,
+          mapTypeControl: false, streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy',
+        });
+        const bounds = new g.maps.LatLngBounds();
+        let havePoint = false;
+
+        // 📍 Last toll marker (only when coordinates are valid)
+        if (hasCoords) {
+          const pos = { lat: Number(toll.lat), lng: Number(toll.long) };
+          const marker = new g.maps.Marker({
+            position: pos, map, zIndex: 9999,
+            title: `Last Toll: ${toll.plaza || 'Toll Plaza'}`,
+            icon: { path: g.maps.SymbolPath.CIRCLE, scale: 12, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 },
+            label: { text: '🛣️', fontSize: '13px' },
+            animation: g.maps.Animation.DROP,
+          });
+          const iw = new g.maps.InfoWindow({
+            content: `<div style="color:#0f172a;font-family:sans-serif;max-width:230px">
+              <div style="font-weight:800;font-size:13px">🛣️ ${escapeHtml(toll.plaza || 'Toll Plaza')}</div>
+              <div style="font-size:12px;margin-top:2px">Crossed at <b>${escapeHtml(fmtToll(toll.datetime))}</b></div>
+              ${toll.amount ? `<div style="font-size:12px;color:#b45309">Toll ₹${toll.amount}</div>` : ''}
+              ${toll.vehicle ? `<div style="font-size:11px;color:#475569">${escapeHtml(toll.vehicle)}</div>` : ''}
+            </div>`,
+          });
+          marker.addListener('click', () => iw.open(map, marker));
+          iw.open(map, marker);
+          bounds.extend(marker.getPosition()); havePoint = true;
+          cleanups.push(() => { g.maps.event.clearInstanceListeners(marker); iw.close(); marker.setMap(null); });
+        }
+
+        // 🛣️ Origin → Destination route
+        if (origin && destination) {
+          const ds = new g.maps.DirectionsService();
+          const dr = new g.maps.DirectionsRenderer({ map, preserveViewport: true, polylineOptions: { strokeColor: '#38bdf8', strokeWeight: 5, strokeOpacity: 0.9 } });
+          cleanups.push(() => dr.setMap(null));
+          ds.route({ origin, destination, travelMode: g.maps.TravelMode.DRIVING, region: 'in' }, (res: any, st: string) => {
+            if (cancelled || !map) return;
+            if (st === 'OK' && res) {
+              dr.setDirections(res);
+              const rb = res.routes?.[0]?.bounds;
+              if (rb) { bounds.union(rb); havePoint = true; }
+            }
+            if (havePoint) map.fitBounds(bounds, 64);
+          });
+        } else if (havePoint) {
+          map.fitBounds(bounds, 64);
+          const z = map.getZoom?.(); if (z && z > 13) map.setZoom(13);
+        }
+        if (!cancelled) setStatus('ready');
+      } catch (e: any) {
+        if (!cancelled) { setStatus('error'); setErrMsg(e?.message || 'Map failed to load'); }
+      }
+    })();
+
+    // 🧹 Cleanup on unmount / dep-change: kill overlays + listeners, drop the map.
+    return () => {
+      cancelled = true;
+      cleanups.forEach(fn => { try { fn(); } catch { /* best-effort */ } });
+      try { if (map && (window as any).google) (window as any).google.maps.event.clearInstanceListeners(map); } catch { /* noop */ }
+      map = null;
+    };
+  }, [origin, destination, toll?.lat, toll?.long, toll?.datetime, hasCoords]);
+
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* 📍 Floating FASTag location card (Tailwind) */}
+      {hasCoords ? (
+        <div className="absolute top-3 left-3 right-3 sm:right-auto sm:max-w-xs z-10 rounded-xl bg-slate-900/85 backdrop-blur border border-amber-400/40 px-3 py-2 shadow-lg pointer-events-none">
+          <div className="text-[10px] uppercase tracking-wider text-amber-400 font-bold">📍 Last Known Location (FASTag)</div>
+          <div className="text-sm text-white font-semibold leading-snug">Crossed {toll.plaza || 'Toll Plaza'}</div>
+          <div className="text-[12px] text-slate-300">at {fmtToll(toll.datetime)} · {timeAgo(toll.datetime) || 'recently'}</div>
+        </div>
+      ) : (
+        <div className="absolute top-3 left-3 right-3 sm:right-auto sm:max-w-xs z-10 rounded-xl bg-slate-900/85 backdrop-blur border border-slate-500/40 px-3 py-2 shadow-lg pointer-events-none">
+          <div className="text-[12px] text-slate-300">📍 {toll ? 'FASTag toll found but GPS coordinates missing.' : 'No FASTag toll crossed yet on this trip.'}</div>
+        </div>
+      )}
+
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-sky-300 text-sm font-semibold">🗺️ Loading live map…</div>
+      )}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/85 text-center px-6">
+          <span className="text-3xl">🗺️</span>
+          <p className="text-red-400 text-sm mt-2 font-semibold">Map error: {errMsg}</p>
+          <p className="text-slate-400 text-xs mt-1">Check the Google Maps API key / network.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TripManagment() {
   const { isMobile } = useIsMobile();
@@ -145,7 +295,62 @@ export default function TripManagment() {
   };
   const [trackMode, setTrackMode] = useState('ROUTE');
 
+  // 🛣️ FASTag "last passed toll" per active trip (list indicators + modal map).
+  const [tollByTrip, setTollByTrip] = useState<Record<string, any>>({});
+  const [tollLoaded, setTollLoaded] = useState(false);
+  const [modalToll, setModalToll] = useState<any>(undefined); // undefined=loading, null=none
+
+  /** Latest toll for ONE trip. Optimized: equality-only query (no composite
+   *  index needed) on trip_db_id — a trip crosses a bounded set of plazas — then
+   *  pick the max toll_reader time (txn_datetime) client-side. */
+  const fetchLatestToll = async (tripDocId: string) => {
+    if (!tripDocId) return null;
+    try {
+      const snap = await getDocs(query(collection(db, 'TOLL_TRANSACTIONS'), where('trip_db_id', '==', tripDocId)));
+      if (snap.empty) return null;
+      let best: any = null, bestDt = '';
+      snap.forEach(d => {
+        const x = d.data();
+        const dt = String(x.txn_datetime || x.Txn_Date || '');
+        if (dt > bestDt) { bestDt = dt; best = x; }
+      });
+      return best ? normalizeToll(best) : null;
+    } catch { return null; }
+  };
+
   useEffect(() => { fetchData(); }, []);
+
+  // 🛣️ Bulk-load the last toll for every ACTIVE trip (keyed on the id set so
+  // history pagination doesn't re-trigger it). Parallel single-trip queries.
+  const activeTripIdKey = useMemo(
+    () => trips.filter(t => t.trip_status !== 'COMPLETED' && t.trip_status !== 'ADVICE').map(t => t.id).sort().join(','),
+    [trips]
+  );
+  useEffect(() => {
+    const ids = activeTripIdKey ? activeTripIdKey.split(',') : [];
+    if (!ids.length) { setTollByTrip({}); setTollLoaded(true); return; }
+    let cancelled = false;
+    setTollLoaded(false);
+    (async () => {
+      const pairs = await Promise.all(ids.map(async id => [id, await fetchLatestToll(id)] as const));
+      if (cancelled) return;
+      const map: Record<string, any> = {};
+      for (const [id, toll] of pairs) if (toll) map[id] = toll;
+      setTollByTrip(map);
+      setTollLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [activeTripIdKey]);
+
+  // 🗺️ Modal: resolve the active trip's last toll (reuse cache, else fetch).
+  useEffect(() => {
+    if (!showTrackModal || !activeTrip) { setModalToll(undefined); return; }
+    if (tollByTrip[activeTrip.id]) { setModalToll(tollByTrip[activeTrip.id]); return; }
+    let cancelled = false;
+    setModalToll(undefined);
+    fetchLatestToll(activeTrip.id).then(t => { if (!cancelled) setModalToll(t); });
+    return () => { cancelled = true; };
+  }, [showTrackModal, activeTrip?.id, tollByTrip]);
 
   // 📄 PAGINATED lifecycle queries (Phase B3): the old full-collection fetch
   // downloaded all 800+ completed trips on every mount/mutation. Active trips
@@ -592,6 +797,19 @@ export default function TripManagment() {
     return km > 0 ? <span style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '11px' }}> · 📏 {km} km</span> : null;
   };
 
+  // 🛣️ Last-passed-toll indicator for the Live Tracking list (card + table).
+  const LastTollBadge = ({ tripId }: { tripId: string }) => {
+    if (!tollLoaded) return <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>🛣️ checking tolls…</div>;
+    const toll = tollByTrip[tripId];
+    if (!toll) return <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>🛣️ No tolls crossed yet</div>;
+    return (
+      <div style={{ fontSize: '11px', marginTop: '4px', fontWeight: 'bold' }} title={`Crossed at ${fmtToll(toll.datetime)}`}>
+        🛣️ <span style={{ color: '#94a3b8' }}>Last Toll:</span> <span style={{ color: '#fbbf24' }}>{toll.plaza}</span>
+        <span style={{ color: '#94a3b8', fontWeight: 'normal' }}> · {timeAgo(toll.datetime) || 'recently'}</span>
+      </div>
+    );
+  };
+
   // 🔥 FILTER LOGIC FOR TRIPS — memoized; recomputes only when trips or the
   // (debounced) filters change, not on every keystroke/modal state change.
   const activeTrips = useMemo(() => trips.filter(t => t.trip_status !== 'COMPLETED' && t.trip_status !== 'ADVICE').filter(t => {
@@ -678,6 +896,22 @@ export default function TripManagment() {
               <button onClick={() => setTrackMode('ROUTE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #38bdf8', cursor: 'pointer', background: trackMode === 'ROUTE' ? '#38bdf8' : '#1e293b', color: trackMode === 'ROUTE' ? '#0f172a' : '#38bdf8' }}>🛣️ Full Route Plan</button>
               <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #10b981', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#1e293b', color: trackMode === 'GPRS' ? '#0f172a' : '#10b981' }}>📡 Live GPS (Driver App)</button>
               <button onClick={() => setTrackMode('MOBILE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #f59e0b', cursor: 'pointer', background: trackMode === 'MOBILE' ? '#f59e0b' : '#1e293b', color: trackMode === 'MOBILE' ? '#0f172a' : '#f59e0b' }}>📱 Driver Mobile (Live)</button>
+              <button onClick={() => setTrackMode('FASTAG')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #a78bfa', cursor: 'pointer', background: trackMode === 'FASTAG' ? '#a78bfa' : '#1e293b', color: trackMode === 'FASTAG' ? '#0f172a' : '#a78bfa' }}>🛣️ FASTag Toll</button>
+            </div>
+
+            {/* 🛣️ Last-passed-toll summary — visible on every tab */}
+            <div style={{ marginBottom: '12px', padding: '8px 12px', borderRadius: '8px', background: modalToll ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)', border: `1px solid ${modalToll ? 'rgba(245,158,11,0.35)' : '#334155'}`, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {modalToll === undefined ? (
+                <span style={{ color: '#94a3b8' }}>🛣️ Checking FASTag tolls…</span>
+              ) : modalToll ? (
+                <>
+                  <span style={{ color: '#f59e0b', fontWeight: 'bold' }}>🛣️ Last Toll: {modalToll.plaza}</span>
+                  <span style={{ color: '#cbd5e1' }}>· {fmtToll(modalToll.datetime)} ({timeAgo(modalToll.datetime) || 'recently'})</span>
+                  {tollHasCoords(modalToll) && <button onClick={() => setTrackMode('FASTAG')} style={{ marginLeft: 'auto', background: '#a78bfa', color: '#0f172a', border: 'none', borderRadius: '6px', padding: '4px 10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>📍 Show on Map</button>}
+                </>
+              ) : (
+                <span style={{ color: '#94a3b8' }}>🛣️ No FASTag toll crossed yet on this trip.</span>
+              )}
             </div>
 
             <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155', position: 'relative' }}>
@@ -724,6 +958,17 @@ export default function TripManagment() {
                     Send WhatsApp Request to Driver
                   </button>
                 </div>
+              )}
+              {trackMode === 'FASTAG' && (
+                modalToll === undefined ? (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#a78bfa', fontWeight: 'bold' }}>🛣️ Loading FASTag tolls…</div>
+                ) : (
+                  <FastagRouteMap
+                    origin={activeTrip.loading_point || activeTrip.Loading_Point || ''}
+                    destination={activeTrip.consignee_name || activeTrip.Consignee_Name || ''}
+                    toll={modalToll}
+                  />
+                )
               )}
             </div>
             
@@ -991,9 +1236,10 @@ export default function TripManagment() {
                   <span className={`pt-pill ${pill.cls}`}>{pill.label}</span>
                 </div>
                 <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold', margin: '3px 0' }}>{t.trip_id || t.Trip_ID}</div>
-                <div style={{ fontSize: '13px', color: '#cbd5e1', margin: '4px 0 10px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '13px', color: '#cbd5e1', margin: '4px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                 </div>
+                <div style={{ marginBottom: '8px' }}><LastTollBadge tripId={t.id} /></div>
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '10px' }}>
                   <TripMeter label="⛽ HSD" used={hsdIssued} target={hTarget} unit="L" color="#10b981" />
                   <TripMeter label="💵 Cash" used={paidCash} target={cTarget} unit="₹" color="#f59e0b" />
@@ -1051,6 +1297,7 @@ export default function TripManagment() {
                      {(() => { const p = tripStatusPill(t.trip_status); return <span className={`pt-pill ${p.cls}`} style={{marginLeft:'8px'}}>{p.label}</span>; })()}
                      <br/>
                      {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
+                     <LastTollBadge tripId={t.id} />
                   </td>
                   <td style={{...styles.td, color: '#10b981'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
                   <td style={{...styles.td, color: '#f59e0b'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>

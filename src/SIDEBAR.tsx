@@ -113,6 +113,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'FUEL', label: 'Fuel (HSD) Mgmt', icon: '⛽' },
         { id: 'DOCS', label: 'Vehicle Documents', icon: '📄' },
         { id: 'TYRE', label: 'Tyre Management', icon: '🛞' },
+        { id: 'BATTERY', label: 'Battery Management', icon: '🔋' },
         { id: 'MAINTENANCE', label: 'Workshop/Maint.', icon: '🛠️' },
         { id: 'AI_DOCS', label: 'AI Letter Pad', icon: '📝' },
       ];

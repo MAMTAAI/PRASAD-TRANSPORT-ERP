@@ -7,6 +7,11 @@ import {
   groupTollsForClaim, generateClaimNo, nextClaimSeq, renderIoclClaimHtml,
   saveClaim, amountInWordsINR,
 } from './lib/tollEngine';
+import {
+  listProviders, saveProvider, toggleProvider, deleteProvider, requestProviderSync,
+  listAccounts, PROVIDER_TEMPLATES, MASK,
+  type FastagProvider, type FastagAccount,
+} from './lib/fastagProviders';
 
 const KNOWN_COMPANIES = ['PRASAD TRANSPORT', 'JAISWAL ENTERPRISE', 'M/S GAUTAM PRASAD'];
 // Per-company claim defaults remembered on this machine (vendor/plant codes).
@@ -96,10 +101,92 @@ export default function TollFastagMgmt() {
     txn_ref: '', toll_amount: '', billing_type: 'Reimbursable (Bill to Co.)', remarks: 'Full'
   });
 
+  // 🔌 API PROVIDERS state (multi-provider FASTag credential vault + live balances)
+  const [providers, setProviders] = useState<FastagProvider[]>([]);
+  const [accounts, setAccounts] = useState<FastagAccount[]>([]);
+  const [provForm, setProvForm] = useState<FastagProvider>({
+    name: '', type: 'gtropy', base_url: PROVIDER_TEMPLATES[0].base_url,
+    auth_token: '', username: '', password: '', company: 'PRASAD TRANSPORT',
+    active: true, sync_window_days: 2,
+  });
+  const [provSaving, setProvSaving] = useState(false);
+  const [provLocked, setProvLocked] = useState(false);
+  const editingProvider = !!provForm.id;
+
+  // 📊 REPORTS filters (vehicle-wise / trip-wise / date-wise)
+  const monthStart = new Date(); monthStart.setDate(1);
+  const [report, setReport] = useState({
+    mode: 'VEHICLE', from: monthStart.toISOString().split('T')[0],
+    to: new Date().toISOString().split('T')[0], vehicle: 'ALL',
+  });
+
   useEffect(() => {
     fetchData();
     fetchAutoSync();
+    fetchProviders();
   }, []);
+
+  const fetchProviders = async () => {
+    try {
+      setProviders(await listProviders());
+      setProvLocked(false);
+    } catch (e: any) {
+      if (/permission/i.test(e?.message || '')) setProvLocked(true);
+    }
+    try { setAccounts(await listAccounts()); } catch { /* staff-read; ignore */ }
+  };
+
+  const providerTemplate = (type: string) => PROVIDER_TEMPLATES.find(t => t.type === type) || PROVIDER_TEMPLATES[0];
+
+  const resetProvForm = () => setProvForm({
+    name: '', type: 'gtropy', base_url: PROVIDER_TEMPLATES[0].base_url,
+    auth_token: '', username: '', password: '', company: 'PRASAD TRANSPORT',
+    active: true, sync_window_days: 2,
+  });
+
+  const onProviderTypeChange = (type: string) => {
+    const tpl = providerTemplate(type);
+    setProvForm(f => ({ ...f, type, base_url: f.base_url && editingProvider ? f.base_url : (tpl.base_url || '') }));
+  };
+
+  const handleSaveProvider = async () => {
+    if (!provForm.name.trim()) return alert('⚠️ Provider ka naam (label) daalein.');
+    if (!provForm.base_url.trim()) return alert('⚠️ Base URL zaroori hai.');
+    if (!editingProvider && !((provForm.auth_token || '').trim())) return alert('⚠️ Auth Token / API key daalein.');
+    setProvSaving(true);
+    try {
+      await saveProvider(provForm);
+      alert(`✅ Provider "${provForm.name}" saved.\n\nActive providers har auto-sync (aur Force Sync) par fetch honge — duplicate txns ext_txn_id se hamesha skip.`);
+      resetProvForm();
+      fetchProviders();
+    } catch (e: any) {
+      alert('❌ Save failed — admin login check karein. ' + (e?.message || ''));
+    }
+    setProvSaving(false);
+  };
+
+  const handleEditProvider = (p: FastagProvider) => {
+    setProvForm({ ...p });   // secrets arrive masked; blank them to retype, or leave mask to keep
+    setActiveTab('PROVIDERS');
+  };
+
+  const handleToggleProvider = async (p: FastagProvider) => {
+    try { await toggleProvider(p.id!, !p.active); fetchProviders(); }
+    catch { alert('❌ Toggle failed — admin only.'); }
+  };
+
+  const handleDeleteProvider = async (p: FastagProvider) => {
+    if (!window.confirm(`🗑️ Delete provider "${p.name}"?\n\nStored tolls/transactions safe rahenge — sirf ye API connection hatega.`)) return;
+    try { await deleteProvider(p.id!); if (provForm.id === p.id) resetProvForm(); fetchProviders(); }
+    catch { alert('❌ Delete failed — admin only.'); }
+  };
+
+  const handleProviderForceSync = async () => {
+    if (!providers.some(p => p.active)) return alert('⚠️ Koi active provider nahi — pehle ek provider add/activate karein.');
+    await requestProviderSync();
+    alert('⚡ Sync request bhej di — background runner (toll-sync.cjs) ~30s me sabhi active providers fetch karega.\n\nStatus is tab me "Last sync" aur toll logs me dikhega.');
+    setTimeout(fetchProviders, 3000);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -334,6 +421,25 @@ export default function TollFastagMgmt() {
     document.body.removeChild(link);
   };
 
+  // 📥 Export the current REPORTS filter (transaction-level) to CSV.
+  const exportReportCSV = () => {
+    if (!reportTxns.length) return alert('⚠️ Is filter par koi transaction nahi — export ke liye kuch nahi.');
+    let csv = 'Date,Vehicle,Trip ID,Plaza,Transaction Ref,Ext Txn ID,Company,Amount\n';
+    for (const t of reportTxns) {
+      const row = [
+        txnDate(t), txnVeh(t), t.linked_trip_id || '', t.Toll_Plaza_Name || t.Plaza || '',
+        t.Transaction_Ref || t.txn_ref || '', t.ext_txn_id || '', t.company || '',
+        txnAmt(t).toFixed(2),
+      ].map(x => String(x).replace(/,/g, ' '));
+      csv += row.join(',') + '\n';
+    }
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Toll_Report_${report.mode}_${report.from}_to_${report.to}.csv`;
+    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  };
+
   const toggleBillable = async (id: string, currentStatus: boolean) => {
     try {
       await updateDoc(doc(db, "TOLL_TRANSACTIONS", id), { 
@@ -347,6 +453,33 @@ export default function TollFastagMgmt() {
   const totalTollAmount = transactions.reduce((acc, curr) => acc + (parseFloat(curr.Amount || curr.amount || curr.toll_amount || '0')), 0);
   const totalRechargeAmount = recharges.reduce((acc, curr) => acc + (parseFloat(curr.recharge_amount || '0')), 0);
   const estimatedBalance = totalRechargeAmount - totalTollAmount;
+
+  // ── 📊 REPORTS: vehicle-wise / trip-wise / date-wise aggregation ──────────
+  const txnDate = (t: any) => String(t.Txn_Date || t.txn_date || t.date || '').slice(0, 10);
+  const txnVeh = (t: any) => String(t.Vehicle_No || t.vehicle_no || '').toUpperCase();
+  const txnAmt = (t: any) => parseFloat(t.Amount || t.amount || t.toll_amount || 0) || 0;
+  const reportVehicles = [...new Set(transactions.map(txnVeh).filter(Boolean))].sort();
+  const reportTxns = transactions.filter(t => {
+    const d = txnDate(t);
+    if (report.from && d && d < report.from) return false;
+    if (report.to && d && d > report.to) return false;
+    if (report.vehicle !== 'ALL' && txnVeh(t) !== report.vehicle) return false;
+    return true;
+  });
+  const reportGroups = (() => {
+    const key = (t: any) => report.mode === 'VEHICLE' ? (txnVeh(t) || 'UNKNOWN')
+      : report.mode === 'TRIP' ? (t.linked_trip_id || 'UNMAPPED')
+      : txnDate(t) || 'NO-DATE';
+    const m = new Map<string, { key: string; count: number; total: number; vehicles: Set<string>; sample: any }>();
+    for (const t of reportTxns) {
+      const k = key(t);
+      if (!m.has(k)) m.set(k, { key: k, count: 0, total: 0, vehicles: new Set(), sample: t });
+      const g = m.get(k)!;
+      g.count++; g.total += txnAmt(t); g.vehicles.add(txnVeh(t));
+    }
+    return [...m.values()].sort((a, b) => report.mode === 'DATE' ? b.key.localeCompare(a.key) : b.total - a.total);
+  })();
+  const reportTotal = reportTxns.reduce((s, t) => s + txnAmt(t), 0);
 
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: 'sans-serif' }}>
@@ -404,6 +537,8 @@ export default function TollFastagMgmt() {
         <button className={`pt-tab ${activeTab === 'TRIP_ENTRY' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ MANUAL TOLL ENTRY</button>
         <button className={`pt-tab ${activeTab === 'TRANSACTIONS' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
         <button className={`pt-tab ${activeTab === 'RECHARGE' ? 'is-active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
+        <button className={`pt-tab ${activeTab === 'PROVIDERS' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('PROVIDERS')}>🔌 API PROVIDERS {providers.filter(p => p.active).length > 0 && <span className="pt-tab__count" style={{ background: '#22c55e', color: '#0f172a' }}>{providers.filter(p => p.active).length}</span>}</button>
+        <button className={`pt-tab ${activeTab === 'REPORTS' ? 'is-active' : ''}`} onClick={() => setActiveTab('REPORTS')}>📊 REPORTS</button>
         <button className={`pt-tab ${activeTab === 'AUTO_SYNC' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('AUTO_SYNC')}>⚙️ AUTO-SYNC (24h) {autoSync.master_switch && <span className="pt-tab__count" style={{ background: '#10b981', color: '#0f172a' }}>ON</span>}</button>
       </div>
 
@@ -471,6 +606,193 @@ export default function TollFastagMgmt() {
                 🛡️ Duplicate guardrail: har toll ka database ID uske Transaction Ref + Amount se banta hai — Force Sync kitni baar bhi dabao, same toll expense dobara kabhi save nahi hota (same rule Statement Sync upload par bhi lagta hai). Scheduled run din me sirf ek baar, chunee hui time par chalta hai; Master OFF par runner turant terminate ho jata hai.
               </p>
           </>
+        </div>
+      )}
+
+      {/* ═══════════ 🔌 TAB: API PROVIDERS (multi-provider credential vault) ═══════════ */}
+      {activeTab === 'PROVIDERS' && (
+        <div className="pt-anim-up">
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #22c55e', marginBottom: '20px' }}>
+            <h2 style={{ color: '#22c55e', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>🔌 FASTag API Providers — Auto-Sync Integration</h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 18px' }}>GTROPY, ICICI, SBI, Wheelseye, BlackBuck — har provider ki API credentials yahan securely store karein. Active providers <b style={{ color: '#38bdf8' }}>daily auto-sync</b> aur Force Sync par transactions fetch karte hain; toll debit trip par auto-map hota hai, credit se wallet balance update. Duplicate <b>ext_txn_id</b> se hamesha block.</p>
+
+            {provLocked && (
+              <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ef4444', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
+                🔒 API credentials sirf ADMIN manage kar sakte hain (auth tokens/passwords yahan store hote hain).
+              </div>
+            )}
+
+            {/* ➕ Add / edit provider form */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569' }}>
+              <div>
+                <label className="pt-label" style={{ color: '#22c55e' }}>Provider Type *</label>
+                <select className="pt-input" value={provForm.type} onChange={e => onProviderTypeChange(e.target.value)}>
+                  {PROVIDER_TEMPLATES.map(t => <option key={t.type} value={t.type}>{t.label}{t.implemented ? '' : ' (adapter pending)'}</option>)}
+                </select>
+              </div>
+              <div><label className="pt-label">Label / Account Name *</label><input className="pt-input" placeholder="e.g. Prasad GTROPY Corporate" value={provForm.name} onChange={e => setProvForm({ ...provForm, name: e.target.value })} /></div>
+              <div style={{ gridColumn: '1 / -1' }}><label className="pt-label">Base URL *</label><input className="pt-input" placeholder="https://…/account_transactions" value={provForm.base_url} onChange={e => setProvForm({ ...provForm, base_url: e.target.value })} /></div>
+              <div><label className="pt-label">Auth Token / API Key {editingProvider ? '(blank = keep)' : '*'}</label><input type="password" className="pt-input" placeholder={editingProvider ? MASK : 'e42vy75rgjkfg65zsFDVzj'} value={provForm.auth_token || ''} onChange={e => setProvForm({ ...provForm, auth_token: e.target.value })} autoComplete="new-password" /></div>
+              {providerTemplate(provForm.type).fields.includes('username') && (
+                <div><label className="pt-label">Username (optional)</label><input className="pt-input" value={provForm.username || ''} onChange={e => setProvForm({ ...provForm, username: e.target.value })} autoComplete="off" /></div>
+              )}
+              {providerTemplate(provForm.type).fields.includes('password') && (
+                <div><label className="pt-label">Password {editingProvider ? '(blank = keep)' : '(optional)'}</label><input type="password" className="pt-input" placeholder={editingProvider ? MASK : ''} value={provForm.password || ''} onChange={e => setProvForm({ ...provForm, password: e.target.value })} autoComplete="new-password" /></div>
+              )}
+              <div>
+                <label className="pt-label">Company Ledger</label>
+                <select className="pt-input" value={provForm.company} onChange={e => setProvForm({ ...provForm, company: e.target.value })}>
+                  {KNOWN_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div><label className="pt-label">Sync Window (days back)</label><input type="number" min={1} max={730} className="pt-input" value={provForm.sync_window_days || 2} onChange={e => setProvForm({ ...provForm, sync_window_days: parseInt(e.target.value) || 2 })} /><span style={{ fontSize: '10px', color: '#64748b' }}>Daily sync: 2. Bade backfill (90d+) auto ≤85-day slices me chunk hote hain.</span></div>
+              <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                <button className={`pt-chip ${provForm.active ? 'is-on is-on--success' : ''}`} style={{ width: '100%', minHeight: '44px' }} onClick={() => setProvForm({ ...provForm, active: !provForm.active })}>
+                  {provForm.active ? '🟢 Active (auto-sync ON)' : '⚪ Paused'}
+                </button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '14px' }}>
+              <button className={`pt-btn pt-btn--success ${provSaving ? 'is-loading' : ''}`} disabled={provSaving} onClick={handleSaveProvider} style={{ minHeight: '46px', flex: '1 1 220px', fontWeight: 900 }}>
+                {provSaving ? 'Saving…' : editingProvider ? '💾 Update Provider' : '➕ Add Provider'}
+              </button>
+              {editingProvider && <button className="pt-btn pt-btn--ghost" onClick={resetProvForm} style={{ minHeight: '46px' }}>✕ Cancel edit</button>}
+              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #ea580c)' }} onClick={handleProviderForceSync}>⚡ Sync All Active Now</button>
+            </div>
+            <p style={{ fontSize: '11px', color: '#64748b', margin: '12px 0 0' }}>ℹ️ {providerTemplate(provForm.type).notes}</p>
+          </div>
+
+          {/* 📇 Configured providers */}
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)', marginBottom: '20px' }}>
+            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📇 Configured Providers</h3>
+            {providers.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi provider add nahi hua. Upar form se GTROPY se shuru karein.</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ minWidth: '820px' }}>
+                  <thead><tr><th>Label</th><th>Type</th><th>Company</th><th style={{ textAlign: 'center' }}>Status</th><th>Last Sync</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
+                  <tbody>
+                    {providers.map(p => (
+                      <tr key={p.id}>
+                        <td style={{ fontWeight: 900, color: '#fff' }}>{p.name}</td>
+                        <td><span className="pt-badge pt-badge--info">{p.type}</span></td>
+                        <td style={{ fontSize: '12px' }}>{p.company}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button className={`pt-badge ${p.active ? 'pt-badge--success' : 'pt-badge--danger'}`} style={{ cursor: 'pointer', border: 'none' }} onClick={() => handleToggleProvider(p)}>
+                            {p.active ? '🟢 ACTIVE' : '⚪ PAUSED'}
+                          </button>
+                        </td>
+                        <td style={{ fontSize: '11px' }}>
+                          <div style={{ color: '#cbd5e1' }}>{p.last_sync_at?.seconds ? new Date(p.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</div>
+                          {p.last_sync_result && <div style={{ color: /FAIL/.test(p.last_sync_result) ? '#ef4444' : '#10b981' }}>{p.last_sync_result}</div>}
+                          {p.last_sync_error && <div style={{ color: '#ef4444' }}>⚠ {p.last_sync_error}</div>}
+                        </td>
+                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                          <button className="pt-btn pt-btn--ghost" style={{ minHeight: '36px', padding: '5px 12px', marginRight: '6px' }} onClick={() => handleEditProvider(p)}>✏️ Edit</button>
+                          <button className="pt-btn pt-btn--ghost" style={{ minHeight: '36px', padding: '5px 12px', color: '#ef4444', borderColor: '#ef4444' }} onClick={() => handleDeleteProvider(p)}>🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* 💰 Live wallet balances (per account_id) */}
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
+            <h3 style={{ color: '#22c55e', marginTop: 0 }}>💰 Live FASTag Wallet Balances</h3>
+            <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 12px' }}>Har account ka balance incoming debit/credit txns se real-time update hota hai (background runner).</p>
+            {accounts.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi account sync nahi hua — provider add karke Sync chalayein.</div> : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ minWidth: '680px' }}>
+                  <thead><tr><th>Account ID</th><th>Vehicle</th><th style={{ textAlign: 'right' }}>Debits ₹</th><th style={{ textAlign: 'right' }}>Credits ₹</th><th style={{ textAlign: 'right' }}>Balance ₹</th><th>Last Txn</th></tr></thead>
+                  <tbody>
+                    {accounts.map(a => (
+                      <tr key={a.id}>
+                        <td style={{ fontWeight: 700, color: '#fff', fontSize: '12px' }}>{a.account_id}</td>
+                        <td style={{ color: '#38bdf8' }}>{a.vehicle_number || '-'}</td>
+                        <td style={{ textAlign: 'right', color: '#ef4444' }}>{Number(a.total_debit || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', color: '#10b981' }}>{Number(a.total_credit || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 900, color: Number(a.balance) < 0 ? '#ef4444' : '#22c55e' }}>{Number(a.balance || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ fontSize: '11px', color: '#94a3b8' }}>{a.last_txn_at ? (a.last_txn_at.seconds ? new Date(a.last_txn_at.seconds * 1000).toLocaleString('en-IN') : String(a.last_txn_at)) : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ 📊 TAB: REPORTS (Vehicle / Trip / Date-wise) ═══════════ */}
+      {activeTab === 'REPORTS' && (
+        <div className="pt-anim-up">
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #818cf8', marginBottom: '20px' }}>
+            <h2 style={{ color: '#818cf8', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>📊 Toll Expense Reports</h2>
+            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 18px' }}>Date range + vehicle filter karke Vehicle-wise, Trip-wise ya Date-wise total toll expense dekhein. Export CSV bhi kar sakte hain.</p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '15px', marginBottom: '15px' }}>
+              <div>
+                <label className="pt-label" style={{ color: '#818cf8' }}>Group By</label>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[['VEHICLE', '🚚 Vehicle'], ['TRIP', '🛣️ Trip'], ['DATE', '📅 Date']].map(([m, lbl]) => (
+                    <button key={m} className={`pt-chip ${report.mode === m ? 'is-on is-on--primary' : ''}`} style={{ flex: 1, fontSize: '12px' }} onClick={() => setReport({ ...report, mode: m })}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div><label className="pt-label">From</label><input type="date" className="pt-input" style={{ colorScheme: 'dark' }} value={report.from} onChange={e => setReport({ ...report, from: e.target.value })} /></div>
+              <div><label className="pt-label">To</label><input type="date" className="pt-input" style={{ colorScheme: 'dark' }} value={report.to} onChange={e => setReport({ ...report, to: e.target.value })} /></div>
+              <div>
+                <label className="pt-label">Vehicle</label>
+                <select className="pt-input" value={report.vehicle} onChange={e => setReport({ ...report, vehicle: e.target.value })}>
+                  <option value="ALL">All Vehicles</option>
+                  {reportVehicles.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="pt-stagger" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#818cf8' }}>Matching Tolls</div><div className="pt-kpi__value">{reportTxns.length}</div><div className="pt-kpi__sub">{report.from} → {report.to}</div></div>
+              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#f59e0b' }}>₹{reportTotal.toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{reportGroups.length} {report.mode.toLowerCase()} groups</div></div>
+              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#38bdf8' }}>Vehicles</div><div className="pt-kpi__value" style={{ color: '#38bdf8' }}>{report.vehicle === 'ALL' ? reportVehicles.length : 1}</div><div className="pt-kpi__sub">in range</div></div>
+            </div>
+          </div>
+
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <h3 style={{ color: '#38bdf8', margin: 0 }}>{report.mode === 'VEHICLE' ? '🚚 Vehicle-Wise' : report.mode === 'TRIP' ? '🛣️ Trip-Wise' : '📅 Date-Wise'} Breakdown</h3>
+              <button className="pt-btn pt-btn--ghost" style={{ minHeight: '38px' }} onClick={exportReportCSV}>📥 Export CSV</button>
+            </div>
+            {reportGroups.length === 0 ? <div style={{ color: '#64748b', padding: '20px', textAlign: 'center' }}>Is filter par koi toll transaction nahi mila.</div> : (
+              <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                <table style={{ minWidth: '620px' }}>
+                  <thead><tr>
+                    <th>{report.mode === 'VEHICLE' ? 'Vehicle' : report.mode === 'TRIP' ? 'Trip ID' : 'Date'}</th>
+                    {report.mode !== 'VEHICLE' && <th>Vehicles</th>}
+                    <th style={{ textAlign: 'center' }}>Tolls</th>
+                    <th style={{ textAlign: 'right' }}>Total ₹</th>
+                    <th style={{ textAlign: 'right' }}>Avg ₹/toll</th>
+                  </tr></thead>
+                  <tbody>
+                    {reportGroups.map(g => (
+                      <tr key={g.key}>
+                        <td style={{ fontWeight: 900, color: '#fff' }}>{g.key}</td>
+                        {report.mode !== 'VEHICLE' && <td style={{ fontSize: '12px', color: '#38bdf8' }}>{[...g.vehicles].filter(Boolean).join(', ') || '-'}</td>}
+                        <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{g.count}</span></td>
+                        <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{(g.total / g.count).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: 'rgba(129,140,248,0.08)', fontWeight: 900 }}>
+                      <td colSpan={report.mode !== 'VEHICLE' ? 3 : 2} style={{ textAlign: 'right' }}>GRAND TOTAL ({reportTxns.length} tolls):</td>
+                      <td style={{ textAlign: 'right', color: '#f59e0b', fontSize: '15px' }}>₹{reportTotal.toLocaleString('en-IN')}</td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
