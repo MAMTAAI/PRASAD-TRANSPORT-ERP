@@ -25,7 +25,8 @@ app.use(cors({
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error(`Origin not allowed by CORS: ${origin}`));
   },
-  allowedHeaders: ['Content-Type', 'X-PT-Token'],
+  allowedHeaders: ['Content-Type', 'X-PT-Token', 'X-KG-Domain'],
+  exposedHeaders: ['X-KG-Facts'],
   methods: ['GET', 'POST', 'OPTIONS'],
 }));
 
@@ -49,21 +50,23 @@ if (!BRIDGE_TOKENS.length) {
 } else {
   console.log(`🔒 AI routes protected — ${BRIDGE_TOKENS.length} client token(s) accepted.`);
 }
-function tokenMatches(supplied) {
+function matchedTokenIndex(supplied) {
   const s = Buffer.from(supplied, 'utf8');
   // Constant-time compare against EVERY accepted token; timingSafeEqual throws
   // on length mismatch, so guard length first. Loop runs fully (no early return)
-  // to avoid leaking which token matched via timing.
-  let ok = false;
-  for (const token of BRIDGE_TOKENS) {
-    const t = Buffer.from(token, 'utf8');
-    if (s.length === t.length && crypto.timingSafeEqual(s, t)) ok = true;
+  // to avoid leaking which token matched via timing. The index doubles as the
+  // client identity: 0 = Prasad Transport, 1 = Jaiswal Capital (KG domain routing).
+  let idx = -1;
+  for (let i = 0; i < BRIDGE_TOKENS.length; i++) {
+    const t = Buffer.from(BRIDGE_TOKENS[i], 'utf8');
+    if (s.length === t.length && crypto.timingSafeEqual(s, t) && idx === -1) idx = i;
   }
-  return ok;
+  return idx;
 }
 function requireToken(req, res, next) {
-  if (!BRIDGE_TOKENS.length) return next(); // gate disabled (local dev)
-  if (tokenMatches(req.get('X-PT-Token') || '')) return next();
+  if (!BRIDGE_TOKENS.length) { req.ptClient = 0; return next(); } // gate disabled (local dev)
+  const idx = matchedTokenIndex(req.get('X-PT-Token') || '');
+  if (idx !== -1) { req.ptClient = idx; return next(); }
   return res.status(401).json({ success: false, error: 'Unauthorized: bad or missing X-PT-Token.' });
 }
 
@@ -301,6 +304,10 @@ app.post('/api/ai/chat', requireToken, async (req, res) => {
     return res.status(400).json({ success: false, error: 'messages[] required' });
   }
 
+  // 🕸️ GraphRAG: MAMTA KG ke verified facts → system context (dono engines ko milta hai)
+  const kgHit = kgInject({ messages }, kgDomainForReq(req));
+  if (kgHit) res.setHeader('X-KG-Facts', String(kgHit.facts));
+
   try {
     if (engine === 'cloud') {
       // ── CLOUD: Anthropic API (Claude Haiku) ──────────────────────────────
@@ -390,6 +397,9 @@ app.get('/api/tags', requireToken, async (req, res) => {
 app.post('/api/chat', requireToken, async (req, res) => {
   const body = req.body || {};
   const wantStream = body.stream !== false; // Ollama defaults to streaming
+  // 🕸️ GraphRAG: verified org facts → system context before Gemma sees the question
+  const kgHit = kgInject(body, kgDomainForReq(req));
+  if (kgHit) res.setHeader('X-KG-Facts', String(kgHit.facts));
   try {
     const upstream = await axios.post(`${OLLAMA_URL}/api/chat`, body, {
       responseType: wantStream ? 'stream' : 'json',
@@ -403,6 +413,103 @@ app.post('/api/chat', requireToken, async (req, res) => {
     req.on('close', () => { try { upstream.data.destroy(); } catch { /* noop */ } }); // client bailed → stop pulling from Ollama
   } catch (err) {
     return ollamaUnreachable(err, res);
+  }
+});
+
+// =======================================================
+// ROUTE 6: 🕸️ MAMTA KG — GraphRAG / knowledge graph (kg/graph.cjs)
+// SQLite-backed (better-sqlite3, WAL) — NO graph-DB server, RAM-safe
+// next to the trading engine. Domain isolation: transport | trading |
+// shared, picked from the client's token (0=Prasad, 1=Jaiswal) and
+// overridable via X-KG-Domain header / kg_domain body field.
+// =======================================================
+const kg = require('./kg/graph.cjs');
+try { kg.ensureSeed(`${__dirname}/kg/seed-trading.json`, 'trading'); } catch (e) { console.warn('KG seed skipped:', e.message); }
+
+function kgDomainForReq(req) {
+  const d = req.get('X-KG-Domain') || (req.body && req.body.kg_domain);
+  if (req.body && req.body.kg_domain !== undefined) delete req.body.kg_domain; // Ollama ko forward nahi karna
+  if (['transport', 'trading', 'shared'].includes(d)) return d;
+  return req.ptClient === 1 ? 'trading' : 'transport';
+}
+
+// Mutates body.messages: appends verified graph facts to the system prompt.
+// Any failure = silent skip — chat kabhi block nahi hota KG ki wajah se.
+function kgInject(body, domain) {
+  try {
+    const msgs = body && body.messages;
+    if (!Array.isArray(msgs) || !msgs.length) return null;
+    const lastUser = [...msgs].reverse().find((m) => m && m.role === 'user' && typeof m.content === 'string');
+    if (!lastUser) return null;
+    const hit = kg.contextForMessage(lastUser.content, { domain });
+    if (!hit) return null;
+    const sys = msgs.find((m) => m && m.role === 'system');
+    if (sys) sys.content = `${sys.content}\n\n${hit.context}`;
+    else msgs.unshift({ role: 'system', content: hit.context });
+    console.log(`🕸️ KG: +${hit.facts} facts injected (${domain}, ${hit.entities} entities)`);
+    return hit;
+  } catch (e) {
+    console.warn('KG inject skipped:', e.message);
+    return null;
+  }
+}
+
+app.get('/api/kg/stats', requireToken, (req, res) => {
+  try { res.json({ success: true, ...kg.stats() }); }
+  catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// GET /api/kg/query?entity=PB10AB1234&depth=2 — subgraph around an entity
+app.get('/api/kg/query', requireToken, (req, res) => {
+  try {
+    const depth = Math.min(Number(req.query.depth) || 2, 3);
+    res.json({ success: true, domain: kgDomainForReq(req), ...kg.queryEntity(String(req.query.entity || ''), { domain: kgDomainForReq(req), depth }) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// POST /api/kg/upsert {nodes:[{type,name,domain,props,aliases}], edges:[{src:{type,name},rel,dst:{type,name},domain,weight,props}]}
+app.post('/api/kg/upsert', requireToken, (req, res) => {
+  try {
+    const { nodes = [], edges = [] } = req.body || {};
+    if (!nodes.length && !edges.length) return res.status(400).json({ success: false, error: 'nodes[] or edges[] required' });
+    if (nodes.length + edges.length > 2000) return res.status(413).json({ success: false, error: 'max 2000 items per batch' });
+    res.json({ success: true, ...kg.batchUpsert({ nodes, edges }) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+// POST /api/kg/learn {text, domain?} — Gemma extracts triples from free text.
+// ON-DEMAND ONLY (CPU is shared with the trading engine — no background loops).
+app.post('/api/kg/learn', requireToken, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text || typeof text !== 'string') return res.status(400).json({ success: false, error: 'text required' });
+  const domain = kgDomainForReq(req);
+  const schema = {
+    type: 'object',
+    required: ['triples'],
+    properties: { triples: { type: 'array', items: {
+      type: 'object',
+      required: ['src_type', 'src_name', 'rel', 'dst_type', 'dst_name'],
+      properties: { src_type: { type: 'string' }, src_name: { type: 'string' }, rel: { type: 'string' }, dst_type: { type: 'string' }, dst_name: { type: 'string' } },
+    } } },
+  };
+  try {
+    const r = await axios.post(`${OLLAMA_URL}/api/chat`, {
+      model: (req.body && req.body.model) || process.env.OLLAMA_MODEL || 'gemma3:4b',
+      stream: false,
+      format: schema,
+      messages: [
+        { role: 'system', content: 'Extract factual knowledge-graph triples from the text. Types are short snake_case nouns (truck, driver, client, location, company, stock, sector, macro_event...). Relations are short snake_case verbs (driven_by, delivers_to, works_for, impacts_positive, impacts_negative...). Extract ONLY facts stated in the text — never invent.' },
+        { role: 'user', content: text.slice(0, 4000) },
+      ],
+    }, { timeout: 180000 });
+    const parsed = JSON.parse(r.data?.message?.content || '{}');
+    const edges = (parsed.triples || [])
+      .filter((t) => t.src_name && t.dst_name && t.rel)
+      .map((t) => ({ src: { type: t.src_type || 'entity', name: t.src_name }, rel: t.rel, dst: { type: t.dst_type || 'entity', name: t.dst_name }, domain }));
+    const counts = edges.length ? kg.batchUpsert({ edges }) : { nodes: 0, edges: 0 };
+    return res.json({ success: true, domain, learned: counts.edges, triples: parsed.triples || [] });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: e.message });
   }
 });
 
