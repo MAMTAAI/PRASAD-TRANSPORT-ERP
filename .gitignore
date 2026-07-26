@@ -50,3 +50,4 @@ whatsapp-server/.wwebjs_cache/
 # AI stack launcher logs
 logs/
 data/
+.vscode/sftp.json
