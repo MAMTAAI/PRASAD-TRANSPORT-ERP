@@ -40,6 +40,35 @@ app.use(cors({
 // AI Bill Scanner sends multi-page base64 images in the chat body — default 100kb limit is far too small
 app.use(express.json({ limit: '50mb' }));
 
+// 🛡️ PHASE-1 ENFORCEMENT (no-op unless SOC_ARM=1). A banned IP is dropped at the
+// app edge with 403 before any handler runs. In shadow mode isBanned() always
+// returns false, so this is inert — bans are only logged, never applied.
+app.use((req, res, next) => {
+  try {
+    if (soc.isBanned(realIp(req))) {
+      return res.status(403).json({ success: false, error: 'IP banned by MAMTA active defense.' });
+    }
+  } catch { /* defense must never break the request path */ }
+  next();
+});
+
+// 🔴 KILL-SWITCH ENFORCEMENT — when God engages the manual kill-switch, the
+// sensitive surfaces (AI, payout-ingest, uploads) return 503. Read-only radar
+// endpoints stay up so you can still see + release. Never auto-engaged.
+// Cache kill state in memory; refresh on each mutation + a slow poll so a
+// restart or the sibling infra's change is picked up.
+let killState = soc.killState();
+setInterval(() => { try { killState = soc.killState(); } catch { /* keep last */ } }, 15000);
+const KILL_PROTECTED = [/^\/api\/ai\//, /^\/upload-to-drive/, /^\/speak/, /^\/api\/kg\//];
+app.use((req, res, next) => {
+  try {
+    if (killState.active && KILL_PROTECTED.some((re) => re.test(req.path))) {
+      return res.status(503).json({ success: false, error: 'System halted by MAMTA kill-switch (God).', by: killState.by, since: killState.ts });
+    }
+  } catch { /* fail open on the kill check itself — never hard-lock the box */ }
+  next();
+});
+
 // ── 🔑 Shared-secret gate for the AI routes. The tunnel makes this bridge
 // reachable from anywhere; PT_BRIDGE_TOKEN keeps random internet traffic out.
 // Each client app sends its secret as the `X-PT-Token` header (front-ends read
@@ -579,6 +608,21 @@ app.get('/security/radar', requireToken, (req, res) => {
 app.post('/security/ack', requireToken, (req, res) => {
   try { res.json({ success: soc.ack(req.body && req.body.id) }); }
   catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// 🔴 Manual kill-switch — God-triggered ONLY. Requires the bridge token AND an
+// explicit confirm string, so a stray/replayed request can't halt the business.
+// This never fires automatically; it is the human "fight back" control.
+app.post('/security/killswitch', requireToken, (req, res) => {
+  try {
+    const { active, confirm, by } = req.body || {};
+    if (active && confirm !== 'HALT') {
+      return res.status(400).json({ success: false, error: 'Refused: to engage, send confirm:"HALT".' });
+    }
+    killState = soc.setKill(!!active, by);
+    console.log(`🔴 KILL-SWITCH ${active ? 'ENGAGED' : 'RELEASED'} by ${killState.by}`);
+    res.json({ success: true, kill: killState });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 app.post('/security/ingest', requireToken, (req, res) => {

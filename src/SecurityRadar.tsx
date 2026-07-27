@@ -35,17 +35,23 @@ interface SecEvent {
   remediation?: { proposal?: string; status?: string; by?: string };
 }
 
+interface KillState { active: boolean; by?: string; ts?: string; }
+
 interface RadarData {
   status: string;
   armState: string;
+  kill?: KillState;
+  config?: { strikeThreshold: number; windowMin: number; armed: boolean };
   counts: {
     threatsToday: number;
     bugsToday: number;
     bySeverity: Record<string, number>;
     bannedIps: number;
+    wouldBan?: number;
   };
   events: SecEvent[];
   banned: Array<{ ip: string; reason?: string; ts?: string }>;
+  wouldBan?: Array<{ ip: string; reason?: string; ts?: string }>;
 }
 
 // Bridge fetch helpers — X-PT-Token gated, hard timeout, never throw.
@@ -125,6 +131,24 @@ export const SecurityRadar: React.FC = () => {
     load();
   };
 
+  const kill = data?.kill;
+  const [busy, setBusy] = useState(false);
+
+  // 🔴 Manual "fight back" control. ENGAGE double-confirms (this halts the
+  // business) and sends confirm:"HALT". RELEASE resumes. Never automatic.
+  const toggleKill = async () => {
+    const engaging = !kill?.active;
+    const who = (() => {
+      try { return JSON.parse(localStorage.getItem('prasad_user') || '{}').full_name || 'God'; }
+      catch { return 'God'; }
+    })();
+    if (engaging && !window.confirm('⚠️ ENGAGE KILL-SWITCH?\n\nThis HALTS AI, uploads and payout across the system until you release it. Proceed?')) return;
+    setBusy(true);
+    await radarPost('/security/killswitch', { active: engaging, confirm: engaging ? 'HALT' : undefined, by: who });
+    setBusy(false);
+    load();
+  };
+
   const c = data?.counts;
   const events = (data?.events || []).filter(e => filter === 'all' ? true : e.kind === filter);
   const arm = data?.armState || 'OBSERVE';
@@ -145,12 +169,30 @@ export const SecurityRadar: React.FC = () => {
         <div className="sr-head-r">
           {lastUpd && <span className="sr-upd">⟳ {lastUpd}</span>}
           <button className="sr-refresh" onClick={load}>Refresh</button>
+          <button
+            className={`sr-kill ${kill?.active ? 'sr-kill-on' : ''}`}
+            disabled={busy}
+            onClick={toggleKill}
+            title="Manual kill-switch — halts AI/uploads/payout across the system"
+          >
+            {kill?.active ? '▶ RELEASE' : '🔴 HALT & SQUARE-OFF'}
+          </button>
         </div>
       </div>
 
+      {kill?.active && (
+        <div className="sr-kill-banner">
+          🔴 SYSTEM HALTED by {kill.by || 'God'} — sensitive endpoints are returning 503.
+          Press <b>RELEASE</b> to resume.
+        </div>
+      )}
+
       <div className="sr-note">
-        Phase-0 <b>SHADOW</b> — observe &amp; classify only. Active-defense IP bans and the
-        auto kill-switch are <b>God-gated</b>. Covers Prasad Transport + Jaiswal Capital.
+        {arm === 'ARMED'
+          ? <>Phase-1 <b>ARMED</b> — IP bans are being <b>enforced</b> (403 at the edge).</>
+          : <>Phase-1 <b>SHADOW</b> — strike counter logs <b>would-ban</b> decisions but blocks nothing yet
+             (arm with <code>SOC_ARM=1</code> after a clean session). </>}
+        {' '}Kill-switch is <b>manual only</b>. Covers Prasad Transport + Jaiswal Capital.
       </div>
 
       {error ? (
@@ -175,8 +217,10 @@ export const SecurityRadar: React.FC = () => {
           <div className="sr-tile-val" style={{ color: critHigh > 0 ? '#f97316' : '#10b981' }}>{critHigh}</div>
         </div>
         <div className="sr-tile">
-          <div className="sr-tile-lbl">IPs BANNED</div>
-          <div className="sr-tile-val" style={{ color: '#22d3ee' }}>{c?.bannedIps ?? 0}</div>
+          <div className="sr-tile-lbl">{arm === 'ARMED' ? 'IPs BANNED' : 'IPs WOULD-BAN'}</div>
+          <div className="sr-tile-val" style={{ color: arm === 'ARMED' ? '#ef4444' : '#22d3ee' }}>
+            {arm === 'ARMED' ? (c?.bannedIps ?? 0) : (c?.wouldBan ?? 0)}
+          </div>
         </div>
       </div>
 
@@ -259,6 +303,12 @@ const CSS = `
 .sr-upd{font-size:11px;color:#64748b;}
 .sr-refresh{background:#161b22;border:1px solid #2a2e39;color:#94a3b8;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;}
 .sr-refresh:hover{border-color:#3b82f6;color:#e6edf3;}
+.sr-kill{background:#2b0b0b;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.03em;}
+.sr-kill:hover{background:#3b0f0f;border-color:#ef4444;color:#fff;}
+.sr-kill:disabled{opacity:.5;cursor:wait;}
+.sr-kill-on{background:#10b981;border-color:#059669;color:#04120c;}
+.sr-kill-on:hover{background:#34d399;color:#04120c;}
+.sr-kill-banner{background:#2b0b0b;border:1px solid #ef4444;color:#fecaca;border-radius:8px;padding:9px 12px;margin:8px 0;font-size:12px;font-weight:600;animation:srpulse 2s infinite;}
 .sr-note{font-size:11px;color:#8b949e;background:#0b1220;border:1px solid #1e2333;border-radius:8px;padding:7px 10px;margin:10px 0;}
 .sr-note b{color:#c9d1d9;}
 .sr-err{font-size:12px;color:#fca5a5;background:#2b0f0f;border:1px solid #7f1d1d;border-radius:8px;padding:8px 10px;margin-bottom:10px;}
