@@ -31,6 +31,11 @@ function secForward(evt) {
     }).catch(() => { /* observe-only */ });
 }
 
+// Real attacker IP — behind Nginx the socket peer is always 127.0.0.1, so the
+// first X-Forwarded-For entry is the actual caller (matches bridge.cjs realIp).
+const realIp = (req) => (req.get('X-Forwarded-For') || '').split(',')[0].trim()
+    || req.socket.remoteAddress || '';
+
 // 🔑 Cashfree API keys — .env ONLY (जब KYC अप्रूव हो जाए, .env में डालें)
 const CASHFREE_CLIENT_ID = process.env.CASHFREE_CLIENT_ID || '';
 const CASHFREE_CLIENT_SECRET = process.env.CASHFREE_CLIENT_SECRET || '';
@@ -47,6 +52,13 @@ const PAYOUT_ADMIN_KEY = process.env.PAYOUT_ADMIN_KEY || '';
 if (!PAYOUT_ADMIN_KEY) console.warn('⚠️  PAYOUT_ADMIN_KEY not set — /api/payout is DISABLED (fail-closed).');
 function requirePayoutKey(req, res, next) {
     if (!PAYOUT_ADMIN_KEY) {
+        // Fail-closed AND observed: a probe against a disabled payout endpoint is
+        // still an attack worth surfacing on the radar (red-team finding).
+        secForward({
+            kind: 'threat', severity: 'high', sensor: 'payout-auth', category: 'payout-disabled-probe',
+            ip: realIp(req), method: req.method, path: req.path,
+            message: 'Payout probe while endpoint disabled (no PAYOUT_ADMIN_KEY)', action: 'blocked-503',
+        });
         return res.status(503).json({ success: false, message: 'Payout disabled: PAYOUT_ADMIN_KEY not configured.' });
     }
     const s = Buffer.from(req.get('X-Admin-Key') || '', 'utf8');
@@ -54,7 +66,7 @@ function requirePayoutKey(req, res, next) {
     if (s.length === t.length && crypto.timingSafeEqual(s, t)) return next();
     secForward({
         kind: 'threat', severity: 'critical', sensor: 'payout-auth', category: 'payout-unauthorized',
-        ip: req.socket.remoteAddress || '', method: req.method, path: req.path,
+        ip: realIp(req), method: req.method, path: req.path,
         message: 'Unauthorized bank-payout attempt', action: 'blocked-401',
     });
     return res.status(401).json({ success: false, message: 'Unauthorized: X-Admin-Key required.' });
