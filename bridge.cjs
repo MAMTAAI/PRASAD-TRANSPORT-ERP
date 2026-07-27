@@ -8,8 +8,14 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios'); 
 
 const crypto = require('crypto');
+const soc = require('./security.cjs'); // 🛡️ SOC Phase-0 SHADOW event store
 
 const app = express();
+
+// Real client IP — behind Nginx / the Cloudflare Tunnel the socket peer is
+// always 127.0.0.1; the first X-Forwarded-For entry is the actual caller.
+const realIp = (req) => (req.get('X-Forwarded-For') || '').split(',')[0].trim()
+  || req.socket.remoteAddress || '';
 
 // ── 🔐 CORS — allowlist, not wide-open. Once this bridge is exposed to the
 // public internet via the Cloudflare Tunnel, only our own front-ends should be
@@ -23,6 +29,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
 app.use(cors({
   origin(origin, cb) {
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    soc.capture({ kind: 'threat', severity: 'low', sensor: 'bridge-cors', category: 'cors-denied', message: `Origin not allowed: ${origin}`, action: 'blocked-cors' });
     return cb(new Error(`Origin not allowed by CORS: ${origin}`));
   },
   allowedHeaders: ['Content-Type', 'X-PT-Token', 'X-KG-Domain'],
@@ -67,6 +74,13 @@ function requireToken(req, res, next) {
   if (!BRIDGE_TOKENS.length) { req.ptClient = 0; return next(); } // gate disabled (local dev)
   const idx = matchedTokenIndex(req.get('X-PT-Token') || '');
   if (idx !== -1) { req.ptClient = idx; return next(); }
+  // 🛡️ Spoof audit (Jaiswal P0 step 4): a wrong token is an explicit 401 AND a
+  // SOC event — never a silent pass-through.
+  soc.capture({
+    kind: 'threat', severity: req.get('X-PT-Token') ? 'high' : 'med',
+    sensor: 'bridge-auth', category: req.get('X-PT-Token') ? 'bad-token' : 'missing-token',
+    ip: realIp(req), method: req.method, path: req.path, action: 'blocked-401',
+  });
   return res.status(401).json({ success: false, error: 'Unauthorized: bad or missing X-PT-Token.' });
 }
 
@@ -84,7 +98,7 @@ const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || ''; // set in .env 
 // =======================================================
 // ROUTE 1: UPLOAD & EXTRACT DATA (DRIVE + SUPER AI)
 // =======================================================
-app.post('/upload-to-drive', upload.single('file'), async (req, res) => {
+app.post('/upload-to-drive', requireToken, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded!" });
 
   try {
@@ -190,7 +204,7 @@ app.post('/upload-to-drive', upload.single('file'), async (req, res) => {
 // =======================================================
 // ROUTE 2: AUTO EMAIL SENDING TEST
 // =======================================================
-app.get('/test-email', async (req, res) => {
+app.get('/test-email', requireToken, async (req, res) => {
   try {
     const keys = require('./google-key.json');
     const jwtClient = new google.auth.JWT(
@@ -221,7 +235,7 @@ app.get('/test-email', async (req, res) => {
 // =======================================================
 // ROUTE 3: MAMTA AI PREMIUM VOICE 
 // =======================================================
-app.post('/speak', async (req, res) => {
+app.post('/speak', requireToken, async (req, res) => {
     try {
         const { text } = req.body;
         const url = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`;
@@ -550,8 +564,39 @@ app.post('/api/kg/learn', requireToken, async (req, res) => {
   }
 });
 
+// =======================================================
+// ROUTE 7: 🛡️ MAMTA SOC — Phase-0 SHADOW radar (observe-only)
+// Feeds the SecurityRadar dashboard widget. Same endpoint contract as the
+// Jaiswal Capital SOC (§18b): GET /security/radar + POST /security/ack,
+// plus /security/ingest for the local sensor servers (WhatsApp :5001,
+// payout :5000) to forward their own auth-failure events.
+// =======================================================
+app.get('/security/radar', requireToken, (req, res) => {
+  try { res.json(soc.radar(Number(req.query.limit) || 100)); }
+  catch (e) { res.status(500).json({ status: 'error', error: e.message }); }
+});
+
+app.post('/security/ack', requireToken, (req, res) => {
+  try { res.json({ success: soc.ack(req.body && req.body.id) }); }
+  catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+app.post('/security/ingest', requireToken, (req, res) => {
+  try {
+    const e = req.body || {};
+    if (!e.sensor || !e.category) return res.status(400).json({ success: false, error: 'sensor and category required' });
+    soc.capture({ ...e, source: 'prasad' }); // ingest is Prasad-side sensors only
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 // --- 4. START SERVER ---
+// 🔒 P0 LOCKDOWN: loopback by default. Nginx (AWS) and cloudflared (this PC)
+// both connect via 127.0.0.1, so nothing legitimate breaks — but the bridge is
+// no longer reachable raw on the LAN/public IP. Set HOST=0.0.0.0 only if you
+// deliberately need direct network exposure.
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 PRASAD ERP BRIDGE IS LIVE ON PORT ${PORT}`);
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 PRASAD ERP BRIDGE IS LIVE ON ${HOST}:${PORT}`);
 });

@@ -15,6 +15,12 @@
 const WA_LOCAL = 'http://localhost:5001';
 const WA_CLOUD = 'https://prasad-api.onrender.com';
 
+// 🔐 P0: optional shared secret for the hardened engine (WA_ENGINE_TOKEN on the
+// server side). Empty = gate disabled on the engine too, header simply omitted.
+const WA_TOKEN = ((import.meta as any).env?.VITE_WA_ENGINE_TOKEN as string) || '';
+export const waHeaders = (): Record<string, string> =>
+  WA_TOKEN ? { 'X-PT-Token': WA_TOKEN } : {};
+
 const normPhone = (p: any) => {
   let d = String(p || '').replace(/\D/g, '');
   if (d.length === 10) d = '91' + d;
@@ -52,7 +58,7 @@ const probeStatus = async (base: string, ms: number) => {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
-    const res = await fetch(`${base}/api/status`, { signal: ctl.signal });
+    const res = await fetch(`${base}/api/status`, { signal: ctl.signal, headers: waHeaders() });
     const j = await res.json();
     return j && j.connected === true;
   } catch { return false; }
@@ -72,7 +78,7 @@ const post = async (base: string, payload: any, ms: number) => {
   const t = setTimeout(() => ctl.abort(), ms);
   try {
     const res = await fetch(`${base}/api/send-whatsapp`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...waHeaders() },
       body: JSON.stringify(payload), signal: ctl.signal,
     });
     const out = await res.json().catch(() => ({}));

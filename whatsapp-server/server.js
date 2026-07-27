@@ -19,10 +19,66 @@ const { google } = require('googleapis');
 const stream = require('stream');
 const path = require('path');
 const admin = require('firebase-admin');
+const crypto = require('crypto');
+const axios = require('axios');
+
+// .env (this folder) — MONGO_URI, WA_ENGINE_TOKEN, PT_BRIDGE_TOKEN etc. live
+// here now, never in code. dotenv resolves from the repo root node_modules.
+try { require('dotenv').config({ path: path.join(__dirname, '.env') }); } catch (e) { /* optional */ }
 
 const app = express();
-app.use(cors());
+
+// 🔐 CORS allowlist (was wide-open `cors()`): only our own front-ends may call
+// this engine from a browser. No-Origin callers (curl, server-to-server) pass —
+// the token gate + loopback bind below are the real shields for those.
+const WA_ALLOWED_ORIGINS = (process.env.WA_ALLOWED_ORIGINS
+    || 'https://www.prasadtransport.com,https://prasadtransport.com,http://localhost:5173,http://localhost:4173,capacitor://localhost,http://localhost'
+).split(',').map(s => s.trim()).filter(Boolean);
+app.use(cors({
+    origin(origin, cb) {
+        if (!origin || WA_ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+        secForward({ kind: 'threat', severity: 'low', sensor: 'wa-engine-cors', category: 'cors-denied', message: `Origin not allowed: ${origin}`, action: 'blocked-cors' });
+        return cb(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
+    allowedHeaders: ['Content-Type', 'X-PT-Token'],
+}));
 app.use(express.json());
+
+// ==========================================
+// 🛡️ SOC SENSOR + TOKEN GATE (P0 hardening)
+// ==========================================
+// Security events forward to the bridge's SOC store (best-effort, never blocks).
+const BRIDGE_URL = (process.env.BRIDGE_URL || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+const BRIDGE_TOKEN = (process.env.PT_BRIDGE_TOKEN || '').split(',')[0].trim();
+function secForward(evt) {
+    axios.post(`${BRIDGE_URL}/security/ingest`, { ...evt, source: 'prasad' }, {
+        headers: BRIDGE_TOKEN ? { 'X-PT-Token': BRIDGE_TOKEN } : {}, timeout: 3000,
+    }).catch(() => { /* SOC is observe-only — never break the engine for it */ });
+}
+
+// Shared-secret gate (same X-PT-Token pattern as bridge.cjs). Unset = disabled
+// (frictionless local dev) — the loopback bind is then the only shield, so SET
+// IT if this engine is ever exposed beyond this PC.
+const WA_TOKENS = (process.env.WA_ENGINE_TOKEN || '').split(',').map(t => t.trim()).filter(Boolean);
+if (!WA_TOKENS.length) console.warn('⚠️  WA_ENGINE_TOKEN not set — engine API is UNAUTHENTICATED (loopback bind is the only shield).');
+function requireWaToken(req, res, next) {
+    if (!WA_TOKENS.length) return next();
+    const s = Buffer.from(req.get('X-PT-Token') || '', 'utf8');
+    let ok = false;
+    for (const tok of WA_TOKENS) {
+        const t = Buffer.from(tok, 'utf8');
+        if (s.length === t.length && crypto.timingSafeEqual(s, t)) ok = true;
+    }
+    if (ok) return next();
+    secForward({
+        kind: 'threat', severity: req.get('X-PT-Token') ? 'high' : 'med',
+        sensor: 'wa-engine-auth', category: req.get('X-PT-Token') ? 'bad-token' : 'missing-token',
+        ip: req.socket.remoteAddress || '', method: req.method, path: req.path, action: 'blocked-401',
+    });
+    return res.status(401).json({ success: false, message: 'Unauthorized: bad or missing X-PT-Token.' });
+}
+app.use('/api', requireWaToken);
+app.use('/upload-to-drive', requireWaToken);
 
 // ==========================================
 // 🔥 FIRESTORE (audit trail + chat history)
@@ -48,10 +104,17 @@ async function logAction(user, action) {
 // ==========================================
 // 🗄️ LEGACY MONGO (old CRM panel routes) — optional, non-fatal
 // ==========================================
-const mongoURI = process.env.MONGO_URI || "mongodb://Mamta123:Bihar%405217@ac-ww17p1s-shard-00-00.wiygiox.mongodb.net:27017,ac-ww17p1s-shard-00-01.wiygiox.mongodb.net:27017,ac-ww17p1s-shard-00-02.wiygiox.mongodb.net:27017/?ssl=true&replicaSet=atlas-xtbebi-shard-0&authSource=admin&appName=Cluster0";
-mongoose.connect(mongoURI)
-    .then(() => console.log('🗄️ Mongo (legacy) connected.'))
-    .catch(err => console.log('⚠️ Mongo (legacy) unavailable — legacy CRUD routes disabled:', err.message));
+// 🔑 P0: credential comes from .env ONLY — the old hardcoded Atlas URI was
+// committed to git and that password must be treated as burned (rotate it in
+// Atlas; the fallback here is intentionally gone).
+const mongoURI = process.env.MONGO_URI || '';
+if (mongoURI) {
+    mongoose.connect(mongoURI)
+        .then(() => console.log('🗄️ Mongo (legacy) connected.'))
+        .catch(err => console.log('⚠️ Mongo (legacy) unavailable — legacy CRUD routes disabled:', err.message));
+} else {
+    console.log('⚠️ MONGO_URI not set — legacy Mongo CRM routes disabled.');
+}
 
 const Rule = mongoose.model('Rule', new mongoose.Schema({ keyword: String, reply: String }));
 const Contact = mongoose.model('Contact', new mongoose.Schema({
@@ -310,5 +373,9 @@ app.post('/upload-to-drive', upload.single('file'), async (req, res) => {
 });
 
 // 🚀 Start Server
+// 🔒 P0 LOCKDOWN: loopback by default — the ERP frontend calls this engine as
+// http://localhost:5001 from THIS PC, so nothing legitimate breaks; the LAN /
+// internet can no longer reach it. Set HOST=0.0.0.0 only deliberately.
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`🚀 PRASAD PRO WhatsApp Engine running on port ${PORT}`));
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => console.log(`🚀 PRASAD PRO WhatsApp Engine running on ${HOST}:${PORT}`));

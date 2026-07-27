@@ -121,4 +121,6 @@ app.post('/api/send-whatsapp', async (req, res) => {
     }
 });
 
-app.listen(5001, () => console.log("🤖 Master AI Engine LIVE on port 5001"));
+// 🔒 P0 LOCKDOWN: loopback only (legacy engine — NOTE it fights server.js for
+// port 5001; run only one of the two).
+app.listen(5001, '127.0.0.1', () => console.log("🤖 Master AI Engine LIVE on 127.0.0.1:5001"));

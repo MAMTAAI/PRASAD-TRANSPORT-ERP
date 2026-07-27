@@ -7,6 +7,7 @@ import { getTripFreight, getTripExpense, round2 } from './lib/accounting/tripMat
 import { runAgent } from './lib/agents/orchestrator';
 import { stmPush, stmGet } from './lib/memory';
 import { useKeyboardInset, AssistantText } from './ui/chatMobile';
+import SecurityRadar from './SecurityRadar'; // 🛡️ SOC Phase-0 SHADOW widget
 
 interface DashboardProps {
   activeModule: string; 
@@ -73,7 +74,7 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
   const [selectedPerfVehicle, setSelectedPerfVehicle] = useState<string>('');
 
   // DASHBOARD CONFIG
-  const [dashConfig, setDashConfig] = useState({ showPipeline: true, showAnalytics: true, showAlerts: true, showAiAudit: true });
+  const [dashConfig, setDashConfig] = useState({ showPipeline: true, showAnalytics: true, showAlerts: true, showAiAudit: true, showSocRadar: true });
 
   // 🎬 AI AD STUDIO STATES
   const [adProduct, setAdProduct] = useState('');
@@ -698,6 +699,9 @@ export default function Dashboard({ activeModule, currentUser }: DashboardProps)
           <GoogleTools />
         </div>
       </div>
+
+      {/* 🛡️ SOC SECURITY RADAR — Phase-0 SHADOW (admin-only, observe-only) */}
+      {(!isCrmModule && isAdmin && dashConfig.showSocRadar) && <SecurityRadar />}
 
       {/* CRM EXCLUSIVE CONTENT */}
       {isCrmModule && (

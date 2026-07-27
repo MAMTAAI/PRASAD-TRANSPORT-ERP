@@ -5,6 +5,7 @@ import { db } from './firebase';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import MamtaChat from './MamtaChat';
 import useIsMobile from './hooks/useIsMobile';
+import { waHeaders } from './lib/waSend'; // 🔐 P0: X-PT-Token for the hardened engine
 
 // 🌐 Engine endpoints: the hardened LOCAL engine (this PC, persistent session)
 // is preferred; the legacy Render deploy stays as fallback for other machines.
@@ -101,7 +102,7 @@ const WhatsappDashboard = () => {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), ms);
       try {
-        const res = await fetch(`${base}/api/status/${encodeURIComponent(activeUser)}`, { signal: ctl.signal });
+        const res = await fetch(`${base}/api/status/${encodeURIComponent(activeUser)}`, { signal: ctl.signal, headers: waHeaders() });
         clearTimeout(t);
         return await res.json();
       } finally { clearTimeout(t); }
@@ -167,7 +168,7 @@ const WhatsappDashboard = () => {
     logActivity(`Broadcasted to ${selPhones.length} contacts.`);
     for (const p of selPhones) {
         try {
-            await fetch(`${waApi}/api/send-whatsapp`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ userId: activeUser, number: p, message: msg, sentByUserId: erpUser.id, sentByUserName: activeUser }) });
+            await fetch(`${waApi}/api/send-whatsapp`, { method:'POST', headers:{'Content-Type':'application/json', ...waHeaders()}, body:JSON.stringify({ userId: activeUser, number: p, message: msg, sentByUserId: erpUser.id, sentByUserName: activeUser }) });
             await new Promise(r => setTimeout(r, 2000));
         } catch(e) {}
     }
@@ -198,7 +199,7 @@ const WhatsappDashboard = () => {
       setChatInput(''); 
       try {
         const res = await fetch(`${waApi}/api/send-whatsapp`, {
-            method:'POST', headers:{'Content-Type':'application/json'},
+            method:'POST', headers:{'Content-Type':'application/json', ...waHeaders()},
             body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole, sentByUserId: erpUser.id, sentByUserName: activeUser })
         });
         const out = await res.json().catch(() => ({}));
