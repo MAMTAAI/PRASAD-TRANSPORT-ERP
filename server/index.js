@@ -23,6 +23,7 @@ import { registerIntegrationRoutes } from './modules/integrations.routes.js';
 import { registerCashbookRoutes } from './modules/cashbook.routes.js';
 import { registerBillRoutes } from './modules/bills.routes.js';
 import { registerOpsRoutes } from './modules/ops.routes.js';
+import { registerMastersRoutes } from './modules/masters.routes.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -105,6 +106,8 @@ await app.register(registerCashbookRoutes, { prefix: '/api/v1/finance' });
 await app.register(registerBillRoutes,     { prefix: '/api/v1/billing' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
+// Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.
+await app.register(registerMastersRoutes,  { prefix: '/api/v1/masters' });
 
 
 // ── Boot ───────────────────────────────────────────────────────────────────
