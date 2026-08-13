@@ -1,7 +1,97 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+// 💸 LOAN & EMI — vehicle finance, live PostgreSQL (`loan_master` +
+// `emi_payments`, migration 035).
+//
+// TWO THINGS CHANGED SHAPE, and both were wrong before.
+//
+// 1. AN EMI IS NOT ONE NUMBER. Principal repays the loan (a liability falling);
+//    interest is a finance cost. This screen wrote ONE BANK_TRANSACTIONS row
+//    for the total, so the books could never separate them and interest never
+//    appeared as an expense at all. The API posts a three-leg JOURNAL — Dr the
+//    loan, Dr Interest on Vehicle Loans, Cr the bank — through TARA.
+//
+// 2. THE COUNTERS MOVED IN THE BROWSER. remaining_principal / EMIs_Completed
+//    were read here, adjusted, and written back across three separate writes.
+//    Two people paying at once lost one payment with no trace. The API now
+//    moves them inside the same transaction as the payment row, and
+//    `v_loan_reconciliation` compares the stored figure against the recorded
+//    payments so drift is visible instead of silent.
+//    (The counters stay STORED, not derived — the 17 loans carry years of EMIs
+//    paid before this system existed, so deriving would report debt already
+//    repaid. Migration 035 sets out the reasoning.)
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const ASSETS = `${API}/api/v1/assets`;
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// The ~1,400 lines of JSX below speak the Firestore-era PascalCase. Mapped once
+// here rather than renamed throughout — the same deliberate, visible debt
+// DRIVER.tsx and TripManagment.tsx carry.
+const loanFromApi = (l: any) => ({
+  ...l,
+  Loan_Account_No: l.loan_account_no ?? '',
+  Vehicle_No: l.vehicle_no ?? '',
+  Owner_Name: l.owner_name ?? '',
+  Company_Name: l.company_name ?? '',
+  Loan_Type: l.loan_type ?? '',
+  Bank_Name: l.bank_name ?? '',
+  Sanction_Date: l.sanction_date ?? '',
+  Rate_Of_Interest: l.rate_of_interest ?? '',
+  Principal_Amt: l.principal_amt ?? 0,
+  Tenure_Months: l.tenure_months ?? '',
+  Moratorium_Months: l.moratorium_months ?? 0,
+  EMI_Amount: l.emi_amount ?? 0,
+  As_On_Date: l.as_on_date ?? '',
+  EMIs_Completed: l.emis_completed ?? 0,
+  Remaining_Principal: l.remaining_principal ?? 0,
+  Total_Interest_Paid: l.total_interest_paid ?? 0,
+  Payment_Status: l.payment_status ?? 'ACTIVE',
+  emi_slabs: Array.isArray(l.emi_slabs) ? l.emi_slabs : [],
+  repayment_schedule: Array.isArray(l.repayment_schedule) ? l.repayment_schedule : [],
+});
+
+const loanToApi = (f: any) => ({
+  loan_account_no: f.Loan_Account_No || null,
+  vehicle_no: f.Vehicle_No || null,
+  owner_name: f.Owner_Name || null,
+  company_name: f.Company_Name || null,
+  loan_type: f.Loan_Type || null,
+  bank_name: f.Bank_Name || null,
+  sanction_date: f.Sanction_Date || null,
+  rate_of_interest: parseFloat(f.Rate_Of_Interest) || 0,
+  principal_amt: parseFloat(f.Principal_Amt) || 0,
+  tenure_months: parseInt(f.Tenure_Months) || null,
+  moratorium_months: parseInt(f.Moratorium_Months) || 0,
+  emi_amount: parseFloat(f.EMI_Amount) || 0,
+  as_on_date: f.As_On_Date || null,
+  emis_completed: parseInt(f.Old_EMIs_Paid || f.EMIs_Completed || '0') || 0,
+  remaining_principal: parseFloat(f.Remaining_Principal_As_On || f.Remaining_Principal || f.Principal_Amt) || 0,
+  payment_status: f.Payment_Status || 'ACTIVE',
+  emi_slabs: f.emi_slabs ?? [],
+  repayment_schedule: f.repayment_schedule ?? [],
+});
+
+const paymentFromApi = (pmt: any) => ({
+  ...pmt,
+  _collection: 'emi_payments',
+  Date_of_Payment: pmt.payment_date ?? '',
+  EMI_Month_Year: pmt.emi_month ?? '',
+  Months_Paid: pmt.months_paid ?? 1,
+  Principal_Part: pmt.principal_part ?? 0,
+  Interest_Part: pmt.interest_part ?? 0,
+  Total_EMI_Paid: pmt.total_paid ?? 0,
+  Payment_Mode: pmt.payment_mode ?? '',
+  Ref_No: pmt.ref_no ?? '',
+  Payment_From_Account: pmt.paid_from_account ?? '',
+});
 
 // 🔥 UNIVERSAL AUTO-RECOVERY & PARSING HELPERS (100% CRASH-PROOF)
 const getVal = (obj: any, keysArr: string[], defaultVal = '') => {
@@ -76,59 +166,29 @@ export default function LoanEmiMgmt() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap1 = await getDocs(collection(db, "VEHICLES")).catch(() => ({docs:[]}));
-      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(() => ({docs:[]}));
-      const allVehicles = [
-          ...vSnap1.docs.map(d => ({ ...d.data(), id: d.id })),
-          ...vSnap2.docs.map(d => ({ ...d.data(), id: d.id }))
-      ];
-      setVehicles(allVehicles);
+      const [vehRes, loanRes, accRes] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`).catch(() => ({ vehicles: [] })),
+        fetchJson(`${ASSETS}/loans`).catch(() => ({ loans: [] })),
+        fetchJson(`${FIN}/accounts`).catch(() => ({ accounts: [] })),
+      ]);
+      setVehicles(vehRes.vehicles ?? []);
+      const loanRows = (loanRes.loans ?? []).map(loanFromApi);
+      setLoans(loanRows);
 
-      const lSnap1 = await getDocs(collection(db, "LOAN_MASTER")).catch(() => ({docs: []}));
-      const lSnap2 = await getDocs(collection(db, "LOANS")).catch(() => ({docs: []}));
-      setLoans([...lSnap1.docs, ...lSnap2.docs].map(d => ({ ...d.data(), id: d.id })));
+      // Payments for every loan, newest first. The old code merged two Firestore
+      // collections (EMI_PAYMENTS and LOAN_PAYMENTS) that had drifted apart and
+      // then deleted from both on every removal — there is one table now.
+      const perLoan = await Promise.all(loanRows.map((l: any) =>
+        fetchJson(`${ASSETS}/loans/${l.id}/payments`)
+          .then(r => (r.payments ?? []).map(paymentFromApi))
+          .catch(() => [])));
+      setPayments(perLoan.flat().sort((a: any, b: any) =>
+        String(b.Date_of_Payment).localeCompare(String(a.Date_of_Payment))));
 
-      const pSnap1 = await getDocs(collection(db, "EMI_PAYMENTS")).catch(() => ({docs: []}));
-      const pSnap2 = await getDocs(collection(db, "LOAN_PAYMENTS")).catch(() => ({docs: []}));
-      const allPayments = [
-         ...pSnap1.docs.map(d => ({ ...d.data(), _collection: 'EMI_PAYMENTS', id: d.id })),
-         ...pSnap2.docs.map(d => ({ ...d.data(), _collection: 'LOAN_PAYMENTS', id: d.id }))
-      ];
-      
-      allPayments.sort((a,b) => {
-        const dateA = getVal(a, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date'], '1970-01-01');
-        const dateB = getVal(b, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date'], '1970-01-01');
-        return new Date(dateB).getTime() - new Date(dateA).getTime();
-      });
-      setPayments(allPayments);
-
-      let bAccs: string[] = [];
-      try {
-        const baSnap = await getDocs(collection(db, "BANK_ACCOUNTS")).catch(()=>({docs:[]}));
-        baSnap.docs.forEach(d => {
-            const dt = d.data();
-            const bName = getVal(dt, ['bank_name', 'Bank_Name', 'name', 'bankName'], 'Bank');
-            const aNo = getVal(dt, ['account_no', 'Account_No', 'acc_no', 'accountNo']);
-            const cName = getVal(dt, ['company', 'Company', 'assign_to', 'company_name']);
-            let label = bName;
-            if (aNo) label += ` - A/C: ${aNo}`;
-            if (cName) label += ` (${cName})`;
-            bAccs.push(label);
-        });
-      } catch(e){}
-
-      try {
-        const ledSnap = await getDocs(collection(db, "LEDGERS")).catch(()=>({docs:[]}));
-        ledSnap.docs.forEach(d => {
-            const dt = d.data();
-            const grp = String(dt.group || dt.Group || '').toLowerCase();
-            if ((grp.includes('bank') || grp.includes('cash')) && dt.name) bAccs.push(dt.name);
-        });
-      } catch(e){}
-
-      if(bAccs.length === 0) bAccs = ['SBI Bank - A/C: 30178368490', 'Cash in Hand (HQ)'];
-      setBankAccounts([...new Set(bAccs)]);
-
+      // Bank/cash accounts come from the chart of accounts — the same list every
+      // other payment screen uses, so an EMI cannot be paid from an account the
+      // ledger has never heard of.
+      setBankAccounts((accRes.accounts ?? []).map((a: any) => a.ledger_name));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -351,35 +411,45 @@ export default function LoanEmiMgmt() {
         const actualCompany = getRealCompany(selectedLoan);
         const ledgerEntityName = getLedgerEntityName(selectedLoan); 
 
-        await addDoc(collection(db, "EMI_PAYMENTS"), { 
-          ...entry, Date_of_Payment: multiEmi.Date_of_Payment, Payment_Mode: multiEmi.Payment_Mode, Ref_No: multiEmi.Ref_No,
-          Payment_From_Account: multiEmi.Payment_From_Account, 
-          Vehicle_No: getVal(selectedLoan, ['Vehicle_No', 'vehicleno', 'vehicalno', 'registration_no']), Bank_Name: getVal(selectedLoan, ['Bank_Name', 'bank_name']), 
-          Loan_Account_No: getVal(selectedLoan, ['Loan_Account_No', 'loan_account_no']),
-          Owner_Name: actualOwner,
-          Company_Name: actualCompany,
-          Loan_Type: getVal(selectedLoan, ['Loan_Type', 'loan_type']),
-          createdAt: serverTimestamp() 
+        // ONE call. The API validates the split, refuses an over-repayment,
+        // posts the three-leg journal through TARA, and moves the loan counters
+        // in the SAME transaction as the payment row. This used to be three
+        // separate writes from the browser that could half-succeed.
+        const res = await fetchJson(`${ASSETS}/loans/${selectedLoan.id}/emi`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            total_paid: parseNum(entry.Total_EMI_Paid),
+            principal_part: principalPaid,
+            interest_part: interestPaid,
+            payment_date: multiEmi.Date_of_Payment,
+            emi_month: entry.EMI_Month_Year || null,
+            months_paid: noOfMonths,
+            payment_mode: multiEmi.Payment_Mode || null,
+            ref_no: multiEmi.Ref_No || null,
+            account: multiEmi.Payment_From_Account || null,
+            company: ledgerEntityName || null,
+            created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+          }),
         });
-
-        await updateDoc(doc(db, "LOAN_MASTER", selectedLoan.id), { 
-          Remaining_Principal: (oldRemaining - principalPaid).toFixed(2),
-          Total_Interest_Paid: (oldInterest + interestPaid).toFixed(2),
-          EMIs_Completed: oldMonths + noOfMonths,
-          Payment_Status: (oldRemaining - principalPaid) <= 10 ? 'CLOSED' : 'ACTIVE'
-        });
-
-        await addDoc(collection(db, "BANK_TRANSACTIONS"), {
-            date: multiEmi.Date_of_Payment, type: 'Payment (OUT)', amount: parseNum(entry.Total_EMI_Paid),
-            bank_account: multiEmi.Payment_From_Account, party_name: getVal(selectedLoan, ['Bank_Name', 'bank_name', 'financier_name']),
-            ref_no: multiEmi.Ref_No, particulars: `EMI Payment for Vehicle ${getVal(selectedLoan, ['Vehicle_No', 'vehicleno', 'registration_no'])} | Month: ${entry.EMI_Month_Year}`,
-            company: ledgerEntityName, 
-            branch: 'ALL', createdAt: serverTimestamp()
-        });
+        if (res.ledger_note) ledgerWarnings.push(`${getVal(selectedLoan, ['Vehicle_No', 'vehicle_no'])}: ${res.ledger_note}`);
       }
-      alert(`✅ Smart Bulk EMI Payment Successful!\nTotal ₹${currentTotalPayout.toLocaleString('en-IN')} Deducted from ${multiEmi.Payment_From_Account}`);
+      alert(`✅ Smart Bulk EMI Payment Successful!\nTotal ₹${currentTotalPayout.toLocaleString('en-IN')} Deducted from ${multiEmi.Payment_From_Account}`
+        + (ledgerWarnings.length ? `\n\n⚠️ Ledger:\n${ledgerWarnings.join('\n')}` : ''));
       setIsEmiModalOpen(false); handleBankSelect(''); fetchData();
-    } catch (e) { alert("❌ Error saving payments."); console.error(e); }
+    } catch (e: any) {
+      // The API's refusals are specific; passing them through means the operator
+      // learns what to fix instead of seeing "Error saving payments".
+      const said = {
+        BAD_SPLIT: 'Principal + Interest, Total EMI ke barabar nahi hai — split theek karein.',
+        OVER_REPAYMENT: 'Principal loan ke bache hue amount se zyada hai.',
+        DUPLICATE: 'Yeh Ref/UTR is loan par pehle hi darj hai.',
+        DUPLICATE_REF: 'Yeh Ref/UTR ledger me pehle hi post ho chuka hai.',
+        OVERDRAFT: 'Us account me itna balance nahi hai.',
+        NO_ACCOUNT: 'Payment kis account se gaya — woh chunein.',
+      }[e?.code];
+      alert("❌ " + (said || e?.message || 'Error saving payments.'));
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -387,128 +457,53 @@ export default function LoanEmiMgmt() {
     if(!window.confirm(`⚠️ Delete EMI Payment for ${getVal(payment, ['Vehicle_No', 'vehicleno'])}?\nThis will reverse the payment and restore the loan balance automatically!`)) return;
     setLoading(true);
     try {
-       try {
-           const pAcNo = getVal(payment, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-           const pVeh = getVal(payment, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-           
-           const loan = loans.find(l => {
-               if (payment.Loan_Account && l.id === payment.Loan_Account) return true;
-               const lAcNo = getVal(l, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-               const lVeh = getVal(l, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-               if (pAcNo && lAcNo && pAcNo === lAcNo) return true;
-               if (pVeh && lVeh && pVeh === lVeh) return true;
-               return false;
-           });
-           
-           if (loan) {
-               const prinRestored = parseNum(getVal(loan, ['Remaining_Principal', 'balance', 'Principal_Amt'])) + parseNum(payment.Principal_Part);
-               const intRestored = parseNum(getVal(loan, ['Total_Interest_Paid', 'total_interest'])) - parseNum(payment.Interest_Part);
-               const mthsRestored = parseInt(getVal(loan, ['EMIs_Completed', 'emis_completed'], '0')) - parseInt(payment.Months_Paid || 1);
-               
-               await updateDoc(doc(db, "LOAN_MASTER", loan.id), {
-                   Remaining_Principal: prinRestored.toFixed(2),
-                   Total_Interest_Paid: Math.max(0, intRestored).toFixed(2),
-                   EMIs_Completed: Math.max(0, mthsRestored),
-                   Payment_Status: prinRestored > 10 ? 'ACTIVE' : 'CLOSED'
-               });
-           }
-       } catch(e) { console.error("Error restoring loan", e); }
+       // ONE call: the API reverses the ledger entry, deletes the payment and
+       // restores the loan counters in a single transaction. It refuses outright
+       // if the reversal fails, rather than deleting the payment and leaving the
+       // books saying the loan was repaid.
+       //
+       // What this replaces: three counter writes, a delete from EMI_PAYMENTS,
+       // a delete of its twin in LOAN_PAYMENTS, and a scan of every
+       // BANK_TRANSACTIONS document for one with a matching date and an amount
+       // within Rs.2 — which could just as easily have deleted someone else's.
+       const res = await fetchJson(`${ASSETS}/loans/${payment.loan_id}/payments/${payment.id}`, {
+         method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({ reason: 'EMI payment deleted from Loan & EMI screen' }),
+       });
 
-       try {
-           const colName = payment._collection || "EMI_PAYMENTS";
-           await deleteDoc(doc(db, colName, payment.id)).catch(()=>console.log("Not in", colName));
-           if(colName === 'EMI_PAYMENTS') await deleteDoc(doc(db, "LOAN_PAYMENTS", payment.id)).catch(()=>{});
-       } catch(e) { console.error("Error deleting payment", e); }
-       
-       try {
-          const btQuery = await getDocs(collection(db, "BANK_TRANSACTIONS"));
-          const pRef = getVal(payment, ['Ref_No', 'ref_no', 'utr']);
-          const pDate = getVal(payment, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date']);
-          const pAmt = parseNum(getVal(payment, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount']));
-
-          for(const d of btQuery.docs) {
-              const data = d.data();
-              if (data.date === pDate && Math.abs(parseNum(data.amount) - pAmt) < 2) {
-                  if ((pRef && data.ref_no === pRef) || (!pRef)) {
-                      await deleteDoc(doc(db, "BANK_TRANSACTIONS", d.id));
-                      break; 
-                  }
-              }
-          }
-       } catch(eb) { console.error("Error deleting bank txn", eb); }
-
-       alert("✅ Payment Deleted & Loan Balance Restored!");
+       alert("✅ Payment Deleted & Loan Balance Restored!"
+         + (res.reversal_voucher_id ? "\n🧾 Ledger entry reversed — delete nahi, reversing entry." : ""));
        await fetchData();
-    } catch(e) { alert("❌ Critical Error deleting payment."); console.error(e); }
+    } catch(e: any) {
+      alert(e?.code === 'REVERSAL_FAILED' ? `🔒 ${e.message}` : "❌ Error deleting payment: " + (e?.message || ''));
+      console.error(e);
+    }
     setLoading(false);
   };
 
   const handleDeleteBlock = async (group: any[]) => {
     if(!window.confirm(`⚠️ Delete ENTIRE BLOCK of ${group.length} payments?\nThis will reverse ALL these payments and restore loan balances!`)) return;
     setLoading(true);
-    try {
-        const btQuery = await getDocs(collection(db, "BANK_TRANSACTIONS")).catch(() => ({docs: []}));
-        const btDocs = btQuery.docs;
-
-        for (const payment of group) {
-           if (!payment.id) continue;
-           
-           try {
-               const pAcNo = getVal(payment, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-               const pVeh = getVal(payment, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-               
-               const loan = loans.find(l => {
-                   if (payment.Loan_Account && l.id === payment.Loan_Account) return true;
-                   const lAcNo = getVal(l, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-                   const lVeh = getVal(l, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-                   if (pAcNo && lAcNo && pAcNo === lAcNo) return true;
-                   if (pVeh && lVeh && pVeh === lVeh) return true;
-                   return false;
-               });
-               
-               if (loan) {
-                   const prinRestored = parseNum(getVal(loan, ['Remaining_Principal', 'balance', 'Principal_Amt'])) + parseNum(payment.Principal_Part);
-                   const intRestored = parseNum(getVal(loan, ['Total_Interest_Paid', 'total_interest'])) - parseNum(payment.Interest_Part);
-                   const mthsRestored = parseInt(getVal(loan, ['EMIs_Completed', 'emis_completed'], '0')) - parseInt(payment.Months_Paid || 1);
-
-                   await updateDoc(doc(db, "LOAN_MASTER", loan.id), {
-                       Remaining_Principal: prinRestored.toFixed(2),
-                       Total_Interest_Paid: Math.max(0, intRestored).toFixed(2),
-                       EMIs_Completed: Math.max(0, mthsRestored),
-                       Payment_Status: prinRestored > 10 ? 'ACTIVE' : 'CLOSED'
-                   });
-               }
-           } catch(e) { console.error("Error restoring loan", e); }
-           
-           try {
-               const colName = payment._collection || "EMI_PAYMENTS";
-               await deleteDoc(doc(db, colName, payment.id)).catch(()=>{});
-               if(colName === 'EMI_PAYMENTS') await deleteDoc(doc(db, "LOAN_PAYMENTS", payment.id)).catch(()=>{});
-           } catch(e) { console.error("Error deleting payment", e); }
-
-           try {
-              const pRef = getVal(payment, ['Ref_No', 'ref_no', 'utr']);
-              const pDate = getVal(payment, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date']);
-              const pAmt = parseNum(getVal(payment, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount']));
-
-              for(let i = 0; i < btDocs.length; i++) {
-                  const d = btDocs[i];
-                  if(!d) continue; 
-                  const data = d.data();
-                  if (data.date === pDate && Math.abs(parseNum(data.amount) - pAmt) < 2) {
-                      if ((pRef && data.ref_no === pRef) || (!pRef)) {
-                          await deleteDoc(doc(db, "BANK_TRANSACTIONS", d.id));
-                          btDocs[i] = null; 
-                          break;
-                      }
-                  }
-              }
-           } catch(eb) { console.error("Error deleting bank txn", eb); }
-        }
-        
-        alert("✅ Entire Payment Block Deleted & Loan Balances Restored!");
-        await fetchData();
-    } catch(e) { alert("❌ Critical Error deleting block."); console.error(e); }
+    // Each payment goes through the same endpoint the single delete uses, so a
+    // block behaves exactly like doing them one at a time — including refusing
+    // any whose ledger entry cannot be reversed. Failures are collected and
+    // reported rather than aborting halfway with no account of what was done.
+    const failed: string[] = [];
+    let done = 0;
+    for (const payment of group) {
+      try {
+        await fetchJson(`${ASSETS}/loans/${payment.loan_id}/payments/${payment.id}`, {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'EMI block deleted from Loan & EMI screen' }),
+        });
+        done++;
+      } catch (e: any) {
+        failed.push(`${getVal(payment, ['Vehicle_No','vehicle_no']) || payment.id}: ${e?.message || 'failed'}`);
+      }
+    }
+    alert(`✅ ${done} payment(s) deleted and balances restored.`
+      + (failed.length ? `\n\n❌ ${failed.length} could NOT be deleted:\n${failed.join('\n')}` : ''));
+    await fetchData();
     setLoading(false);
   };
 
@@ -516,51 +511,54 @@ export default function LoanEmiMgmt() {
       setLoading(true);
       try {
           const original = payments.find(p => p.id === paymentEditData.id);
-          const pAcNo = getVal(original, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-          const pVeh = getVal(original, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-          
-          const loan = loans.find(l => {
-               if (original.Loan_Account && l.id === original.Loan_Account) return true;
-               const lAcNo = getVal(l, ['Loan_Account_No', 'loan_account_no', 'account_no']);
-               const lVeh = getVal(l, ['Vehicle_No', 'vehicle_no', 'vehicalno', 'registration_no']);
-               if (pAcNo && lAcNo && pAcNo === lAcNo) return true;
-               if (pVeh && lVeh && pVeh === lVeh) return true;
-               return false;
+          // A correction is an UNDO plus a REDO, not an in-place edit. That is
+          // the same rule the ledger follows (ledger_entries is append-only, so
+          // the old entry is reversed and a new one posted) and it means the
+          // loan counters are adjusted by the two verified endpoints rather than
+          // by a third piece of diff arithmetic that could disagree with both.
+          //
+          // The re-posted entry carries a "-C" reference: the original ref is
+          // still on the reversed voucher, so re-using it verbatim would be
+          // refused as a duplicate — and the suffix makes the correction
+          // visible in the ledger instead of looking like the original.
+          await fetchJson(`${ASSETS}/loans/${original.loan_id}/payments/${original.id}`, {
+            method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'EMI payment edited — superseded by a corrected entry' }),
           });
-          
-          if (loan) {
-              const prinDiff = parseNum(paymentEditData.Principal_Part) - parseNum(original.Principal_Part);
-              const intDiff = parseNum(paymentEditData.Interest_Part) - parseNum(original.Interest_Part);
-              const mthsDiff = parseInt(paymentEditData.Months_Paid || 1) - parseInt(original.Months_Paid || 1);
-              
-              const newPrin = parseNum(getVal(loan, ['Remaining_Principal', 'balance', 'Principal_Amt'])) - prinDiff;
-              const newInt = parseNum(getVal(loan, ['Total_Interest_Paid', 'total_interest'])) + intDiff;
-              const newMths = parseInt(getVal(loan, ['EMIs_Completed', 'emis_completed'], '0')) + mthsDiff;
-              
-              await updateDoc(doc(db, "LOAN_MASTER", loan.id), {
-                  Remaining_Principal: newPrin.toFixed(2),
-                  Total_Interest_Paid: Math.max(0, newInt).toFixed(2),
-                  EMIs_Completed: Math.max(0, newMths),
-                  Payment_Status: newPrin <= 10 ? 'CLOSED' : 'ACTIVE'
-              });
-          }
-          
-          const colName = original._collection || "EMI_PAYMENTS";
-          await updateDoc(doc(db, colName, paymentEditData.id), {
-              Date_of_Payment: paymentEditData.Date_of_Payment || getVal(original, ['Date_of_Payment', 'date_of_payment', 'date']),
-              Payment_From_Account: paymentEditData.Payment_From_Account || original.Payment_From_Account,
-              Ref_No: paymentEditData.Ref_No || original.Ref_No,
-              EMI_Month_Year: paymentEditData.EMI_Month_Year || original.EMI_Month_Year,
-              Total_EMI_Paid: paymentEditData.Total_EMI_Paid || original.Total_EMI_Paid,
-              Principal_Part: paymentEditData.Principal_Part || original.Principal_Part,
-              Interest_Part: paymentEditData.Interest_Part || original.Interest_Part,
-              Months_Paid: paymentEditData.Months_Paid || original.Months_Paid
+
+          const correctedRef = (paymentEditData.Ref_No || original.Ref_No)
+            ? `${paymentEditData.Ref_No || original.Ref_No}-C`
+            : null;
+
+          await fetchJson(`${ASSETS}/loans/${original.loan_id}/emi`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              total_paid: parseNum(paymentEditData.Total_EMI_Paid || original.Total_EMI_Paid),
+              principal_part: parseNum(paymentEditData.Principal_Part || original.Principal_Part),
+              interest_part: parseNum(paymentEditData.Interest_Part || original.Interest_Part),
+              payment_date: paymentEditData.Date_of_Payment || original.Date_of_Payment,
+              emi_month: paymentEditData.EMI_Month_Year || original.EMI_Month_Year || null,
+              months_paid: parseInt(paymentEditData.Months_Paid || original.Months_Paid || '1') || 1,
+              payment_mode: original.Payment_Mode || null,
+              ref_no: correctedRef,
+              account: paymentEditData.Payment_From_Account || original.Payment_From_Account || null,
+              created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+            }),
           });
-          
+
           alert("✅ Payment Updated & Balances Adjusted Automatically!");
           setPaymentEditData(null);
           await fetchData();
-      } catch(e) { alert("❌ Error updating payment"); console.error(e); }
+      } catch(e: any) {
+        const said = {
+          BAD_SPLIT: 'Principal + Interest, Total EMI ke barabar nahi hai.',
+          OVER_REPAYMENT: 'Principal loan ke bache hue amount se zyada hai.',
+          REVERSAL_FAILED: e?.message,
+          DUPLICATE: 'Corrected reference pehle se maujood hai.',
+        }[e?.code];
+        alert("❌ " + (said || e?.message || 'Error updating payment'));
+        console.error(e);
+      }
       setLoading(false);
   };
 
@@ -719,9 +717,15 @@ export default function LoanEmiMgmt() {
     try {
       const initialRemaining = loanData.Remaining_Principal_As_On ? parseNum(loanData.Remaining_Principal_As_On).toFixed(2) : parseNum(loanData.Principal_Amt).toFixed(2);
       if (editingLoanId) {
-        await updateDoc(doc(db, "LOAN_MASTER", editingLoanId), { ...loanData, Remaining_Principal: initialRemaining, EMIs_Completed: parseInt(loanData.Old_EMIs_Paid || '0'), updatedAt: serverTimestamp() });
+        await fetchJson(`${ASSETS}/loans/${editingLoanId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loanToApi({ ...loanData, Remaining_Principal: initialRemaining })),
+        });
       } else {
-        await addDoc(collection(db, "LOAN_MASTER"), { ...loanData, Remaining_Principal: initialRemaining, EMIs_Completed: parseInt(loanData.Old_EMIs_Paid || '0'), Total_Interest_Paid: '0', createdAt: serverTimestamp() });
+        await fetchJson(`${ASSETS}/loans`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(loanToApi({ ...loanData, Remaining_Principal: initialRemaining })),
+        });
       }
       setIsLoanModalOpen(false); resetLoanForm(); fetchData();
     } catch (e) { alert("❌ Error saving loan."); }
@@ -729,7 +733,14 @@ export default function LoanEmiMgmt() {
 
   const handleDeleteLoan = async (id: string) => {
     if (window.confirm(`⚠️ Delete this Loan Account?`)) {
-      try { await deleteDoc(doc(db, "LOAN_MASTER", id)); fetchData(); } catch (error) { alert("❌ Error deleting."); }
+      // A loan with payments recorded against it is history, not a typo — the
+      // API refuses and says so rather than erasing the repayment trail.
+      try {
+        await fetchJson(`${ASSETS}/loans/${id}`, { method: 'DELETE' });
+        fetchData();
+      } catch (error: any) {
+        alert(error?.code === 'HAS_PAYMENTS' ? `🔒 ${error.message}` : "❌ Error deleting: " + (error?.message || ''));
+      }
     }
   };
 

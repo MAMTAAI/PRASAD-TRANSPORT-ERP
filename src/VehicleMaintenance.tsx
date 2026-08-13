@@ -1,7 +1,57 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
+// 🛠️ VEHICLE MAINTENANCE — service log, live PostgreSQL (`maintenance_logs`,
+// migration 035).
+//
+// A repair bill is an EXPENSE, and this screen never told the books about one:
+// it wrote a Firestore document and stopped. Naming the account it was paid
+// from now posts a PAYMENT voucher through TARA in the same request, so the
+// workshop spend actually appears in the P&L. Leaving the account blank keeps
+// the log and says plainly that it was not posted.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const ASSETS = `${API}/api/v1/assets`;
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// The form keeps its Firestore-era PascalCase; mapped at the boundary.
+const fromApi = (r: any) => ({
+  id: r.id,
+  Vehicle_No: r.vehicle_no ?? '',
+  Service_Date: r.service_date ?? '',
+  Current_KM: r.odometer_km ?? '',
+  Service_Type: r.service_type ?? '',
+  Garage_Name: r.garage_name ?? '',
+  Bill_Amount: r.bill_amount ?? 0,
+  Bill_No: r.bill_no ?? '',
+  Next_Service_Date: r.next_due_date ?? '',
+  Next_Service_KM: r.next_due_km ?? '',
+  Work_Done: r.remarks ?? '',
+  Parts_Used: Array.isArray(r.parts) ? r.parts : [],
+  voucher_id: r.voucher_id ?? null,
+  created_at: r.created_at,
+});
+
+const toApi = (f: any, account?: string) => ({
+  vehicle_no: f.Vehicle_No,
+  service_date: f.Service_Date || null,
+  odometer_km: parseFloat(f.Current_KM) || null,
+  service_type: f.Service_Type,
+  garage_name: f.Garage_Name || null,
+  bill_no: f.Bill_No || null,
+  bill_amount: parseFloat(f.Bill_Amount) || 0,
+  next_due_date: f.Next_Service_Date || null,
+  next_due_km: parseFloat(f.Next_Service_KM) || null,
+  remarks: f.Work_Done || null,
+  parts: f.Parts_Used ?? [],
+  account: account || null,
+});
 import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function VehicleMaintenance() {
@@ -26,6 +76,10 @@ export default function VehicleMaintenance() {
   });
 
   const [formData, setFormData] = useState(getInitialState());
+  // A repair bill moves real money, so the account is the operator's choice and
+  // is never defaulted — the same rule VehicleDocs and Vander follow.
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [payAccount, setPayAccount] = useState('');
 
   const serviceCategories = ['General Servicing', 'Mobil / Engine Oil Change', 'Greasing / Lubrication', 'Tyre Replacement', 'Engine Repair', 'Body / Accidental Repair', 'Electrical Work', 'Other'];
 
@@ -36,11 +90,14 @@ export default function VehicleMaintenance() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap = await getDocs(collection(db, "VEHICLES"));
-      setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const logSnap = await getDocs(query(collection(db, "MAINTENANCE_LOGS"), orderBy("created_at", "desc")));
-      setServiceLogs(logSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const [vehRes, logRes, accRes] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`).catch(() => ({ vehicles: [] })),
+        fetchJson(`${ASSETS}/maintenance`).catch(() => ({ logs: [] })),
+        fetchJson(`${FIN}/accounts`).catch(() => ({ accounts: [] })),
+      ]);
+      setVehicles(vehRes.vehicles ?? []);
+      setServiceLogs((logRes.logs ?? []).map(fromApi));
+      setAccounts(accRes.accounts ?? []);
     } catch (e) {
       console.error("Error fetching data:", e);
     }
@@ -108,12 +165,13 @@ Use empty string / 0 / [] when a field is absent.`;
     }
 
     try {
-      await addDoc(collection(db, "MAINTENANCE_LOGS"), {
-        ...formData,
-        Bill_Amount: parseFloat(formData.Bill_Amount),
-        created_at: serverTimestamp()
+      const j = await fetchJson(`${ASSETS}/maintenance`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toApi(formData, payAccount)),
       });
-      alert("✅ Maintenance & Parts Record Saved Successfully!");
+      alert("✅ Maintenance & Parts Record Saved!" + (j.voucher_id
+        ? "\n🧾 Ledger me bhi post ho gaya."
+        : "\n\n⚠️ Koi account nahi chuna — yeh sirf service log me hai, ledger me nahi."));
       setFormData(getInitialState());
       fetchData();
       setActiveTab('HISTORY');
@@ -126,9 +184,16 @@ Use empty string / 0 / [] when a field is absent.`;
   const handleDeleteLog = async (id: string, vNo: string) => {
     if (window.confirm(`⚠️ Are you sure you want to delete the maintenance record for Vehicle: ${vNo}?`)) {
       try {
-        await deleteDoc(doc(db, "MAINTENANCE_LOGS", id));
+        // A bill that reached the ledger is not deletable — the API refuses and
+        // says to reverse the voucher instead, the same rule the cash book
+        // follows. An unposted log is just a note and can go.
+        await fetchJson(`${ASSETS}/maintenance/${id}`, { method: 'DELETE' });
         fetchData();
-      } catch (error) { alert("❌ Error deleting record."); }
+      } catch (error: any) {
+        alert(error?.code === 'POSTED_OR_MISSING'
+          ? `🔒 ${error.detail || error.message}`
+          : "❌ Error deleting record: " + (error?.message || ''));
+      }
     }
   };
 
@@ -342,6 +407,28 @@ Use empty string / 0 / [] when a field is absent.`;
             <div style={{ width: '300px', background: 'rgba(239, 68, 68, 0.05)', padding: '15px', borderRadius: '10px', border: '1px dashed #ef4444' }}>
               <label style={{ fontSize: '13px', color: '#ef4444', fontWeight: 'bold', marginBottom: '5px', display: 'block' }}>Final Total Bill Amount (₹) *</label>
               <input type="number" value={formData.Bill_Amount} onChange={e=>setFormData({...formData, Bill_Amount: e.target.value})} style={{...inputStyle, border: '1px solid #ef4444', fontSize: '24px', fontWeight: '900', color: '#ef4444', textAlign: 'right'}} placeholder="0.00" />
+            </div>
+          </div>
+
+          {/* 🏦 The account this bill was paid from. Without it the log is
+              kept but the ledger never hears about the spend — said out loud
+              rather than left as a silent no-op. */}
+          <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '20px', borderRadius: '12px', marginBottom: '30px' }}>
+            <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>
+              🏦 Bill kis account se pay hua? (ledger posting ke liye)
+            </label>
+            <select value={payAccount} onChange={e => setPayAccount(e.target.value)} style={inputStyle}>
+              <option value="">— Sirf service log, ledger me post na karein —</option>
+              {accounts.map((a: any) => (
+                <option key={a.ledger_name} value={a.ledger_name}>
+                  {a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </option>
+              ))}
+            </select>
+            <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+              {payAccount
+                ? <>Posts <b style={{ color: '#f87171' }}>Dr {formData.Garage_Name ? `Creditors: ${formData.Garage_Name}` : 'Repairs & Maintenance'}</b> / <b style={{ color: '#34d399' }}>Cr {payAccount}</b></>
+                : 'Account na chunne par yeh kharcha P&L me nahi aayega.'}
             </div>
           </div>
 

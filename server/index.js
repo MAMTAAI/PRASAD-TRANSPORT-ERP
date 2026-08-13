@@ -26,6 +26,7 @@ import { registerOpsRoutes } from './modules/ops.routes.js';
 import { registerMastersRoutes } from './modules/masters.routes.js';
 import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
+import { registerAssetRoutes } from './modules/assets.routes.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -122,6 +123,8 @@ await app.register(registerMastersRoutes,  { prefix: '/api/v1/masters' });
 await app.register(registerFileRoutes,     { prefix: '/api/v1' });
 // Cluster 3 — tolls, claims, wallet recharges, fleet cards, GST/TDS registers.
 await app.register(registerTollRoutes,     { prefix: '/api/v1/toll' });
+// Loans/EMI, tyres, batteries and the service log.
+await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 
 
 // ── Boot ───────────────────────────────────────────────────────────────────
