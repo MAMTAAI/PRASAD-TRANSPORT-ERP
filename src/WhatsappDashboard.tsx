@@ -5,7 +5,7 @@ import { db } from './firebase';
 import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import MamtaChat from './MamtaChat';
 import useIsMobile from './hooks/useIsMobile';
-import { waHeaders } from './lib/waSend'; // 🔐 P0: X-PT-Token for the hardened engine
+import { waHeaders, canUseLocalEngine } from './lib/waSend'; // 🔐 P0: X-PT-Token for the hardened engine
 
 // 🌐 Engine endpoints: the hardened LOCAL engine (this PC, persistent session)
 // is preferred; the legacy Render deploy stays as fallback for other machines.
@@ -110,8 +110,14 @@ const WhatsappDashboard = () => {
     const checkServer = async () => {
       try {
         let data;
-        try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
-        catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
+        // Skip the loopback probe unless this page is itself served locally —
+        // from the public site it can only fail, once per poll, as a CORS error.
+        if (canUseLocalEngine()) {
+          try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
+          catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
+        } else {
+          data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD;
+        }
         setWaApi(apiBase);
         setIsWa(data.connected);
         setQr(data.qr);

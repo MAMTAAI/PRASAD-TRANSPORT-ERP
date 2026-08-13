@@ -15,6 +15,20 @@
 const WA_LOCAL = 'http://localhost:5001';
 const WA_CLOUD = 'https://prasad-api.onrender.com';
 
+// The LOCAL engine listens on loopback of the machine running it. A browser on
+// https://prasadtransport.com that probes it is asking the *viewer's own* PC,
+// where nothing answers — and Chrome reports that public-page-to-private-address
+// failure as a CORS / Private Network Access error. Polled every 3s, it filled
+// the console with CORS errors that looked like a server misconfiguration and
+// were not: no origin allowlist on any server can make this call succeed.
+// Probe the local engine only when the page itself is served locally.
+export const canUseLocalEngine = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.local')
+    || /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h);
+};
+
 // 🔐 P0: optional shared secret for the hardened engine (WA_ENGINE_TOKEN on the
 // server side). Empty = gate disabled on the engine too, header simply omitted.
 const WA_TOKEN = ((import.meta as any).env?.VITE_WA_ENGINE_TOKEN as string) || '';
@@ -67,7 +81,7 @@ const probeStatus = async (base: string, ms: number) => {
 const getOnlineEngine = async (): Promise<string | null> => {
   if (Date.now() - engineCache.at < 15000) return engineCache.base;
   let base = null;
-  if (await probeStatus(WA_LOCAL, 1200)) base = WA_LOCAL;
+  if (canUseLocalEngine() && await probeStatus(WA_LOCAL, 1200)) base = WA_LOCAL;
   else if (await probeStatus(WA_CLOUD, 3000)) base = WA_CLOUD;
   engineCache = { at: Date.now(), base };
   return base;
