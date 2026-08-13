@@ -51,3 +51,24 @@ whatsapp-server/.wwebjs_cache/
 logs/
 data/
 .vscode/sftp.json
+
+# IOCL bill automation — credentials and working data (never commit)
+tools/iocl_recon/gmail_credentials.json
+tools/iocl_recon/gmail_token.json
+tools/iocl_recon/__pycache__/
+uploads/iocl_bills/
+reports/iocl_recon/
+
+# 📄 Scanned business documents (IOCL advices, bills, scans) — real commercial
+# paperwork, 400+ files. Only iocl_bills/ was excluded before, which let the
+# advices and scans through. Whole directory stays local.
+uploads/
+
+# 🗄️ PostgreSQL dumps — a dump is the company's entire book of account. Once in
+# git history it cannot be removed without rewriting it, so backups live outside
+# the repo. The docs and nginx config in deploy/aws/sync/ ARE tracked.
+*.dump
+*.sql.gz
+
+# 📊 Generated slide deck (rebuild with: node scripts/render-slides.cjs)
+Prasad_Transport_Presentation_2026.pdf

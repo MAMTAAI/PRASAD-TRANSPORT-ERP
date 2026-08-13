@@ -1,0 +1,11 @@
+# IOCL bill reconciliation pipeline
+# Install:  python -m pip install -r tools/iocl_recon/requirements.txt
+
+pdfplumber>=0.11.4        # word-level (x0,x1,top) coordinates - the parser core
+psycopg[binary]>=3.2.3    # PostgreSQL driver (v3); [binary] avoids needing libpq
+requests>=2.32.3          # only for --post-vouchers (TARA's finance API)
+
+# Optional, not imported by default:
+#   rapidfuzz>=3.9    faster/better fuzzy location matching than stdlib difflib
+#   camelot-py[cv]    alternative table extractor - see README for why it is NOT
+#                     the default for this particular bill layout

@@ -1,0 +1,66 @@
+// scripts/erp_system_log.cjs
+// Shared JSONL lifecycle logger for the PRASAD ERP self-healing layer.
+// Row schema mirrors tools/mamta-bridge/boot_book.py `_row` exactly, so the
+// same drill-down tooling (and the MAMTA /boot_book endpoint filters) work on
+// both books. Two sinks:
+//   - logs/erp_system.log            (local ERP book — always written)
+//   - MAMTA boot_book.log            (unified book — best-effort, cross-repo;
+//                                     a missing jaiswal-terminal checkout must
+//                                     never crash the ERP daemons)
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const ERP_LOG = path.join(ROOT, 'logs', 'erp_system.log');
+const BOOT_BOOK = process.env.MAMTA_BOOT_BOOK
+  || 'E:\\jaiswal-terminal\\Algo-Engine\\boot_book.log';
+
+// IST timestamp, ISO-8601 with milliseconds and +05:30 offset (boot_book.py parity).
+function istTs() {
+  const d = new Date(Date.now() + 5.5 * 3600 * 1000);
+  return d.toISOString().replace('Z', '+05:30');
+}
+
+function row(agent, event, { cycle = 'erp', leg = null, fail_codes = null,
+                             rule_refs = null, extra = null } = {}) {
+  return {
+    ts: istTs(),
+    agent,
+    cycle,
+    leg,
+    event,
+    fail_codes: fail_codes || [],
+    data_injected: null,
+    rule_refs: rule_refs || [],
+    approval: null,
+    extra: extra || {},
+  };
+}
+
+function appendLine(file, line) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, line + '\n', 'utf8');
+}
+
+// Local ERP book. Never throws — a logging failure must not kill a daemon.
+function slog(agent, event, opts) {
+  const line = JSON.stringify(row(agent, event, opts));
+  try { appendLine(ERP_LOG, line); } catch { /* disk problem — nothing sane to do */ }
+  return line;
+}
+
+// Unified book (summary rows only — start/proposed/applied/discarded/rollback).
+function bootBook(agent, event, opts) {
+  const line = JSON.stringify(row(agent, event, opts));
+  try { appendLine(BOOT_BOOK, line); return true; } catch { return false; }
+}
+
+// Both books in one call, for HITL-relevant milestones.
+function slogBoth(agent, event, opts) {
+  slog(agent, event, opts);
+  bootBook(agent, event, opts);
+}
+
+module.exports = { slog, bootBook, slogBoth, istTs, ERP_LOG, BOOT_BOOK, ROOT };

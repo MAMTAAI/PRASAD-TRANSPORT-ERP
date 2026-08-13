@@ -38,5 +38,31 @@ module.exports = {
       max_memory_restart: '500M',
       time: true,
     },
+    {
+      // Agent/PostgreSQL API — Fastify + the 10-agent Mahavidya swarm.
+      // ANTI-DOUBLE-LOAD MANDATE: this box (8GB) also runs the Jaiswal Capital
+      // trading agents. V8's old-space is hard-capped at 2GB so a leak in the
+      // ERP API can never squeeze the trading side; PM2 recycles the process
+      // well before that at 1.2GB RSS.
+      //
+      // Needs on the box: RDS_PGHOST/RDS_PGPASSWORD (or DB_TARGET=aws + PG*)
+      // in /var/www/prasad-erp/.env, plus PGSSL=true + PGSSL_CA_PATH.
+      // Port 3300 stays loopback (API_HOST default) — Nginx proxies /api/.
+      name: 'prasad-erp-api',
+      script: 'server/index.js',
+      cwd: APP_DIR,
+      node_args: ['--max-old-space-size=2048'],
+      env: {
+        API_PORT: 3300,
+        DB_TARGET: 'aws',
+        NODE_ENV: 'production',
+        // The AWS box has no GPU: local-AI lane parks OCR tasks durably until
+        // the Local PC engine is reachable again (or set OCR_LANE=either +
+        // AI_ALLOW_CLOUD_FALLBACK=1 to use the cloud engine while PC is off).
+        AGENT_LOOPS: '1',
+      },
+      max_memory_restart: '1200M',
+      time: true,
+    },
   ],
 };
