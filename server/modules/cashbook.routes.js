@@ -258,6 +258,40 @@ export async function registerCashbookRoutes(app) {
   // Branches have no table of their own; the distinct values already carried by
   // ledgers and ledger entries are the real list, so the dropdown can never
   // offer a branch that no record uses.
+  // ── Ledger entries by account GROUP ────────────────────────────────────────
+  // The operating P&L needs "every Direct Expenses posting in this window",
+  // which is a question about a GROUP, not an account — /cashbook filters by a
+  // single account and could not answer it. Kept narrow: read-only, grouped,
+  // date- and company-bounded.
+  app.get(
+    '/entries-by-group',
+    { schema: { querystring: { type: 'object', required: ['group_like'], properties: {
+      group_like: { type: 'string', maxLength: 80 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      from: { type: ['string', 'null'], format: 'date' },
+      to: { type: ['string', 'null'], format: 'date' },
+      limit: { type: 'integer', minimum: 1, maximum: 20000, default: 5000 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const q = req.query;
+      const { rows } = await query(
+        `SELECT e.id, e.ledger_name, e.entry_date, e.dr_cr, e.amount, e.company,
+                e.branch, e.source_type, l.group_head
+           FROM ledger_entries e
+           JOIN ledgers l ON lower(l.ledger_name) = lower(e.ledger_name)
+          WHERE l.group_head ILIKE '%' || $1 || '%'
+            AND ($2::text IS NULL OR e.company = $2)
+            AND ($3::date IS NULL OR e.entry_date >= $3)
+            AND ($4::date IS NULL OR e.entry_date <= $4)
+          ORDER BY e.entry_date DESC
+          LIMIT $5`,
+        [q.group_like, q.company || null, q.from || null, q.to || null, q.limit ?? 5000]);
+      const net = rows.reduce((a, r) => a + (r.dr_cr === 'DR' ? Number(r.amount) : -Number(r.amount)), 0);
+      return { count: rows.length, entries: rows, net_dr: Math.round((net + Number.EPSILON) * 100) / 100 };
+    }
+  );
+
   app.get('/masters/companies', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const [companies, branches] = await Promise.all([

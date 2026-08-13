@@ -2,9 +2,10 @@
 // 📊 COMPANY P&L (LIVE, CA-READY) — real-time profit & loss from the billing
 // engine's own data. 🏢 STRICT MULTI-COMPANY: the top Operating-Company filter
 // applies to revenue AND every expense line.
-// Revenue  = MONTHLY_INVOICES freight_total + detention_total (GST excluded —
-//            RCM tax goes to the government, it is NOT our revenue).
-// Expenses = Toll (TOLL_TRANSACTIONS, company-tagged)
+// Revenue  = company_bills freight + detention (GST excluded — RCM tax goes to
+//            the government, it is NOT our revenue). MONTHLY_INVOICES is gone;
+//            migration 019 superseded it and 034 added the detention columns.
+// Expenses = Toll (toll_transactions, company-tagged)
 //          + Fuel & other trip kharcha (TRIPS.total_expense MINUS the trip's
 //            toll_amt — tolls are shown on their own line, never double-counted)
 //          + Shortage deductions (invoices' shortage_amount — business loss)
@@ -13,9 +14,14 @@
 // NOTE: The journal-driven Balance Sheet/P&L (FinancialReports) remains the
 // full statutory view; this page is the fast billing-side operating P&L.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
 import { toISODate, round2, isDateInRange, getField } from './lib/accounting/tripMath';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const j = async (url: string) => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
 import { companyMatches, normCompany } from './lib/company';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -37,18 +43,32 @@ export default function ProfitAndLoss() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      const [iSnap, tSnap, trSnap, lSnap, leSnap] = await Promise.all([
-        getDocs(collection(db, 'MONTHLY_INVOICES')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'TOLL_TRANSACTIONS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'LEDGERS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'LEDGER_ENTRIES')).catch(() => ({ docs: [] })),
+      const [billsRes, tollRes, tripRes, entRes] = await Promise.all([
+        j(`${API}/api/v1/billing/bills?limit=2000`).catch(() => ({ bills: [] })),
+        j(`${API}/api/v1/toll/transactions?limit=5000`).catch(() => ({ transactions: [] })),
+        j(`${API}/api/v1/ops/trips?limit=5000`).catch(() => ({ trips: [] })),
+        // Direct-Expense postings are a question about a GROUP, so the API
+        // answers it — the old code pulled every ledger and every entry into
+        // the browser and filtered there.
+        j(`${API}/api/v1/finance/entries-by-group?group_like=Direct Expenses`).catch(() => ({ entries: [] })),
       ]);
-      setInvoices(iSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTolls(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTrips(trSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLedgers(lSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLedgerEntries(leSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // company_bills in the shape this page's maths already speaks. freight is
+      // the gross before deductions; detention is its own column (034).
+      setInvoices((billsRes.bills ?? []).map((b: any) => ({
+        id: b.id,
+        company: b.company,
+        period_to: b.period_to || b.bill_date,
+        month: String(b.bill_date || '').slice(0, 7),
+        freight_total: Number(b.total_gross) || 0,
+        detention_total: Number(b.detention_total) || 0,
+        shortage_amount: Number(b.total_shortage) || 0,
+      })));
+      setTolls((tollRes.transactions ?? []).map((t: any) => ({ ...t, Txn_Date: t.txn_date })));
+      setTrips(tripRes.trips ?? []);
+      setLedgers([]);           // no longer needed — the API resolves the group
+      setLedgerEntries((entRes.entries ?? []).map((e: any) => ({
+        ...e, date: e.entry_date, ledgerId: e.ledger_name, dr_cr: e.dr_cr === 'DR' ? 'Dr' : 'Cr',
+      })));
       setLoading(false);
     })();
   }, []);
@@ -103,9 +123,9 @@ export default function ProfitAndLoss() {
     // 🛞 Ledger-side DIRECT EXPENSES (tyre scrap/consumption, compliance fees):
     // Direct-Expense group ke ledgers ki Dr−Cr entries, company+date filtered.
     // Trips ke total_expense se overlap NAHI — ye ledger-only kharche hain.
-    const dirExpLedgerIds = new Set(ledgers.filter(l => String(l.group || l.group_head || '').includes('Direct Expenses')).map(l => l.id));
+    // The group filter is applied by the API, so every row here is already a
+    // Direct-Expense posting — only company and date remain.
     const ledgerExp = round2(ledgerEntries.reduce((s, e) => {
-      if (!dirExpLedgerIds.has(e.ledgerId)) return s;
       if (!matchCo(e.company) || !isDateInRange(e.date, fromDate || undefined, toDate || undefined)) return s;
       const amt = Number(e.amount) || 0;
       return s + (String(e.dr_cr || '').includes('Dr') ? amt : -amt);
@@ -176,6 +196,27 @@ export default function ProfitAndLoss() {
 
       {loading ? <div style={{ textAlign: 'center', padding: '50px', color: '#38bdf8' }}>⌛ Loading books…</div> : (
         <>
+          {/* ⚠️ A P&L with expenses and NO bills is not a loss — it is an
+              incomplete period, and rendering a confident red "NET LOSS" over
+              it tells the owner something false. This page reads company_bills;
+              revenue raised before the PostgreSQL cutover lived in Firestore
+              MONTHLY_INVOICES and was not carried over, so an early period
+              legitimately has costs and no invoices. Say that instead. */}
+          {pl.invCount === 0 && pl.expenses > 0 && (
+            <div className="pt-anim-up" style={{
+              borderRadius: '16px', padding: '18px 22px', marginBottom: '18px',
+              background: 'rgba(245,158,11,0.10)', border: '1px solid #f59e0b', color: '#fcd34d', fontSize: '13px',
+            }}>
+              <b>⚠️ Is period me koi bill raise nahi hua — yeh "loss" asli nahi hai.</b>
+              <div style={{ marginTop: '6px', color: '#fde68a' }}>
+                Kharche {inr(pl.expenses)} ke hain par revenue ₹0 dikh raha hai kyunki is range me
+                ek bhi bill company_bills me nahi hai. Auto-Billing se bill banayein, ya statutory
+                figures ke liye <b>Balance Sheet / P&amp;L</b> (ledger-driven) dekhein — usme
+                purana revenue already posted hai.
+              </div>
+            </div>
+          )}
+
           {/* 🏆 NET PROFIT hero card — green profit / red loss */}
           <div className="pt-anim-pop" style={{
             borderRadius: '20px', padding: 'clamp(20px, 4vw, 32px)', marginBottom: '18px',
@@ -186,7 +227,9 @@ export default function ProfitAndLoss() {
           }}>
             <div>
               <div style={{ fontSize: '12px', fontWeight: 900, letterSpacing: '1px', color: pl.netProfit >= 0 ? '#10b981' : '#ef4444' }}>
-                {pl.netProfit >= 0 ? '📈 NET PROFIT' : '📉 NET LOSS'} — {company === 'ALL' ? 'GROUP (ALL COMPANIES)' : company}
+                {pl.invCount === 0 && pl.expenses > 0
+                  ? '📊 COSTS ONLY (no bills in range)'
+                  : pl.netProfit >= 0 ? '📈 NET PROFIT' : '📉 NET LOSS'} — {company === 'ALL' ? 'GROUP (ALL COMPANIES)' : company}
               </div>
               <div style={{ fontSize: 'clamp(30px, 7vw, 46px)', fontWeight: 900, color: pl.netProfit >= 0 ? '#10b981' : '#ef4444' }}>₹{inr(Math.abs(pl.netProfit))}</div>
               <div style={{ fontSize: '12px', color: '#94a3b8' }}>{fromDate} → {toDate} · {pl.invCount} invoices · {pl.tripCount} trips · margin {pl.margin}%</div>

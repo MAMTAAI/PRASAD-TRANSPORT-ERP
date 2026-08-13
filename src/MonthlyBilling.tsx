@@ -13,16 +13,48 @@
 //     date-times, detention start/end, days, rate, subtotals + grand total.
 // Detention rule (from the real annexure): start = plant-reporting + FREE
 // days (default 4); days counted INCLUSIVE of start and end.
+// 🧾 AUTO-BILLING — live PostgreSQL. MONTHLY_INVOICES is gone.
+//
+// This screen depended on THREE separate Firebase services, and all three are
+// now one call to POST /api/v1/billing/bills:
+//
+//   1. A Cloud Function (`generateAutoBill`) provided the race guard — it
+//      re-read every trip server-side and aborted if one was already BILLED.
+//      The API does exactly that in a PostgreSQL transaction, which is the
+//      same guarantee without a second runtime to deploy and keep reachable.
+//      (That function had been failing with a 403 under an org policy, which
+//      is why a "client fallback" existed at all.)
+//   2. The CLIENT FALLBACK wrote MONTHLY_INVOICES and marked trips itself when
+//      the function was unreachable — a best-effort guard, i.e. the exact race
+//      the function existed to prevent. It is deleted, not ported: there is no
+//      longer an unreachable path to fall back FROM.
+//   3. The Firestore JOURNAL received the freight/detention revenue. That was
+//      a different ledger from the one the balance sheet reads, so none of
+//      this revenue ever reached these books. The API now posts a SALES
+//      journal through TARA (migration 034) keyed on the bill number, so
+//      re-raising a bill cannot post its revenue twice.
+//
+// Firestore is still read here for COMPANY/COMPANIES letterhead detail — that
+// belongs to the company-master cluster and is marked at the call site.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, doc, writeBatch, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db } from './firebase';
-import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
 import { resolveTripBilling, computeFreight, effectiveBillingType, BILLING_TYPES, CALC_TYPES } from './lib/freightEngine';
 import { fetchLanes, fetchRates } from './lib/masters/rateApi';
 import { useIsMobile } from './hooks/useIsMobile';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const BILLING = `${API}/api/v1/billing`;
+const OPS = `${API}/api/v1/ops`;
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -114,23 +146,19 @@ export default function MonthlyBilling() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      // ⚠️ MIXED BACKENDS, KNOWINGLY. This screen still writes MONTHLY_INVOICES
-      // to Firestore — that belongs to a later cluster. But the rate rules and
-      // lanes it PRICES with moved to PostgreSQL with RateMaster.tsx and
-      // LocationRtkmMaster.tsx, so reading them from Firestore would mean
-      // auto-billing quoted from a table nobody can edit any more, and a rule
-      // typed this morning would never reach a bill. Only those two reads move.
-      const [tSnap, cSnap, coSnap1, coSnap2, lanes, rateCard] = await Promise.all([
-        getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'COMPANY')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'COMPANIES')).catch(() => ({ docs: [] })),
+      const [tripsRes, custRes, companiesRes, lanes, rateCard] = await Promise.all([
+        fetchJson(`${OPS}/trips?limit=5000`).catch(() => ({ trips: [] })),
+        fetchJson(`${MASTERS}/customers?limit=1000`).catch(() => ({ customers: [] })),
+        // Letterhead detail (GSTIN, bank, invoice series) still lives in the
+        // company master, which has not moved yet. /finance/masters/companies
+        // returns the operating companies actually present in the books.
+        fetchJson(`${FIN}/masters/companies`).catch(() => ({ companies: [] })),
         fetchLanes().catch(() => []),
         fetchRates().catch(() => ({ rates: [], derived: [] })),
       ]);
-      setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
-      setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCompaniesList([...coSnap1.docs, ...coSnap2.docs].map(d => ({ id: d.id, ...d.data() })));
+      setTrips(scopeCurrent(tripsRes.trips ?? []) || []);
+      setCustomers(custRes.customers ?? []);
+      setCompaniesList(companiesRes.companies ?? []);
       setRoutes(lanes);
       setRateMaster(rateCard.rates);
     } catch (e) { console.error(e); }
@@ -591,86 +619,61 @@ export default function MonthlyBilling() {
       const perTripFreight = {};
       fRows.forEach(r => { perTripFreight[r.tripId] = tripFreightOf(r); });
 
-      // Shared invoice payload (both the cloud and fallback paths write this).
-      const invoicePayload = {
-        month,
-        // 🏭 IOCL-style location-wise bill: kis plant/depot ki bill hai
-        location: locFilter !== 'ALL' ? locFilter : (detectedLocations.length === 1 ? detectedLocations[0] : ''),
-        billing_cycle: custCycle || '30_days', billing_period: period, period_from: periodRange().from, period_to: periodRange().to,
-        invoice_no: invoiceNo, det_invoice_no: detInvoiceNo,
-        total_qty: totalQty, freight_rate: parseFloat(freightRate) || 0, freight_total: freightTotal,
-        detention_total: detTotal, det_rate: parseFloat(detRate) || 0, det_days: totalDetDays, free_days: parseInt(freeDays) || 0,
-        taxable, cgst, sgst, grand_with_gst: grandWithGst,
-        // ➖ Deductions snapshot (future ledger/settlement accuracy)
-        tds_pct: parseFloat(tdsPct) || 0, tds_amount: tdsAmt,
-        shortage_amount: shortageDed, advance_deduction: advanceDed,
-        total_deductions: totalDeductions, net_payable: netPayable,
-      };
-      const tripsPayload = fRows.map(r => ({ id: r.tripId, cn: r.cn, gross_freight: perTripFreight[r.tripId], rate: parseFloat(r.rate) || 0 }));
+      // ONE call. The API re-reads every trip inside a PostgreSQL transaction,
+      // refuses any that is already BILLED, writes the bill and its lines,
+      // marks the trips, and posts the SALES journal — so there is no window
+      // in which the bill exists and the trips do not, or vice versa.
+      const j = await fetchJson(`${BILLING}/bills`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bill_no: invoiceNo,
+          bill_date: `${month}-28`,
+          company: co.name,
+          location: locFilter !== 'ALL' ? locFilter : (detectedLocations.length === 1 ? detectedLocations[0] : null),
+          period_from: periodRange().from,
+          period_to: periodRange().to,
+          billing_period: period,
+          gst_rate_pct: 5,
+          tds_rate_pct: parseFloat(tdsPct) || 0,
+          detention_total: detTotal,
+          detention_rate: parseFloat(detRate) || 0,
+          detention_days: totalDetDays,
+          free_days: parseInt(freeDays) || 0,
+          det_invoice_no: detTotal > 0 ? detInvoiceNo : null,
+          advance_deduction: advanceDed,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+          trips: fRows.map(r => ({
+            trip_id: r.tripId,
+            qty: parseFloat(r.qty) || 0,
+            rate: parseFloat(r.rate) || 0,
+            rtkm: parseFloat(r.rtkm) || 0,
+            billing_type: effectiveBillingType(r) || 'PER_KL',
+            gross_freight: perTripFreight[r.tripId],
+            lr_no: r.cn || null,
+          })),
+        }),
+      });
 
-      // 🛡️ PRIMARY PATH: server-side Firestore TRANSACTION via Cloud Function —
-      // rereads every trip on the server and aborts atomically on any company
-      // mismatch / already-BILLED trip. Simultaneous saves: exactly one wins.
-      let guardPath = 'cloud_transaction';
-      try {
-        const call = httpsCallable(getFunctions(), 'generateAutoBill');
-        await call({ company: co.name, customer: cust, invoice: invoicePayload, trips: tripsPayload });
-      } catch (fe) {
-        const code = String(fe?.code || '');
-        // Server guard REJECTED the bill (race caught / bad data) → hard stop.
-        if (/already-exists|failed-precondition|permission-denied|unauthenticated|invalid-argument/.test(code)) {
-          throw new Error(`🛡️ Server guard ne bill ROK diya:\n${fe.message}\n\nScreen par purana data tha — dobara Fetch karke check karein.`);
-        }
-        // Function unreachable (not deployed / network) → guarded client
-        // fallback so billing kabhi band nahi hoti (best-effort guard).
-        guardPath = 'client_fallback';
-        console.warn('generateAutoBill unreachable — client fallback:', fe?.message);
-        const batch = writeBatch(db);
-        fRows.forEach(r => {
-          batch.update(doc(db, 'TRIPS', r.tripId), {
-            gross_freight: perTripFreight[r.tripId], rate: parseFloat(r.rate) || 0,
-            billing_status: 'BILLED', billed_bill_no: invoiceNo, billed_at: new Date().toISOString(),
-            billed_company: co.name,
-          });
-        });
-        batch.set(doc(collection(db, 'MONTHLY_INVOICES')), {
-          ...invoicePayload, customer: cust, company: co.name, guard: 'client_fallback',
-          trip_ids: fRows.map(r => r.tripId), createdAt: serverTimestamp(),
-        });
-        await batch.commit();
-      }
-
-      let jOk = 0; const errs = [];
-      for (const r of fRows) {
-        try {
-          await postEntry({
-            source_type: 'TRIP_FREIGHT', source_ref: r.cn || r.tripId, date: r.date,
-            narration: `Freight — CN ${r.cn} (${r.vehicle}) bill ${invoiceNo}`,
-            company: co.name,
-            lines: [
-              { ledger: `Debtors: ${cust}`, dr_cr: 'Dr', amount: perTripFreight[r.tripId] },
-              { ledger: 'Direct Incomes (Freight/Trip Revenue)', dr_cr: 'Cr', amount: perTripFreight[r.tripId] },
-            ],
-          }); jOk++;
-        } catch (e) { errs.push(`CN ${r.cn}: ${e.message}`); }
-      }
-      if (detTotal > 0) {
-        try {
-          await postEntry({
-            source_type: 'DETENTION', source_ref: detInvoiceNo, date: `${month}-28`,
-            narration: `Detention charges ${periodLabel()} — ${cust} (${totalDetDays} days @ ₹${detRate})`,
-            company: co.name,
-            lines: [
-              { ledger: `Debtors: ${cust}`, dr_cr: 'Dr', amount: detTotal },
-              { ledger: 'Direct Incomes (Detention Charges)', dr_cr: 'Cr', amount: detTotal },
-            ],
-          }); jOk++;
-        } catch (e) { errs.push(`Detention: ${e.message}`); }
-      }
+      alert(
+        `✅ ${co.name}: bill ${j.bill.bill_no} — ${j.lines} trips BILLED.\n` +
+        `Freight ₹${inr(freightTotal)}${detTotal > 0 ? ` + Detention ₹${inr(detTotal)}` : ''}\n` +
+        (j.voucher_id
+          ? '🧾 Revenue journal posted (Dr Debtors / Cr Income).'
+          : `⚠️ Bill saved but the revenue journal did NOT post: ${j.ledger_note || 'unknown'}\n` +
+            'Bill dobara raise mat karein — ledger entry alag se post karwayein.')
+      );
       rememberBillDefaults(cust, co.name, { freightRate, detRate, freeDays });
       alert(`✅ ${co.name}: ${fRows.length} trips BILLED + ${jOk} journal entries post ho gayi.\n${guardPath === 'cloud_transaction' ? '🛡️ Server transaction guard se secure (race-proof).' : '⚠️ Cloud guard unreachable tha — client-side guarded save use hua.'}${errs.length ? '\n⚠️ ' + errs.join('\n') : ''}`);
       fetchAll();
-    } catch (e) { console.error(e); alert('❌ Save fail: ' + (e.message || 'error')); }
+    } catch (e: any) {
+      console.error(e);
+      const said = {
+        ALREADY_BILLED: 'In me se kuch trips pehle se BILLED hain — screen refresh karke dobara Fetch karein.',
+        DUPLICATE_BILL: 'Is invoice number ka bill pehle se hai.',
+        DUPLICATE_TRIP: 'Ek hi trip do baar list me hai.',
+      }[e?.code];
+      alert('❌ Save fail: ' + (said || e?.message || 'error'));
+    }
     setSaving(false);
   };
 

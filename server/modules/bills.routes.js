@@ -265,6 +265,22 @@ export async function registerBillRoutes(app) {
             created_by: { type: ['string', 'null'], maxLength: 100 },
             gst_rate_pct: { type: 'number', minimum: 0, maximum: 28, default: 5 },
             tds_rate_pct: { type: 'number', minimum: 0, maximum: 10, default: 2 },
+            // Detention: days a truck waited beyond the free allowance. Oil
+            // companies do not pay it; monthly contract clients do, on their
+            // own invoice number.
+            detention_total: { type: 'number', minimum: 0, default: 0 },
+            detention_rate: { type: 'number', minimum: 0, default: 0 },
+            detention_days: { type: 'integer', minimum: 0, default: 0 },
+            free_days: { type: 'integer', minimum: 0, default: 0 },
+            det_invoice_no: { type: ['string', 'null'], maxLength: 60 },
+            advance_deduction: { type: 'number', minimum: 0, default: 0 },
+            billing_period: { type: ['string', 'null'], maxLength: 40 },
+            period_from: { type: ['string', 'null'], format: 'date' },
+            period_to: { type: ['string', 'null'], format: 'date' },
+            // Recognise the revenue as a SALES journal through TARA. Default
+            // ON: a bill that does not reach the ledger is revenue the books
+            // never see, which is exactly how the Firestore version behaved.
+            post_revenue: { type: 'boolean', default: true },
             trips: {
               type: 'array', minItems: 1, maxItems: 500,
               items: {
@@ -417,16 +433,26 @@ export async function registerBillRoutes(app) {
             `INSERT INTO company_bills
                (bill_no, bill_date, customer_id, customer_name, company, branch, location, location_code,
                 period_from, period_to, total_gross, total_shortage, total_tds,
-                total_cgst, total_sgst, total_igst, total_net, status, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'PENDING_PAYMENT',$18)
+                total_cgst, total_sgst, total_igst, total_net, status, created_by,
+                detention_total, detention_rate, detention_days, free_days, det_invoice_no,
+                advance_deduction, billing_period)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'PENDING_PAYMENT',$18,
+                     $19,$20,$21,$22,$23,$24,$25)
              RETURNING *`,
             [billNo, b.bill_date ?? new Date().toISOString().slice(0, 10),
              dbTrips[0].customer_id, customerName, b.company ?? dbTrips[0].operating_company,
              b.branch ?? null, location, locCode,
-             dates[0] ?? null, dates[dates.length - 1] ?? null,
+             // An explicit billing period wins over the trip dates: a fortnight
+             // with no trip on the 1st still bills 01–15, not 03–15.
+             b.period_from ?? dates[0] ?? null, b.period_to ?? dates[dates.length - 1] ?? null,
              sum('gross_freight'), sum('shortage_amt'), sum('tds_amt'),
-             sum('cgst_amt'), sum('sgst_amt'), sum('igst_amt'), sum('net_payable'),
-             b.created_by ?? null]);
+             sum('cgst_amt'), sum('sgst_amt'), sum('igst_amt'),
+             // Detention is collectible too, and an advance already paid is not.
+             r2(sum('net_payable') + (b.detention_total ?? 0) - (b.advance_deduction ?? 0)),
+             b.created_by ?? null,
+             b.detention_total ?? 0, b.detention_rate ?? 0, b.detention_days ?? 0,
+             b.free_days ?? 0, b.det_invoice_no || null, b.advance_deduction ?? 0,
+             b.billing_period ?? null]);
 
           for (const l of lines) {
             await t.query(
@@ -453,8 +479,56 @@ export async function registerBillRoutes(app) {
           return bill;
         });
 
+        // ── Revenue recognition ──────────────────────────────────────────────
+        // Posted AFTER the bill commits, not inside it: the bill and the trip
+        // marks are the facts that must not be lost, and a ledger failure must
+        // leave a bill that can be posted again rather than losing both. The
+        // bill carries voucher_id only once TARA has actually accepted it, and
+        // the customer khata counts an unposted bill from company_bills and a
+        // posted one from the ledger — never both.
+        let voucher = null;
+        let ledgerNote = null;
+        if (b.post_revenue !== false) {
+          const freight = r2(sum('gross_freight'));
+          const detention = r2(b.detention_total ?? 0);
+          try {
+            const revenueLines = [
+              { ledger: debtorLedger(customerName), dr_cr: 'DR', amount: r2(freight + detention),
+                group: 'Sundry Debtors (Customers)' },
+              { ledger: 'Freight Income', dr_cr: 'CR', amount: freight, group: 'Freight Income' },
+            ];
+            if (detention > 0) {
+              revenueLines.push({ ledger: 'Detention Charges', dr_cr: 'CR', amount: detention, group: 'Other Income' });
+            }
+            voucher = await postVoucher({
+              type: 'JOURNAL',
+              entry_date: created.bill_date,
+              narration: `Bill ${created.bill_no} — ${customerName} (${lines.length} trip(s)${detention > 0 ? ' + detention' : ''})`,
+              source_type: 'BILL_RAISED',
+              // The bill number IS the reference, so re-raising the same bill
+              // cannot post its revenue twice.
+              ref_no: created.bill_no,
+              company: created.company,
+              branch: created.branch,
+              created_by: b.created_by ?? null,
+              lines: revenueLines,
+            });
+            await drain().catch(() => {});
+            await query('UPDATE company_bills SET voucher_id = $2::uuid WHERE id = $1::uuid',
+              [created.id, voucher.voucher_id]);
+            created.voucher_id = voucher.voucher_id;
+          } catch (err) {
+            // Said out loud rather than swallowed: the bill exists and the
+            // trips are marked, but the books have not seen the revenue.
+            ledgerNote = err.message;
+          }
+        }
+
         reply.code(201);
-        return { created: true, bill: created, lines: lines.length };
+        return {
+          created: true, bill: created, lines: lines.length,
+          voucher_id: voucher?.voucher_id ?? null, ledger_note: ledgerNote,
+        };
       } catch (err) {
         if (err.code === '23505' || /unique/i.test(err.message)) {
           return reply.code(409).send({ error: 'DUPLICATE_BILL', detail: err.detail ?? err.message });

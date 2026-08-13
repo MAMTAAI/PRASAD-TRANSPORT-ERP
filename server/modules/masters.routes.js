@@ -895,6 +895,12 @@ export async function registerMastersRoutes(app) {
              FROM company_bills
             WHERE (customer_id = $1::uuid OR lower(customer_name) = lower($2))
               AND status <> 'CANCELLED'
+              -- ⚠️ UNPOSTED BILLS ONLY (migration 034). A bill that carries a
+              -- SALES journal is already in the ledger rows below as a Dr on
+              -- the debtor; counting the bill row as well would show every
+              -- billed rupee twice. An unposted bill is not in the ledger at
+              -- all, so it still has to come from here.
+              AND voucher_id IS NULL
               AND ($3::text IS NULL OR company = $3)
             ORDER BY bill_date, bill_no`,
           [c.id, c.customer_name, company]),
@@ -928,8 +934,14 @@ export async function registerMastersRoutes(app) {
       for (const e of gl.rows) {
         // Cr on a debtor = money in, which is this screen's DEBIT column.
         const received = e.dr_cr === 'CR';
+        // A Dr on the debtor is a CHARGE, not a receipt. Since 034 the most
+        // common one is a raised bill's revenue journal — labelling that
+        // 'RECEIPT' put a money-in icon on an invoice line.
+        const kind = e.source_type === 'REVERSAL' ? 'REVERSAL'
+          : e.source_type === 'BILL_RAISED' ? 'BILL'
+          : received ? 'RECEIPT' : 'CHARGE';
         rows.push({
-          kind: e.source_type === 'REVERSAL' ? 'REVERSAL' : 'RECEIPT',
+          kind,
           ref_id: String(e.id), date: e.entry_date, company: e.company,
           particulars: e.particulars ?? (received ? 'Receipt' : 'Charge'),
           dr: received ? money(e.amount) : 0,
