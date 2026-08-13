@@ -308,6 +308,107 @@ export async function registerCashbookRoutes(app) {
     return { companies: companies.rows, branches: branches.rows.map((r) => r.branch) };
   });
 
+  // ── Generic journal post ────────────────────────────────────────────────────
+  // The replacement for src/lib/accounting/journal.postEntry(), which wrote a
+  // Firestore JOURNAL collection — a SECOND ledger, separate from
+  // ledger_entries, that nothing ever reconciled against the books the balance
+  // sheet is built from. Every caller now lands here, so there is one book.
+  //
+  // ⚠️ IDEMPOTENCE CHANGED SHAPE, and callers must know how.
+  // Firestore keyed the entry on (source_type, source_ref) as a document id, so
+  // re-posting OVERWROTE — posting the same event again with different amounts
+  // silently corrected it. ledger_entries is append-only by trigger and cannot
+  // do that. Here a repeat post is a NO-OP: it returns already:true and changes
+  // nothing. That preserves the contract callers actually rely on ("re-running
+  // a sync never duplicates") and refuses the one they should never have had
+  // ("posting again quietly rewrites history"). A correction is a reversal plus
+  // a new entry, which is the rule everywhere else in this system.
+  app.post(
+    '/journal',
+    { schema: { body: { type: 'object', required: ['source_type', 'source_ref', 'lines'], additionalProperties: false, properties: {
+      source_type: { type: 'string', minLength: 1, maxLength: 60 },
+      source_ref: { type: 'string', minLength: 1, maxLength: 200 },
+      date: { type: ['string', 'null'], format: 'date' },
+      narration: { type: ['string', 'null'], maxLength: 400 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      branch: { type: ['string', 'null'], maxLength: 60 },
+      created_by: { type: ['string', 'null'], maxLength: 100 },
+      lines: {
+        type: 'array', minItems: 2, maxItems: 100,
+        items: {
+          type: 'object', required: ['ledger', 'dr_cr', 'amount'], additionalProperties: false,
+          properties: {
+            ledger: { type: 'string', minLength: 1, maxLength: 160 },
+            // Accepts the browser's 'Dr'/'Cr' as well as the table's 'DR'/'CR'.
+            dr_cr: { type: 'string', pattern: '^([Dd][Rr]|[Cc][Rr])$' },
+            amount: { type: 'number', exclusiveMinimum: 0 },
+            group: { type: ['string', 'null'], maxLength: 80 },
+          },
+        },
+      },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      try {
+        const out = await postVoucher({
+          type: 'JOURNAL',
+          entry_date: b.date ?? new Date().toISOString().slice(0, 10),
+          narration: b.narration || `${b.source_type} ${b.source_ref}`,
+          source_type: b.source_type,
+          ref_no: b.source_ref,
+          company: b.company ?? null,
+          branch: b.branch ?? null,
+          created_by: b.created_by ?? null,
+          lines: b.lines.map((l) => ({
+            ledger: l.ledger,
+            dr_cr: l.dr_cr.toUpperCase(),
+            amount: l.amount,
+            group: l.group ?? null,
+          })),
+        });
+        if (out.posted) await drain().catch(() => {});
+        reply.code(201);
+        return { posted: true, already: false, voucher_id: out.voucher_id };
+      } catch (err) {
+        if (err.code === 'DUPLICATE_REF') {
+          // Already posted under this reference — the caller's re-run is a no-op.
+          const { rows: [prior] } = await query(
+            `SELECT voucher_id FROM ledger_entries
+              WHERE source_type = $1 AND source_ref = $2 AND voucher_id IS NOT NULL LIMIT 1`,
+            [b.source_type, b.source_ref]);
+          return { posted: false, already: true, voucher_id: prior?.voucher_id ?? null };
+        }
+        const map = { UNBALANCED: 422, BAD_LINES: 400, BAD_AMOUNT: 400, BAD_TYPE: 400 };
+        if (map[err.code]) return reply.code(map[err.code]).send({ error: err.code, detail: err.message });
+        throw err;
+      }
+    }
+  );
+
+  // What the old getJournal()/ledgerBalances()/reconcile() answered, from the
+  // real ledger. `reconcile` is trivially true here — voucher_must_balance is a
+  // deferred database constraint, so an unbalanced voucher cannot be committed;
+  // the view is reported anyway so a caller sees the same shape.
+  app.get('/journal', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT voucher_id, min(entry_date) AS date, min(source_type) AS source_type,
+              min(source_ref) AS source_ref, min(particulars) AS narration, min(company) AS company,
+              SUM(amount) FILTER (WHERE dr_cr = 'DR')::numeric(14,2) AS total,
+              json_agg(json_build_object('ledger', ledger_name, 'dr_cr', dr_cr, 'amount', amount)
+                       ORDER BY dr_cr DESC, id) AS lines
+         FROM ledger_entries
+        WHERE voucher_id IS NOT NULL
+          AND ($1::date IS NULL OR entry_date >= $1)
+          AND ($2::date IS NULL OR entry_date <= $2)
+        GROUP BY voucher_id
+        ORDER BY min(entry_date) DESC
+        LIMIT $3`,
+      [req.query.from || null, req.query.to || null, req.query.limit ?? 2000]);
+    return { count: rows.length, entries: rows };
+  });
+
   // ── Voucher reversal ────────────────────────────────────────────────────────
   // The book has no delete. ledger_entries is append-only by trigger, so a wrong
   // voucher is corrected by posting its mirror image and leaving both in the

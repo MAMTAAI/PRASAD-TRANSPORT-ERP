@@ -359,6 +359,15 @@ export async function registerAssetRoutes(app) {
   // ═══ TYRES & BATTERIES ════════════════════════════════════════════════════
   // One shape, two components — the screens are near-identical and so is the
   // life cycle: bought into stock, fitted to a position, removed with a reason.
+  // Where a component's cost sits before and after it is worn out (036).
+  // Purchase: Dr <stock>  Cr bank/creditor. Consumption: Dr <expense> Cr <stock>.
+  const STOCK = {
+    tyres:     { stock: 'Tyre Stock',    expense: 'Tyre Consumption Expenses' },
+    batteries: { stock: 'Battery Stock', expense: 'Battery Consumption Expenses' },
+  };
+  const STOCK_GROUP = 'Stock-in-Hand (Asset)';
+  const CONSUMPTION_GROUP = 'Direct Expenses - Repairs & Tyres';
+
   const COMPONENTS = {
     tyres: {
       table: 'tyres', fitTable: 'tyre_fitments', idCol: 'tyre_id', serialCol: 'tyre_serial',
@@ -406,8 +415,9 @@ export async function registerAssetRoutes(app) {
       if (!items.length) return reply.code(400).send({ error: 'NOTHING_TO_ADD' });
       if (items.some((i) => !i.serial_no)) return reply.code(400).send({ error: 'NO_SERIAL' });
       for (const i of items) if (i.status !== undefined) i.status = normStatus(i.status);
+      let created;
       try {
-        const created = await withTransaction(async (t) => {
+        created = await withTransaction(async (t) => {
           const out = [];
           for (const item of items) {
             const u = insert(C.table, C.cols, item);
@@ -416,9 +426,54 @@ export async function registerAssetRoutes(app) {
           }
           return out;
         });
-        reply.code(201);
-        return { created: created.length, [kind]: created };
       } catch (err) { return pgErr(reply, err); }
+
+      // ── The purchase enters STOCK, it is not an expense yet ────────────────
+      // The Firestore screens took the whole invoice out as cash on the day it
+      // was bought and then ALSO wrote a one-sided expense when the tyre wore
+      // out. A component sitting in the store is an asset; it becomes an
+      // expense on the day it is consumed, and only then. Posted after the rows
+      // commit so a ledger failure leaves an invoice that can be posted again,
+      // never stock that exists twice.
+      const invoiceValue = r2(created.reduce((a, r) => a + money(r.purchase_cost), 0));
+      let voucher = null;
+      let ledgerNote = null;
+      if (invoiceValue > 0 && (req.body?.account || req.body?.vendor_name)) {
+        try {
+          const payingCash = !!req.body.account;
+          voucher = await postVoucher({
+            type: 'JOURNAL',
+            entry_date: created[0].purchase_date ?? new Date().toISOString().slice(0, 10),
+            narration: `${kind === 'tyres' ? 'Tyre' : 'Battery'} purchase — ${created.length} item(s)`
+              + (req.body.invoice_no ? ` (inv ${req.body.invoice_no})` : ''),
+            source_type: kind === 'tyres' ? 'TYRE_PURCHASE' : 'BATTERY_PURCHASE',
+            // The invoice number is the reference, so re-entering the same
+            // invoice cannot post its stock leg twice.
+            ref_no: req.body.invoice_no || null,
+            created_by: req.body.created_by ?? null,
+            lines: [
+              { ledger: STOCK[kind].stock, dr_cr: 'DR', amount: invoiceValue, group: STOCK_GROUP },
+              payingCash
+                ? { ledger: req.body.account, dr_cr: 'CR', amount: invoiceValue, group: 'Bank Accounts' }
+                : { ledger: `Creditors: ${req.body.vendor_name}`, dr_cr: 'CR', amount: invoiceValue, group: 'Sundry Creditors (Vendors)' },
+            ],
+          });
+          await drain().catch(() => {});
+          await query(
+            `UPDATE ${C.table} SET purchase_voucher_id = $2::uuid WHERE id = ANY($1::uuid[])`,
+            [created.map((r) => r.id), voucher.voucher_id]);
+        } catch (err) {
+          ledgerNote = err.message;
+        }
+      }
+
+      reply.code(201);
+      return {
+        created: created.length, [kind]: created,
+        stock_value: invoiceValue,
+        voucher_id: voucher?.voucher_id ?? null,
+        ledger_note: ledgerNote,
+      };
     });
 
     app.patch(`/${kind}/:id`, async (req, reply) => {
@@ -520,7 +575,46 @@ export async function registerAssetRoutes(app) {
           return { fitment: rows[0], status };
         });
         if (!out) return reply.code(409).send({ error: 'NOT_FITTED', detail: 'no live fitment to remove' });
-        return { removed: true, ...out };
+
+        // ── Consumption: the cost finally leaves stock and hits the P&L ──────
+        // Only when the component is actually GONE. A tyre sent for retreading
+        // or back to the shelf is still ours and still stock — posting it as an
+        // expense there would charge the P&L for something we still own, and
+        // charge it again when it is eventually scrapped.
+        let voucher = null;
+        let ledgerNote = null;
+        if (out.status === 'SCRAPPED' || out.status === 'WARRANTY_CLAIM') {
+          const { rows: [item] } = await query(
+            `SELECT serial_no, purchase_cost, consumption_voucher_id FROM ${C.table} WHERE id = $1::uuid`,
+            [req.params.id]);
+          const cost = money(item?.purchase_cost);
+          if (cost > 0 && !item.consumption_voucher_id) {
+            try {
+              voucher = await postVoucher({
+                type: 'JOURNAL',
+                entry_date: b.removal_date ?? new Date().toISOString().slice(0, 10),
+                narration: `${kind === 'tyres' ? 'Tyre' : 'Battery'} ${item.serial_no} consumed`
+                  + (b.removal_reason ? ` — ${b.removal_reason}` : ''),
+                source_type: kind === 'tyres' ? 'TYRE_CONSUMPTION' : 'BATTERY_CONSUMPTION',
+                ref_no: `${kind.toUpperCase()}-CONSUME-${item.serial_no}`,
+                created_by: b.created_by ?? null,
+                lines: [
+                  { ledger: STOCK[kind].expense, dr_cr: 'DR', amount: cost, group: CONSUMPTION_GROUP },
+                  { ledger: STOCK[kind].stock, dr_cr: 'CR', amount: cost, group: STOCK_GROUP },
+                ],
+              });
+              await drain().catch(() => {});
+              await query(`UPDATE ${C.table} SET consumption_voucher_id = $2::uuid WHERE id = $1::uuid`,
+                [req.params.id, voucher.voucher_id]);
+            } catch (err) { ledgerNote = err.message; }
+          }
+        }
+
+        return {
+          removed: true, ...out,
+          consumption_voucher_id: voucher?.voucher_id ?? null,
+          ledger_note: ledgerNote,
+        };
       } catch (err) { return pgErr(reply, err); }
     });
 

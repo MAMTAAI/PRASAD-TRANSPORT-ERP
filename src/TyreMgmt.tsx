@@ -1,29 +1,72 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, where } from 'firebase/firestore';
-import { db } from './firebase';
-const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
-const mastersFetch = async (path: string, opts?: RequestInit) => {
-  const res = await fetch(`${MASTERS_API}${path}`, opts);
+import { useState, useEffect } from 'react';
+import { extractJsonFromImage } from './lib/aiScanner';
+// 🛞 Tyre MANAGEMENT — inventory, fitment and consumption. Live PostgreSQL
+// (`tyres` + `tyre_fitments`, migrations 035 and 036).
+//
+// THE ACCOUNTING WAS WRONG TWICE OVER AND IS NOW DONE BY THE API.
+//
+// This screen used to keep its own LEDGERS row and write a ONE-SIDED Dr to
+// LEDGER_ENTRIES when a tyre was scrapped. PostgreSQL cannot store that —
+// ledger_entries carries a deferred SUM(Dr) = SUM(Cr) constraint per voucher —
+// and it double-counted anyway, because the purchase had already taken the full
+// invoice out as cash on the day it was bought.
+//
+// A tyre in the store is an ASSET. Migration 036 gives it one:
+//
+//   purchase     Dr Tyre Stock            Cr bank (cash) or the vendor
+//   fitting      nothing — still ours, just mounted on a truck
+//   scrapped     Dr Tyre Consumption Exp  Cr Tyre Stock
+//
+// so the cost reaches the P&L exactly once, on the day the tyre is actually
+// gone. A tyre sent for retreading is NOT consumed and posts nothing — it is
+// still ours. None of this is written from the browser any more.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const ASSETS = `${API}/api/v1/assets`;
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
   return json;
 };
+const postJson = (url: string, body: any) => fetchJson(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
 
-import { extractJsonFromImage } from './lib/aiScanner';
+// Restored, not invented: the Firestore import block this port deleted also
+// carried `mastersFetch`, and four call sites below kept calling it. An
+// undeclared identifier survives the bundler and throws ReferenceError the
+// moment the button is pressed — which is why "it builds" proved nothing.
+const mastersFetch = (path: string, opts?: RequestInit) => fetchJson(`${MASTERS}${path}`, opts);
 
-// 🌟 CRASH-PROOF SAFE DATE PARSER FOR OLD DATA
-const getSafeTime = (dateVal: any) => {
-  if (!dateVal) return 0;
-  if (typeof dateVal.toDate === 'function') return dateVal.toDate().getTime();
-  if (typeof dateVal === 'string' || typeof dateVal === 'number') {
-      const parsed = new Date(dateVal).getTime();
-      return isNaN(parsed) ? 0 : parsed;
-  }
-  return 0;
-};
+// The table columns are lowercase; the JSX below reads a mix of both spellings
+// already (getVal / `a.b || a.B` fallbacks), so rows are handed over with the
+// few Firestore-era aliases the screen depends on added back.
+const itemFromApi = (r: any) => ({
+  ...r,
+  // The table's vocabulary is IN_STOCK (035); this screen's JSX has always
+  // said "IN STOCK". Mapped here so neither side has to know about the other's
+  // punctuation — the API normalises whatever is sent back.
+  status: String(r.status || '').replace(/_/g, ' '),
+  cost: r.purchase_cost ?? 0,
+  vendor: r.vendor_name ?? '',
+  type: r.tyre_type ?? r.model ?? '',
+  vehicle_no: r.fitted_on ?? '',
+  position: r.fitted_position ?? '',
+});
+
+const fitmentFromApi = (f: any) => ({
+  ...f,
+  fitting_km: f.fitment_km ?? '',
+  status: f.removal_date ? 'REMOVED' : 'FITTED',
+  km_yield: (Number(f.removal_km) || 0) - (Number(f.fitment_km) || 0),
+});
+
 
 // 🌟 SMART AXLE GENERATOR
+
 const getAxlePositions = (config: string) => {
   const basePositions = [
     { id: 'FL', label: 'Front Axle - Left (Steering)' },
@@ -82,19 +125,6 @@ const getAxlePositions = (config: string) => {
 // 💰 P&L LINKAGE: scrapped/burst tyre ka poora accumulated cost (purchase +
 // resoles) is ledger me Dr hota hai — Company P&L me Direct Expenses ke andar
 // "Tyres & Maintenance" line ban kar dikhta hai (FinancialReports classifier).
-const TYRE_EXP_LEDGER_NAME = 'Tyre Consumption Expenses';
-const TYRE_EXP_GROUP = 'Direct Expenses (Tyres & Maintenance)';
-const ensureTyreExpenseLedger = async () => {
-  const snap = await getDocs(query(collection(db, 'LEDGERS'), where('ledger_name', '==', TYRE_EXP_LEDGER_NAME)));
-  if (!snap.empty) return snap.docs[0].id;
-  const ref = await addDoc(collection(db, 'LEDGERS'), {
-    name: TYRE_EXP_LEDGER_NAME, ledger_name: TYRE_EXP_LEDGER_NAME,
-    group: TYRE_EXP_GROUP, group_head: TYRE_EXP_GROUP,
-    op_balance: 0, company: 'ALL', branch: 'ALL', dr_cr: 'Dr (Debit)',
-    creation_type: 'AUTO_SYSTEM', linked_module: 'TYRE_EXPENSE', created_at: serverTimestamp(),
-  });
-  return ref.id;
-};
 
 export default function TyreMgmt() {
   const [activeTab, setActiveTab] = useState('INVENTORY');
@@ -102,6 +132,8 @@ export default function TyreMgmt() {
   const [fitments, setFitments] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
+  // Bank/cash accounts for a cash purchase — the ledger side of the invoice.
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   // MODALS
@@ -121,16 +153,16 @@ export default function TyreMgmt() {
   const [currentVehicleFitments, setCurrentVehicleFitments] = useState<any[]>([]);
   const [historySearch, setHistorySearch] = useState('');
 
-  const [purchaseData, setPurchaseData] = useState({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '' });
+  const [purchaseData, setPurchaseData] = useState({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '', pay_account: '' });
   const [currentTyre, setCurrentTyre] = useState({ brand: 'MRF', serial_no: '', type: 'NEW', gst_percent: '28', inv_amount: '' });
   const [tyreList, setTyreList] = useState<any[]>([]);
   const [dispatchData, setDispatchData] = useState({ vendor_name: '', dispatch_date: new Date().toISOString().split('T')[0], challan_no: '' });
   const [currentDispatchSerial, setCurrentDispatchSerial] = useState('');
   const [dispatchSerialList, setDispatchSerialList] = useState<string[]>([]);
-  const [resoleData, setResoleData] = useState({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled' });
+  const [resoleData, setResoleData] = useState({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled', pay_account: '' });
   const [fitmentData, setFitmentData] = useState({ vehicle_no: '', tyre_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
   // 🆕 Naye (stock me na milne wale) tyre ki procurement details — bina cost/vendor ke auto-add BLOCKED.
-  const [newTyreProc, setNewTyreProc] = useState({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28' });
+  const [newTyreProc, setNewTyreProc] = useState({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28', pay_account: '' });
   const [removeData, setRemoveData] = useState({ removal_km: '', removal_reason: 'SEND FOR RESOLE', removal_date: new Date().toISOString().split('T')[0] });
   const [newVendorData, setNewVendorData] = useState({ vendor_name: '', vendor_category: 'Tyre Shop / Factory', contact_person: '', mobile_no: '', gst_number: '', opening_balance: '0' });
 
@@ -143,26 +175,20 @@ export default function TyreMgmt() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap1 = await getDocs(collection(db, "VEHICLES")).catch(()=>({docs:[]}));
-      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(()=>({docs:[]}));
-      const allVehicles = [ ...vSnap1.docs.map(d => ({ id: d.id, ...d.data() })), ...vSnap2.docs.map(d => ({ id: d.id, ...d.data() })) ];
-      setVehicles(allVehicles);
-
-      const tSnap = await getDocs(collection(db, "TYRE_MASTER")).catch(()=>({docs:[]}));
-      // 🛡️ CRASH-PROOF SORTING
-      const fetchedTyres = tSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => getSafeTime(b.createdAt) - getSafeTime(a.createdAt));
-      setTyres(fetchedTyres);
-
-      const fSnap = await getDocs(collection(db, "TYRE_FITMENTS")).catch(()=>({docs:[]}));
-      // 🛡️ CRASH-PROOF SORTING
-      const fetchedFitments = fSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => getSafeTime(b.fitment_date) - getSafeTime(a.fitment_date));
-      setFitments(fetchedFitments);
-
-      const venSnap = await getDocs(collection(db, "VENDORS")).catch(()=>({docs:[]}));
-      setVendors(venSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { 
-      console.error("Fetch Data Error:", e); 
-      alert("⚠️ Network issue: Loading cached data."); 
+      const [vehRes, tyreRes, fitRes, venRes, accRes] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`).catch(() => ({ vehicles: [] })),
+        fetchJson(`${ASSETS}/tyres`).catch(() => ({ tyres: [] })),
+        fetchJson(`${ASSETS}/tyres/fitments`).catch(() => ({ fitments: [] })),
+        fetchJson(`${MASTERS}/vendors?limit=1000`).catch(() => ({ vendors: [] })),
+        fetchJson(`${FIN}/accounts`).catch(() => ({ accounts: [] })),
+      ]);
+      setVehicles(vehRes.vehicles ?? []);
+      setTyres((tyreRes.tyres ?? []).map(itemFromApi));
+      setFitments((fitRes.fitments ?? []).map(fitmentFromApi));
+      setVendors((venRes.vendors ?? []).map((v: any) => ({ ...v, current_balance: v.running_balance ?? v.current_balance ?? '0' })));
+      setAccounts(accRes.accounts ?? []);
+    } catch (e) {
+      console.error(e);
     }
     setLoading(false);
   };
@@ -213,19 +239,34 @@ export default function TyreMgmt() {
   };
 
   const handleEditTyreSave = async () => {
-      if(!editTyreData || !editTyreData.serial_no) return;
-      setLoading(true);
-      try {
-          await updateDoc(doc(db, "TYRE_MASTER", editTyreData.id), { brand: editTyreData.brand, type: editTyreData.type, cost: parseFloat(editTyreData.cost) || 0, status: editTyreData.status, updatedAt: serverTimestamp() });
-          alert("✅ Tyre Details Updated Successfully!"); setIsEditTyreModalOpen(false); fetchData();
-      } catch (e) { alert("❌ Error updating tyre."); }
-      setLoading(false);
+    if (!editTyreData) return;
+    setLoading(true);
+    try {
+      await fetchJson(`${ASSETS}/tyres/${editTyreData.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand: editTyreData.brand,
+          tyre_type: editTyreData.type,
+          purchase_cost: parseFloat(editTyreData.cost) || 0,
+          status: editTyreData.status,
+        }),
+      });
+      alert("\u2705 Tyre updated!");
+      setEditTyreData(null); fetchData();
+    } catch (error: any) { alert("\u274c Error updating tyre: " + (error?.message || '')); }
+    setLoading(false);
   };
 
   const handleDeleteTyre = async (id: string, serial: string) => {
-    if (window.confirm(`⚠️ Are you sure you want to permanently delete Tyre Serial No: ${serial}?`)) {
-      try { await deleteDoc(doc(db, "TYRE_MASTER", id)); fetchData(); } catch (error) { alert("❌ Error deleting tyre."); }
-    }
+    if (!window.confirm(`\u26a0\ufe0f Delete tyre ${serial}?`)) return;
+    // A tyre that was ever fitted has a history and an accounting trail; the
+    // API refuses rather than erasing it. Retire it by scrapping instead.
+    try {
+      await fetchJson(`${ASSETS}/tyres/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'SCRAPPED', removal_reason: 'Deleted from Tyre Management' }) });
+      alert("\u2705 Tyre marked SCRAPPED (record kept \u2014 uska kharcha aur history surakshit hai).");
+      fetchData();
+    } catch (error: any) { alert("\u274c Error: " + (error?.message || '')); }
   };
 
   const handleSaveVendor = async () => {
@@ -295,35 +336,47 @@ Empty string / 0 if absent.`;
   const handleRemoveTyreFromGrid = (index: number) => { setTyreList(tyreList.filter((_, i) => i !== index)); };
 
   const handleSavePurchase = async () => {
-    if (tyreList.length === 0) return alert("⚠️ Please add at least one tyre to the list.");
-    if (!purchaseData.vendor_name) return alert("⚠️ Vendor Name is required!");
+    if (!tyreList.length) return alert("\u26a0\ufe0f Pehle tyre add karein!");
+    if (!purchaseData.invoice_no) return alert("\u26a0\ufe0f Invoice number zaroori hai \u2014 wahi ledger reference banta hai.");
     setLoading(true);
     try {
-      // ⚛️ ATOMIC: saare tyres + Cash/Bank entry ek hi batch.commit me — aadha invoice kabhi save nahi hota.
-      const batch = writeBatch(db);
-      let totalInvoiceValue = 0;
-      for (const tyre of tyreList) {
-          totalInvoiceValue += parseFloat(tyre.inv_amount);
-          batch.set(doc(collection(db, "TYRE_MASTER")), {
-              serial_no: tyre.serial_no, brand: tyre.brand, type: tyre.type,
-              cost: parseFloat(tyre.inv_amount), base_cost: parseFloat(tyre.base_amount), gst_amount: parseFloat(tyre.gst_amount), gst_percent: tyre.gst_percent,
-              invoice_no: purchaseData.invoice_no, vendor: purchaseData.vendor_name, invoice_file_url: purchaseData.invoice_file_url, status: 'IN STOCK', total_km_run: 0, createdAt: serverTimestamp()
-          });
-      }
-      // 🏦 Udhaar => vendor khata Purchase (IN); cash => Payment (OUT) — pehle
-      // cash purchase par KOI entry nahi banti thi (Cash Book me hole tha).
-      const isCashPur = purchaseData.vendor_name === 'CASH PURCHASE';
-      batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
-          date: purchaseData.invoice_date, type: isCashPur ? 'Payment (OUT)' : 'Purchase (IN)', amount: totalInvoiceValue,
-          party_name: isCashPur ? 'CASH' : purchaseData.vendor_name, ref_no: purchaseData.invoice_no,
-          particulars: `Purchase of ${tyreList.length} Tyres (Brand: ${tyreList[0]?.brand}) | Inv: ${purchaseData.invoice_no}`,
-          company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
+      // The whole invoice is one call and one transaction: either every tyre
+      // lands or none does. A repeated serial rolls the lot back, which is what
+      // catches an invoice entered twice.
+      const isCash = purchaseData.vendor_name === 'CASH PURCHASE';
+      const j = await postJson(`${ASSETS}/tyres`, {
+        invoice_no: purchaseData.invoice_no,
+        vendor_name: isCash ? null : purchaseData.vendor_name,
+        account: isCash ? (purchaseData.pay_account || null) : null,
+        created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+        items: tyreList.map((t: any) => ({
+          serial_no: t.serial_no,
+          brand: t.brand,
+          tyre_type: t.type,
+          purchase_cost: parseFloat(t.inv_amount) || 0,
+          base_cost: parseFloat(t.base_amount) || 0,
+          gst_amount: parseFloat(t.gst_amount) || 0,
+          gst_percent: parseFloat(t.gst_percent) || 0,
+          invoice_no: purchaseData.invoice_no,
+          invoice_url: purchaseData.invoice_file_url || null,
+          purchase_date: purchaseData.invoice_date,
+          vendor_name: isCash ? 'CASH PURCHASE' : purchaseData.vendor_name,
+          status: 'IN_STOCK',
+        })),
       });
-      await batch.commit();
-      alert(`✅ Successfully Saved Invoice & Added ${tyreList.length} Tyres to Stock!\n(Total Amount: ₹${totalInvoiceValue.toLocaleString('en-IN')})`);
-      setIsTyreModalOpen(false); setPurchaseData({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '' }); 
+      alert(`\u2705 ${j.created} tyres stock me aa gaye (\u20b9${Number(j.stock_value).toLocaleString('en-IN')}).`
+        + (j.voucher_id
+          ? `\n\u{1f9fe} Dr Tyre Stock / Cr ${isCash ? (purchaseData.pay_account || 'account') : purchaseData.vendor_name}`
+          : `\n\n\u26a0\ufe0f Ledger me post nahi hua${j.ledger_note ? `: ${j.ledger_note}` : ' \u2014 vendor ya cash account chunein.'}`));
+      setIsTyreModalOpen(false);
+      setPurchaseData({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '', pay_account: '' });
       setTyreList([]); setInvoiceFile(null); fetchData();
-    } catch (e) { alert("❌ Error saving purchase data."); console.error(e); }
+    } catch (e: any) {
+      alert(e?.code === 'DUPLICATE'
+        ? "\u26a0\ufe0f In me se koi serial number pehle se stock me hai \u2014 poora invoice roka gaya (aadha kabhi save nahi hota)."
+        : "\u274c Error saving purchase: " + (e?.message || ''));
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -341,103 +394,121 @@ Empty string / 0 if absent.`;
   };
 
   const handleFitTyre = async () => {
-    if (!fitmentData.vehicle_no || !fitmentData.tyre_serial || !fitmentData.fitting_km) return alert("⚠️ Fill all fitment details (Vehicle, Tyre Serial, Fitting KM)!");
-    if (!fitmentData.position) return alert("⚠️ Tyre Position chunna zaroori hai — truck map par green slot click karein ya Position dropdown se select karein!");
-    const alreadyFitted = currentVehicleFitments.find(f => f.position === fitmentData.position);
-    if(alreadyFitted) return alert(`❌ Error: Tyre (${alreadyFitted.tyre_serial}) is already fitted on [${fitmentData.position}]! Please remove it first.`);
-    const cleanSerial = fitmentData.tyre_serial.toUpperCase().trim();
-    const tyre = tyres.find(t => String(t.serial_no || '').toUpperCase() === cleanSerial);
-    // 🛡️ PROCUREMENT GUARD: naya tyre bina Purchase Cost + Vendor ke inventory me
-    // NAHI ghusega — cost 0 wale ghost tyres P&L ko galat karte the.
-    if (!tyre) {
-      if (!parseFloat(newTyreProc.cost) || parseFloat(newTyreProc.cost) <= 0) return alert(`🆕 NEW TYRE DETECTED (${cleanSerial}):\n\n⚠️ Purchase Cost (₹) bharna zaroori hai — bina cost ke tyre accounting/P&L me nahi aa sakta!`);
-      if (!newTyreProc.vendor_name) return alert(`🆕 NEW TYRE DETECTED (${cleanSerial}):\n\n⚠️ Vendor/Ledger chunna zaroori hai (ya 💵 CASH PURCHASE select karein)!`);
-    } else if (tyre.status === 'FITTED') {
-      return alert(`❌ Error: Tyre ${cleanSerial} is already fitted on another vehicle!`);
-    } else if (tyre.status === 'SCRAPPED') {
-      return alert(`❌ Error: Tyre ${cleanSerial} is SCRAPPED — scrap tyre dobara fit nahi ho sakta!`);
+    const cleanSerial = String(fitmentData.tyre_serial || '').trim().toUpperCase();
+    if (!cleanSerial || !fitmentData.vehicle_no) return alert("⚠️ Tyre serial aur vehicle dono zaroori hain!");
+    // Restored with the port: a fitment without a position means nothing on the
+    // truck map, and one slot holds one tyre. The API's unique index guards
+    // the COMPONENT (it cannot be fitted twice) — it does not guard the SLOT.
+    if (!fitmentData.position) return alert("⚠️ Position chunna zaroori hai — truck map par green slot click karein ya dropdown se chunein!");
+    const occupied = currentVehicleFitments.find((f: any) => f.position === fitmentData.position);
+    if (occupied) return alert(`❌ Is position [${fitmentData.position}] par pehle se tyre ${occupied.tyre_serial} lagya hai — pehle usko utaarein.`);
+
+    const norm = (x: any) => String(x || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
+    let item = tyres.find((c: any) => norm(c.serial_no) === norm(cleanSerial));
+
+    // 🆕 Procurement at fitment time. The panel that collects cost and vendor for
+    // an unknown serial still renders, but the port left it wired to nothing —
+    // an operator could fill it in, press Fit, and be told only that the serial
+    // was not in stock, losing everything they had typed.
+    if (!item) {
+      const cost = parseFloat(newTyreProc.cost);
+      if (!cost || cost <= 0) return alert(`🆕 NAYA TYRE (${cleanSerial}):
+
+⚠️ Purchase Cost (₹) bharna zaroori hai — bina cost ke stock aur P&L dono galat ho jaate hain.`);
+      if (!newTyreProc.vendor_name) return alert(`🆕 NAYA TYRE (${cleanSerial}):
+
+⚠️ Vendor/Ledger chunein (ya 💵 CASH PURCHASE).`);
+      if (newTyreProc.vendor_name === 'CASH PURCHASE' && !newTyreProc.pay_account)
+        return alert("⚠️ Cash purchase ke liye account chunna zaroori hai — kis account se pay hua?");
     }
+
+    setLoading(true);
     try {
-      setLoading(true);
-      // ⚛️ ATOMIC LIFECYCLE WRITE: tyre status flip + fitment record (+ naye tyre
-      // ki purchase accounting) — sab ek hi batch.commit me, aadha data kabhi nahi.
-      const batch = writeBatch(db);
-      const fitKm = parseFloat(fitmentData.fitting_km) || 0;
-      if (!tyre) {
-          const cost = parseFloat(newTyreProc.cost);
-          const gstPct = parseFloat(newTyreProc.gst_percent) || 0;
-          const baseAmt = cost / (1 + (gstPct / 100));
-          const autoRef = `AUTO-FIT-${cleanSerial}`;
-          const tyreRef = doc(collection(db, "TYRE_MASTER"));
-          batch.set(tyreRef, {
-              serial_no: cleanSerial, brand: (newTyreProc.brand || 'UNKNOWN').toUpperCase(), type: newTyreProc.type,
-              cost, base_cost: Math.round(baseAmt * 100) / 100, gst_amount: Math.round((cost - baseAmt) * 100) / 100, gst_percent: newTyreProc.gst_percent,
-              vendor: newTyreProc.vendor_name, invoice_no: autoRef,
-              status: 'FITTED', total_km_run: 0, createdAt: serverTimestamp(),
-          });
-          // 🏦 Cash & Bank Book: cash purchase => Payment (OUT); udhaar => vendor khata Purchase (IN).
-          const isCash = newTyreProc.vendor_name === 'CASH PURCHASE';
-          batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
-              date: fitmentData.fitment_date, type: isCash ? 'Payment (OUT)' : 'Purchase (IN)', amount: cost,
-              party_name: isCash ? 'CASH' : newTyreProc.vendor_name, ref_no: autoRef,
-              particulars: `Tyre ${cleanSerial} purchase (auto-added during fitment on ${fitmentData.vehicle_no})`,
-              company: 'PRASAD TRANSPORT', createdAt: serverTimestamp(),
-          });
-      } else {
-          batch.update(doc(db, "TYRE_MASTER", tyre.id), { status: 'FITTED' });
+      if (!item) {
+        const cost = parseFloat(newTyreProc.cost);
+        const gstPct = parseFloat(newTyreProc.gst_percent) || 0;
+        const baseAmt = cost / (1 + gstPct / 100);
+        const isCashProc = newTyreProc.vendor_name === 'CASH PURCHASE';
+        const autoRef = `AUTO-FIT-${cleanSerial}`;
+        // Buy, then fit — two calls, not one transaction. Ordered so the failure
+        // mode is the harmless one: if the fit fails, the tyre is simply in
+        // stock, correctly costed and correctly posted, and can be fitted again.
+        // The reverse order would risk a fitment for something never bought.
+        const bought = await postJson(`${ASSETS}/tyres`, {
+          invoice_no: autoRef,
+          vendor_name: isCashProc ? null : newTyreProc.vendor_name,
+          account: isCashProc ? newTyreProc.pay_account : null,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+          items: [{
+            serial_no: cleanSerial,
+            brand: (newTyreProc.brand || 'UNKNOWN').toUpperCase(),
+            tyre_type: newTyreProc.type,
+            purchase_cost: cost,
+            base_cost: Math.round(baseAmt * 100) / 100,
+            gst_amount: Math.round((cost - baseAmt) * 100) / 100,
+            gst_percent: gstPct,
+            invoice_no: autoRef,
+            purchase_date: fitmentData.fitment_date || new Date().toISOString().split('T')[0],
+            vendor_name: isCashProc ? 'CASH PURCHASE' : newTyreProc.vendor_name,
+            status: 'IN_STOCK',
+          }],
+        });
+        item = (bought.tyres || [])[0];
+        if (!item) throw new Error('Stock me add nahi hua — fitment roka gaya.');
+        if (!bought.voucher_id) alert(`⚠️ Tyre stock me aa gaya par ledger me post nahi hua${bought.ledger_note ? `: ${bought.ledger_note}` : ''}`);
       }
-      batch.set(doc(collection(db, "TYRE_FITMENTS")), { ...fitmentData, tyre_serial: cleanSerial, fitting_km: fitKm, status: 'FITTED', createdAt: serverTimestamp() });
-      await batch.commit();
-      alert(!tyre
-        ? `✅ Tyre Fitted!\n\n🆕 New tyre ${cleanSerial} inventory me add hua @ ₹${parseFloat(newTyreProc.cost).toLocaleString('en-IN')}\n🏦 Accounting entry posted (${newTyreProc.vendor_name}).`
-        : "✅ Tyre Fitted Successfully!");
-      setIsFitmentModalOpen(false); setFitmentData({ vehicle_no: '', tyre_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
-      setNewTyreProc({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28' });
-      setAvailablePositions([]); setCurrentVehicleFitments([]); fetchData();
-    } catch (e) { console.error(e); alert("❌ Error fitting tyre."); setLoading(false); }
+
+      // Fitting posts NOTHING to the ledger: it was already an asset when it was
+      // bought and still is, just mounted on a truck now.
+      await postJson(`${ASSETS}/tyres/${item.id}/fit`, {
+        vehicle_no: fitmentData.vehicle_no,
+        position: fitmentData.position || null,
+        fitment_date: fitmentData.fitment_date || new Date().toISOString().split('T')[0],
+        fitment_km: parseFloat(fitmentData.fitting_km) || null,
+      });
+      alert("✅ Tyre fit ho gaya!");
+      setIsFitmentModalOpen(false);
+      setFitmentData({ vehicle_no: '', tyre_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
+      setNewTyreProc({ cost: '', vendor_name: '', brand: 'MRF', type: 'NEW', gst_percent: '28', pay_account: '' });
+      setAvailablePositions([]); setCurrentVehicleFitments([]);
+      fetchData();
+    } catch (e: any) {
+      const said: Record<string, string> = {
+        ALREADY_FITTED: 'Yeh tyre pehle se kisi vehicle par lagya hai — pehle utaarein.',
+        DUPLICATE: 'Yeh serial number pehle se stock me hai.',
+        UNKNOWN_VEHICLE: e?.message,
+      };
+      alert("❌ " + (said[e?.code] || e?.message || 'Fitment fail.'));
+    }
+    setLoading(false);
   };
-
   const handleRemoveTyre = async () => {
-    if (!removeData.removal_km) return alert("⚠️ Enter Removal KM!");
-    const fittingKm = parseFloat(selectedFitment.fitting_km || 0); const removalKm = parseFloat(removeData.removal_km || 0);
-    if (removalKm <= fittingKm) return alert(`❌ Invalid Entry: Removal KM (${removalKm}) must be strictly greater than Fitting KM (${fittingKm})!`);
-    const kmRunThisTime = removalKm - fittingKm;
-    const tyre = tyres.find(t => t.serial_no === selectedFitment.tyre_serial);
-    if (!tyre) return alert("❌ Tyre Master record missing!");
+    if (!selectedFitment) return;
+    const removalKm = parseFloat(removeData.removal_km) || 0;
+    setLoading(true);
     try {
-      setLoading(true);
-      const newTotalKm = (parseFloat(tyre.total_km_run) || 0) + kmRunThisTime;
-      // BURST bhi SCRAPPED hai — dono me tyre ki zindagi khatam, cost P&L me jaati hai.
-      const isConsumed = removeData.removal_reason === 'SCRAP/AUCTION' || removeData.removal_reason === 'BURST';
-      const newTyreStatus = isConsumed ? 'SCRAPPED' : removeData.removal_reason === 'SEND FOR RESOLE' ? 'SENT FOR RESOLE' : 'IN STOCK';
-
-      // 💸 Consumed tyre => poora accumulated cost (purchase + resoles) Direct
-      // Expense. Ledger id batch se pehle resolve hota hai; entry batch me jaati hai.
-      const consumedCost = parseFloat(tyre.cost || 0);
-      const expLedgerId = (isConsumed && consumedCost > 0) ? await ensureTyreExpenseLedger() : null;
-
-      // ⚛️ ATOMIC: fitment close + tyre status + expense entry — ek hi batch.commit.
-      const batch = writeBatch(db);
-      batch.update(doc(db, "TYRE_FITMENTS", selectedFitment.id), { ...removeData, removal_km: removalKm, status: 'REMOVED', km_yield: kmRunThisTime });
-      batch.update(doc(db, "TYRE_MASTER", tyre.id), { status: newTyreStatus, total_km_run: newTotalKm, ...(isConsumed ? { scrapped_on: removeData.removal_date, scrap_reason: removeData.removal_reason } : {}) });
-      if (expLedgerId) {
-          const vehNo = selectedFitment.vehicle_no || selectedFitment.vehical_no || '';
-          const cleanVeh = String(vehNo).replace(/[^A-Z0-9]/ig, '').toUpperCase();
-          const vObj = vehicles.find(v => String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVeh);
-          batch.set(doc(collection(db, "LEDGER_ENTRIES")), {
-              ledgerId: expLedgerId, date: removeData.removal_date,
-              particulars: `Tyre ${tyre.serial_no} consumed (${removeData.removal_reason}) — Vehicle ${vehNo} | Total Life: ${newTotalKm.toLocaleString('en-IN')} KM`,
-              dr_cr: 'Dr (Debit)', amount: consumedCost,
-              company: vObj?.company_name || vObj?.Company_Name || 'ALL', branch: vObj?.branch_name || vObj?.branch || 'ALL',
-              source: 'AUTO_TYRE_SCRAP', linked_tyre_id: tyre.id, created_at: serverTimestamp(),
-          });
-      }
-      await batch.commit();
-
-      alert(`✅ Tyre Removed Successfully!\n\n📏 KM Yield this fitment: ${kmRunThisTime.toLocaleString('en-IN')} KM${expLedgerId ? `\n💸 ₹${consumedCost.toLocaleString('en-IN')} posted to P&L — Direct Expenses ➜ ${TYRE_EXP_LEDGER_NAME}.` : ''}`);
-      setIsRemoveModalOpen(false); setRemoveData({ removal_km: '', removal_reason: 'SEND FOR RESOLE', removal_date: new Date().toISOString().split('T')[0] });
+      // The API decides whether this is consumption or not, and posts the
+      // journal only when the tyre is genuinely gone. Sent for resole = still
+      // ours = no expense; scrapped/burst = Dr Consumption / Cr Stock.
+      const j = await postJson(`${ASSETS}/tyres/${selectedFitment.tyre_id}/remove`, {
+        removal_km: removalKm || null,
+        removal_date: removeData.removal_date,
+        removal_reason: removeData.removal_reason,
+        created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+      });
+      alert(`\u2705 Tyre utar gaya \u2014 status: ${j.status}.`
+        + (j.consumption_voucher_id
+          ? `\n\u{1f4b8} Cost P&L me post ho gaya (Dr Tyre Consumption / Cr Tyre Stock).`
+          : `\n\u2139\ufe0f Abhi kharcha post nahi hua \u2014 tyre abhi bhi hamara stock hai.`)
+        + (j.ledger_note ? `\n\u26a0\ufe0f Ledger: ${j.ledger_note}` : ''));
+      setIsRemoveModalOpen(false);
+      setRemoveData({ removal_km: '', removal_reason: 'SEND FOR RESOLE', removal_date: new Date().toISOString().split('T')[0] });
       setSelectedFitment(null); fetchData();
-    } catch (e) { console.error(e); alert("❌ Error removing tyre."); setLoading(false); }
+    } catch (e: any) {
+      alert(e?.code === 'NOT_FITTED' ? "\u26a0\ufe0f Is tyre ka koi live fitment nahi hai." : "\u274c Error removing tyre: " + (e?.message || ''));
+      console.error(e);
+    }
+    setLoading(false);
   };
 
   const handleAddDispatchSerial = () => {
@@ -456,40 +527,65 @@ Empty string / 0 if absent.`;
       if (!dispatchData.vendor_name || !dispatchData.challan_no) return alert("⚠️ Factory Name and Challan No are required!");
       setLoading(true);
       try {
+          // Sending a tyre to the retreader does not change what it costs or
+          // who owns it, so nothing is posted — only its whereabouts change.
           for (const sno of dispatchSerialList) {
-              const tyre = tyres.find(t => t.serial_no === sno);
-              if (tyre) { await updateDoc(doc(db, "TYRE_MASTER", tyre.id), { status: 'AT FACTORY', dispatch_vendor: dispatchData.vendor_name, dispatch_date: dispatchData.dispatch_date, dispatch_challan: dispatchData.challan_no }); }
+              const tyre = tyres.find((t: any) => t.serial_no === sno);
+              if (!tyre) continue;
+              await fetchJson(`${ASSETS}/tyres/${tyre.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'RETREADING', removal_reason: `At ${dispatchData.vendor_name} (challan ${dispatchData.challan_no})` }),
+              });
           }
           alert(`✅ Dispatch Challan Created! ${dispatchSerialList.length} Tyres sent to ${dispatchData.vendor_name}.`);
           setIsDispatchResoleModalOpen(false); setDispatchData({ vendor_name: '', dispatch_date: new Date().toISOString().split('T')[0], challan_no: '' });
           setDispatchSerialList([]); fetchData();
-      } catch (e) { alert("❌ Error dispatching tyres."); }
+      } catch (e: any) { alert("❌ Error dispatching tyres: " + (e?.message || '')); }
       setLoading(false);
   };
 
   const handleReceiveResole = async () => {
       if (!resoleData.cost || !resoleData.invoice_no) return alert("⚠️ Resole Cost and Invoice No are required!");
+      // Refuse rather than guess. This used to fall back to 'Cash in Hand (HQ)'
+      // when no account was picked, which silently credited a ledger the money
+      // may never have left — the same assume-an-account defect the vendor and
+      // maintenance screens were corrected for.
+      if (resoleData.vendor_name === 'CASH PURCHASE' && !resoleData.pay_account && parseFloat(resoleData.cost) > 0)
+        return alert("⚠️ Cash resole bill ke liye account chunna zaroori hai — kis account se pay hua?");
       setLoading(true);
       try {
-          const resoleCost = parseFloat(resoleData.cost); const oldCost = parseFloat(selectedResoleTyre.cost || 0); const newTotalCost = oldCost + resoleCost;
-          // Modal me chuna vendor priority par — pehle yeh field ignore hota tha.
-          const factoryVendor = resoleData.vendor_name || selectedResoleTyre.dispatch_vendor || 'UNKNOWN FACTORY';
-          const gstPct = parseFloat(resoleData.gst_percent) || 0;
-          // ⚛️ ATOMIC: tyre wapas stock + Cash/Bank entry ek saath.
-          const batch = writeBatch(db);
-          batch.update(doc(db, "TYRE_MASTER", selectedResoleTyre.id), { status: 'RESOLED', type: 'RESOLED', cost: newTotalCost, last_resole_date: resoleData.invoice_date, last_resole_vendor: factoryVendor, dispatch_vendor: '', dispatch_challan: '' });
+          const resoleCost = parseFloat(resoleData.cost) || 0;
+          const oldCost = parseFloat(selectedResoleTyre.cost || 0);
+          const factoryVendor = resoleData.vendor_name || 'UNKNOWN FACTORY';
           const isCashResole = factoryVendor === 'CASH PURCHASE';
-          batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
-              date: resoleData.invoice_date, type: isCashResole ? 'Payment (OUT)' : 'Purchase (IN)', amount: resoleCost,
-              party_name: isCashResole ? 'CASH' : factoryVendor, ref_no: resoleData.invoice_no,
-              particulars: `Resole Charges for Serial: ${selectedResoleTyre.serial_no} | GST: ${gstPct}%`,
-              company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
+
+          // Retreading ADDS to what the tyre is worth — it is capitalised into
+          // stock, not expensed, for the same reason the original purchase was:
+          // the cost reaches the P&L when the tyre is finally consumed, once.
+          await fetchJson(`${ASSETS}/tyres/${selectedResoleTyre.id}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'IN_STOCK', tyre_type: 'RESOLED', purchase_cost: oldCost + resoleCost, removal_reason: null }),
           });
-          await batch.commit();
-          alert("✅ Tyre received from Factory, Added to Stock & Accounts Updated!");
+
+          if (resoleCost > 0) {
+            await postJson(`${FIN}/journal`, {
+              source_type: 'TYRE_RESOLE',
+              source_ref: `${resoleData.invoice_no}-${selectedResoleTyre.serial_no}`,
+              date: resoleData.invoice_date,
+              narration: `Resole charges — ${selectedResoleTyre.serial_no} @ ${factoryVendor}`,
+              lines: [
+                { ledger: 'Tyre Stock', dr_cr: 'Dr', amount: resoleCost, group: 'Stock-in-Hand (Asset)' },
+                isCashResole
+                  ? { ledger: resoleData.pay_account, dr_cr: 'Cr', amount: resoleCost, group: 'Cash-in-Hand' }
+                  : { ledger: `Creditors: ${factoryVendor}`, dr_cr: 'Cr', amount: resoleCost, group: 'Sundry Creditors (Vendors)' },
+              ],
+            }).catch((e: any) => alert(`⚠️ Tyre stock me wapas aa gaya, par ledger entry nahi hui: ${e?.message || ''}`));
+          }
+
+          alert("✅ Tyre received from Factory, stock value updated — resole cost stock me capitalise hua (P&L me tab aayega jab tyre scrap hoga).");
           setIsReceiveResoleModalOpen(false); setSelectedResoleTyre(null);
-          setResoleData({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled' }); fetchData();
-      } catch (e) { alert("❌ Error saving resole data."); }
+          setResoleData({ vendor_name: '', invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], cost: '', gst_percent: '18', remarks: 'Resoled', pay_account: '' }); fetchData();
+      } catch (e: any) { alert("❌ Error saving resole data: " + (e?.message || '')); }
       setLoading(false);
   };
 
@@ -879,11 +975,32 @@ Empty string / 0 if absent.`;
                 </div>
                 <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={purchaseData.vendor_name} onChange={e=>setPurchaseData({...purchaseData, vendor_name: e.target.value})}>
                    <option value="">-- Choose Vendor --</option>
-                   <option value="CASH PURCHASE">💵 CASH PURCHASE (No Ledger)</option>
+                   <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                    {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
                 </select>
               </div>
             </div>
+
+            {/* A cash purchase has no creditor, so the credit leg has to name an account.
+                These were fetched from /finance/accounts all along but never rendered,
+                which left pay_account permanently undefined — so every cash invoice
+                posted no ledger entry at all, and said nothing about it. */}
+            {purchaseData.vendor_name === 'CASH PURCHASE' && (
+              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash purchase kis account se hui? (ledger posting ke liye) *</label>
+                <select className="modern-input" value={purchaseData.pay_account} onChange={e => setPurchaseData({ ...purchaseData, pay_account: e.target.value })}>
+                  <option value="">— Account chunein —</option>
+                  {accounts.map((a: any) => (
+                    <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
+                  ))}
+                </select>
+                <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                  {purchaseData.pay_account
+                    ? <>Posts <b style={{ color: '#f87171' }}>Dr Tyre Stock</b> / <b style={{ color: '#34d399' }}>Cr {purchaseData.pay_account}</b></>
+                    : 'Account chune bina ledger me entry nahi hogi.'}
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: '20px' }}>
                <label style={{ fontSize:'14px', color:'#c084fc', fontWeight:'bold', display:'block', marginBottom:'10px' }}>🛒 Add Tyres to Invoice (Line Items)</label>
@@ -1061,10 +1178,31 @@ Empty string / 0 if absent.`;
                 </div>
                 <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={resoleData.vendor_name} onChange={e=>setResoleData({...resoleData, vendor_name: e.target.value})}>
                    <option value="">-- Choose Vendor --</option>
-                   <option value="CASH PURCHASE">💵 CASH BILL (No Ledger)</option>
+                   <option value="CASH PURCHASE">💵 CASH BILL (account chunein)</option>
                    {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
                 </select>
               </div>
+
+              {/* A cash purchase has no creditor, so the credit leg has to name an account.
+                  These were fetched from /finance/accounts all along but never rendered,
+                  which left pay_account permanently undefined — so every cash invoice
+                  posted no ledger entry at all, and said nothing about it. */}
+              {resoleData.vendor_name === 'CASH PURCHASE' && (
+                <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                  <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Resole bill kis account se pay hua? (ledger posting ke liye) *</label>
+                  <select className="modern-input" value={resoleData.pay_account} onChange={e => setResoleData({ ...resoleData, pay_account: e.target.value })}>
+                    <option value="">— Account chunein —</option>
+                    {accounts.map((a: any) => (
+                      <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
+                    ))}
+                  </select>
+                  <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                    {resoleData.pay_account
+                      ? <>Posts <b style={{ color: '#f87171' }}>Dr Tyre Stock</b> / <b style={{ color: '#34d399' }}>Cr {resoleData.pay_account}</b></>
+                      : 'Account chune bina ledger me entry nahi hogi.'}
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                 <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Factory Invoice No *</label><input className="modern-input" value={resoleData.invoice_no} onChange={e=>setResoleData({...resoleData, invoice_no: e.target.value.toUpperCase()})} /></div>
@@ -1276,9 +1414,31 @@ Empty string / 0 if absent.`;
                       </div>
                       <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={newTyreProc.vendor_name} onChange={e => setNewTyreProc({ ...newTyreProc, vendor_name: e.target.value })}>
                         <option value="">-- Choose Vendor * --</option>
-                        <option value="CASH PURCHASE">💵 CASH PURCHASE (No Ledger)</option>
+                        <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                         {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
                       </select>
+                    </div>
+                    <div>
+                      {/* A cash purchase has no creditor, so the credit leg has to name an account.
+                          These were fetched from /finance/accounts all along but never rendered,
+                          which left pay_account permanently undefined — so every cash invoice
+                          posted no ledger entry at all, and said nothing about it. */}
+                      {newTyreProc.vendor_name === 'CASH PURCHASE' && (
+                        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                          <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash se kis account se li? (ledger posting ke liye) *</label>
+                          <select className="modern-input" value={newTyreProc.pay_account} onChange={e => setNewTyreProc({ ...newTyreProc, pay_account: e.target.value })}>
+                            <option value="">— Account chunein —</option>
+                            {accounts.map((a: any) => (
+                              <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
+                            ))}
+                          </select>
+                          <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                            {newTyreProc.pay_account
+                              ? <>Posts <b style={{ color: '#f87171' }}>Dr Tyre Stock</b> / <b style={{ color: '#34d399' }}>Cr {newTyreProc.pay_account}</b></>
+                              : 'Account chune bina ledger me entry nahi hogi.'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Brand / Make</label>

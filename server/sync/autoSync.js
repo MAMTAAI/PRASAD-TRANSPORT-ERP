@@ -39,6 +39,9 @@ const SYNC_TABLES = [
 const APPEND_ONLY = new Set(['ledger_entries', 'okf_ltm', 'trip_gps_pings']);
 // Tables whose primary key is not 'id' (tally_sync keys on the source string).
 const KEY_COLUMN = { tally_sync: 'source' };
+// Columns backed by a sequence. Everything else in this system keys on a uuid,
+// which needs no re-alignment because the value is generated, not counted.
+const SERIAL_COLS = { ledger_entries: ['id'] };
 const BATCH = Number.parseInt(process.env.SYNC_BATCH ?? '500', 10);
 
 let remotePool = null;
@@ -141,6 +144,25 @@ async function pushTable(remote, table) {
         );
       }
     }
+
+    // ── Re-align the remote sequence ──────────────────────────────────────────
+    // Rows travel WITH their id, which means an identity/serial sequence on the
+    // remote never advances: it stays wherever it was while the table fills up
+    // past it. The next locally-originated INSERT there then collides on the
+    // primary key, and keeps colliding once per row until it catches up.
+    //
+    // This bit AWS for real — ledger_entries_id_seq sat at 1789 while the table
+    // had reached 1872, so the next 83 vouchers posted on production would each
+    // have failed with a duplicate-key error. setval after every push keeps the
+    // sequence at least at max(id), which is exactly what serial expects.
+    for (const col of SERIAL_COLS[table] ?? []) {
+      await client.query(
+        `SELECT setval(pg_get_serial_sequence($1, $2),
+                       GREATEST((SELECT COALESCE(MAX(${col}), 0) FROM ${table}), 1))`,
+        [table, col]
+      ).catch(() => {});
+    }
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

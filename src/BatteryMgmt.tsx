@@ -1,30 +1,74 @@
-// @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, where } from 'firebase/firestore';
-import { db } from './firebase';
-const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
-const mastersFetch = async (path: string, opts?: RequestInit) => {
-  const res = await fetch(`${MASTERS_API}${path}`, opts);
+import { useState, useEffect } from 'react';
+import { extractJsonFromImage } from './lib/aiScanner';
+// 🔋 Battery MANAGEMENT — inventory, fitment and consumption. Live PostgreSQL
+// (`batteries` + `batterie_fitments`, migrations 035 and 036).
+//
+// THE ACCOUNTING WAS WRONG TWICE OVER AND IS NOW DONE BY THE API.
+//
+// This screen used to keep its own LEDGERS row and write a ONE-SIDED Dr to
+// LEDGER_ENTRIES when a battery was scrapped. PostgreSQL cannot store that —
+// ledger_entries carries a deferred SUM(Dr) = SUM(Cr) constraint per voucher —
+// and it double-counted anyway, because the purchase had already taken the full
+// invoice out as cash on the day it was bought.
+//
+// A battery in the store is an ASSET. Migration 036 gives it one:
+//
+//   purchase     Dr Battery Stock            Cr bank (cash) or the vendor
+//   fitting      nothing — still ours, just mounted on a truck
+//   scrapped     Dr Battery Consumption Exp  Cr Battery Stock
+//
+// so the cost reaches the P&L exactly once, on the day the battery is actually
+// gone. A battery sent for a warranty claim is NOT consumed and posts nothing — it is
+// still ours. None of this is written from the browser any more.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const ASSETS = `${API}/api/v1/assets`;
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
   return json;
 };
+const postJson = (url: string, body: any) => fetchJson(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
 
-import { extractJsonFromImage } from './lib/aiScanner';
+// Restored, not invented: the Firestore import block this port deleted also
+// carried `mastersFetch`, and four call sites below kept calling it. An
+// undeclared identifier survives the bundler and throws ReferenceError the
+// moment the button is pressed — which is why "it builds" proved nothing.
+const mastersFetch = (path: string, opts?: RequestInit) => fetchJson(`${MASTERS}${path}`, opts);
 
-// 🌟 CRASH-PROOF SAFE DATE PARSER FOR OLD DATA
-const getSafeTime = (dateVal: any) => {
-  if (!dateVal) return 0;
-  if (typeof dateVal.toDate === 'function') return dateVal.toDate().getTime();
-  if (typeof dateVal === 'string' || typeof dateVal === 'number') {
-      const parsed = new Date(dateVal).getTime();
-      return isNaN(parsed) ? 0 : parsed;
-  }
-  return 0;
-};
+// The table columns are lowercase; the JSX below reads a mix of both spellings
+// already (getVal / `a.b || a.B` fallbacks), so rows are handed over with the
+// few Firestore-era aliases the screen depends on added back.
+const itemFromApi = (r: any) => ({
+  ...r,
+  // The table's vocabulary is IN_STOCK (035); this screen's JSX has always said
+  // "IN STOCK". Mapped here so neither side needs to know the other's
+  // punctuation — the API normalises whatever is sent back.
+  status: String(r.status || '').replace(/_/g, ' '),
+  make: r.brand ?? '',
+  cost: r.purchase_cost ?? 0,
+  vendor: r.vendor_name ?? '',
+  type: r.tyre_type ?? r.model ?? '',
+  vehicle_no: r.fitted_on ?? '',
+  position: r.fitted_position ?? '',
+});
+
+const fitmentFromApi = (f: any) => ({
+  ...f,
+  fitting_km: f.fitment_km ?? '',
+  status: f.removal_date ? 'REMOVED' : 'FITTED',
+  km_yield: (Number(f.removal_km) || 0) - (Number(f.fitment_km) || 0),
+});
+
 
 // 🔋 BATTERY FITMENT POSITIONS — commercial trucks mostly run dual 12V in the
 // battery box, plus optional main/aux banks. Fixed, closed list (no axle math).
+
 const BATTERY_POSITIONS = [
   { id: 'BOX_LEFT', label: 'Box - Left' },
   { id: 'BOX_RIGHT', label: 'Box - Right' },
@@ -34,6 +78,7 @@ const BATTERY_POSITIONS = [
 
 // 🛡️ WARRANTY ENGINE — purchase_date + warranty_months se live status nikaalta
 // hai. UI me 🟢 Active - N Months left / 🔴 Expired dikhta hai.
+
 const getWarrantyStatus = (purchaseDate: any, warrantyMonths: any) => {
   const months = parseInt(warrantyMonths);
   if (!purchaseDate || !months) return { active: false, label: '⚪ N/A', color: '#94a3b8', monthsLeft: 0, expiryStr: '-' };
@@ -62,19 +107,6 @@ const getWarrantyStatus = (purchaseDate: any, warrantyMonths: any) => {
 // Company P&L me Direct Expenses ke andar "Batteries & Maintenance" line ban
 // kar dikhta hai (FinancialReports classifier). Warranty-claimed batteries me
 // cost recover ho jaata hai isliye unka expense post NAHI hota.
-const BATTERY_EXP_LEDGER_NAME = 'Battery Consumption Expenses';
-const BATTERY_EXP_GROUP = 'Direct Expenses (Batteries & Maintenance)';
-const ensureBatteryExpenseLedger = async () => {
-  const snap = await getDocs(query(collection(db, 'LEDGERS'), where('ledger_name', '==', BATTERY_EXP_LEDGER_NAME)));
-  if (!snap.empty) return snap.docs[0].id;
-  const ref = await addDoc(collection(db, 'LEDGERS'), {
-    name: BATTERY_EXP_LEDGER_NAME, ledger_name: BATTERY_EXP_LEDGER_NAME,
-    group: BATTERY_EXP_GROUP, group_head: BATTERY_EXP_GROUP,
-    op_balance: 0, company: 'ALL', branch: 'ALL', dr_cr: 'Dr (Debit)',
-    creation_type: 'AUTO_SYSTEM', linked_module: 'BATTERY_EXPENSE', created_at: serverTimestamp(),
-  });
-  return ref.id;
-};
 
 export default function BatteryMgmt() {
   const [activeTab, setActiveTab] = useState('FITMENTS');
@@ -95,12 +127,14 @@ export default function BatteryMgmt() {
 
   const [selectedClaimBattery, setSelectedClaimBattery] = useState<any>(null);
   const [selectedFitment, setSelectedFitment] = useState<any>(null);
+  // Bank/cash accounts for a cash purchase — the ledger side of the invoice.
+  const [accounts, setAccounts] = useState<any[]>([]);
   const [editData, setEditData] = useState<any>(null);
 
   const [currentVehicleFitments, setCurrentVehicleFitments] = useState<any[]>([]);
   const [historySearch, setHistorySearch] = useState('');
 
-  const [purchaseData, setPurchaseData] = useState({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '' });
+  const [purchaseData, setPurchaseData] = useState({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '', pay_account: '' });
   const [currentBattery, setCurrentBattery] = useState({ make: 'EXIDE', serial_no: '', capacity_ah: '150', warranty_months: '24', gst_percent: '28', inv_amount: '' });
   const [batteryList, setBatteryList] = useState<any[]>([]);
   const [dispatchData, setDispatchData] = useState({ claim_company: '', dispatch_date: new Date().toISOString().split('T')[0], claim_ref: '' });
@@ -109,7 +143,7 @@ export default function BatteryMgmt() {
   const [claimData, setClaimData] = useState({ outcome: 'REPAIRED', resolution_date: new Date().toISOString().split('T')[0], replacement_serial: '', remarks: '' });
   const [fitmentData, setFitmentData] = useState({ vehicle_no: '', battery_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
   // 🆕 Naye (stock me na milne wale) battery ki procurement details — bina cost/vendor ke auto-add BLOCKED.
-  const [newBatteryProc, setNewBatteryProc] = useState({ cost: '', vendor_name: '', make: 'EXIDE', capacity_ah: '150', warranty_months: '24', purchase_date: new Date().toISOString().split('T')[0], gst_percent: '28' });
+  const [newBatteryProc, setNewBatteryProc] = useState({ cost: '', vendor_name: '', make: 'EXIDE', capacity_ah: '150', warranty_months: '24', purchase_date: new Date().toISOString().split('T')[0], gst_percent: '28', pay_account: '' });
   const [removeData, setRemoveData] = useState({ removal_km: '', removal_reason: 'WARRANTY CLAIM', removal_date: new Date().toISOString().split('T')[0] });
   const [newVendorData, setNewVendorData] = useState({ vendor_name: '', vendor_category: 'Battery Shop / Dealer', contact_person: '', mobile_no: '', gst_number: '', opening_balance: '0' });
 
@@ -122,27 +156,19 @@ export default function BatteryMgmt() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap1 = await getDocs(collection(db, "VEHICLES")).catch(()=>({docs:[]}));
-      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(()=>({docs:[]}));
-      const allVehicles = [ ...vSnap1.docs.map(d => ({ id: d.id, ...d.data() })), ...vSnap2.docs.map(d => ({ id: d.id, ...d.data() })) ];
-      setVehicles(allVehicles);
-
-      const bSnap = await getDocs(collection(db, "BATTERY_MASTER")).catch(()=>({docs:[]}));
-      // 🛡️ CRASH-PROOF SORTING
-      const fetchedBatteries = bSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => getSafeTime(b.createdAt) - getSafeTime(a.createdAt));
-      setBatteries(fetchedBatteries);
-
-      const fSnap = await getDocs(collection(db, "BATTERY_FITMENTS")).catch(()=>({docs:[]}));
-      // 🛡️ CRASH-PROOF SORTING
-      const fetchedFitments = fSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => getSafeTime(b.fitment_date) - getSafeTime(a.fitment_date));
-      setFitments(fetchedFitments);
-
-      const venSnap = await getDocs(collection(db, "VENDORS")).catch(()=>({docs:[]}));
-      setVendors(venSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      console.error("Fetch Data Error:", e);
-      alert("⚠️ Network issue: Loading cached data.");
-    }
+      const [vehRes, batRes, fitRes, venRes, accRes] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`).catch(() => ({ vehicles: [] })),
+        fetchJson(`${ASSETS}/batteries`).catch(() => ({ batteries: [] })),
+        fetchJson(`${ASSETS}/batteries/fitments`).catch(() => ({ fitments: [] })),
+        fetchJson(`${MASTERS}/vendors?limit=1000`).catch(() => ({ vendors: [] })),
+        fetchJson(`${FIN}/accounts`).catch(() => ({ accounts: [] })),
+      ]);
+      setVehicles(vehRes.vehicles ?? []);
+      setBatteries((batRes.batteries ?? []).map(itemFromApi));
+      setFitments((fitRes.fitments ?? []).map(fitmentFromApi));
+      setVendors((venRes.vendors ?? []).map((v: any) => ({ ...v, current_balance: v.running_balance ?? v.current_balance ?? '0' })));
+      setAccounts(accRes.accounts ?? []);
+    } catch (e) { console.error(e); }
     setLoading(false);
   };
 
@@ -192,22 +218,37 @@ export default function BatteryMgmt() {
   };
 
   const handleEditSave = async () => {
-      if(!editData || !editData.serial_no) return;
-      setLoading(true);
-      try {
-          await updateDoc(doc(db, "BATTERY_MASTER", editData.id), {
-            make: editData.make, capacity_ah: editData.capacity_ah, cost: parseFloat(editData.cost) || 0,
-            warranty_months: editData.warranty_months, purchase_date: editData.purchase_date, status: editData.status, updatedAt: serverTimestamp()
-          });
-          alert("✅ Battery Details Updated Successfully!"); setIsEditModalOpen(false); fetchData();
-      } catch (e) { alert("❌ Error updating battery."); }
-      setLoading(false);
+    if (!editData) return;
+    setLoading(true);
+    try {
+      await fetchJson(`${ASSETS}/batteries/${editData.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brand: editData.make ?? editData.brand,
+          capacity_ah: parseFloat(editData.capacity_ah) || null,
+          warranty_months: parseInt(editData.warranty_months) || null,
+          purchase_cost: parseFloat(editData.cost) || 0,
+          status: editData.status,
+        }),
+      });
+      alert("\u2705 Battery updated!");
+      setEditData(null); fetchData();
+    } catch (error: any) { alert("\u274c Error updating battery: " + (error?.message || '')); }
+    setLoading(false);
   };
 
   const handleDelete = async (id: string, serial: string) => {
-    if (window.confirm(`⚠️ Are you sure you want to permanently delete Battery Serial No: ${serial}?`)) {
-      try { await deleteDoc(doc(db, "BATTERY_MASTER", id)); fetchData(); } catch (error) { alert("❌ Error deleting battery."); }
-    }
+    if (!window.confirm(`\u26a0\ufe0f Delete battery ${serial}?`)) return;
+    // A battery with a history is not erased — it is scrapped, so its cost and
+    // its fitment record stay auditable.
+    try {
+      await fetchJson(`${ASSETS}/batteries/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'SCRAPPED', removal_reason: 'Deleted from Battery Management' }),
+      });
+      alert("\u2705 Battery marked SCRAPPED (record kept).");
+      fetchData();
+    } catch (error: any) { alert("\u274c Error: " + (error?.message || '')); }
   };
 
   const handleSaveVendor = async () => {
@@ -276,35 +317,49 @@ Empty string / 0 if absent.`;
   const handleRemoveBatteryFromGrid = (index: number) => { setBatteryList(batteryList.filter((_, i) => i !== index)); };
 
   const handleSavePurchase = async () => {
-    if (batteryList.length === 0) return alert("⚠️ Please add at least one battery to the list.");
-    if (!purchaseData.vendor_name) return alert("⚠️ Vendor Name is required!");
+    if (batteryList.length === 0) return alert("\u26a0\ufe0f Please add at least one battery to the list.");
+    if (!purchaseData.vendor_name) return alert("\u26a0\ufe0f Vendor Name is required!");
+    if (!purchaseData.invoice_no) return alert("\u26a0\ufe0f Invoice number zaroori hai \u2014 wahi ledger reference banta hai.");
     setLoading(true);
     try {
-      // ⚛️ ATOMIC: saare batteries + Cash/Bank entry ek hi batch.commit me — aadha invoice kabhi save nahi hota.
-      const batch = writeBatch(db);
-      let totalInvoiceValue = 0;
-      for (const bat of batteryList) {
-          totalInvoiceValue += parseFloat(bat.inv_amount);
-          batch.set(doc(collection(db, "BATTERY_MASTER")), {
-              serial_no: bat.serial_no, make: bat.make, capacity_ah: bat.capacity_ah, warranty_months: bat.warranty_months,
-              cost: parseFloat(bat.inv_amount), base_cost: parseFloat(bat.base_amount), gst_amount: parseFloat(bat.gst_amount), gst_percent: bat.gst_percent,
-              purchase_date: purchaseData.invoice_date, invoice_no: purchaseData.invoice_no, vendor: purchaseData.vendor_name,
-              invoice_file_url: purchaseData.invoice_file_url, status: 'IN STOCK', total_km_run: 0, createdAt: serverTimestamp()
-          });
-      }
-      // 🏦 Udhaar => vendor khata Purchase (IN); cash => Payment (OUT).
-      const isCashPur = purchaseData.vendor_name === 'CASH PURCHASE';
-      batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
-          date: purchaseData.invoice_date, type: isCashPur ? 'Payment (OUT)' : 'Purchase (IN)', amount: totalInvoiceValue,
-          party_name: isCashPur ? 'CASH' : purchaseData.vendor_name, ref_no: purchaseData.invoice_no,
-          particulars: `Purchase of ${batteryList.length} Batteries (Make: ${batteryList[0]?.make}) | Inv: ${purchaseData.invoice_no}`,
-          company: 'PRASAD TRANSPORT', createdAt: serverTimestamp()
+      // One call, one transaction: either every battery on the invoice lands or
+      // none does. A repeated serial rolls the lot back, which is what catches
+      // an invoice entered twice.
+      const isCash = purchaseData.vendor_name === 'CASH PURCHASE';
+      const j = await postJson(`${ASSETS}/batteries`, {
+        invoice_no: purchaseData.invoice_no,
+        vendor_name: isCash ? null : purchaseData.vendor_name,
+        account: isCash ? (purchaseData.pay_account || null) : null,
+        created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+        items: batteryList.map((b: any) => ({
+          serial_no: b.serial_no,
+          brand: b.make,
+          capacity_ah: parseFloat(b.capacity_ah) || null,
+          warranty_months: parseInt(b.warranty_months) || null,
+          purchase_cost: parseFloat(b.inv_amount) || 0,
+          base_cost: parseFloat(b.base_amount) || 0,
+          gst_amount: parseFloat(b.gst_amount) || 0,
+          gst_percent: parseFloat(b.gst_percent) || 0,
+          invoice_no: purchaseData.invoice_no,
+          invoice_url: purchaseData.invoice_file_url || null,
+          purchase_date: purchaseData.invoice_date,
+          vendor_name: isCash ? 'CASH PURCHASE' : purchaseData.vendor_name,
+          status: 'IN_STOCK',
+        })),
       });
-      await batch.commit();
-      alert(`✅ Successfully Saved Invoice & Added ${batteryList.length} Batteries to Stock!\n(Total Amount: ₹${totalInvoiceValue.toLocaleString('en-IN')})`);
-      setIsPurchaseModalOpen(false); setPurchaseData({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '' });
-      setBatteryList([]); setInvoiceFile(null); fetchData();
-    } catch (e) { alert("❌ Error saving purchase data."); console.error(e); }
+      alert(`\u2705 ${j.created} batteries stock me aa gayi (\u20b9${Number(j.stock_value).toLocaleString('en-IN')}).`
+        + (j.voucher_id
+          ? `\n\u{1f9fe} Dr Battery Stock / Cr ${isCash ? (purchaseData.pay_account || 'account') : purchaseData.vendor_name}`
+          : `\n\n\u26a0\ufe0f Ledger me post nahi hua${j.ledger_note ? `: ${j.ledger_note}` : '.'}`));
+      setIsPurchaseModalOpen(false);
+      setPurchaseData({ invoice_no: '', invoice_date: new Date().toISOString().split('T')[0], vendor_name: '', invoice_file_url: '', pay_account: '' });
+      setBatteryList([]); fetchData();
+    } catch (e: any) {
+      alert(e?.code === 'DUPLICATE'
+        ? "\u26a0\ufe0f In me se koi serial pehle se stock me hai \u2014 poora invoice roka gaya."
+        : "\u274c Error saving purchase: " + (e?.message || ''));
+      console.error(e);
+    }
     setLoading(false);
   };
 
@@ -319,122 +374,116 @@ Empty string / 0 if absent.`;
   };
 
   const handleFitBattery = async () => {
-    if (!fitmentData.vehicle_no || !fitmentData.battery_serial || !fitmentData.fitting_km) return alert("⚠️ Fill all fitment details (Vehicle, Battery Serial, Fitting KM)!");
-    if (!fitmentData.position) return alert("⚠️ Battery Position chunna zaroori hai — Position dropdown se select karein!");
-    const alreadyFitted = currentVehicleFitments.find(f => f.position === fitmentData.position);
-    if(alreadyFitted) return alert(`❌ Error: Battery (${alreadyFitted.battery_serial}) is already fitted on [${fitmentData.position}]! Please remove it first.`);
-    const cleanSerial = fitmentData.battery_serial.toUpperCase().trim();
-    const bat = batteries.find(b => String(b.serial_no || '').toUpperCase() === cleanSerial);
-    // 🛡️ PROCUREMENT GUARD: naya battery bina Purchase Cost + Vendor ke inventory
-    // me NAHI ghusega — cost 0 wale ghost assets P&L ko galat karte the.
-    if (!bat) {
-      if (!parseFloat(newBatteryProc.cost) || parseFloat(newBatteryProc.cost) <= 0) return alert(`🆕 NEW BATTERY DETECTED (${cleanSerial}):\n\n⚠️ Purchase Cost (₹) bharna zaroori hai — bina cost ke battery accounting/P&L me nahi aa sakta!`);
-      if (!newBatteryProc.vendor_name) return alert(`🆕 NEW BATTERY DETECTED (${cleanSerial}):\n\n⚠️ Vendor/Ledger chunna zaroori hai (ya 💵 CASH PURCHASE select karein)!`);
-    } else if (bat.status === 'FITTED') {
-      return alert(`❌ Error: Battery ${cleanSerial} is already fitted on another vehicle!`);
-    } else if (bat.status === 'SCRAP') {
-      return alert(`❌ Error: Battery ${cleanSerial} is SCRAPPED — scrap battery dobara fit nahi ho sakta!`);
-    } else if (bat.status === 'WARRANTY CLAIM') {
-      return alert(`❌ Error: Battery ${cleanSerial} warranty claim par gaya hua hai — pehle Warranty tab se receive karein!`);
+    const cleanSerial = String(fitmentData.battery_serial || '').trim().toUpperCase();
+    if (!cleanSerial || !fitmentData.vehicle_no) return alert("⚠️ Battery serial aur vehicle dono zaroori hain!");
+    // Restored with the port: a fitment without a position means nothing on the
+    // truck map, and one slot holds one battery. The API's unique index guards
+    // the COMPONENT (it cannot be fitted twice) — it does not guard the SLOT.
+    if (!fitmentData.position) return alert("⚠️ Position chunna zaroori hai — truck map par green slot click karein ya dropdown se chunein!");
+    const occupied = currentVehicleFitments.find((f: any) => f.position === fitmentData.position);
+    if (occupied) return alert(`❌ Is position [${fitmentData.position}] par pehle se battery ${occupied.battery_serial} lagyi hai — pehle usko utaarein.`);
+
+    const norm = (x: any) => String(x || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
+    let item = batteries.find((c: any) => norm(c.serial_no) === norm(cleanSerial));
+
+    // 🆕 Procurement at fitment time. The panel that collects cost and vendor for
+    // an unknown serial still renders, but the port left it wired to nothing —
+    // an operator could fill it in, press Fit, and be told only that the serial
+    // was not in stock, losing everything they had typed.
+    if (!item) {
+      const cost = parseFloat(newBatteryProc.cost);
+      if (!cost || cost <= 0) return alert(`🆕 NAYA BATTERY (${cleanSerial}):
+
+⚠️ Purchase Cost (₹) bharna zaroori hai — bina cost ke stock aur P&L dono galat ho jaate hain.`);
+      if (!newBatteryProc.vendor_name) return alert(`🆕 NAYA BATTERY (${cleanSerial}):
+
+⚠️ Vendor/Ledger chunein (ya 💵 CASH PURCHASE).`);
+      if (newBatteryProc.vendor_name === 'CASH PURCHASE' && !newBatteryProc.pay_account)
+        return alert("⚠️ Cash purchase ke liye account chunna zaroori hai — kis account se pay hua?");
     }
+
+    setLoading(true);
     try {
-      setLoading(true);
-      // ⚛️ ATOMIC LIFECYCLE WRITE: battery status flip + fitment record (+ naye
-      // battery ki purchase accounting) — sab ek hi batch.commit me.
-      const batch = writeBatch(db);
-      const fitKm = parseFloat(fitmentData.fitting_km) || 0;
-      // Warranty display ke liye master fields fitment me denormalize karte hain.
-      let make = '', capacity_ah = '', warranty_months = '', purchase_date = '', batteryId = '';
-      if (!bat) {
-          const cost = parseFloat(newBatteryProc.cost);
-          const gstPct = parseFloat(newBatteryProc.gst_percent) || 0;
-          const baseAmt = cost / (1 + (gstPct / 100));
-          const autoRef = `AUTO-FIT-${cleanSerial}`;
-          const batRef = doc(collection(db, "BATTERY_MASTER"));
-          batteryId = batRef.id;
-          make = (newBatteryProc.make || 'UNKNOWN').toUpperCase(); capacity_ah = newBatteryProc.capacity_ah;
-          warranty_months = newBatteryProc.warranty_months; purchase_date = newBatteryProc.purchase_date;
-          batch.set(batRef, {
-              serial_no: cleanSerial, make, capacity_ah, warranty_months, purchase_date,
-              cost, base_cost: Math.round(baseAmt * 100) / 100, gst_amount: Math.round((cost - baseAmt) * 100) / 100, gst_percent: newBatteryProc.gst_percent,
-              vendor: newBatteryProc.vendor_name, invoice_no: autoRef,
-              status: 'FITTED', total_km_run: 0, createdAt: serverTimestamp(),
-          });
-          // 🏦 Cash & Bank Book: cash purchase => Payment (OUT); udhaar => Purchase (IN).
-          const isCash = newBatteryProc.vendor_name === 'CASH PURCHASE';
-          batch.set(doc(collection(db, "BANK_TRANSACTIONS")), {
-              date: fitmentData.fitment_date, type: isCash ? 'Payment (OUT)' : 'Purchase (IN)', amount: cost,
-              party_name: isCash ? 'CASH' : newBatteryProc.vendor_name, ref_no: autoRef,
-              particulars: `Battery ${cleanSerial} purchase (auto-added during fitment on ${fitmentData.vehicle_no})`,
-              company: 'PRASAD TRANSPORT', createdAt: serverTimestamp(),
-          });
-      } else {
-          batteryId = bat.id; make = bat.make; capacity_ah = bat.capacity_ah;
-          warranty_months = bat.warranty_months; purchase_date = bat.purchase_date;
-          batch.update(doc(db, "BATTERY_MASTER", bat.id), { status: 'FITTED' });
+      if (!item) {
+        const cost = parseFloat(newBatteryProc.cost);
+        const gstPct = parseFloat(newBatteryProc.gst_percent) || 0;
+        const baseAmt = cost / (1 + gstPct / 100);
+        const isCashProc = newBatteryProc.vendor_name === 'CASH PURCHASE';
+        const autoRef = `AUTO-FIT-${cleanSerial}`;
+        // Buy, then fit — two calls, not one transaction. Ordered so the failure
+        // mode is the harmless one: if the fit fails, the battery is simply in
+        // stock, correctly costed and correctly posted, and can be fitted again.
+        // The reverse order would risk a fitment for something never bought.
+        const bought = await postJson(`${ASSETS}/batteries`, {
+          invoice_no: autoRef,
+          vendor_name: isCashProc ? null : newBatteryProc.vendor_name,
+          account: isCashProc ? newBatteryProc.pay_account : null,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+          items: [{
+            serial_no: cleanSerial,
+            brand: (newBatteryProc.make || 'UNKNOWN').toUpperCase(),
+            capacity_ah: parseFloat(newBatteryProc.capacity_ah) || null,
+            warranty_months: parseInt(newBatteryProc.warranty_months) || null,
+            purchase_cost: cost,
+            base_cost: Math.round(baseAmt * 100) / 100,
+            gst_amount: Math.round((cost - baseAmt) * 100) / 100,
+            gst_percent: gstPct,
+            invoice_no: autoRef,
+            purchase_date: fitmentData.fitment_date || new Date().toISOString().split('T')[0],
+            vendor_name: isCashProc ? 'CASH PURCHASE' : newBatteryProc.vendor_name,
+            status: 'IN_STOCK',
+          }],
+        });
+        item = (bought.batteries || [])[0];
+        if (!item) throw new Error('Stock me add nahi hua — fitment roka gaya.');
+        if (!bought.voucher_id) alert(`⚠️ Battery stock me aa gayi par ledger me post nahi hua${bought.ledger_note ? `: ${bought.ledger_note}` : ''}`);
       }
-      batch.set(doc(collection(db, "BATTERY_FITMENTS")), {
-          vehicle_no: fitmentData.vehicle_no, vehicle_id: fitmentData.vehicle_no, battery_id: batteryId, battery_serial: cleanSerial,
-          position: fitmentData.position, fitting_km: fitKm, fitment_km: fitKm, fitment_date: fitmentData.fitment_date,
-          make, capacity_ah, warranty_months, purchase_date,
-          status: 'FITTED', is_active_fitment: true, createdAt: serverTimestamp()
+
+      // Fitting posts NOTHING to the ledger: it was already an asset when it was
+      // bought and still is, just mounted on a truck now.
+      await postJson(`${ASSETS}/batteries/${item.id}/fit`, {
+        vehicle_no: fitmentData.vehicle_no,
+        position: fitmentData.position || null,
+        fitment_date: fitmentData.fitment_date || new Date().toISOString().split('T')[0],
+        fitment_km: parseFloat(fitmentData.fitting_km) || null,
       });
-      await batch.commit();
-      alert(!bat
-        ? `✅ Battery Fitted!\n\n🆕 New battery ${cleanSerial} inventory me add hua @ ₹${parseFloat(newBatteryProc.cost).toLocaleString('en-IN')}\n🏦 Accounting entry posted (${newBatteryProc.vendor_name}).`
-        : "✅ Battery Fitted Successfully!");
-      setIsFitmentModalOpen(false); setFitmentData({ vehicle_no: '', battery_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
-      setNewBatteryProc({ cost: '', vendor_name: '', make: 'EXIDE', capacity_ah: '150', warranty_months: '24', purchase_date: new Date().toISOString().split('T')[0], gst_percent: '28' });
-      setCurrentVehicleFitments([]); fetchData();
-    } catch (e) { console.error(e); alert("❌ Error fitting battery."); setLoading(false); }
+      alert("✅ Battery fit ho gayi!");
+      setIsFitmentModalOpen(false);
+      setFitmentData({ vehicle_no: '', battery_serial: '', position: '', fitting_km: '', fitment_date: new Date().toISOString().split('T')[0] });
+      setNewBatteryProc({ cost: '', vendor_name: '', make: 'EXIDE', capacity_ah: '150', warranty_months: '24', purchase_date: new Date().toISOString().split('T')[0], gst_percent: '28', pay_account: '' });
+      setCurrentVehicleFitments([]);
+      fetchData();
+    } catch (e: any) {
+      const said: Record<string, string> = {
+        ALREADY_FITTED: 'Yeh battery pehle se kisi vehicle par lagyi hai — pehle utaarein.',
+        DUPLICATE: 'Yeh serial number pehle se stock me hai.',
+        UNKNOWN_VEHICLE: e?.message,
+      };
+      alert("❌ " + (said[e?.code] || e?.message || 'Fitment fail.'));
+    }
+    setLoading(false);
   };
-
   const handleRemoveBattery = async () => {
-    if (!removeData.removal_km) return alert("⚠️ Enter Removal KM!");
-    const fittingKm = parseFloat(selectedFitment.fitting_km || 0); const removalKm = parseFloat(removeData.removal_km || 0);
-    if (removalKm < fittingKm) return alert(`❌ Invalid Entry: Removal KM (${removalKm}) cannot be less than Fitting KM (${fittingKm})!`);
-    const kmRunThisTime = removalKm - fittingKm;
-    const bat = batteries.find(b => b.serial_no === selectedFitment.battery_serial);
-    if (!bat) return alert("❌ Battery Master record missing!");
+    if (!selectedFitment) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const newTotalKm = (parseFloat(bat.total_km_run) || 0) + kmRunThisTime;
-      // Dead/Scrap => battery zindagi khatam, cost P&L me. Warranty Claim => cost
-      // recover hoga isliye expense NAHI. Maintenance => wapas stock.
-      const isScrap = removeData.removal_reason === 'DEAD/SCRAP';
-      const isClaim = removeData.removal_reason === 'WARRANTY CLAIM';
-      const newStatus = isScrap ? 'SCRAP' : isClaim ? 'WARRANTY CLAIM' : 'IN STOCK';
-
-      // 💸 Scrap battery => poora cost Direct Expense. Warranty par gaya to nahi.
-      const consumedCost = parseFloat(bat.cost || 0);
-      const expLedgerId = (isScrap && consumedCost > 0) ? await ensureBatteryExpenseLedger() : null;
-
-      // ⚛️ ATOMIC: fitment close + battery status + expense entry — ek hi batch.commit.
-      const batch = writeBatch(db);
-      batch.update(doc(db, "BATTERY_FITMENTS", selectedFitment.id), { ...removeData, removal_km: removalKm, status: 'REMOVED', is_active_fitment: false, km_yield: kmRunThisTime });
-      batch.update(doc(db, "BATTERY_MASTER", bat.id), {
-        status: newStatus, total_km_run: newTotalKm,
-        ...(isScrap ? { scrapped_on: removeData.removal_date, scrap_reason: removeData.removal_reason } : {}),
-        ...(isClaim ? { claim_date: removeData.removal_date, claim_ref: '', claim_company: '' } : {})
+      // The API decides whether this is consumption and posts the journal only
+      // when the battery is genuinely gone. Back to the shelf = no expense.
+      const j = await postJson(`${ASSETS}/batteries/${selectedFitment.battery_id}/remove`, {
+        removal_km: parseFloat(removeData.removal_km) || null,
+        removal_date: removeData.removal_date,
+        removal_reason: removeData.removal_reason,
+        created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
       });
-      if (expLedgerId) {
-          const vehNo = selectedFitment.vehicle_no || '';
-          const cleanVeh = String(vehNo).replace(/[^A-Z0-9]/ig, '').toUpperCase();
-          const vObj = vehicles.find(v => String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').replace(/[^A-Z0-9]/ig, '').toUpperCase() === cleanVeh);
-          batch.set(doc(collection(db, "LEDGER_ENTRIES")), {
-              ledgerId: expLedgerId, date: removeData.removal_date,
-              particulars: `Battery ${bat.serial_no} scrapped (${removeData.removal_reason}) — Vehicle ${vehNo} | Total Life: ${newTotalKm.toLocaleString('en-IN')} KM`,
-              dr_cr: 'Dr (Debit)', amount: consumedCost,
-              company: vObj?.company_name || vObj?.Company_Name || 'ALL', branch: vObj?.branch_name || vObj?.branch || 'ALL',
-              source: 'AUTO_BATTERY_SCRAP', linked_battery_id: bat.id, created_at: serverTimestamp(),
-          });
-      }
-      await batch.commit();
-
-      alert(`✅ Battery Removed Successfully!\n\n📏 KM Run this fitment: ${kmRunThisTime.toLocaleString('en-IN')} KM${isClaim ? '\n🛡️ Battery moved to WARRANTY CLAIMS tab.' : ''}${expLedgerId ? `\n💸 ₹${consumedCost.toLocaleString('en-IN')} posted to P&L — Direct Expenses ➜ ${BATTERY_EXP_LEDGER_NAME}.` : ''}`);
-      setIsRemoveModalOpen(false); setRemoveData({ removal_km: '', removal_reason: 'WARRANTY CLAIM', removal_date: new Date().toISOString().split('T')[0] });
-      setSelectedFitment(null); fetchData();
-    } catch (e) { console.error(e); alert("❌ Error removing battery."); setLoading(false); }
+      alert(`\u2705 Battery utar gayi \u2014 status: ${j.status}.`
+        + (j.consumption_voucher_id
+          ? `\n\u{1f4b8} Cost P&L me post ho gaya (Dr Battery Consumption / Cr Battery Stock).`
+          : `\n\u2139\ufe0f Abhi kharcha post nahi hua \u2014 battery abhi bhi hamara stock hai.`));
+      setIsRemoveModalOpen(false); setSelectedFitment(null); fetchData();
+    } catch (e: any) {
+      alert(e?.code === 'NOT_FITTED' ? "\u26a0\ufe0f Is battery ka koi live fitment nahi hai." : "\u274c Error: " + (e?.message || ''));
+    }
+    setLoading(false);
   };
 
   const handleAddDispatchSerial = () => {
@@ -449,18 +498,29 @@ Empty string / 0 if absent.`;
   };
 
   const handleSaveDispatch = async () => {
-      if (dispatchSerialList.length === 0) return alert("⚠️ Please add at least one battery to the claim.");
-      if (!dispatchData.claim_company || !dispatchData.claim_ref) return alert("⚠️ Claim Company and Claim Ref No are required!");
+      if (dispatchSerialList.length === 0) return alert("\u26a0\ufe0f Please add at least one battery to the claim.");
+      if (!dispatchData.claim_company || !dispatchData.claim_ref) return alert("\u26a0\ufe0f Claim Company and Claim Ref No are required!");
       setLoading(true);
       try {
+          // A warranty claim moves the battery out of usable stock but spends
+          // nothing — the cost was capitalised at purchase and is written off
+          // only if the claim is rejected and the battery is scrapped.
           for (const sno of dispatchSerialList) {
-              const bat = batteries.find(b => b.serial_no === sno);
-              if (bat) { await updateDoc(doc(db, "BATTERY_MASTER", bat.id), { status: 'WARRANTY CLAIM', claim_company: dispatchData.claim_company, claim_date: dispatchData.dispatch_date, claim_ref: dispatchData.claim_ref }); }
+              const bat = batteries.find((b: any) => b.serial_no === sno);
+              if (!bat) continue;
+              await fetchJson(`${ASSETS}/batteries/${bat.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  status: 'WARRANTY_CLAIM',
+                  removal_reason: `Claim at ${dispatchData.claim_company} (${dispatchData.claim_ref})`,
+                }),
+              });
           }
-          alert(`✅ Warranty Claim Created! ${dispatchSerialList.length} Batteries sent to ${dispatchData.claim_company}.`);
-          setIsDispatchClaimModalOpen(false); setDispatchData({ claim_company: '', dispatch_date: new Date().toISOString().split('T')[0], claim_ref: '' });
+          alert(`\u2705 Warranty Claim Created! ${dispatchSerialList.length} Batteries sent to ${dispatchData.claim_company}.`);
+          setIsDispatchClaimModalOpen(false);
+          setDispatchData({ claim_company: '', dispatch_date: new Date().toISOString().split('T')[0], claim_ref: '' });
           setDispatchSerialList([]); fetchData();
-      } catch (e) { alert("❌ Error dispatching batteries."); }
+      } catch (e: any) { alert("\u274c Error dispatching batteries: " + (e?.message || '')); }
       setLoading(false);
   };
 
@@ -468,41 +528,59 @@ Empty string / 0 if absent.`;
       if (!selectedClaimBattery) return;
       setLoading(true);
       try {
-          const batch = writeBatch(db);
           if (claimData.outcome === 'REJECTED') {
-              // ❌ Company ne claim reject kiya => battery dead => cost P&L me jaati hai.
-              const consumedCost = parseFloat(selectedClaimBattery.cost || 0);
-              batch.update(doc(db, "BATTERY_MASTER", selectedClaimBattery.id), { status: 'SCRAP', scrapped_on: claimData.resolution_date, scrap_reason: 'WARRANTY REJECTED', claim_outcome: 'REJECTED', claim_remarks: claimData.remarks });
-              if (consumedCost > 0) {
-                  const expLedgerId = await ensureBatteryExpenseLedger();
-                  batch.set(doc(collection(db, "LEDGER_ENTRIES")), {
-                      ledgerId: expLedgerId, date: claimData.resolution_date,
-                      particulars: `Battery ${selectedClaimBattery.serial_no} — warranty claim REJECTED, scrapped`,
-                      dr_cr: 'Dr (Debit)', amount: consumedCost, company: 'ALL', branch: 'ALL',
-                      source: 'AUTO_BATTERY_SCRAP', linked_battery_id: selectedClaimBattery.id, created_at: serverTimestamp(),
-                  });
+              // Claim refused => the battery is dead => the cost finally reaches
+              // the P&L. The API posts Dr Consumption / Cr Stock on SCRAPPED, so
+              // this screen no longer writes a one-sided ledger row of its own.
+              await fetchJson(`${ASSETS}/batteries/${selectedClaimBattery.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'SCRAPPED', removal_reason: `WARRANTY REJECTED${claimData.remarks ? ` — ${claimData.remarks}` : ''}` }),
+              });
+              // No live fitment to remove, so the consumption journal is posted
+              // directly — same two legs the removal path uses.
+              const cost = parseFloat(selectedClaimBattery.cost || 0);
+              if (cost > 0) {
+                await postJson(`${FIN}/journal`, {
+                  source_type: 'BATTERY_CONSUMPTION',
+                  source_ref: `BATTERIES-CONSUME-${selectedClaimBattery.serial_no}`,
+                  date: claimData.resolution_date,
+                  narration: `Battery ${selectedClaimBattery.serial_no} — warranty claim REJECTED, scrapped`,
+                  lines: [
+                    { ledger: 'Battery Consumption Expenses', dr_cr: 'Dr', amount: cost, group: 'Direct Expenses - Repairs & Tyres' },
+                    { ledger: 'Battery Stock', dr_cr: 'Cr', amount: cost, group: 'Stock-in-Hand (Asset)' },
+                  ],
+                }).catch((e: any) => alert(`\u26a0\ufe0f Battery scrap ho gayi par ledger entry nahi hui: ${e?.message || ''}`));
               }
           } else if (claimData.outcome === 'REPLACED' && claimData.replacement_serial.trim()) {
-              // 🔄 Company ne naya battery diya => purana SCRAP, naya serial IN STOCK
-              //     (same warranty terms; cost 0 kyunki free replacement hai).
-              const newSerial = claimData.replacement_serial.trim().toUpperCase();
-              batch.update(doc(db, "BATTERY_MASTER", selectedClaimBattery.id), { status: 'SCRAP', scrapped_on: claimData.resolution_date, scrap_reason: 'REPLACED UNDER WARRANTY', claim_outcome: 'REPLACED', claim_remarks: claimData.remarks });
-              batch.set(doc(collection(db, "BATTERY_MASTER")), {
-                  serial_no: newSerial, make: selectedClaimBattery.make, capacity_ah: selectedClaimBattery.capacity_ah,
-                  warranty_months: selectedClaimBattery.warranty_months, purchase_date: claimData.resolution_date,
-                  cost: 0, gst_percent: '0', vendor: selectedClaimBattery.claim_company || 'WARRANTY REPLACEMENT',
-                  invoice_no: `WARR-REPL-${selectedClaimBattery.serial_no}`, status: 'IN STOCK', total_km_run: 0,
-                  replacement_for: selectedClaimBattery.serial_no, createdAt: serverTimestamp(),
+              // Free replacement: the old one is scrapped WITHOUT an expense —
+              // its cost carries over to the new serial, which enters stock at
+              // that value. Nothing is bought, so nothing is posted.
+              await fetchJson(`${ASSETS}/batteries/${selectedClaimBattery.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'SCRAPPED', removal_reason: 'REPLACED UNDER WARRANTY', purchase_cost: 0 }),
+              });
+              await postJson(`${ASSETS}/batteries`, {
+                items: [{
+                  serial_no: claimData.replacement_serial.trim().toUpperCase(),
+                  brand: selectedClaimBattery.make ?? selectedClaimBattery.brand,
+                  capacity_ah: parseFloat(selectedClaimBattery.capacity_ah) || null,
+                  warranty_months: parseInt(selectedClaimBattery.warranty_months) || null,
+                  purchase_date: claimData.resolution_date,
+                  purchase_cost: parseFloat(selectedClaimBattery.cost || 0),
+                  vendor_name: selectedClaimBattery.vendor_name ?? null,
+                  status: 'IN_STOCK',
+                }],
               });
           } else {
-              // 🔧 Repaired / same battery wapas => seedha IN STOCK.
-              batch.update(doc(db, "BATTERY_MASTER", selectedClaimBattery.id), { status: 'IN STOCK', claim_outcome: 'REPAIRED', claim_remarks: claimData.remarks, claim_resolved_on: claimData.resolution_date });
+              // Repaired / returned as-is: straight back to the shelf.
+              await fetchJson(`${ASSETS}/batteries/${selectedClaimBattery.id}`, {
+                method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'IN_STOCK', removal_reason: null }),
+              });
           }
-          await batch.commit();
-          alert("✅ Warranty Claim Resolved & Stock Updated!");
-          setIsReceiveClaimModalOpen(false); setSelectedClaimBattery(null);
-          setClaimData({ outcome: 'REPAIRED', resolution_date: new Date().toISOString().split('T')[0], replacement_serial: '', remarks: '' }); fetchData();
-      } catch (e) { console.error(e); alert("❌ Error resolving claim."); }
+          alert("\u2705 Claim resolve ho gaya.");
+          setIsReceiveClaimModalOpen(false); setSelectedClaimBattery(null); fetchData();
+      } catch (e: any) { alert("\u274c Error resolving claim: " + (e?.message || '')); }
       setLoading(false);
   };
 
@@ -883,11 +961,32 @@ Empty string / 0 if absent.`;
                 </div>
                 <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={purchaseData.vendor_name} onChange={e=>setPurchaseData({...purchaseData, vendor_name: e.target.value})}>
                    <option value="">-- Choose Vendor --</option>
-                   <option value="CASH PURCHASE">💵 CASH PURCHASE (No Ledger)</option>
+                   <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                    {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
                 </select>
               </div>
             </div>
+
+            {/* A cash purchase has no creditor, so the credit leg has to name an account.
+                These were fetched from /finance/accounts all along but never rendered,
+                which left pay_account permanently undefined — so every cash invoice
+                posted no ledger entry at all, and said nothing about it. */}
+            {purchaseData.vendor_name === 'CASH PURCHASE' && (
+              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash purchase kis account se hui? (ledger posting ke liye) *</label>
+                <select className="modern-input" value={purchaseData.pay_account} onChange={e => setPurchaseData({ ...purchaseData, pay_account: e.target.value })}>
+                  <option value="">— Account chunein —</option>
+                  {accounts.map((a: any) => (
+                    <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
+                  ))}
+                </select>
+                <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                  {purchaseData.pay_account
+                    ? <>Posts <b style={{ color: '#f87171' }}>Dr Battery Stock</b> / <b style={{ color: '#34d399' }}>Cr {purchaseData.pay_account}</b></>
+                    : 'Account chune bina ledger me entry nahi hogi.'}
+                </div>
+              </div>
+            )}
 
             <div style={{ marginTop: '20px' }}>
                <label style={{ fontSize:'14px', color:'#c084fc', fontWeight:'bold', display:'block', marginBottom:'10px' }}>🔋 Add Batteries to Invoice (Line Items)</label>
@@ -1205,9 +1304,31 @@ Empty string / 0 if absent.`;
                       </div>
                       <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={newBatteryProc.vendor_name} onChange={e => setNewBatteryProc({ ...newBatteryProc, vendor_name: e.target.value })}>
                         <option value="">-- Choose Vendor * --</option>
-                        <option value="CASH PURCHASE">💵 CASH PURCHASE (No Ledger)</option>
+                        <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                         {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
                       </select>
+                    </div>
+                    <div>
+                      {/* A cash purchase has no creditor, so the credit leg has to name an account.
+                          These were fetched from /finance/accounts all along but never rendered,
+                          which left pay_account permanently undefined — so every cash invoice
+                          posted no ledger entry at all, and said nothing about it. */}
+                      {newBatteryProc.vendor_name === 'CASH PURCHASE' && (
+                        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                          <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash se kis account se li? (ledger posting ke liye) *</label>
+                          <select className="modern-input" value={newBatteryProc.pay_account} onChange={e => setNewBatteryProc({ ...newBatteryProc, pay_account: e.target.value })}>
+                            <option value="">— Account chunein —</option>
+                            {accounts.map((a: any) => (
+                              <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
+                            ))}
+                          </select>
+                          <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                            {newBatteryProc.pay_account
+                              ? <>Posts <b style={{ color: '#f87171' }}>Dr Battery Stock</b> / <b style={{ color: '#34d399' }}>Cr {newBatteryProc.pay_account}</b></>
+                              : 'Account chune bina ledger me entry nahi hogi.'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Make / Brand</label>
