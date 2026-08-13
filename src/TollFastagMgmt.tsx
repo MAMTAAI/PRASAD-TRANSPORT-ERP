@@ -1,34 +1,36 @@
 // @ts-nocheck
-// ⚠️ STILL FIRESTORE — the one cluster-3 screen that did NOT move. Read this
-// before starting it, because the reason is not "ran out of time".
+// 🛣️ TOLL & FASTAG — statement sync, trip mapping, IOCL reimbursement claims,
+// wallet recharges and the multi-provider API integration. Live PostgreSQL.
 //
-// TOLL_TRANSACTIONS has a SECOND writer that lives outside this app:
-// `toll-sync.cjs`, a background runner that pulls FASTag statements from the
-// provider portals with the Firebase Admin SDK and writes rows using the same
-// deterministic id scheme as tollEngine.tollDocId(). Moving this screen to
-// PostgreSQL without moving that runner would leave two processes writing the
-// same tolls to two different databases — the exact divergence the cluster rule
-// exists to prevent, and the worst possible one, because a toll that exists in
-// only one of them is a toll that gets billed twice or never.
+// THIS SCREEN CLOSED THE LAST DUAL WRITER. `toll_transactions` was written from
+// two places against two different databases: this screen (Firestore) and
+// `toll-sync.cjs` (Firebase Admin SDK). A toll that existed in only one of them
+// would be billed twice or not at all, and an oil company that spots a
+// double-claimed toll disputes the whole fortnight. Both now write the same
+// PostgreSQL table through the same dedup key.
 //
-// It is safe to leave TODAY for a checkable reason: the runner is dormant. It
-// is not in pm2 and not in cron on the box (verified 2026-08-13). The moment
-// anyone schedules it, this becomes urgent.
-//
-// The PostgreSQL side is already built and tested and is waiting:
-//   POST /api/v1/toll/transactions/import   idempotent on ext_txn_id
-//   GET  /api/v1/toll/claimable             billable + unclaimed, trip-grouped
-//   POST /api/v1/toll/claims                claim + toll stamps in ONE txn
-//   POST /api/v1/toll/recharges             wallet top-up, posts a PAYMENT
-// migration 030 added toll_claims, toll_recharges and toll_transactions.claim_id.
-//
-// What moving it needs: this screen's fetch/writes, the three write helpers in
-// lib/tollEngine.ts (saveTollBatch, saveClaim, nextClaimSeq), the provider
-// config in lib/fastagProviders.ts (FASTAG_PROVIDERS / FASTAG_ACCOUNTS /
-// TOLL_SETTINGS), and toll-sync.cjs itself.
+// Two guards that used to live in the browser are now in the database, which is
+// the only place they actually hold:
+//   • Re-uploading a statement cannot duplicate — ext_txn_id is UNIQUE, so the
+//     import reports what it skipped instead of each writer checking first.
+//   • A toll cannot be claimed twice — the claim row and the toll stamps are
+//     one transaction behind a foreign key, and a repeat returns 409.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const TOLL_API = `${API}/api/v1/toll`;
+const MASTERS_API = `${API}/api/v1/masters`;
+const OPS_API = `${API}/api/v1/ops`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+const postJson = (url: string, body: any) => fetchJson(url, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+});
+
 import {
   parseFastagStatement, mapTollsToTrips, saveTollBatch, resolveVehiclesByTag,
   groupTollsForClaim, generateClaimNo, nextClaimSeq, renderIoclClaimHtml,
@@ -93,33 +95,26 @@ export default function TollFastagMgmt() {
   const [savingSync, setSavingSync] = useState(false);
   const fetchAutoSync = async () => {
     try {
-      const snap = await getDoc(doc(db, 'TOLL_SETTINGS', 'auto_sync'));
-      if (snap.exists()) setAutoSync(p => ({ ...p, ...snap.data(), portal_password: snap.data().portal_password ? '••••••••' : '' }));
+      const j = await fetchJson(`${TOLL_API}/settings/auto_sync`);
+      setAutoSync(p => ({ ...p, ...(j.value ?? {}) }));
       setAutoSyncLocked(false);
-    } catch (e) {
-      if (/permission/i.test(e?.message || '')) setAutoSyncLocked(true);
+    } catch (e: any) {
+      setAutoSyncLocked(true);
     }
   };
   const saveAutoSync = async (patch) => {
     setSavingSync(true);
     try {
-      const payload = { ...patch, updatedAt: serverTimestamp() };
-      // Masked password kabhi overwrite nahi hota — sirf naya type karne par save
-      if (payload.portal_password === '••••••••') delete payload.portal_password;
-      await setDoc(doc(db, 'TOLL_SETTINGS', 'auto_sync'), payload, { merge: true });
+      // A masked password is dropped server-side too, so echoing it back can
+      // never overwrite the stored one.
+      await fetchJson(`${TOLL_API}/settings/auto_sync`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      });
       setAutoSync(p => ({ ...p, ...patch }));
-    } catch { alert('❌ Settings save nahi hui — admin login check karein.'); }
+    } catch (e: any) {
+      alert('❌ Settings save nahi hui: ' + (e?.message || ''));
+    }
     setSavingSync(false);
-  };
-  const forceSyncNow = async () => {
-    if (!autoSync.portal_url) return alert('⚠️ Pehle Portal URL + login credentials save karein.');
-    await saveAutoSync({ force_sync_requested: true });
-    alert('⚡ Force Sync request bhej di gayi — background runner (toll-sync.cjs) 30 second ke andar 24h data fetch karega.\n\nDuplicate tolls automatically skip honge (transaction-ref guardrail).');
-  };
-  // 12-hour label for the time dropdown: '02:00' -> '02:00 AM'
-  const hour12 = (hhmm) => {
-    const h = parseInt(hhmm.slice(0, 2), 10);
-    return `${String(h % 12 === 0 ? 12 : h % 12).padStart(2, '0')}:00 ${h < 12 ? 'AM' : 'PM'}`;
   };
 
   const [tripToll, setTripToll] = useState({
@@ -218,21 +213,27 @@ export default function TollFastagMgmt() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const trSnap = await getDocs(collection(db, "TRIPS")).catch(() => ({docs:[]}));
-      setTrips(trSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.created_at || b.Date || 0).getTime() - new Date(a.created_at || a.Date || 0).getTime()));
-
-      // 🏷️ Vehicle Master (fastag_id ↔ plate cross-reference ke liye)
-      const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({docs:[]}));
-      setVehiclesMaster(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const txSnap = await getDocs(collection(db, "TOLL_TRANSACTIONS")).catch(() => ({docs:[]}));
-      setTransactions(txSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.Txn_Date || b.createdAt).getTime() - new Date(a.Txn_Date || a.createdAt).getTime()));
-
-      const rcSnap = await getDocs(collection(db, "TOLL_RECHARGES")).catch(() => ({docs:[]}));
-      setRecharges(rcSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-
-      const clSnap = await getDocs(collection(db, "TOLL_CLAIMS")).catch(() => ({docs:[]}));
-      setClaims(clSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.claim_date).localeCompare(String(a.claim_date))));
+      // The table columns are lowercase in PostgreSQL. The readers below
+      // (txnDate / txnVeh / txnAmt) already fall back to lowercase names, so
+      // rows are handed over as they arrive — no adapter needed except for the
+      // two fields whose NAME changed rather than just its case.
+      const [tripsRes, vehRes, txRes, rcRes, clRes] = await Promise.all([
+        fetchJson(`${OPS_API}/trips?limit=2000`).catch(() => ({ trips: [] })),
+        fetchJson(`${MASTERS_API}/vehicles?limit=1000`).catch(() => ({ vehicles: [] })),
+        fetchJson(`${TOLL_API}/transactions?limit=5000`).catch(() => ({ transactions: [] })),
+        fetchJson(`${TOLL_API}/recharges`).catch(() => ({ recharges: [] })),
+        fetchJson(`${TOLL_API}/claims`).catch(() => ({ claims: [] })),
+      ]);
+      setTrips(tripsRes.trips ?? []);
+      setVehiclesMaster(vehRes.vehicles ?? []);
+      setTransactions(txRes.transactions ?? []);
+      // `recharge_amount` and `date` were the Firestore field names; the table
+      // calls them amount and recharge_date. Mapped so the KPI strip and the
+      // recharge table keep working unchanged.
+      setRecharges((rcRes.recharges ?? []).map((r: any) => ({
+        ...r, recharge_amount: r.amount, date: r.recharge_date,
+      })));
+      setClaims(clRes.claims ?? []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -377,20 +378,23 @@ export default function TollFastagMgmt() {
     if (!tripToll.vehicle_no || !tripToll.toll_amount) return alert("⚠️ Vehicle No and Toll Amount are mandatory!");
     setLoading(true);
     try {
-      await addDoc(collection(db, "TOLL_TRANSACTIONS"), {
-        Vehicle_No: tripToll.vehicle_no.toUpperCase(),
-        Amount: parseFloat(tripToll.toll_amount),
-        Txn_Date: tripToll.txn_date,
-        Transaction_Ref: tripToll.txn_ref,
-        linked_trip_id: tripToll.trip_id || 'MANUAL',
-        invoice_no: tripToll.invoice_no,
-        invoice_date: tripToll.invoice_date,
-        loading_loc: tripToll.loading_loc,
-        dest_loc: tripToll.dest_loc,
+      await postJson(`${TOLL_API}/transactions`, {
+        vehicle_no: tripToll.vehicle_no.toUpperCase(),
+        amount: parseFloat(tripToll.toll_amount),
+        txn_date: tripToll.txn_date,
+        txn_ref: tripToll.txn_ref || null,
+        // A manual entry has no provider transaction id, so it gets none —
+        // ext_txn_id is UNIQUE and a placeholder like 'MANUAL' would collide
+        // with the next manual entry and reject it.
+        trip_id: tripToll.trip_id || null,
+        invoice_no: tripToll.invoice_no || null,
+        invoice_date: tripToll.invoice_date || null,
+        loading_loc: tripToll.loading_loc || null,
+        dest_loc: tripToll.dest_loc || null,
         billing_type: tripToll.billing_type,
         is_billable: tripToll.billing_type === 'Reimbursable (Bill to Co.)',
-        remarks: tripToll.remarks,
-        createdAt: serverTimestamp()
+        claim_status: 'UNCLAIMED',
+        remarks: tripToll.remarks || null,
       });
       alert(`✅ Trip-wise Toll Saved! (${tripToll.billing_type})`);
       setTripToll({
@@ -399,20 +403,37 @@ export default function TollFastagMgmt() {
         txn_ref: '', toll_amount: '', billing_type: 'Reimbursable (Bill to Co.)', remarks: 'Full'
       });
       fetchData();
-    } catch (e) { alert("❌ Error saving toll data."); }
+    } catch (e: any) { alert("❌ Error saving toll data: " + (e?.message || '')); }
     setLoading(false);
   };
 
   // (old naive CSV auto-mapper removed — Statement Sync tab supersedes it)
 
-  const handleSaveRecharge = async () => { 
+  // A wallet top-up is real money leaving a real account, so the API posts a
+  // PAYMENT voucher for it. The account is named by the operator — the old
+  // version recorded the recharge and told the ledger nothing.
+  const handleSaveRecharge = async () => {
     if (!rechargeData.recharge_amount) return alert("⚠️ Please enter recharge amount!");
     try {
-      await addDoc(collection(db, "TOLL_RECHARGES"), { ...rechargeData, createdAt: serverTimestamp() });
-      alert("✅ Wallet Recharge Saved Successfully!");
-      setRechargeData({ date: new Date().toISOString().split('T')[0], recharge_amount: '', payment_source: 'Bank Transfer', transaction_id: '', vehicle_group: 'All Fleet', remarks: '' });
+      const j = await postJson(`${TOLL_API}/recharges`, {
+        amount: parseFloat(rechargeData.recharge_amount),
+        recharge_date: rechargeData.date,
+        payment_source: rechargeData.payment_source || null,
+        transaction_id: rechargeData.transaction_id || null,
+        vehicle_group: rechargeData.vehicle_group || null,
+        remarks: rechargeData.remarks || null,
+        account: rechargeData.account || null,
+        // Without a bank/cash account this stays in the subsidiary only, and
+        // says so, rather than silently skipping the books.
+        post_to_ledger: !!rechargeData.account,
+      });
+      alert("✅ Wallet Recharge Saved!" + (j.voucher_id ? " Ledger voucher posted." : "\n\n⚠️ Koi account nahi chuna — yeh sirf toll register me darj hui hai, ledger me nahi."));
+      setRechargeData({ date: new Date().toISOString().split('T')[0], recharge_amount: '', payment_source: 'Bank Transfer', transaction_id: '', vehicle_group: 'All Fleet', remarks: '', account: '' });
       fetchData();
-    } catch (e) { alert("❌ Error saving recharge data."); }
+    } catch (e: any) {
+      const said = { DUPLICATE: 'Yeh transaction id pehle hi darj hai.', OVERDRAFT: 'Us account me itna balance nahi hai.' }[e?.code];
+      alert("❌ Error saving recharge: " + (said || e?.message || ''));
+    }
   };
 
   // (old flat claim print removed — IOCL Claims tab renders the exact format)
@@ -469,12 +490,15 @@ export default function TollFastagMgmt() {
 
   const toggleBillable = async (id: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, "TOLL_TRANSACTIONS", id), { 
-        is_billable: !currentStatus, 
-        billing_type: !currentStatus ? 'Reimbursable (Bill to Co.)' : 'Company Paid (Direct)' 
+      await fetchJson(`${TOLL_API}/transactions/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          is_billable: !currentStatus,
+          billing_type: !currentStatus ? 'Reimbursable (Bill to Co.)' : 'Company Paid (Direct)',
+        }),
       });
       fetchData();
-    } catch (error) { alert("Error updating status"); }
+    } catch (error: any) { alert("Error updating status: " + (error?.message || '')); }
   };
 
   const totalTollAmount = transactions.reduce((acc, curr) => acc + (parseFloat(curr.Amount || curr.amount || curr.toll_amount || '0')), 0);

@@ -28,16 +28,39 @@
  * Usage:  node toll-sync.cjs           # scheduler (30s tick)
  *         node toll-sync.cjs --once    # evaluate one tick then exit (cron)
  */
-require('dotenv').config();
 const path = require('path');
+// The API's database credentials live in .env.api on the deployed box (pm2
+// starts it with --env-file), NOT in .env. This runner talks to the same
+// database, so it loads both — .env first for the general config, then
+// .env.api which is the authoritative source for PG*. Without this the runner
+// starts fine and then fails on its first query with a SASL error, which reads
+// like a password problem rather than a missing file.
+require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env.api') });
 const fs = require('fs');
 const { execSync } = require('child_process');
 
 const axios = require('axios');
-const admin = require(path.join(__dirname, 'whatsapp-server', 'node_modules', 'firebase-admin'));
-const serviceAccount = require(path.join(__dirname, 'whatsapp-server', 'serviceAccountKey.json'));
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.firestore();
+
+// ── PostgreSQL, not Firebase ──────────────────────────────────────────────
+// This runner and src/TollFastagMgmt.tsx write the SAME tolls. While this side
+// used the Firebase Admin SDK and the screen used Firestore-then-PostgreSQL,
+// they wrote to different databases — and a toll present in only one gets
+// billed twice or never. Both now write `toll_transactions`.
+//
+// It connects straight to PostgreSQL rather than through the HTTP API because
+// it needs the provider credentials, which the API deliberately masks on every
+// read. Loopback, same host, same pool settings as the API.
+const { Pool } = require('pg');
+const pool = new Pool({
+  host: process.env.PGHOST || '127.0.0.1',
+  port: Number(process.env.PGPORT || 5432),
+  database: process.env.PGDATABASE || 'prasad_erp',
+  user: process.env.PGUSER || 'prasad_app',
+  password: process.env.PGPASSWORD,
+  max: 4,
+});
+const q = (sql, args = []) => pool.query(sql, args);
 
 const ONCE = process.argv.includes('--once');
 const log = (...a) => console.log(new Date().toISOString().slice(0, 19).replace('T', ' '), ...a);
@@ -70,7 +93,17 @@ const creditDocId = (txn) => `FCR_${String(txn.ext_txn_id || txn.ref_no).replace
 // Same journal doc-id scheme as src/lib/accounting/journal.ts.
 const journalDocId = (t, r) => `${t}__${r}`.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 380);
 
-const SETTINGS_REF = () => db.collection('TOLL_SETTINGS').doc('auto_sync');
+// Settings live in one jsonb row. `||` merges rather than replaces, so the
+// runner clearing force_sync_requested cannot wipe a setting the operator
+// changed in the same second.
+const readSettings = async () => {
+  const { rows } = await q(`SELECT value FROM toll_settings WHERE key = 'auto_sync'`);
+  return rows[0]?.value ?? {};
+};
+const patchSettings = (patch) => q(
+  `INSERT INTO toll_settings (key, value) VALUES ('auto_sync', $1::jsonb)
+   ON CONFLICT (key) DO UPDATE SET value = toll_settings.value || EXCLUDED.value, updated_at = now()`,
+  [JSON.stringify(patch)]);
 
 // ── 🌐 Web automation: login → transactions table → row arrays ─────────────
 // Selector defaults suit standard bank/FASTag corporate portals; overridable
@@ -206,15 +239,16 @@ async function fetchProviderTxns(provider) {
  *  FASTAG_CREDITS. Both feed the per-account FASTAG_ACCOUNTS running balance.
  *  Idempotent: only NEW docs move any totals. */
 async function saveProviderBatch(debits, credits, company, provider) {
-  const tripsSnap = await db.collection('TRIPS').get();
-  const trips = tripsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const { rows: trips } = await q(
+    `SELECT id, trip_code, customer_name, challan_no, loading_point, unloading_location,
+            loading_date, toll_amt, total_expense
+       FROM trips ORDER BY loading_date DESC NULLS LAST LIMIT 5000`);
   const maps = T.mapTollsToTrips(debits, trips);
   const gf = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== '') return o[k]; return ''; };
 
   let saved = 0, duplicates = 0, mapped = 0, unmatched = 0, totalNew = 0;
   let creditsSaved = 0, creditDup = 0, creditTotal = 0;
   const tripTotals = new Map();
-  // account_id → running delta of NEWLY-saved docs (idempotent balance move)
   const acct = new Map();
   const bumpAcct = (id, field, amt, txn) => {
     if (!id) return;
@@ -226,96 +260,95 @@ async function saveProviderBatch(debits, credits, company, provider) {
   };
 
   // ── DEBITS (toll crossings) ──────────────────────────────────────────────
+  // The duplicate guard is now the UNIQUE index on ext_txn_id, applied by the
+  // database as part of the INSERT. The old code read the doc back first and
+  // then wrote — a race this runner could lose against the screen doing the
+  // same thing, which is precisely how a toll got written twice.
   for (const mp of maps) {
-    const id = tollDocId(mp.txn);
-    const ref = db.collection('TOLL_TRANSACTIONS').doc(id);
-    if ((await ref.get()).exists) { duplicates++; continue; }   // 🛡️ ext_txn_id guardrail
     const trip = mp.trip;
-    const rec = {
-      Vehicle_No: mp.txn.vehicle_no, Amount: mp.txn.amount,
-      Txn_Date: mp.txn.txn_date, txn_datetime: mp.txn.txn_datetime,
-      Toll_Plaza_Name: mp.txn.plaza, plaza_code: mp.txn.plaza_code || '', lane_id: mp.txn.lane,
-      Transaction_Ref: mp.txn.ref_no, ext_txn_id: mp.txn.ext_txn_id || '',
-      entry_type: 'debit', mode: mp.txn.mode || '',
-      tag_account: mp.txn.tag_account || '', account_id: mp.txn.account_id || '',
-      linked_trip_id: trip ? String(gf(trip, ['trip_id', 'Trip_ID']) || trip.id) : 'UNMAPPED',
-      trip_db_id: trip ? trip.id : '',
-      linked_customer: trip ? String(gf(trip, ['customer_name', 'Customer', 'Registered_Assessee'])) : '',
-      invoice_no: trip ? String(gf(trip, ['challan_no', 'Challan_No', 'invoice_no'])) : '',
-      loading_loc: trip ? String(gf(trip, ['loading_point', 'Loading_Point'])) : '',
-      dest_loc: trip ? String(gf(trip, ['consignee_name', 'Consignee_Name', 'unloading_point'])) : '',
-      company: company || 'PRASAD TRANSPORT',
-      map_status: mp.confidence, claim_status: 'UNCLAIMED',
-      billing_type: 'Reimbursable (Bill to Co.)', is_billable: true,
-      source: `${provider.type || 'api'}_api`, source_file: `API_${provider.name || provider.type}`,
-      provider_id: provider.id || '', provider_name: provider.name || '',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    if (Number.isFinite(mp.txn.lat)) rec.lat = mp.txn.lat;
-    if (Number.isFinite(mp.txn.long)) rec.long = mp.txn.long;
-    await ref.set(rec);
+    const res = await q(
+      `INSERT INTO toll_transactions
+         (ext_txn_id, vehicle_no, amount, txn_date, txn_datetime, plaza_name, txn_ref,
+          tag_id, trip_id, invoice_no, loading_loc, dest_loc, company, claim_status,
+          billing_type, is_billable, provider, remarks, lat, lng)
+       VALUES ($1,$2,$3,$4::date,$5::timestamptz,$6,$7,$8,$9::uuid,$10,$11,$12,$13,'UNCLAIMED',
+               'Reimbursable (Bill to Co.)', true, $14, $15, $16, $17)
+       ON CONFLICT (ext_txn_id) WHERE ext_txn_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        tollDocId(mp.txn), mp.txn.vehicle_no, mp.txn.amount,
+        mp.txn.txn_date, mp.txn.txn_datetime || null, mp.txn.plaza || null, mp.txn.ref_no || null,
+        mp.txn.tag_account || null, trip ? trip.id : null,
+        trip ? String(gf(trip, ['challan_no'])) || null : null,
+        trip ? String(gf(trip, ['loading_point'])) || null : null,
+        trip ? String(gf(trip, ['unloading_location'])) || null : null,
+        company || 'PRASAD TRANSPORT',
+        `${provider.type || 'api'}_api`,
+        `API_${provider.name || provider.type}`,
+        Number.isFinite(mp.txn.lat) ? mp.txn.lat : null,
+        Number.isFinite(mp.txn.long) ? mp.txn.long : null,
+      ]);
+    if (!res.rows.length) { duplicates++; continue; }
     saved++; totalNew += mp.txn.amount;
     bumpAcct(mp.txn.account_id, 'debit', mp.txn.amount, mp.txn);
     if (trip) { mapped++; tripTotals.set(trip.id, round2((tripTotals.get(trip.id) || 0) + mp.txn.amount)); }
     else unmatched++;
   }
 
-  // Trip P&L bump — only NEW mapped debits.
+  // Trip P&L bump — only NEW mapped debits, so a re-run moves nothing.
   for (const [tripId, amt] of tripTotals) {
-    await db.collection('TRIPS').doc(tripId).update({
-      toll_amt: admin.firestore.FieldValue.increment(round2(amt)),
-      total_expense: admin.firestore.FieldValue.increment(round2(amt)),
-    }).catch(() => {});
+    await q(
+      `UPDATE trips SET toll_amt = COALESCE(toll_amt,0) + $2,
+                        total_expense = COALESCE(total_expense,0) + $2
+        WHERE id = $1::uuid`, [tripId, round2(amt)]).catch(() => {});
   }
 
-  // Journal — idempotent per provider + day.
-  if (totalNew > 0) {
-    const srcRef = `${company || 'FLEET'}__API_${provider.id || provider.type}_${new Date().toISOString().slice(0, 10)}`.slice(0, 200);
-    await db.collection('JOURNAL').doc(journalDocId('TOLL_STATEMENT', srcRef)).set({
-      source_type: 'TOLL_STATEMENT', source_ref: srcRef,
-      date: new Date().toISOString().slice(0, 10),
-      narration: `FASTag API sync ${provider.name || provider.type} — ${saved} tolls (${company || 'fleet'})`,
-      company: company || '',
-      lines: [
-        { ledger: 'Toll & Fastag Expense', dr_cr: 'Dr', amount: round2(totalNew) },
-        { ledger: 'Fastag Wallet / Bank', dr_cr: 'Cr', amount: round2(totalNew) },
-      ],
-      total: round2(totalNew), posted_at: admin.firestore.FieldValue.serverTimestamp(), posted_by: 'fastag_api_sync',
-    });
-  }
+  // ── The journal ──────────────────────────────────────────────────────────
+  // NOT posted here any more, and that is deliberate. The old runner wrote its
+  // own JOURNAL document with hand-written Dr/Cr lines, bypassing TARA — which
+  // is the sole writer of ledger_entries, enforces Dr=Cr at COMMIT and refuses
+  // duplicate references. A background job inventing ledger rows is exactly
+  // what the one-writer-per-table rule exists to stop.
+  //
+  // The tolls are recorded and claimable; the expense reaches the books through
+  // the same path a statement upload uses. If that path is ever wired to post
+  // per-sync, it belongs behind tara.postVoucher, not here.
 
   // ── CREDITS (wallet top-ups) ─────────────────────────────────────────────
   for (const c of credits) {
-    const id = creditDocId(c);
-    const ref = db.collection('FASTAG_CREDITS').doc(id);
-    if ((await ref.get()).exists) { creditDup++; continue; }
-    await ref.set({
-      account_id: c.account_id || '', vehicle_no: c.vehicle_no || '',
-      amount: c.amount, ext_txn_id: c.ext_txn_id || '', Transaction_Ref: c.ref_no,
-      txn_datetime: c.txn_datetime, txn_date: c.txn_date, mode: c.mode || '',
-      company: company || 'PRASAD TRANSPORT',
-      provider_id: provider.id || '', provider_name: provider.name || '',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    const res = await q(
+      `INSERT INTO fastag_credits (ext_credit_id, account_id, vehicle_no, amount,
+                                   credit_date, credit_at, provider, remarks)
+       VALUES ($1,$2,$3,$4,$5::date,$6::timestamptz,$7,$8)
+       ON CONFLICT (ext_credit_id) DO NOTHING RETURNING id`,
+      [creditDocId(c), c.account_id || null, c.vehicle_no || null, c.amount,
+       c.txn_date || null, c.txn_datetime || null,
+       provider.name || provider.type || null, c.ref_no || null]);
+    if (!res.rows.length) { creditDup++; continue; }
     creditsSaved++; creditTotal += c.amount;
     // Credits carry payer labels (e.g. "LIVQUIK"), not plates — don't let them
     // overwrite the account's vehicle. Balance still moves.
     bumpAcct(c.account_id, 'credit', c.amount, { ...c, vehicle_no: '' });
   }
 
-  // ── PER-ACCOUNT BALANCE (net delta of NEW docs only) ─────────────────────
+  // ── PER-ACCOUNT BALANCE (net delta of NEW rows only) ─────────────────────
   for (const [id, a] of acct) {
-    const patch = {
-      account_id: id,
-      balance: admin.firestore.FieldValue.increment(round2(a.credit - a.debit)),
-      total_debit: admin.firestore.FieldValue.increment(round2(a.debit)),
-      total_credit: admin.firestore.FieldValue.increment(round2(a.credit)),
-      provider: provider.id || '', provider_type: provider.type || '',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    if (a.vehicle) patch.vehicle_number = a.vehicle;
-    if (a.last) patch.last_txn_at = a.last;
-    await db.collection('FASTAG_ACCOUNTS').doc(id).set(patch, { merge: true }).catch(() => {});
+    await q(
+      `INSERT INTO fastag_accounts (account_id, balance, total_debit, total_credit,
+                                    vehicle_number, last_txn_at, provider, provider_type)
+       VALUES ($1,$2,$3,$4,$5,$6::timestamptz,$7,$8)
+       ON CONFLICT (account_id) DO UPDATE SET
+         balance      = fastag_accounts.balance      + EXCLUDED.balance,
+         total_debit  = fastag_accounts.total_debit  + EXCLUDED.total_debit,
+         total_credit = fastag_accounts.total_credit + EXCLUDED.total_credit,
+         vehicle_number = COALESCE(NULLIF(EXCLUDED.vehicle_number,''), fastag_accounts.vehicle_number),
+         last_txn_at  = GREATEST(fastag_accounts.last_txn_at, EXCLUDED.last_txn_at),
+         provider     = EXCLUDED.provider,
+         provider_type = EXCLUDED.provider_type,
+         updated_at   = now()`,
+      [id, round2(a.credit - a.debit), round2(a.debit), round2(a.credit),
+       a.vehicle || null, a.last || null, provider.id || null, provider.type || null]
+    ).catch((e) => log('  ⚠️ account balance:', e.message));
   }
 
   return { saved, duplicates, mapped, unmatched, total: round2(totalNew), creditsSaved, creditDup, creditTotal: round2(creditTotal) };
@@ -325,11 +358,12 @@ async function saveProviderBatch(debits, credits, company, provider) {
  *  summary, or null when there are no active providers. Per-provider failure
  *  is isolated — one bad token never blocks the others. */
 async function syncAllProviders(trigger) {
-  const snap = await db.collection('FASTAG_PROVIDERS').where('active', '==', true).get();
-  if (snap.empty) { log('  ℹ️ no active API providers configured'); return null; }
+  const { rows: providers } = await q(
+    `SELECT id, name, type, base_url, auth_token, username, password, company, sync_window_days
+       FROM fastag_providers WHERE active ORDER BY lower(name)`);
+  if (!providers.length) { log('  ℹ️ no active API providers configured'); return null; }
   const results = [];
-  for (const d of snap.docs) {
-    const provider = { id: d.id, ...d.data() };
+  for (const provider of providers) {
     log(`  🔌 provider "${provider.name}" (${provider.type}) — fetching…`);
     try {
       const { raw, window } = await fetchProviderTxns(provider);
@@ -342,20 +376,16 @@ async function syncAllProviders(trigger) {
       const line = `${provider.name}: ${r.saved} tolls ₹${r.total.toLocaleString('en-IN')} (${r.mapped} mapped, ${r.duplicates} dup), ${r.creditsSaved} credits`;
       log(`     ✅ ${line}`);
       results.push(line);
-      // update() (NOT set/merge) so a provider the admin deleted mid-sync is
-      // never resurrected as an empty phantom doc — update no-ops if it's gone.
-      await d.ref.update({
-        last_sync_at: admin.firestore.FieldValue.serverTimestamp(),
-        last_sync_result: line, last_sync_error: '',
-      }).catch(() => {});
+      // UPDATE ... WHERE id (not an upsert) so a provider the admin deleted
+      // mid-sync is never resurrected as a phantom row — this no-ops if gone.
+      await q(`UPDATE fastag_providers SET last_sync_at = now(), last_sync_result = $2,
+                      last_sync_error = '' WHERE id = $1::uuid`, [provider.id, line]).catch(() => {});
     } catch (e) {
       const msg = (e.response ? `HTTP ${e.response.status} ${JSON.stringify(e.response.data || '').slice(0, 120)}` : (e.message || String(e))).slice(0, 300);
       log(`     ❌ ${provider.name} failed: ${msg}`);
       results.push(`${provider.name}: FAILED (${msg})`);
-      await d.ref.update({
-        last_sync_at: admin.firestore.FieldValue.serverTimestamp(),
-        last_sync_result: 'FAILED', last_sync_error: msg,
-      }).catch(() => {});
+      await q(`UPDATE fastag_providers SET last_sync_at = now(), last_sync_result = 'FAILED',
+                      last_sync_error = $2 WHERE id = $1::uuid`, [provider.id, msg]).catch(() => {});
     }
   }
   return results.join(' | ');
@@ -370,10 +400,13 @@ function last24h(txns) {
   });
 }
 
-// ── Idempotent save (mirror of tollEngine.saveTollBatch, Admin SDK) ────────
+// ── Idempotent save (mirror of tollEngine.saveTollBatch, PostgreSQL) ──────
+// The portal-scrape path. Same dedup key and same conflict guard as the API
+// path above, because they land in the same table.
 async function saveTxns(txns, company, sourceTag) {
-  const tripsSnap = await db.collection('TRIPS').get();
-  const trips = tripsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const { rows: trips } = await q(
+    `SELECT id, trip_code, customer_name, challan_no, loading_point, unloading_location,
+            loading_date FROM trips ORDER BY loading_date DESC NULLS LAST LIMIT 5000`);
   const maps = T.mapTollsToTrips(txns, trips);
 
   let saved = 0, duplicates = 0, mapped = 0, unmatched = 0, totalNew = 0;
@@ -381,66 +414,54 @@ async function saveTxns(txns, company, sourceTag) {
   const gf = (o, keys) => { for (const k of keys) if (o && o[k] != null && o[k] !== '') return o[k]; return ''; };
 
   for (const mp of maps) {
-    const id = tollDocId(mp.txn);
-    const ref = db.collection('TOLL_TRANSACTIONS').doc(id);
-    if ((await ref.get()).exists) { duplicates++; continue; }   // 🛡️ guardrail
     const trip = mp.trip;
-    await ref.set({
-      Vehicle_No: mp.txn.vehicle_no, Amount: mp.txn.amount,
-      Txn_Date: mp.txn.txn_date, txn_datetime: mp.txn.txn_datetime,
-      Toll_Plaza_Name: mp.txn.plaza, lane_id: mp.txn.lane,
-      Transaction_Ref: mp.txn.ref_no, tag_account: mp.txn.tag_account || '',
-      linked_trip_id: trip ? String(gf(trip, ['trip_id', 'Trip_ID']) || trip.id) : 'UNMAPPED',
-      trip_db_id: trip?.id || '',
-      linked_customer: trip ? String(gf(trip, ['customer_name', 'Customer', 'Registered_Assessee'])) : '',
-      invoice_no: trip ? String(gf(trip, ['challan_no', 'Challan_No', 'invoice_no'])) : '',
-      loading_loc: trip ? String(gf(trip, ['loading_point', 'Loading_Point'])) : '',
-      dest_loc: trip ? String(gf(trip, ['consignee_name', 'Consignee_Name', 'unloading_point'])) : '',
-      company: company || 'PRASAD TRANSPORT',
-      map_status: mp.confidence, claim_status: 'UNCLAIMED',
-      billing_type: 'Reimbursable (Bill to Co.)', is_billable: true,
-      source: 'auto_sync', source_file: sourceTag,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    const res = await q(
+      `INSERT INTO toll_transactions
+         (ext_txn_id, vehicle_no, amount, txn_date, txn_datetime, plaza_name, txn_ref,
+          tag_id, trip_id, invoice_no, loading_loc, dest_loc, company, claim_status,
+          billing_type, is_billable, provider, remarks)
+       VALUES ($1,$2,$3,$4::date,$5::timestamptz,$6,$7,$8,$9::uuid,$10,$11,$12,$13,'UNCLAIMED',
+               'Reimbursable (Bill to Co.)', true, 'portal_scrape', $14)
+       ON CONFLICT (ext_txn_id) WHERE ext_txn_id IS NOT NULL DO NOTHING
+       RETURNING id`,
+      [
+        tollDocId(mp.txn), mp.txn.vehicle_no, mp.txn.amount,
+        mp.txn.txn_date, mp.txn.txn_datetime || null, mp.txn.plaza || null, mp.txn.ref_no || null,
+        mp.txn.tag_account || null, trip ? trip.id : null,
+        trip ? String(gf(trip, ['challan_no'])) || null : null,
+        trip ? String(gf(trip, ['loading_point'])) || null : null,
+        trip ? String(gf(trip, ['unloading_location'])) || null : null,
+        company || 'PRASAD TRANSPORT', sourceTag || null,
+      ]);
+    if (!res.rows.length) { duplicates++; continue; }
     saved++; totalNew += mp.txn.amount;
-    if (trip) { mapped++; tripTotals.set(trip.id, (tripTotals.get(trip.id) || 0) + mp.txn.amount); }
+    if (trip) { mapped++; tripTotals.set(trip.id, round2((tripTotals.get(trip.id) || 0) + mp.txn.amount)); }
     else unmatched++;
   }
-  // Trip P&L bump — only for NEW docs (duplicates never touch totals)
+
   for (const [tripId, amt] of tripTotals) {
-    await db.collection('TRIPS').doc(tripId).update({
-      toll_amt: admin.firestore.FieldValue.increment(round2(amt)),
-      total_expense: admin.firestore.FieldValue.increment(round2(amt)),
-    }).catch(() => {});
+    await q(
+      `UPDATE trips SET toll_amt = COALESCE(toll_amt,0) + $2,
+                        total_expense = COALESCE(total_expense,0) + $2
+        WHERE id = $1::uuid`, [tripId, round2(amt)]).catch(() => {});
   }
-  // Journal — doc id from (source_type, source_ref) => re-runs overwrite
-  if (totalNew > 0) {
-    const srcRef = `${company || 'FLEET'}__${sourceTag}`.slice(0, 200);
-    await db.collection('JOURNAL').doc(journalDocId('TOLL_STATEMENT', srcRef)).set({
-      source_type: 'TOLL_STATEMENT', source_ref: srcRef,
-      date: new Date().toISOString().slice(0, 10),
-      narration: `FASTag auto-sync ${sourceTag} — ${saved} tolls (${company || 'fleet'})`,
-      company: company || '',
-      lines: [
-        { ledger: 'Toll & Fastag Expense', dr_cr: 'Dr', amount: round2(totalNew) },
-        { ledger: 'Fastag Wallet / Bank', dr_cr: 'Cr', amount: round2(totalNew) },
-      ],
-      total: round2(totalNew), posted_at: admin.firestore.FieldValue.serverTimestamp(), posted_by: 'toll_auto_sync',
-    });
-  }
+
+  // No journal here either — see the note in saveProviderBatch. TARA is the
+  // only writer of ledger_entries and this runner does not go around it.
+
   return { saved, duplicates, mapped, unmatched, total: round2(totalNew) };
 }
 
 // ── One sync run ───────────────────────────────────────────────────────────
 let running = false;
+
 async function runSync(trigger) {
   if (running) { log('⏭️ sync already in progress — skipping'); return; }
   running = true;
-  const ref = SETTINGS_REF();
   try {
     // Master Toggle re-evaluated AT TRIGGER TIME (scheduled runs only —
     // Force Sync is explicit human intent and always allowed to run).
-    const s = (await ref.get()).data() || {};
+    const s = await readSettings();
     if (trigger === 'scheduled' && !s.master_switch) {
       log('🔴 Daily 24h Auto-Sync is OFF — terminating immediately');
       return;
@@ -480,17 +501,17 @@ async function runSync(trigger) {
 
     const summary = `OK (${trigger}): ${parts.join('  |  ')}`;
     log(`✅ ${summary}`);
-    await ref.set({
-      last_sync_at: admin.firestore.FieldValue.serverTimestamp(),
+    await patchSettings({
+      last_sync_at: new Date().toISOString(),
       last_sync_trigger: trigger, last_sync_result: summary.slice(0, 900), last_sync_error: '',
-    }, { merge: true });
+    });
   } catch (e) {
     log('❌ sync failed:', e.message);
-    await ref.set({
-      last_sync_at: admin.firestore.FieldValue.serverTimestamp(),
+    await patchSettings({
+      last_sync_at: new Date().toISOString(),
       last_sync_trigger: trigger, last_sync_result: 'FAILED',
       last_sync_error: String(e.message || e).slice(0, 400),
-    }, { merge: true }).catch(() => {});
+    }).catch(() => {});
   } finally {
     running = false;
   }
@@ -499,12 +520,11 @@ async function runSync(trigger) {
 // ── Strict 24h scheduler tick (30s) ────────────────────────────────────────
 async function tick() {
   try {
-    const snap = await SETTINGS_REF().get();
-    const s = snap.data() || {};
+    const s = await readSettings();
 
     // 1) Force Sync Now (manual) — clear the flag FIRST so a stuck run can't loop
     if (s.force_sync_requested) {
-      await SETTINGS_REF().set({ force_sync_requested: false }, { merge: true });
+      await patchSettings({ force_sync_requested: false });
       log('🖱️ Force Sync Now requested from ERP');
       await runSync('manual');
       return;
@@ -516,11 +536,12 @@ async function tick() {
     const now = new Date();
     const due = new Date(now); due.setHours(hh || 2, mm || 0, 0, 0);
     if (now < due) return; // preferred time not reached yet today
-    const lastSched = s.last_scheduled_sync_at?.toDate?.() || new Date(0);
+    // Stored as an ISO string now, not a Firestore Timestamp — no .toDate().
+    const lastSched = s.last_scheduled_sync_at ? new Date(s.last_scheduled_sync_at) : new Date(0);
     if (lastSched >= due) return; // this 24h window already attempted — strict once-a-day
     // Claim the window BEFORE running: pass ho ya fail, aaj ka scheduled slot
     // ek hi baar chalta hai (fail par har 30s retry portal account lock kara sakta hai).
-    await SETTINGS_REF().set({ last_scheduled_sync_at: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+    await patchSettings({ last_scheduled_sync_at: new Date().toISOString() });
     log(`⏰ scheduled window reached (${String(s.sync_time || '02:00')})`);
     await runSync('scheduled');
   } catch (e) {

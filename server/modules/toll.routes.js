@@ -546,6 +546,147 @@ export async function registerTollRoutes(app) {
     }
   );
 
+  // ═══ FASTAG PROVIDERS ═════════════════════════════════════════════════════
+  // Provider API credentials. THE MASK IS THE POINT: auth_token and password
+  // never leave this process. Every read replaces them with a sentinel, and a
+  // write that sends the sentinel back is ignored rather than storing it — so
+  // the UI can round-trip a provider without ever holding, or erasing, a
+  // secret it was not given.
+  const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+  const SECRETS = ['auth_token', 'password'];
+  const maskProvider = (r) => {
+    const out = { ...r };
+    for (const f of SECRETS) out[f] = r[f] ? MASK : '';
+    return out;
+  };
+
+  // Users paste whole curl URLs. The runner appends its own start_time /
+  // end_index parameters, so a leftover query string produces duplicate keys
+  // and the provider answers 500 — strip to origin + path.
+  const cleanUrl = (u) => {
+    const raw = String(u ?? '').trim().replace(/^['"]+|['"]+$/g, '').trim();
+    if (!raw) return '';
+    try { const url = new URL(raw); return `${url.origin}${url.pathname}`; } catch { return raw; }
+  };
+  const cleanToken = (t) =>
+    String(t ?? '').trim().replace(/^Authorization:\s*/i, '').replace(/^Bearer\s+/i, '').trim();
+
+  app.get('/providers', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT * FROM fastag_providers ORDER BY lower(name)`);
+    return { count: rows.length, providers: rows.map(maskProvider) };
+  });
+
+  app.post(
+    '/providers',
+    { schema: { body: { type: 'object', required: ['name', 'base_url'], additionalProperties: false, properties: {
+      id: { type: ['string', 'null'], format: 'uuid' },
+      name: { type: 'string', minLength: 1, maxLength: 120 },
+      type: { type: ['string', 'null'], maxLength: 40 },
+      base_url: { type: 'string', minLength: 1, maxLength: 500 },
+      auth_token: { type: ['string', 'null'], maxLength: 2000 },
+      username: { type: ['string', 'null'], maxLength: 120 },
+      password: { type: ['string', 'null'], maxLength: 200 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      active: { type: 'boolean', default: false },
+      sync_window_days: { type: 'integer', minimum: 1, maximum: 90, default: 2 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      const base = {
+        name: b.name.trim(),
+        type: (b.type || 'gtropy').toLowerCase(),
+        base_url: cleanUrl(b.base_url),
+        username: (b.username ?? '').trim(),
+        company: b.company || 'PRASAD TRANSPORT',
+        active: !!b.active,
+        sync_window_days: b.sync_window_days ?? 2,
+      };
+      // Only a freshly typed secret is written; the mask means "unchanged".
+      const secrets = {};
+      if (b.auth_token && b.auth_token !== MASK) secrets.auth_token = cleanToken(b.auth_token);
+      if (b.password && b.password !== MASK) secrets.password = b.password;
+
+      const cols = [...Object.keys(base), ...Object.keys(secrets)];
+      const vals = [...Object.values(base), ...Object.values(secrets)];
+      try {
+        if (b.id) {
+          const sets = cols.map((c, i) => `${c} = $${i + 2}`);
+          const { rows } = await query(
+            `UPDATE fastag_providers SET ${sets.join(', ')}, updated_at = now()
+              WHERE id = $1::uuid RETURNING *`, [b.id, ...vals]);
+          if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+          return { updated: true, provider: maskProvider(rows[0]) };
+        }
+        const { rows } = await query(
+          `INSERT INTO fastag_providers (${cols.join(', ')})
+           VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`, vals);
+        reply.code(201);
+        return { created: true, provider: maskProvider(rows[0]) };
+      } catch (err) { return pgErr(reply, err); }
+    }
+  );
+
+  app.patch('/providers/:id', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    if (typeof b.active !== 'boolean') return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
+    const { rows } = await query(
+      `UPDATE fastag_providers SET active = $2, updated_at = now() WHERE id = $1::uuid RETURNING *`,
+      [req.params.id, b.active]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { updated: true, provider: maskProvider(rows[0]) };
+  });
+
+  app.delete('/providers/:id', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query('DELETE FROM fastag_providers WHERE id = $1::uuid RETURNING name', [req.params.id]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { deleted: true, name: rows[0].name };
+  });
+
+  app.get('/accounts', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT * FROM fastag_accounts ORDER BY COALESCE(vehicle_number, account_id)`);
+    return {
+      count: rows.length,
+      accounts: rows,
+      total_balance: round2(rows.reduce((a, r) => a + money(r.balance), 0)),
+    };
+  });
+
+  // ═══ SETTINGS ═════════════════════════════════════════════════════════════
+  // One row of jsonb. The runner polls force_sync_requested and clears it; the
+  // screen sets it. Secrets in here are masked on the same rule as providers.
+  const SETTING_SECRETS = ['portal_password'];
+  const maskSettings = (v) => {
+    const out = { ...(v ?? {}) };
+    for (const f of SETTING_SECRETS) out[f] = out[f] ? MASK : '';
+    return out;
+  };
+
+  app.get('/settings/:key', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [r] } = await query('SELECT value FROM toll_settings WHERE key = $1', [req.params.key]);
+    return { key: req.params.key, value: maskSettings(r?.value) };
+  });
+
+  app.patch('/settings/:key', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const patch = { ...(req.body ?? {}) };
+    // A masked password must never be written back over the real one.
+    for (const f of SETTING_SECRETS) if (patch[f] === MASK) delete patch[f];
+    const { rows } = await query(
+      `INSERT INTO toll_settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = toll_settings.value || EXCLUDED.value, updated_at = now()
+       RETURNING value`,
+      [req.params.key, JSON.stringify(patch)]);
+    return { updated: true, key: req.params.key, value: maskSettings(rows[0].value) };
+  });
+
   // ═══ GST REGISTER ═════════════════════════════════════════════════════════
   const GST_COLS = ['entry_date', 'customer_id', 'customer_name', 'invoice_no', 'gst_type',
     'taxable_amt', 'gst_rate', 'total_gst', 'reverse_charge', 'is_submitted', 'return_period',
