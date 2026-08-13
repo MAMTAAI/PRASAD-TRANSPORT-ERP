@@ -58,7 +58,11 @@ export async function registerMastersRoutes(app) {
     'chassis_no', 'engine_no', 'capacity_kl', 'payload_mt', 'axle_count', 'tyre_count',
     'registration_date', 'insurance_expiry', 'fitness_expiry', 'permit_expiry', 'puc_expiry',
     'tax_expiry', 'national_permit_expiry', 'rc_photo_url', 'insurance_doc_url', 'fitness_doc_url',
-    'permit_doc_url', 'fastag_id', 'gps_imei', 'status', 'remarks', 'company_id'];
+    'permit_doc_url', 'fastag_id', 'gps_imei', 'status', 'remarks', 'company_id',
+    // migration 028 — commercial detail the fleet master maintains
+    'branch', 'vehicle_category', 'plant_attached', 'contract_ref', 'contract_validity',
+    'fuel_type', 'gross_weight', 'unladen_weight', 'hypothecated_to', 'vehicle_value',
+    'mfg_date', 'approval_status', 'tyre_config'];
 
   app.get(
     '/vehicles',
@@ -148,6 +152,197 @@ export async function registerMastersRoutes(app) {
     await query('DELETE FROM vehicle_assignments WHERE vehicle_id = $1::uuid', [req.params.id]);
     await query('DELETE FROM vehicles WHERE id = $1::uuid', [req.params.id]);
     return { retired: true, hard_deleted: true, vehicle_no: v.vehicle_no };
+  });
+
+  // ═══ VEHICLE COMPLIANCE DOCUMENTS ═════════════════════════════════════════
+  // Eleven statutory documents per vehicle plus custom ones. next_due_date here
+  // is the source of truth; the six expiry columns on `vehicles` are a
+  // denormalised cache written by this same endpoint (migration 028).
+  //
+  // doc_type -> the vehicles column it mirrors. Types with no column (explosive,
+  // calibration, rule18, rule43, cii, home_permit) live only in this table,
+  // which is fine: v_vehicle_compliance reads every type uniformly.
+  const DOC_EXPIRY_COL = Object.freeze({
+    fitness: 'fitness_expiry',
+    insurance: 'insurance_expiry',
+    pollution: 'puc_expiry',
+    national_permit: 'national_permit_expiry',
+    home_permit: 'permit_expiry',
+    mv_tax: 'tax_expiry',
+  });
+
+  // The expense ledger a compliance fee is debited to. One head for all document
+  // types, matching the account_groups entry that already exists.
+  const COMPLIANCE_LEDGER = 'Vehicle Compliance & Docs';
+  const COMPLIANCE_GROUP = 'Direct Expenses (Vehicle Compliance & Docs)';
+
+  app.get(
+    '/vehicle-documents',
+    { schema: { querystring: { type: 'object', properties: {
+      vehicle_id: { type: ['string', 'null'], format: 'uuid' },
+      state: { type: ['string', 'null'], enum: ['EXPIRED', 'EXPIRING', 'VALID', 'UNKNOWN', null] },
+      due_within_days: { type: ['integer', 'null'], minimum: 1, maximum: 365 },
+      limit: { type: 'integer', minimum: 1, maximum: 2000, default: 1000 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows } = await query(
+        `SELECT * FROM v_vehicle_compliance
+          WHERE ($1::uuid IS NULL OR vehicle_id = $1::uuid)
+            AND ($2::text IS NULL OR compliance_state = $2::text)
+            AND ($3::int  IS NULL OR (next_due_date IS NOT NULL
+                                      AND next_due_date <= CURRENT_DATE + ($3::int || ' days')::interval))
+          ORDER BY next_due_date NULLS LAST, vehicle_no, doc_type
+          LIMIT $4`,
+        [req.query.vehicle_id || null, req.query.state || null,
+         req.query.due_within_days ?? null, req.query.limit ?? 1000]);
+      return { count: rows.length, documents: rows };
+    }
+  );
+
+  // Save one document. If a fee is supplied, an account MUST be named: this
+  // moves real money and the screen asks the operator which bank or cash account
+  // it left. Nothing is defaulted.
+  //
+  // The Firestore version wrote a ONE-SIDED debit straight into LEDGER_ENTRIES.
+  // In PostgreSQL that table is TARA's, append-only by trigger, with a deferred
+  // Dr = Cr constraint per voucher — a one-sided entry cannot exist. So the fee
+  // posts as a PAYMENT voucher: Dr the compliance expense, Cr the account.
+  app.post(
+    '/vehicle-documents',
+    { schema: { body: {
+      type: 'object', required: ['vehicle_id', 'doc_type'], additionalProperties: false,
+      properties: {
+        vehicle_id: { type: 'string', format: 'uuid' },
+        doc_type: { type: 'string', minLength: 1, maxLength: 60 },
+        doc_name: { type: ['string', 'null'], maxLength: 120 },
+        application_no: { type: ['string', 'null'], maxLength: 80 },
+        receipt_no: { type: ['string', 'null'], maxLength: 80 },
+        inspected_on: { type: ['string', 'null'], format: 'date' },
+        next_due_date: { type: ['string', 'null'], format: 'date' },
+        amount: { type: ['number', 'null'], minimum: 0 },
+        payment_mode: { type: ['string', 'null'], maxLength: 40 },
+        document_url: { type: ['string', 'null'], maxLength: 800 },
+        remarks: { type: ['string', 'null'], maxLength: 300 },
+        // The bank/cash ledger the fee was paid from. Required whenever amount > 0
+        // and post_to_ledger is not explicitly false.
+        account: { type: ['string', 'null'], maxLength: 120 },
+        post_to_ledger: { type: 'boolean', default: true },
+        created_by: { type: ['string', 'null'], maxLength: 100 },
+      },
+    } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      const { rows: [v] } = await query(
+        'SELECT id, vehicle_no, branch FROM vehicles WHERE id = $1::uuid', [b.vehicle_id]);
+      if (!v) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such vehicle' });
+
+      const amount = Number(b.amount ?? 0);
+      const wantsPosting = amount > 0 && b.post_to_ledger !== false;
+      if (wantsPosting && !b.account) {
+        return reply.code(400).send({
+          error: 'NO_ACCOUNT',
+          detail: `a fee of ₹${amount.toFixed(2)} moves real money — name the bank or cash account it was paid from, or send post_to_ledger=false to record the document without an accounting entry`,
+        });
+      }
+
+      // Deterministic reference: re-saving the same tab with the same fee and
+      // receipt is refused by TARA's duplicate guard instead of double-posting.
+      // This replaces the Firestore `expense_posted_key` self-check.
+      const ref = `VEHDOC-${b.vehicle_id}-${b.doc_type}-${amount.toFixed(2)}-${b.receipt_no ?? b.application_no ?? 'noref'}`;
+
+      let voucher = null;
+      let ledgerNote = null;
+      if (wantsPosting) {
+        try {
+          voucher = await postVoucher({
+            type: 'PAYMENT',
+            account: b.account,
+            party_ledger: COMPLIANCE_LEDGER,
+            party_group: COMPLIANCE_GROUP,
+            amount,
+            ref_no: ref,
+            entry_date: b.inspected_on ?? new Date().toISOString().slice(0, 10),
+            narration: `${b.doc_name ?? b.doc_type} for ${v.vehicle_no}`
+              + `${b.receipt_no ? ` — receipt ${b.receipt_no}` : ''}`,
+            source_type: 'VEHICLE_COMPLIANCE',
+            branch: v.branch,
+            created_by: b.created_by ?? null,
+          });
+          await drain().catch(() => {});
+        } catch (err) {
+          if (err.code === 'DUPLICATE_REF') {
+            // The fee is already in the books. Saving the rest of the document is
+            // still correct, so this is a note rather than a failure.
+            ledgerNote = 'this exact fee is already posted — the document was saved without posting it again';
+          } else {
+            const map = { OVERDRAFT: 422, NO_ACCOUNT: 400, BAD_AMOUNT: 400 };
+            if (map[err.code]) {
+              return reply.code(map[err.code]).send({ error: err.code, detail: err.message, balance: err.balance });
+            }
+            throw err;
+          }
+        }
+      }
+
+      const saved = await withTransaction(async (t) => {
+        const { rows } = await t.query(
+          `INSERT INTO vehicle_documents
+             (vehicle_id, doc_type, doc_name, application_no, receipt_no, inspected_on,
+              next_due_date, amount, payment_mode, document_url, remarks, voucher_id)
+           VALUES ($1::uuid,$2,$3,$4,$5,$6::date,$7::date,$8,$9,$10,$11,$12::uuid)
+           ON CONFLICT (vehicle_id, doc_type) DO UPDATE SET
+             doc_name = EXCLUDED.doc_name, application_no = EXCLUDED.application_no,
+             receipt_no = EXCLUDED.receipt_no, inspected_on = EXCLUDED.inspected_on,
+             next_due_date = EXCLUDED.next_due_date, amount = EXCLUDED.amount,
+             payment_mode = EXCLUDED.payment_mode,
+             document_url = COALESCE(EXCLUDED.document_url, vehicle_documents.document_url),
+             remarks = EXCLUDED.remarks,
+             voucher_id = COALESCE(EXCLUDED.voucher_id, vehicle_documents.voucher_id),
+             updated_at = now()
+           RETURNING *`,
+          [b.vehicle_id, b.doc_type, b.doc_name ?? null, b.application_no ?? null,
+           b.receipt_no ?? null, b.inspected_on ?? null, b.next_due_date ?? null,
+           b.amount ?? null, b.payment_mode ?? null, b.document_url ?? null,
+           b.remarks ?? null, voucher?.voucher_id ?? null]);
+
+        // Keep the denormalised expiry column in step, in the same transaction,
+        // so the cache cannot disagree with the row it is derived from.
+        const col = DOC_EXPIRY_COL[b.doc_type];
+        if (col && b.next_due_date) {
+          await t.query(
+            `UPDATE vehicles SET ${col} = $2::date, updated_at = now() WHERE id = $1::uuid`,
+            [b.vehicle_id, b.next_due_date]);
+        }
+        return rows[0];
+      });
+
+      reply.code(201);
+      return {
+        saved: true, document: saved,
+        voucher_id: voucher?.voucher_id ?? null,
+        ledger_note: ledgerNote,
+      };
+    }
+  );
+
+  app.delete('/vehicle-documents/:id', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [d] } = await query(
+      'SELECT doc_type, voucher_id FROM vehicle_documents WHERE id = $1::uuid', [req.params.id]);
+    if (!d) return reply.code(404).send({ error: 'NOT_FOUND' });
+    // A document whose fee was posted keeps its record: deleting it would leave
+    // a voucher in the ledger with nothing explaining what it paid for.
+    if (d.voucher_id) {
+      return reply.code(409).send({
+        error: 'FEE_POSTED',
+        detail: `this document's fee is posted under voucher ${d.voucher_id} — reverse that voucher in Cash & Bank Book first`,
+        voucher_id: d.voucher_id,
+      });
+    }
+    await query('DELETE FROM vehicle_documents WHERE id = $1::uuid', [req.params.id]);
+    return { deleted: true, doc_type: d.doc_type };
   });
 
   // ═══ DRIVERS ══════════════════════════════════════════════════════════════

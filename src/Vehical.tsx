@@ -1,9 +1,112 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { scopeCurrent } from './lib/rbac';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// ── Form ⇄ column mapping ──────────────────────────────────────────────────
+// The fleet form grew its own vocabulary over years of use ('Own'/'Attached',
+// 'System Active', '10+1' tyres, veh_class as free text). PostgreSQL has enums
+// and typed columns. Both directions are mapped here, at the data boundary, so
+// the form keeps the words the office uses and the database keeps its integrity.
+const VEHICLE_KINDS = ['TANKER', 'TRUCK', 'TRAILER', 'TIPPER', 'CONTAINER', 'OTHER'];
+
+// Free-text class -> the vehicle_kind enum. Unrecognised text becomes OTHER
+// rather than failing the save: refusing a vehicle because its class was typed
+// unusually would be worse than recording it as OTHER.
+const toKind = (txt: any) => {
+  const t = String(txt ?? '').toUpperCase();
+  return VEHICLE_KINDS.find((k) => t.includes(k)) ?? (t ? 'OTHER' : null);
+};
+const toOwnership = (v: any) => {
+  const t = String(v ?? '').toUpperCase();
+  if (t.startsWith('ATTACH')) return 'ATTACHED';
+  if (t.startsWith('LEAS')) return 'LEASED';
+  return 'OWNED';
+};
+const fromOwnership = (v: any) => (String(v ?? '') === 'ATTACHED' ? 'Attached' : String(v ?? '') === 'LEASED' ? 'Leased' : 'Own');
+// record_status is ACTIVE | INACTIVE | BLACKLISTED | ARCHIVED; the form says
+// 'System Active' / 'Blocked'.
+const toStatus = (v: any) => {
+  const t = String(v ?? '').toUpperCase();
+  if (t.includes('BLOCK') || t.includes('BLACKLIST')) return 'BLACKLISTED';
+  if (t.includes('INACTIVE') || t.includes('SOLD') || t.includes('ARCHIV')) return 'INACTIVE';
+  return 'ACTIVE';
+};
+const fromStatus = (v: any) => (String(v ?? '') === 'ACTIVE' ? 'System Active' : String(v ?? '') === 'BLACKLISTED' ? 'Blocked' : 'Inactive');
+// '10+1' means ten wheels plus a spare — the count for arithmetic is the sum.
+const tyreCountOf = (cfg: any) => {
+  const parts = String(cfg ?? '').match(/\d+/g);
+  if (!parts) return null;
+  const n = parts.reduce((a, x) => a + parseInt(x, 10), 0);
+  return n > 0 && n < 100 ? n : null;
+};
+const num = (v: any) => (v === '' || v === null || v === undefined ? null : Number(v));
+const dt = (v: any) => (v ? String(v).slice(0, 10) : null);
+
+const vehicleFromApi = (v: any, companies: any[]) => ({
+  ...v,
+  own_attach: fromOwnership(v.ownership),
+  veh_class: v.vehicle_type ?? '',
+  modal_no: v.make_model ?? '',
+  reg_date: v.registration_date ?? '',
+  fuel: v.fuel_type ?? 'Diesel',
+  g_v_w: v.gross_weight ?? '',
+  unladen_wt: v.unladen_weight ?? '',
+  no_of_tyres: v.tyre_config ?? (v.tyre_count ? String(v.tyre_count) : '10+1'),
+  branch_name: v.branch ?? '',
+  company_name: companies.find((c: any) => c.id === v.company_id)?.company_name ?? '',
+  status: fromStatus(v.status),
+  approval: v.approval_status === 'APPROVED' ? 'Approved' : v.approval_status === 'REJECTED' ? 'Rejected' : 'Pending',
+  driver_name: v.linked_driver ?? '',
+  vehicle_value: v.vehicle_value ?? '0',
+});
+
+const vehicleToApi = (f: any, companies: any[]) => {
+  const body: any = {
+    vehicle_no: String(f.vehicle_no ?? '').toUpperCase().replace(/\s+/g, ''),
+    owner_name: f.owner_name || null,
+    ownership: toOwnership(f.own_attach),
+    chassis_no: f.chassis_no || null,
+    engine_no: f.engine_no || null,
+    capacity_kl: num(f.capacity_kl),
+    make_model: f.modal_no || null,
+    registration_date: dt(f.reg_date),
+    mfg_date: dt(f.mfg_date),
+    fuel_type: f.fuel || null,
+    gross_weight: num(f.g_v_w),
+    unladen_weight: num(f.unladen_wt),
+    hypothecated_to: f.hypothecated_to || null,
+    vehicle_value: num(f.vehicle_value),
+    rc_photo_url: f.rc_photo_url || null,
+    fastag_id: f.fastag_id || null,
+    branch: f.branch_name || null,
+    vehicle_category: f.vehicle_category || null,
+    plant_attached: f.plant_attached || null,
+    contract_ref: f.contract_ref || null,
+    contract_validity: dt(f.contract_validity),
+    tyre_config: f.no_of_tyres || null,
+    tyre_count: tyreCountOf(f.no_of_tyres),
+    status: toStatus(f.status),
+    approval_status: String(f.approval ?? '').toUpperCase().startsWith('APPROV') ? 'APPROVED'
+      : String(f.approval ?? '').toUpperCase().startsWith('REJECT') ? 'REJECTED' : 'PENDING',
+  };
+  const kind = toKind(f.veh_class);
+  if (kind) body.vehicle_type = kind;
+  const co = companies.find((c: any) => c.company_name === f.company_name);
+  if (co) body.company_id = co.id;
+  return body;
+};
 
 export default function Vehical() {
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -68,51 +171,35 @@ export default function Vehical() {
   });
 
   const fetchVehicles = async () => {
-    setLoading(true); setFetchError('');
+    setLoading(true);
+    setFetchError('');
     try {
-      // ⚠️ Errors ab SWALLOW nahi hote: pehle .catch(()=>empty) tha, jisse
-      // permission-denied par fleet chupchaap khali dikhta tha ("data gayab").
-      const vSnap1 = await getDocs(collection(db, "VEHICLES"));
-      const vSnap2 = await getDocs(collection(db, "ASSETS")).catch(() => ({ docs: [] })); // legacy collection: ho to merge, na ho to skip
-
-      const allVehicles = [
-          ...vSnap1.docs.map(d => normalizeVehicle({ id: d.id, _collection: 'VEHICLES', ...d.data() })),
-          ...vSnap2.docs.map(d => normalizeVehicle({ id: d.id, _collection: 'ASSETS', ...d.data() }))
-      ];
-
-      setVehicles(scopeCurrent(allVehicles)); // 🔐 RBAC: scoped roles see only their own vehicles
-    } catch (e) {
-      console.error("Vehicle fetch failed:", e);
+      // Trip counts, the soonest expiry and the currently-linked driver arrive
+      // computed with each row. The old screen read every trip in the business
+      // just to work out which trucks were on the road.
+      const [v, m] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`),
+        fetchJson(`${FIN}/masters/companies`),
+      ]);
+      setCompanies(m.companies ?? []);
+      setBranches((m.branches ?? []).map((b: string) => ({ id: b, branch_name: b })));
+      // 🔐 RBAC: scoped roles see only their own vehicles.
+      setVehicles(scopeCurrent((v.vehicles ?? []).map((x: any) => vehicleFromApi(x, m.companies ?? []))));
+      // 🔴 On-trip set, from the trip rollup the API already returns.
+      const norm = (x: any) => String(x ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const active = await fetchJson(`${API}/api/v1/ops/trips?exclude_status=COMPLETED,SETTLED,CANCELLED&limit=1000`)
+        .catch(() => ({ trips: [] }));
+      setActiveVehSet(new Set((active.trips ?? []).map((t: any) => norm(t.vehicle_no)).filter(Boolean)));
+    } catch (e: any) {
       setVehicles([]);
-      setFetchError(/permission|insufficient/i.test(String(e?.message || e))
-        ? '🔐 PERMISSION BLOCKED: Aapki login session purani/expired hai — vehicles database access nahi mila. LOGOUT karke email/password se dobara login karein, saara data wapas aa jayega. (Data delete NAHI hua hai.)'
-        : `❌ Vehicles load nahi hui: ${e?.message || 'network error'} — internet check karke refresh karein.`);
+      setFetchError(`Fleet could not load from ${API} — ${e.message}. Check that the ERP API is running.`);
     }
     setLoading(false);
   };
 
-  const fetchMasters = async () => {
-    try {
-      const compSnap = await getDocs(collection(db, "COMPANIES")).catch(()=>({docs:[]}));
-      setCompanies(compSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      
-      const branchSnap = await getDocs(collection(db, "BRANCHES")).catch(()=>({docs:[]}));
-      setBranches(branchSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-      // 🔴 Live status: which vehicles are currently on a non-completed trip.
-      const tripSnap = await getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]}));
-      const norm = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const onTrip = new Set<string>();
-      tripSnap.docs.forEach(d => {
-        const t: any = d.data();
-        if (String(t.trip_status || t.Trip_Status || '').toUpperCase() !== 'COMPLETED') {
-          const vno = norm(t.vehicle_no || t.Vehical_No);
-          if (vno) onTrip.add(vno);
-        }
-      });
-      setActiveVehSet(onTrip);
-    } catch (e) { console.error(e); }
-  };
+  // Masters now arrive with the vehicles in one call; kept as a no-op so the
+  // existing mount effect and any refresh buttons keep working.
+  const fetchMasters = async () => {};
 
   const handleInputChange = (e: any) => {
     const { name, value } = e.target;
@@ -141,66 +228,64 @@ export default function Vehical() {
   };
 
   const handleSave = async () => {
-    if (!formData.vehicle_no) return alert("⚠️ Vehicle Number is strictly required!");
+    if (!formData.vehicle_no) return alert('⚠️ Vehicle number is required.');
     if (formData.own_attach === 'Attached' && !formData.owner_name) {
-        return alert("⚠️ Owner Name is required for Attached Vehicles!");
+      return alert('⚠️ Owner name is required for an attached vehicle.');
     }
-
     try {
+      const body = vehicleToApi(formData, companies);
       if (editingId) {
-        const existing = vehicles.find(v => v.id === editingId);
-        const colName = existing?._collection || 'VEHICLES';
-        await updateDoc(doc(db, colName, editingId), { ...formData, updatedAt: serverTimestamp() });
-        alert("✅ Vehicle Data Updated Successfully!");
-      } else {
-        const docRef = await addDoc(collection(db, "VEHICLES"), { ...formData, createdAt: serverTimestamp() });
-        
-        const isOwn = formData.own_attach === 'Own';
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: isOwn ? formData.vehicle_no : formData.owner_name,
-          group_head: isOwn ? "Fixed Assets" : "Sundry Creditors",
-          opening_balance: isOwn ? parseFloat(formData.vehicle_value || '0') : 0, 
-          current_balance: isOwn ? parseFloat(formData.vehicle_value || '0') : 0,
-          creation_type: "AUTO_SYSTEM",
-          linked_module: "VEHICLE",
-          linked_id: docRef.id,
-          created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/vehicles/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
-
-        alert("✅ New Asset Registered & Auto-Ledger Created!");
+        alert('✅ Vehicle updated.');
+      } else {
+        const out = await fetchJson(`${MASTERS}/vehicles`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        // No companion LEDGERS row is created here. An owned truck's asset
+        // account and an attached owner's creditor account are created by TARA on
+        // first posting, under the canonical name; creating one now left an empty
+        // duplicate that never received an entry.
+        alert(`✅ ${out.vehicle.vehicle_no} registered.`);
       }
-      resetForm(); fetchVehicles();
-    } catch (err) { alert("❌ Error saving data to the server!"); }
+      resetForm();
+      fetchVehicles();
+    } catch (err: any) {
+      const hint = {
+        DUPLICATE: 'A vehicle with that number already exists.',
+        CONSTRAINT: 'A value was rejected by the database — check the class, status or dates.',
+      }[err.code];
+      alert(`❌ ${hint ?? 'Vehicle not saved.'}\n\n${err.message}`);
+    }
   };
 
   const handleEdit = (v: any) => {
+    // Rows arrive pre-mapped by vehicleFromApi, so the form reads them directly.
     setFormData({
       ...v,
-      vehicle_no: v.vehicle_no || v.Vehicle_No || v.vehical_no || '',
-      own_attach: v.own_attach || v.asset_type || 'Own',
-      owner_name: v.owner_name || v.Owner_Name || v.asset_owner_name || '',
-      company_name: v.company_name || v.Company_Name || v.operating_company || '',
-      branch_name: v.branch_name || v.operating_branch || '',
-      status: v.status || 'System Active',
+      capacity_kl: v.capacity_kl ?? '',
       vehicle_category: v.vehicle_category || 'Bulk Trucks',
       plant_attached: v.plant_attached || '',
       contract_ref: v.contract_ref || '',
       contract_validity: v.contract_validity || '',
+      hypothecated_to: v.hypothecated_to || '',
+      mfg_date: v.mfg_date || '',
       fastag_id: v.fastag_id || '',
-      no_of_tyres: v.no_of_tyres || v.No_of_Tyres || '10+1', 
-      fuel: v.fuel || v.fuel_type || 'Diesel',
-      capacity_kl: v.capacity_kl || v.capacity || '',
-      rc_photo_url: v.rc_photo_url || v.document_file || ''
+      rc_photo_url: v.rc_photo_url || '',
+      vehicle_value: v.vehicle_value ?? '0',
     });
     setEditingId(v.id);
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string, name: string, colName: string) => {
-    if (window.confirm(`Are you sure you want to permanently erase ${name}?`)) {
-      await deleteDoc(doc(db, colName || "VEHICLES", id));
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Remove ${name}?\n\nIf it has run trips the record is marked INACTIVE instead of deleted, so those trips stay resolvable.`)) return;
+    try {
+      const out = await fetchJson(`${MASTERS}/vehicles/${id}`, { method: 'DELETE' });
+      alert(out.hard_deleted ? `✅ ${name} deleted.` : `✅ ${name} marked INACTIVE.\n\n${out.detail ?? ''}`);
       fetchVehicles();
-    }
+    } catch (e: any) { alert(`❌ Not removed.\n\n${e.message}`); }
   };
 
   const resetForm = () => {
@@ -346,7 +431,7 @@ export default function Vehical() {
               
               <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
                 <button onClick={() => handleEdit(v)} style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>✏️ Configure</button>
-                <button onClick={() => handleDelete(v.id, (v.vehicle_no || v.Vehicle_No), v._collection)} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ Erase</button>
+                <button onClick={() => handleDelete(v.id, v.vehicle_no)} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ Erase</button>
               </div>
             </div>
           )})}

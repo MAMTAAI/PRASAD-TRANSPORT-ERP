@@ -1,10 +1,19 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc, serverTimestamp, addDoc, query, where } from 'firebase/firestore';
-import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { uploadMedia, slug } from './lib/uploadMedia';
 import { toISODate } from './lib/accounting/tripMath';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 // Legacy scans stored values like ":AS240718V5684090" — strip stray leading
 // punctuation/labels so old data displays and saves clean.
@@ -113,43 +122,76 @@ export default function VehicleDocs() {
     fetchCompanies();
   }, []);
 
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [payAccount, setPayAccount] = useState('');
+  const [docsByType, setDocsByType] = useState<any>({});
+  const [err, setErr] = useState('');
+
   const fetchVehicles = async () => {
     setLoading(true);
+    setErr('');
     try {
-      const querySnapshot = await getDocs(collection(db, "VEHICLES"));
-      const vList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setVehicles(vList);
-    } catch (error) { console.error("Error fetching vehicles:", error); }
+      const [v, m, acc] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`),
+        fetchJson(`${FIN}/masters/companies`),
+        // Bank and cash accounts, for the compliance-fee selector. A fee moves
+        // real money, so the operator names the account — nothing is defaulted.
+        fetchJson(`${FIN}/accounts`),
+      ]);
+      setVehicles(v.vehicles ?? []);
+      setCompanies(m.companies ?? []);
+      setAccounts(acc.accounts ?? []);
+    } catch (e: any) {
+      setVehicles([]);
+      setErr(`Fleet could not load from ${API} — ${e.message}`);
+    }
     setLoading(false);
   };
 
-  const fetchCompanies = async () => {
+  const fetchCompanies = async () => {};
+
+  // Every stored document for one vehicle, keyed by doc_type so the tabs read it
+  // exactly as they read the old nested map.
+  const loadDocsFor = async (vehicleId: string) => {
     try {
-      const cSnap1 = await getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] }));
-      const cSnap2 = await getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] }));
-      const compList = [...cSnap1.docs, ...cSnap2.docs].map(d => ({ id: d.id, ...d.data() }));
-      setCompanies(compList);
-    } catch (error) { console.error(error); }
+      const j = await fetchJson(`${MASTERS}/vehicle-documents?vehicle_id=${vehicleId}`);
+      const byType: any = {};
+      for (const d of j.documents ?? []) {
+        byType[d.doc_type] = {
+          application_no: d.application_no ?? '',
+          receipt_no: d.receipt_no ?? '',
+          inspected_on: d.inspected_on ?? '',
+          next_due_date: d.next_due_date ?? '',
+          amount: d.amount ?? '',
+          payment_mode: d.payment_mode ?? '',
+          document_file: d.document_url ?? '',
+          doc_name: d.doc_name ?? '',
+          _id: d.id,
+          _voucher_id: d.voucher_id,
+          _state: d.compliance_state,
+          _days: d.days_to_expiry,
+        };
+      }
+      setDocsByType(byType);
+      return byType;
+    } catch { setDocsByType({}); return {}; }
   };
 
-  // 🚀 Load Custom Docs & Recover Old Data
-  const loadVehicleDocs = (vehicle: any) => {
-    const currentTypes = [...docTypes.slice(0, 11)]; 
-    
-    if (vehicle.documents) {
-      Object.keys(vehicle.documents).forEach(key => {
-         if (!currentTypes.find(t => t.id === key)) {
-           currentTypes.push({ id: key, name: vehicle.documents[key].doc_name || key });
-         }
-      });
+  const loadVehicleDocs = async (vehicle: any) => {
+    const currentTypes = [...docTypes.slice(0, 11)];
+    const byType = await loadDocsFor(vehicle.id);
+    // Custom document types are discovered from what this vehicle already has:
+    // an operator-defined doc carries its own name on the row.
+    for (const [type, d] of Object.entries<any>(byType)) {
+      if (type.startsWith('custom_') && !currentTypes.some((t) => t.id === type)) {
+        currentTypes.push({ id: type, name: d.doc_name || `📄 ${type.replace('custom_', '')}` });
+      }
     }
-
     setDocTypes(currentTypes);
     setSelectedVehicle(vehicle);
     setActiveTab(currentTypes[0]);
-    
-    const existingData = vehicle.documents?.[currentTypes[0].id] || {};
-    setFormData(parseOldDocData(existingData, currentTypes[0]));
+    setFormData(byType[currentTypes[0].id] ?? {});
+    setPayAccount('');
     setScannedAIData(null);
   };
 
@@ -164,8 +206,8 @@ export default function VehicleDocs() {
 
   const handleTabChange = (type: any) => {
     setActiveTab(type);
-    const existingData = selectedVehicle.documents?.[type.id] || {};
-    setFormData(parseOldDocData(existingData, type));
+    setFormData(docsByType[type.id] ?? {});
+    setPayAccount('');
     setScannedAIData(null);
   };
 
@@ -288,90 +330,51 @@ export default function VehicleDocs() {
     if (!selectedVehicle) return;
     setSaving(true);
     try {
-      const vehicleRef = doc(db, "VEHICLES", selectedVehicle.id);
-      
-      const safeDataToSave = {};
-      for (const key in formData) {
-        safeDataToSave[key] = formData[key] === undefined ? "" : formData[key];
-      }
-      safeDataToSave.application_no = cleanRef(safeDataToSave.application_no);
-      safeDataToSave.receipt_no = cleanRef(safeDataToSave.receipt_no);
-      safeDataToSave.updated_at = new Date().toISOString();
-
-      // 🔒 Duplicate-expense guard: the same (amount + ref) must post to the
-      // ledger only once — re-saving the form previously duplicated the fee.
-      const expenseKey = `${parseFloat(safeDataToSave.amount || '0')}|${safeDataToSave.receipt_no || safeDataToSave.application_no || ''}`;
-      const alreadyPosted = selectedVehicle.documents?.[activeTab.id]?.expense_posted_key === expenseKey;
-      if (safeDataToSave.amount && parseFloat(safeDataToSave.amount) > 0 && !alreadyPosted) {
-        safeDataToSave.expense_posted_key = expenseKey;
-      } else if (alreadyPosted) {
-        safeDataToSave.expense_posted_key = expenseKey;
+      const amount = parseFloat(formData.amount || '0') || 0;
+      // A fee moves real money. The account is the operator's choice — this screen
+      // refuses to guess one, and the server refuses the request without it.
+      if (amount > 0 && !payAccount) {
+        setSaving(false);
+        return alert('⚠️ This document carries a fee of ₹' + amount.toLocaleString('en-IN')
+          + '.\n\nSelect the bank or cash account it was paid from — the entry posts to the ledger and no account is assumed for you.');
       }
 
-      const updatePayload = {
-        [`documents.${activeTab.id}`]: safeDataToSave
-      };
+      const out = await fetchJson(`${MASTERS}/vehicle-documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_id: selectedVehicle.id,
+          doc_type: activeTab.id,
+          doc_name: activeTab.name,
+          application_no: cleanRef(formData.application_no) || null,
+          receipt_no: cleanRef(formData.receipt_no) || null,
+          inspected_on: formData.inspected_on || null,
+          next_due_date: formData.next_due_date || null,
+          amount: amount > 0 ? amount : null,
+          payment_mode: formData.payment_mode || null,
+          document_url: formData.document_file || null,
+          ...(amount > 0 ? { account: payAccount } : {}),
+        }),
+      });
 
-      if(activeTab.id === 'fitness') updatePayload['fitness_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'insurance') updatePayload['insurance_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'explosive') updatePayload['explosive_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'calibration') updatePayload['calibration_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'pollution') updatePayload['pollution_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'national_permit') updatePayload['national_permit_validity'] = safeDataToSave.next_due_date || '';
-      if(activeTab.id === 'mv_tax') updatePayload['tax_validity'] = safeDataToSave.next_due_date || '';
+      // Reload from the server rather than patching local state: next_due_date
+      // also syncs an expiry column on the vehicle, and the compliance state and
+      // days-to-expiry are computed there.
+      await loadDocsFor(selectedVehicle.id);
+      await fetchVehicles();
+      setPayAccount('');
 
-      await updateDoc(vehicleRef, updatePayload);
-
-      // 🔥 PROPER ACCOUNTING LOGIC (skipped when this exact fee was already posted)
-      if (safeDataToSave.amount && parseFloat(safeDataToSave.amount) > 0 && !alreadyPosted) {
-        const cleanDocName = activeTab.name.replace(/[0-9.]/g, '').trim();
-        const expectedLedgerName = `${cleanDocName} Expenses`; 
-
-        const q = query(collection(db, "LEDGERS"), where("name", "==", expectedLedgerName));
-        const querySnapshot = await getDocs(q);
-
-        let ledgerIdToUse = null;
-
-        if (!querySnapshot.empty) {
-           ledgerIdToUse = querySnapshot.docs[0].id; 
-        } else {
-           const newLedgerRef = await addDoc(collection(db, "LEDGERS"), {
-              name: expectedLedgerName,
-              ledger_name: expectedLedgerName, // rest of the ERP reads ledger_name
-              group: "Direct Expenses (Vehicle Compliance & Docs)",
-              op_balance: 0,
-              company: "ALL", 
-              branch: "ALL",
-              dr_cr: "Dr (Debit)", 
-              creation_type: "AUTO_SYSTEM",
-              linked_module: "MASTER_DOC_EXPENSE",
-              created_at: serverTimestamp()
-           });
-           ledgerIdToUse = newLedgerRef.id;
-        }
-
-        await addDoc(collection(db, "LEDGER_ENTRIES"), {
-           ledgerId: ledgerIdToUse,
-           date: safeDataToSave.inspected_on || new Date().toISOString().split('T')[0],
-           particulars: `Paid for Vehicle: ${plateOf(selectedVehicle)} | Ref: ${safeDataToSave.receipt_no || safeDataToSave.application_no || 'Auto-Sync'}`,
-           dr_cr: "Dr (Debit)",
-           amount: parseFloat(safeDataToSave.amount),
-           company: selectedVehicle.company_name || selectedVehicle.Company_Name || 'ALL',
-           branch: selectedVehicle.branch_name || selectedVehicle.branch || 'ALL',
-           created_at: serverTimestamp()
-        });
-      }
-
-      const updatedVehicle = { ...selectedVehicle };
-      if (!updatedVehicle.documents) updatedVehicle.documents = {};
-      updatedVehicle.documents[activeTab.id] = safeDataToSave;
-      setSelectedVehicle(updatedVehicle);
-      setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
-
-      alert(`✅ ${activeTab.name} Saved & Accounted Properly!`);
-    } catch (error) {
-      console.error("Save Error:", error);
-      alert("❌ Error saving document to server! Please try again.");
+      alert(`✅ ${activeTab.name} saved.`
+        + (out.voucher_id
+          ? `\n\n📓 Fee of ₹${amount.toLocaleString('en-IN')} posted: Dr Vehicle Compliance & Docs / Cr ${payAccount}.`
+          : amount > 0 ? '' : '\n\nNo fee recorded, so nothing was posted to the ledger.')
+        + (out.ledger_note ? `\n\nℹ️ ${out.ledger_note}` : ''));
+    } catch (error: any) {
+      const hint = {
+        NO_ACCOUNT: 'Select the account the fee was paid from.',
+        OVERDRAFT: 'That account does not hold enough for this fee.',
+      }[error.code];
+      alert(`❌ ${hint ?? 'Document not saved.'}\n\n${error.message}`);
     }
     setSaving(false);
   };
@@ -600,7 +603,7 @@ export default function VehicleDocs() {
                 </div>
                 <div>
                   <label style={{ color: '#ef4444', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Total Fees Paid (₹)</label>
-                  <input type="number" className="modern-input" name="amount" value={formData.amount || ''} onChange={handleInputChange} placeholder="Hits Ledger Account" style={{border: '1px solid #ef4444', background: 'rgba(239,68,68,0.05)', fontWeight: 'bold'}} />
+                  <input type="number" className="modern-input" name="amount" value={formData.amount || ''} onChange={handleInputChange} placeholder="Posts to the ledger" style={{border: '1px solid #ef4444', background: 'rgba(239,68,68,0.05)', fontWeight: 'bold'}} />
                 </div>
                 <div>
                   <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Payment Mode</label>
@@ -612,6 +615,40 @@ export default function VehicleDocs() {
                   </select>
                 </div>
               </div>
+
+              {/* 💳 PAID FROM — required whenever a fee is entered.
+                  A compliance fee is real money leaving a real account, so the
+                  operator names it. Nothing is defaulted: the old screen wrote a
+                  one-sided debit with no credit at all, which PostgreSQL will not
+                  accept (ledger_entries is append-only with a deferred Dr = Cr
+                  constraint per voucher). */}
+              {parseFloat(formData.amount || '0') > 0 && (
+                <div style={{ marginTop: '25px', background: 'rgba(239,68,68,0.06)', border: '1px solid #ef4444', borderRadius: '14px', padding: '18px' }}>
+                  <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                    💳 Paid From — Bank / Cash Account *
+                  </label>
+                  <select className="modern-input" value={payAccount} onChange={(e) => setPayAccount(e.target.value)}
+                    style={{ border: `1px solid ${payAccount ? '#10b981' : '#ef4444'}`, fontWeight: 'bold' }}>
+                    <option value="">-- Select the account this fee was paid from --</option>
+                    {accounts.map((a: any) => (
+                      <option key={a.ledger_name} value={a.ledger_name}>
+                        {a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '10px', lineHeight: 1.6 }}>
+                    On save this posts a payment voucher:
+                    {' '}<b style={{ color: '#f87171' }}>Dr Vehicle Compliance &amp; Docs</b>
+                    {' '}/ <b style={{ color: '#34d399' }}>Cr {payAccount || 'the account you select'}</b>
+                    {' '}for ₹{Number(formData.amount || 0).toLocaleString('en-IN')}.
+                    {formData._voucher_id && (
+                      <div style={{ color: '#fbbf24', marginTop: 6 }}>
+                        ℹ️ A fee for this document is already posted (voucher {String(formData._voucher_id).slice(0, 8)}…). Re-saving will not post it twice.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="upload-area" style={{ marginTop: '35px' }}>
                 <label style={{ color: '#38bdf8', fontSize: '16px', fontWeight: 'bold', display: 'block', marginBottom: '15px' }}>📎 Upload Original PDF/IMG (saved to secure Storage + Mamta AI scan)</label>
