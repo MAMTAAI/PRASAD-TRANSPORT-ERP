@@ -208,8 +208,21 @@ async function getOrCreateLedger(tx, name, groupHead) {
   const found = await tx.query(
     `SELECT id, ledger_name FROM ledgers WHERE lower(ledger_name) = lower($1) LIMIT 1`, [name]);
   if (found.rows.length) return found.rows[0];
+  // The id is DERIVED FROM THE NAME, not generated. Two databases posting the
+  // same voucher used to mint two different uuids for one account, and autoSync
+  // upserts by id — so the account arrived on the replica twice and its balance
+  // split across the copies. That defect has now cost migrations 037, 038 and
+  // 039. md5 returns 32 hex characters, which casts straight to uuid, so the
+  // same ledger name is the same primary key on every database and the upsert
+  // converges instead of duplicating.
+  //
+  // ON CONFLICT covers the other half of the race: if autoSync inserted this
+  // very row between the SELECT above and this INSERT, the no-op UPDATE still
+  // returns it rather than raising.
   const made = await tx.query(
-    `INSERT INTO ledgers (ledger_name, group_head, creation_type) VALUES ($1, $2, 'AUTO_VOUCHER')
+    `INSERT INTO ledgers (id, ledger_name, group_head, creation_type)
+     VALUES (md5('prasad-erp/ledger/' || lower(btrim($1)))::uuid, $1, $2, 'AUTO_VOUCHER')
+     ON CONFLICT (id) DO UPDATE SET ledger_name = ledgers.ledger_name
      RETURNING id, ledger_name`, [name, groupHead]);
   return made.rows[0];
 }
