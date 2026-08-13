@@ -1,8 +1,73 @@
 // @ts-nocheck
+// 🏢 CUSTOMER MASTER (CRM) — contracts, portal access, external KYC. Live PostgreSQL.
+//
+// The two tabs are ONE table. Firestore kept CUSTOMERS and EXTERNAL_CUSTOMERS
+// as separate collections, so a portal-registered company had its own record,
+// its own ledger, and no link to the bills raised against it. Migration 026
+// folded them: a portal customer IS a customer carrying
+// `customer_source = 'PORTAL'` plus an approval_status. The Enterprise tab
+// filters INTERNAL, the External tab filters PORTAL, and one company can no
+// longer exist twice under two ids.
+//
+// ⚠ The auto-ledger write is GONE, deliberately. Both tabs used to addDoc a
+// LEDGERS row on create. In PostgreSQL the debtor account is opened by TARA the
+// first time money is actually posted against the party (postVoucher takes
+// party_ledger + party_group), so creating one here would leave an empty
+// account the chart of accounts has to explain. Nothing is lost — the khata in
+// CustomerLedger.tsx reads `Debtors: <name>` whether a row exists yet or not.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
 import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks } from './lib/validators';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// ── Field-name adapter ─────────────────────────────────────────────────────
+// Only two names differ between this form and the table: the form's
+// `customer_id` is the column `customer_code`, and `portal_access` is
+// `portal_enabled`. Mapped here at the data boundary rather than renamed
+// through ~380 lines of form JSX — the approach DRIVER.tsx took.
+const CUSTOMER_WRITABLE = ['customer_name', 'address', 'state', 'city', 'pincode', 'gst_no',
+  'pan_no', 'contact_person', 'mobile_no', 'email', 'payment_terms', 'opening_balance',
+  'credit_limit', 'account_manager', 'billing_cycle', 'detention_applicable',
+  'consignees', 'locations', 'portal_features', 'status'];
+const NUMERIC_COLS = ['opening_balance', 'credit_limit'];
+
+const fromApi = (d: any) => ({
+  ...d,
+  customer_id: d.customer_code ?? '',
+  portal_access: d.portal_enabled ?? false,
+  portal_features: d.portal_features ?? {},
+  locations: d.locations ?? [],
+  consignees: d.consignees ?? [],
+  // The outstanding is DERIVED — the debtor account plus bills not yet
+  // received — never a counter this screen maintains. The stored column is
+  // legacy; showing it would let the CRM and the balance sheet disagree about
+  // the same customer.
+  current_outstanding: (Number(d.ledger_outstanding ?? 0)
+    + Number(d.total_billed ?? 0) - Number(d.total_received_bills ?? 0)).toFixed(2),
+  total_freight: Number(d.total_billed ?? 0).toFixed(2),
+  total_received: Number(d.total_received_bills ?? 0).toFixed(2),
+});
+
+const toApi = (f: any, extra: any = {}) => {
+  const out: any = { ...extra };
+  for (const c of CUSTOMER_WRITABLE) {
+    if (f[c] === undefined) continue;
+    out[c] = NUMERIC_COLS.includes(c) ? Number(f[c] || 0) : f[c];
+  }
+  if (f.customer_id) out.customer_code = f.customer_id;
+  if (f.portal_access !== undefined) out.portal_enabled = !!f.portal_access;
+  // citext columns reject '' against the unique portal-email index; send null.
+  for (const t of ['gst_no', 'pan_no', 'email', 'portal_email']) if (out[t] === '') out[t] = null;
+  return out;
+};
 
 export default function Customer() {
   const [activeTab, setActiveTab] = useState('CORPORATE'); 
@@ -77,41 +142,50 @@ export default function Customer() {
     fetchExternalCustomers(); 
   }, []);
 
-  // --- FETCH FUNCTIONS ---
+  // --- FETCH FUNCTIONS (PostgreSQL) ---
   const fetchCustomers = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "CUSTOMERS"));
-      setCustomers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${MASTERS}/customers?source=INTERNAL`);
+      setCustomers((j.customers ?? []).map(fromApi));
+    } catch (e) { console.error('customers:', e); }
     setLoading(false);
   };
 
   const fetchVehicles = async () => {
     try {
-      const snap = await getDocs(collection(db, "VEHICLES"));
-      setVehicles(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${MASTERS}/vehicles?limit=1000`);
+      // The depot linker matches on the plate; the fleet table calls it vehicle_no.
+      setVehicles((j.vehicles ?? []).map((v: any) => ({ ...v, vehical_no: v.vehicle_no })));
+    } catch (e) { console.error('vehicles:', e); }
   };
 
   const fetchExternalCustomers = async () => {
     try {
-      const q = query(collection(db, "EXTERNAL_CUSTOMERS"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setExternalCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${MASTERS}/customers?source=PORTAL`);
+      setExternalCustomers((j.customers ?? []).map((d: any) => ({
+        ...fromApi(d),
+        // The External tab keeps its own vocabulary; map it rather than rename
+        // it through the KYC modal.
+        company_name: d.customer_name,
+        mobile: d.mobile_no,
+        billing_address: d.address,
+        status: d.approval_status,
+      })));
+    } catch (e) { console.error('portal customers:', e); }
   };
 
   // --- CORPORATE LOGIC ---
+  // Outstanding = opening + what the API says is billed and unreceived. The old
+  // version recomputed it from four hand-typed boxes, which is how a CRM figure
+  // and a balance sheet figure end up disagreeing about the same customer. Only
+  // the opening balance is ours to type now; the rest is read from the books.
   useEffect(() => {
     const ob = parseFloat(formData.opening_balance || '0') || 0;
     const tf = parseFloat(formData.total_freight || '0') || 0;
-    const ts = parseFloat(formData.total_shortage || '0') || 0;
-    const ttds = parseFloat(formData.total_tds || '0') || 0;
     const tr = parseFloat(formData.total_received || '0') || 0;
-    const outstanding = ((ob + tf) - (ts + ttds + tr)).toFixed(2);
-    setFormData(prev => ({ ...prev, current_outstanding: outstanding }));
-  }, [formData.opening_balance, formData.total_freight, formData.total_shortage, formData.total_tds, formData.total_received]);
+    setFormData(prev => ({ ...prev, current_outstanding: (ob + tf - tr).toFixed(2) }));
+  }, [formData.opening_balance, formData.total_freight, formData.total_received]);
 
   const handleAddNew = () => {
     setFormData(getInitialFormData());
@@ -151,32 +225,50 @@ export default function Customer() {
     ));
     if (dup) return alert(`⚠️ Yeh customer pehle se hai: "${dup.customer_name}" (same name/GSTIN). Duplicate save nahi hoga — edit karein.`);
     try {
+      const payload = toApi(formData, { customer_source: 'INTERNAL' });
       if (editingId) {
-        await updateDoc(doc(db, "CUSTOMERS", editingId), formData);
+        await fetchJson(`${MASTERS}/customers/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert("✅ Entire Customer Contract & Portal Access Updated!");
       } else {
-        const docRef = await addDoc(collection(db, "CUSTOMERS"), { ...formData, createdAt: serverTimestamp() });
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: formData.customer_name, group: "Sundry Debtors", group_head: "Sundry Debtors", opening_balance: parseFloat(formData.opening_balance || '0'),
-          current_balance: parseFloat(formData.opening_balance || '0'), creation_type: "AUTO_SYSTEM", linked_module: "CUSTOMER", linked_id: docRef.id, created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/customers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
         });
         alert("✅ New Customer Saved & Portal Access Configured!");
       }
       resetForm(); fetchCustomers();
-    } catch (err) { alert("❌ Error saving data!"); }
+    } catch (err: any) {
+      // A unique-name clash here is the database catching what the JS guard
+      // above could not see — another tab, another user, different spacing.
+      alert(err?.code === 'DUPLICATE'
+        ? "⚠️ Is naam ka customer pehle se hai — duplicate save nahi hoga."
+        : "❌ Error saving data: " + (err?.message || ''));
+    }
   };
 
+  // Delete is a REQUEST, not a command. A customer carrying trips or bills
+  // cannot be erased without orphaning them, so the API retires it instead and
+  // reports which it did — this reports that back rather than claiming a
+  // deletion that never happened.
   const handleDelete = async (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to completely erase ${name}?`)) {
-      await deleteDoc(doc(db, "CUSTOMERS", id)); fetchCustomers();
-    }
+    if (!window.confirm(`Are you sure you want to completely erase ${name}?`)) return;
+    try {
+      const j = await fetchJson(`${MASTERS}/customers/${id}`, { method: 'DELETE' });
+      alert(j.hard_deleted ? `✅ ${name} deleted.` : `ℹ️ ${j.detail}`);
+      fetchCustomers();
+    } catch (e: any) { alert("❌ Delete failed: " + (e?.message || '')); }
   };
 
   const toggleCorporateStatus = async (cust) => {
     if (!canApprove) return alert("Only Boss can change status!");
     const newStatus = cust.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    await updateDoc(doc(db, "CUSTOMERS", cust.id), { status: newStatus });
-    fetchCustomers();
+    try {
+      await fetchJson(`${MASTERS}/customers/${cust.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
+      });
+      fetchCustomers();
+    } catch (e: any) { alert("❌ Status change failed: " + (e?.message || '')); }
   };
 
   const handleAddLocation = () => {
@@ -230,33 +322,43 @@ export default function Customer() {
     if (!externalForm.company_name) return alert("Company Name is required!");
     setLoading(true);
     try {
+      // `status` (ACTIVE/INACTIVE) is the record's life; `approval_status`
+      // (PENDING/APPROVED/BLOCKED) is whether billing may see it. Blocking a
+      // portal user must not delete their history, so only the latter moves.
+      const payload = {
+        customer_name: externalForm.company_name,
+        contact_person: externalForm.contact_person,
+        mobile_no: externalForm.mobile,
+        email: externalForm.email || null,
+        gst_no: externalForm.gst_no || null,
+        pan_no: externalForm.pan_no || null,
+        address: externalForm.billing_address,
+        city: externalForm.city,
+        state: externalForm.state,
+        portal_features: externalForm.portal_features,
+        portal_enabled: !!externalForm.portal_access,
+        portal_email: externalForm.email || null,
+        customer_source: 'PORTAL',
+        approval_status: externalForm.status || 'APPROVED',
+      };
       if (editingExternalId) {
-        // Edit Existing
-        await updateDoc(doc(db, "EXTERNAL_CUSTOMERS", editingExternalId), { ...externalForm, updatedAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/customers/${editingExternalId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert("✅ External Customer Data & Portal Settings Updated!");
       } else {
-        // Create New Customer
-        const custId = 'EXT-' + Math.floor(Math.random() * 9000 + 1000);
-        const docRef = await addDoc(collection(db, "EXTERNAL_CUSTOMERS"), { ...externalForm, customer_id: custId, createdAt: serverTimestamp() });
-        
-        // 🔥 AUTO-CREATE LEDGER ACCOUNT
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: externalForm.company_name, 
-          group_head: "Sundry Debtors", 
-          opening_balance: 0, 
-          current_balance: 0, 
-          creation_type: "AUTO_SYSTEM", 
-          linked_module: "EXTERNAL_CUSTOMER", 
-          linked_id: docRef.id, 
-          created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/customers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, customer_code: 'EXT-' + Math.floor(Math.random() * 9000 + 1000) }),
         });
-
-        alert("✅ New Customer Saved, Portal Enabled & Auto-Ledger Created!");
+        alert("✅ New Customer Saved & Portal Enabled!");
       }
-      setIsExternalModalOpen(false); 
-      fetchExternalCustomers(); 
-    } catch (e) { 
-      alert("❌ Error saving Customer"); 
+      setIsExternalModalOpen(false);
+      fetchExternalCustomers();
+    } catch (e: any) {
+      alert(e?.code === 'DUPLICATE'
+        ? "⚠️ Yeh company (ya portal email) pehle se registered hai."
+        : "❌ Error saving Customer: " + (e?.message || ''));
     }
     setLoading(false);
   };
@@ -264,14 +366,24 @@ export default function Customer() {
   const toggleExternalStatus = async (cust) => {
     if(!canApprove) return alert("Only Admin can approve/block customers!");
     const newStatus = cust.status === 'APPROVED' ? 'BLOCKED' : 'APPROVED';
-    await updateDoc(doc(db, "EXTERNAL_CUSTOMERS", cust.id), { status: newStatus });
-    fetchExternalCustomers();
+    try {
+      await fetchJson(`${MASTERS}/customers/${cust.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        // A blocked portal customer loses portal access too — leaving
+        // portal_enabled true would keep their login working after the block.
+        body: JSON.stringify({ approval_status: newStatus, portal_enabled: newStatus === 'APPROVED' }),
+      });
+      fetchExternalCustomers();
+    } catch (e: any) { alert("❌ Status change failed: " + (e?.message || '')); }
   };
 
   const handleDeleteExternal = async (id, name) => {
-    if (window.confirm(`Delete ${name} permanently?`)) {
-      await deleteDoc(doc(db, "EXTERNAL_CUSTOMERS", id)); fetchExternalCustomers();
-    }
+    if (!window.confirm(`Delete ${name} permanently?`)) return;
+    try {
+      const j = await fetchJson(`${MASTERS}/customers/${id}`, { method: 'DELETE' });
+      alert(j.hard_deleted ? `✅ ${name} deleted.` : `ℹ️ ${j.detail}`);
+      fetchExternalCustomers();
+    } catch (e: any) { alert("❌ Delete failed: " + (e?.message || '')); }
   };
 
   const filteredCustomers = customers.filter(c => c.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -359,7 +471,7 @@ export default function Customer() {
                       <div style={{ color: '#10b981', fontWeight: 'bold', fontSize: '24px' }}>₹{c.current_outstanding || '0.00'}</div>
                     </div>
                     <div style={{ textAlign: 'right', fontSize: '11px', color: '#94a3b8' }}>
-                      <div>Total Freight: <span style={{ color: '#f8fafc' }}>₹{c.total_freight || '0'}</span></div>
+                      <div>Total Billed: <span style={{ color: '#f8fafc' }}>₹{c.total_freight || '0.00'}</span></div>
                       <div>Total Received: <span style={{ color: '#38bdf8' }}>₹{c.total_received || '0'}</span></div>
                     </div>
                   </div>
@@ -430,10 +542,26 @@ export default function Customer() {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '15px', background: 'rgba(16, 185, 129, 0.05)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Opening Balance (+)</label><input type="number" className="modern-input" value={formData.opening_balance} onChange={e=>setFormData({...formData, opening_balance: e.target.value})} /></div>
-                <div><label style={{ fontSize:'11px', color:'#38bdf8' }}>Total Freight (+)</label><input type="number" className="modern-input" value={formData.total_freight} onChange={e=>setFormData({...formData, total_freight: e.target.value})} /></div>
-                <div><label style={{ fontSize:'11px', color:'#ef4444' }}>Shortage Deduction (-)</label><input type="number" className="modern-input" value={formData.total_shortage} onChange={e=>setFormData({...formData, total_shortage: e.target.value})} /></div>
-                <div><label style={{ fontSize:'11px', color:'#f59e0b' }}>TDS Deduction (-)</label><input type="number" className="modern-input" value={formData.total_tds} onChange={e=>setFormData({...formData, total_tds: e.target.value})} /></div>
-                <div><label style={{ fontSize:'11px', color:'#10b981' }}>Amount Received (-)</label><input type="number" className="modern-input" value={formData.total_received} onChange={e=>setFormData({...formData, total_received: e.target.value})} /></div>
+                {/* Read-outs, not inputs. These come from company_bills and the
+                    debtor account; there is no column to save a typed-in total
+                    to, and inventing one would recreate the drift this cutover
+                    removed. Shortage and TDS live on the bill, not the party. */}
+                <div>
+                  <label style={{ fontSize:'11px', color:'#38bdf8' }}>Total Billed (+)</label>
+                  <div className="modern-input" style={{ opacity: 0.75, cursor: 'not-allowed' }}>₹ {formData.total_freight ?? '0.00'}</div>
+                </div>
+                <div>
+                  <label style={{ fontSize:'11px', color:'#10b981' }}>Received on Bills (-)</label>
+                  <div className="modern-input" style={{ opacity: 0.75, cursor: 'not-allowed' }}>₹ {formData.total_received ?? '0.00'}</div>
+                </div>
+                <div>
+                  <label style={{ fontSize:'11px', color:'#94a3b8' }}>Bills / Trips</label>
+                  <div className="modern-input" style={{ opacity: 0.75, cursor: 'not-allowed' }}>{formData.bill_count ?? 0} / {formData.trip_count ?? 0}</div>
+                </div>
+                <div>
+                  <label style={{ fontSize:'11px', color:'#f59e0b' }}>Debtor A/c Balance</label>
+                  <div className="modern-input" style={{ opacity: 0.75, cursor: 'not-allowed' }}>₹ {Number(formData.ledger_outstanding ?? 0).toFixed(2)}</div>
+                </div>
                 <div>
                   <label style={{ fontSize:'11px', color:'#10b981', fontWeight:'bold' }}>Current Outstanding</label>
                   <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '10px', borderRadius: '10px', border: '1px solid #10b981', color: '#10b981', fontWeight: 'bold', fontSize: '16px' }}>₹ {formData.current_outstanding}</div>

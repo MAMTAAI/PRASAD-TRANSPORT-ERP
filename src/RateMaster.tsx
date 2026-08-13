@@ -1,14 +1,36 @@
 // @ts-nocheck
 // 💹 DYNAMIC RATE MASTER — Accounts & Admin ka dedicated rate-rule setup.
+// Live PostgreSQL (`rate_master`, migration 029).
+//
 // Har rule strictly Customer + Source (loading point) + Destination par mapped
 // hai; Calculation Type batata hai freight ka formula (RTKM-based, Per Unit ya
 // Fixed) aur Effective From/To quarterly tender revisions handle karta hai.
 // Auto-billing engine (MonthlyBilling) trips fetch karte waqt SABSE PEHLE isi
 // master ko query karta hai — resolveTripBilling() in lib/freightEngine.ts.
+//
+// THE OVERLAP GUARD IS NOW IN TWO PLACES, on purpose. Two ACTIVE rules on one
+// lane with overlapping windows make billing ambiguous. This screen has always
+// checked for that in JS, but a guard that only lives in the browser is not a
+// guard — a second tab, a second user or a direct API call walks straight past
+// it. Migration 029 added a partial unique index, so the database refuses the
+// clash as well and the screen reports the 409 rather than pretending it saved.
+//
+// The list also carries rows this screen did not write: `derived_rate_card` is
+// the evidence-backed rate card built from bills IOCL actually paid
+// (v_iocl_lane_rate). It is shown for comparison, never edited here.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { CALC_TYPES } from './lib/freightEngine';
+import { fetchRates, fetchLanes } from './lib/masters/rateApi';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const normKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -16,6 +38,23 @@ const isRtkmType = (ct) => ct === 'RTKM_KL' || ct === 'RTKM_MT';
 /** Do effective windows overlap karti hain? ('' valid_to = open-ended) */
 const windowsOverlap = (aFrom, aTo, bFrom, bTo) =>
   (!aTo || !bFrom || bFrom <= aTo) && (!bTo || !aFrom || aFrom <= bTo);
+
+// The PascalCase adapter lives in lib/masters/rateApi.ts — MonthlyBilling
+// prices trips off the same rows through the same mapping, and two copies of it
+// would let the billing engine and this screen disagree about a rule.
+const toApi = (f: any) => ({
+  customer_name: f.Customer,
+  source: f.Source,
+  destination: f.Destination,
+  calc_type: f.Calc_Type,
+  rate: parseFloat(f.Rate_Value),
+  rtkm_distance: parseFloat(f.RTKM_Distance) || null,
+  valid_from: f.Effective_From,
+  // '' would fail the date cast; an open-ended rule is genuinely NULL.
+  valid_to: f.Effective_To || null,
+  status: f.Status === 'Inactive' ? 'INACTIVE' : 'ACTIVE',
+});
+
 
 export default function RateMaster() {
   const [rates, setRates] = useState([]);
@@ -40,20 +79,21 @@ export default function RateMaster() {
     Status: 'Active',
   });
 
+  const [derivedCard, setDerivedCard] = useState([]);
+
   useEffect(() => { fetchAll(); }, []);
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [rSnap, cSnap, rtSnap] = await Promise.all([
-        getDocs(collection(db, 'RATE_MASTER')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'RTKM_MASTER')).catch(() => ({ docs: [] })),
+      const [r, c, lanes] = await Promise.all([
+        fetchRates(),
+        fetchJson(`${MASTERS}/customers?limit=1000`).catch(() => ({ customers: [] })),
+        fetchLanes().catch(() => []),
       ]);
-      const data = rSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setRates(data);
-      setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setRoutes(rtSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setRates(r.rates);
+      setDerivedCard(r.derived);
+      setCustomers(c.customers ?? []);
+      setRoutes(lanes);
     } catch (e) { console.error('RateMaster fetch:', e); }
     setLoading(false);
   };
@@ -116,29 +156,30 @@ export default function RateMaster() {
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        Customer: formData.Customer,
-        Source: formData.Source.toUpperCase().trim(),
-        Destination: formData.Destination.toUpperCase().trim(),
-        Calc_Type: formData.Calc_Type,
-        Rate_Value: parseFloat(formData.Rate_Value),
-        RTKM_Distance: parseFloat(formData.RTKM_Distance) || 0,
-        Effective_From: formData.Effective_From,
-        Effective_To: formData.Effective_To || '',
-        Status: formData.Status,
-      };
+      const payload = toApi(formData);
+      payload.source = String(payload.source || '').toUpperCase().trim();
+      payload.destination = String(payload.destination || '').toUpperCase().trim();
       if (editingId) {
-        await updateDoc(doc(db, 'RATE_MASTER', editingId), { ...payload, updatedAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/rates/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert('✅ Rate rule update ho gaya!');
       } else {
-        await addDoc(collection(db, 'RATE_MASTER'), { ...payload, createdAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/rates`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert('✅ Naya rate rule save ho gaya — auto-billing ab isi se freight lagayegi!');
       }
       resetForm();
       fetchAll();
-    } catch (err) {
+    } catch (err: any) {
       console.error('RateMaster save:', err);
-      alert('❌ Save nahi ho paya — network/permission check karein.');
+      // The database enforces the same one-rule-per-lane-window rule the JS
+      // guard above checks. Reaching here means the guard could not see the
+      // clash — a stale list, another tab, another user.
+      alert(err?.code === 'DUPLICATE'
+        ? '🚫 Is lane par isi date se ek ACTIVE rule pehle se hai (database ne roka). List refresh karke purane rule ka Effective To band karein.'
+        : '❌ Save nahi ho paya: ' + (err?.message || ''));
     }
     setIsSubmitting(false);
   };
@@ -161,15 +202,20 @@ export default function RateMaster() {
 
   const handleToggleStatus = async (id, cur) => {
     try {
-      await updateDoc(doc(db, 'RATE_MASTER', id), { Status: cur === 'Active' ? 'Inactive' : 'Active' });
+      await fetchJson(`${MASTERS}/rates/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: cur === 'Active' ? 'INACTIVE' : 'ACTIVE' }),
+      });
       fetchAll();
-    } catch { alert('❌ Status change nahi hua!'); }
+    } catch (e: any) { alert('❌ Status change nahi hua: ' + (e?.message || '')); }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm('⚠️ Ye rate rule hamesha ke liye delete ho jayega. Purane periods ka record chahiye to DELETE ki jagah Effective To bhar kar band karein.\n\nPhir bhi delete karein?')) return;
-    try { await deleteDoc(doc(db, 'RATE_MASTER', id)); fetchAll(); }
-    catch { alert('❌ Delete nahi hua!'); }
+    try {
+      await fetchJson(`${MASTERS}/rates/${id}`, { method: 'DELETE' });
+      fetchAll();
+    } catch (e: any) { alert('❌ Delete nahi hua: ' + (e?.message || '')); }
   };
 
   const resetForm = () => {

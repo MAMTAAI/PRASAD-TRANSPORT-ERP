@@ -46,6 +46,13 @@ await app.register(cors, {
     .map((s) => s.trim())
     .filter(Boolean),
   credentials: true,
+  // @fastify/cors defaults to GET,HEAD,POST — so every PATCH and DELETE this
+  // API exposes failed its preflight from the dev server, and the browser
+  // reported it as a bare "Failed to fetch" with no status to explain it.
+  // Production never saw this (the SPA and the API share an origin behind
+  // nginx, so no preflight is sent), which is exactly why it survived: the
+  // masters screens edit and retire records, and none of that worked in dev.
+  methods: ['GET', 'HEAD', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
 });
 
 // ── Health ─────────────────────────────────────────────────────────────────

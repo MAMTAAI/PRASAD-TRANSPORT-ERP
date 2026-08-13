@@ -21,6 +21,7 @@ import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { scopeCurrent } from './lib/rbac';
 import { resolveTripBilling, computeFreight, effectiveBillingType, BILLING_TYPES, CALC_TYPES } from './lib/freightEngine';
+import { fetchLanes, fetchRates } from './lib/masters/rateApi';
 import { useIsMobile } from './hooks/useIsMobile';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -113,19 +114,25 @@ export default function MonthlyBilling() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [tSnap, cSnap, coSnap1, coSnap2, rSnap, rmSnap] = await Promise.all([
+      // ⚠️ MIXED BACKENDS, KNOWINGLY. This screen still writes MONTHLY_INVOICES
+      // to Firestore — that belongs to a later cluster. But the rate rules and
+      // lanes it PRICES with moved to PostgreSQL with RateMaster.tsx and
+      // LocationRtkmMaster.tsx, so reading them from Firestore would mean
+      // auto-billing quoted from a table nobody can edit any more, and a rule
+      // typed this morning would never reach a bill. Only those two reads move.
+      const [tSnap, cSnap, coSnap1, coSnap2, lanes, rateCard] = await Promise.all([
         getDocs(collection(db, 'TRIPS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANY')).catch(() => ({ docs: [] })),
         getDocs(collection(db, 'COMPANIES')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'RTKM_MASTER')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'RATE_MASTER')).catch(() => ({ docs: [] })),
+        fetchLanes().catch(() => []),
+        fetchRates().catch(() => ({ rates: [], derived: [] })),
       ]);
       setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
       setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
       setCompaniesList([...coSnap1.docs, ...coSnap2.docs].map(d => ({ id: d.id, ...d.data() })));
-      setRoutes(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setRateMaster(rmSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setRoutes(lanes);
+      setRateMaster(rateCard.rates);
     } catch (e) { console.error(e); }
     setLoading(false);
   };

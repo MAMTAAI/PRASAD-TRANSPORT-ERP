@@ -26,10 +26,12 @@ import { drain } from '../agents/bus.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const money = (v) => Number(v ?? 0);
+const round2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
 // Columns typed jsonb. node-postgres encodes a JS array as a Postgres ARRAY
 // literal, which jsonb refuses, so these are stringified on the way in.
-const JSONB_COLS = new Set(['additional_docs', 'consignees', 'locations', 'portal_features', 'extra_expenses']);
+const JSONB_COLS = new Set(['additional_docs', 'consignees', 'locations', 'portal_features',
+  'extra_expenses', 'rate_history']);
 const enc = (col, v) => (JSONB_COLS.has(col) && v !== null && typeof v === 'object' ? JSON.stringify(v) : v);
 
 // A generic writable-column helper. Each master declares its own allow-list so a
@@ -43,6 +45,18 @@ const buildUpdate = (table, allowed, body) => {
     sql: `UPDATE ${table} SET ${sets.join(', ')}, updated_at = now() WHERE id = $1::uuid RETURNING *`,
     args: [null, ...cols.map((c) => enc(c, body[c]))],
   };
+};
+
+// A uuid, or the Firestore document id the row was migrated from. Screens that
+// have not moved yet still hold the latter; `legacy_id` is that exact string.
+// Resolving by name instead would be ambiguous — `vendors` genuinely contains
+// three rows called NIRMALA PETROLUM.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const findVendor = async (id, cols = '*') => {
+  const { rows } = UUID_RE.test(String(id ?? ''))
+    ? await query(`SELECT ${cols} FROM vendors WHERE id = $1::uuid`, [id])
+    : await query(`SELECT ${cols} FROM vendors WHERE legacy_id = $1`, [id]);
+  return rows[0] ?? null;
 };
 
 const pgErr = (reply, err) => {
@@ -748,7 +762,9 @@ export async function registerMastersRoutes(app) {
   const CUSTOMER_COLS = ['customer_code', 'customer_name', 'address', 'state', 'pincode', 'gst_no',
     'pan_no', 'contact_person', 'mobile_no', 'email', 'payment_terms', 'opening_balance',
     'consignees', 'locations', 'portal_features', 'status', 'customer_source', 'approval_status',
-    'portal_enabled', 'portal_email'];
+    'portal_enabled', 'portal_email',
+    // migration 029 — contract terms the CRM screen collects
+    'credit_limit', 'account_manager', 'billing_cycle', 'detention_applicable', 'city'];
 
   app.get(
     '/customers',
@@ -835,6 +851,173 @@ export async function registerMastersRoutes(app) {
     return { retired: true, hard_deleted: true, customer_name: c.customer_name };
   });
 
+  // ── The customer khata ─────────────────────────────────────────────────────────────
+  // Same defect the driver khata had, one party over. CustomerLedger.tsx read
+  // MONTHLY_INVOICES and CUSTOMER_PAYMENTS from Firestore while COMPANY_BILLS
+  // and BANK_TRANSACTIONS had already moved to PostgreSQL, so a bill raised in
+  // Bill Management and the receipt that settled it were invisible to the
+  // statement the customer actually gets shown.
+  //
+  // Two sources, deliberately kept distinct rather than merged in SQL:
+  //
+  //   company_bills      what we invoiced. Raising a bill posts NO voucher, so
+  //                      these are not in the ledger and cannot double-count.
+  //   ledger_entries     every posting against `Debtors: <name>` - the receipts
+  //                      that settled those bills, direct trip settlements, and
+  //                      reversals. Read straight from the GL, so a correction
+  //                      shows up here the moment it is posted.
+  //
+  // NOTE ON SIGN. This screen's columns are the owner's, not an accountant's:
+  // its CREDIT column means "billed / lena baki" and its DEBIT column means
+  // "paisa aaya". That is the exact inverse of the debtor account's own Dr/Cr,
+  // so a GL row is flipped on the way out and the flip is done HERE, once,
+  // instead of in the component. `gl_dr_cr` carries the unflipped truth.
+  app.get(
+    '/customers/:id/ledger',
+    { schema: { querystring: { type: 'object', properties: {
+      from: { type: ['string', 'null'], format: 'date' },
+      to: { type: ['string', 'null'], format: 'date' },
+      company: { type: ['string', 'null'], maxLength: 120 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows: [c] } = await query(
+        `SELECT id, customer_name, opening_balance, billing_cycle, credit_limit
+           FROM customers WHERE id = $1::uuid`, [req.params.id]);
+      if (!c) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+      const company = req.query.company && req.query.company !== 'ALL' ? req.query.company : null;
+      const [bills, gl, allCompanies] = await Promise.all([
+        query(
+          `SELECT id, bill_no, bill_date, company, branch, location, period_from, period_to,
+                  total_gross, total_shortage, total_tds, total_net, received_amount, status,
+                  (SELECT count(*) FROM company_bill_trips t WHERE t.bill_id = company_bills.id)::int AS trip_count
+             FROM company_bills
+            WHERE (customer_id = $1::uuid OR lower(customer_name) = lower($2))
+              AND status <> 'CANCELLED'
+              AND ($3::text IS NULL OR company = $3)
+            ORDER BY bill_date, bill_no`,
+          [c.id, c.customer_name, company]),
+        query(
+          `SELECT id, entry_date, dr_cr, amount, particulars, source_type, source_ref,
+                  company, branch, voucher_id
+             FROM ledger_entries
+            WHERE lower(ledger_name) = lower($1)
+              AND ($2::text IS NULL OR company = $2)
+            ORDER BY entry_date, id`,
+          [`Debtors: ${c.customer_name}`, company]),
+        query(
+          `SELECT DISTINCT company FROM (
+             SELECT company FROM company_bills
+              WHERE (customer_id = $1::uuid OR lower(customer_name) = lower($2)) AND status <> 'CANCELLED'
+              UNION ALL
+             SELECT company FROM ledger_entries WHERE lower(ledger_name) = lower($3)
+           ) x WHERE company IS NOT NULL ORDER BY company`,
+          [c.id, c.customer_name, `Debtors: ${c.customer_name}`]),
+      ]);
+
+      const rows = [];
+      for (const b of bills.rows) {
+        rows.push({
+          kind: 'BILL', ref_id: b.id, date: b.bill_date, company: b.company,
+          particulars: `Bill ${b.bill_no} (${b.trip_count} trip(s)${b.location ? ` \u00b7 ${b.location}` : ''})`
+            + (b.status === 'SETTLED' ? ' settled' : b.status === 'PARTIALLY_PAID' ? ' \u00b7 partial' : ''),
+          dr: 0, cr: money(b.total_net), status: b.status, gl_dr_cr: null,
+        });
+      }
+      for (const e of gl.rows) {
+        // Cr on a debtor = money in, which is this screen's DEBIT column.
+        const received = e.dr_cr === 'CR';
+        rows.push({
+          kind: e.source_type === 'REVERSAL' ? 'REVERSAL' : 'RECEIPT',
+          ref_id: String(e.id), date: e.entry_date, company: e.company,
+          particulars: e.particulars ?? (received ? 'Receipt' : 'Charge'),
+          dr: received ? money(e.amount) : 0,
+          cr: received ? 0 : money(e.amount),
+          status: null, gl_dr_cr: e.dr_cr,
+        });
+      }
+      rows.sort((a, x) => String(a.date).localeCompare(String(x.date)) || (x.cr - a.cr));
+
+      // Anything before `from` collapses into the opening figure rather than
+      // being dropped - a statement that silently omits history is worse than
+      // no statement. The customer's own opening_balance seeds it.
+      const from = req.query.from || null;
+      const to = req.query.to || null;
+      let opening = money(c.opening_balance);
+      const inRange = rows.filter((r) => {
+        const d = String(r.date ?? '');
+        if (from && d && d < from) { opening = round2(opening + r.cr - r.dr); return false; }
+        if (to && d && d > to) return false;
+        return true;
+      });
+      let bal = opening;
+      const withBal = inRange.map((r) => { bal = round2(bal + r.cr - r.dr); return { ...r, balance: bal }; });
+
+      return {
+        customer: c,
+        opening: round2(opening),
+        rows: withBal,
+        billed: round2(inRange.reduce((a, r) => a + r.cr, 0)),
+        received: round2(inRange.reduce((a, r) => a + r.dr, 0)),
+        outstanding: round2(bal),
+        // Computed unfiltered on purpose: the dropdown has to keep offering the
+        // other companies after one is picked, or the filter becomes one-way.
+        companies: allCompanies.rows.map((r) => r.company),
+      };
+    }
+  );
+
+  // ── A customer receipt is a RECEIPT voucher, full stop ──────────────────────────
+  // Migration 026 refused a CUSTOMER_PAYMENTS table and 029 refused it again:
+  // the Firestore screen wrote its own payment document AND a journal, which is
+  // two records of one rupee and exactly how BANK_TRANSACTIONS came to disagree
+  // with the ledger. Here the voucher IS the record. There is nothing else to
+  // keep in step, so nothing can fall out of step.
+  app.post(
+    '/customers/:id/receipt',
+    { schema: { body: { type: 'object', required: ['account', 'amount'], additionalProperties: false, properties: {
+      account: { type: 'string', minLength: 1, maxLength: 120 },
+      amount: { type: 'number', exclusiveMinimum: 0 },
+      entry_date: { type: ['string', 'null'], format: 'date' },
+      ref_no: { type: ['string', 'null'], maxLength: 60 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      branch: { type: ['string', 'null'], maxLength: 120 },
+      remarks: { type: ['string', 'null'], maxLength: 300 },
+      created_by: { type: ['string', 'null'], maxLength: 100 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      const { rows: [c] } = await query(
+        'SELECT id, customer_name FROM customers WHERE id = $1::uuid', [req.params.id]);
+      if (!c) return reply.code(404).send({ error: 'NOT_FOUND' });
+      try {
+        const voucher = await postVoucher({
+          type: 'RECEIPT',
+          account: b.account,
+          party_ledger: `Debtors: ${c.customer_name}`,
+          party_group: 'Sundry Debtors (Customers)',
+          amount: b.amount,
+          ref_no: b.ref_no || null,
+          entry_date: b.entry_date ?? new Date().toISOString().slice(0, 10),
+          narration: `Receipt from ${c.customer_name}${b.remarks ? ` - ${b.remarks}` : ''}`,
+          source_type: 'CUSTOMER_RECEIPT',
+          company: b.company ?? null,
+          branch: b.branch ?? null,
+          created_by: b.created_by ?? null,
+        });
+        await drain().catch(() => {});
+        reply.code(201);
+        return { posted: true, voucher_id: voucher.voucher_id, customer_name: c.customer_name };
+      } catch (err) {
+        const map = { DUPLICATE_REF: 409, OVERDRAFT: 422, NO_ACCOUNT: 400, NO_PARTY: 400, BAD_AMOUNT: 400 };
+        if (map[err.code]) return reply.code(map[err.code]).send({ error: err.code, detail: err.message, balance: err.balance });
+        throw err;
+      }
+    }
+  );
+
   // ═══ VENDORS ══════════════════════════════════════════════════════════════
   const VENDOR_COLS = ['vendor_name', 'vendor_type', 'contact_person', 'mobile_no', 'address',
     'gst_no', 'bank_account', 'ifsc_code', 'opening_balance', 'status'];
@@ -853,6 +1036,9 @@ export async function registerMastersRoutes(app) {
                 COALESCE(f.unbilled, 0)::numeric(14,2) AS unbilled_fuel,
                 COALESCE(f.slips, 0)::int              AS fuel_slips,
                 COALESCE(x.txns, 0)::int               AS txn_count,
+                -- opening_balance IS the carry-forward (029): for migrated
+                -- vendors it was lifted from the frozen current_balance, so this
+                -- sum is the whole history, not just the PostgreSQL-era part.
                 (v.opening_balance + COALESCE(x.net, 0))::numeric(14,2) AS running_balance
            FROM vendors v
            LEFT JOIN LATERAL (
@@ -876,10 +1062,16 @@ export async function registerMastersRoutes(app) {
     const b = req.body ?? {};
     if (!b.vendor_name) return reply.code(400).send({ error: 'NO_NAME' });
     const cols = VENDOR_COLS.filter((c) => b[c] !== undefined);
+    // The balance shown on the Vendor Master is derived — opening_balance plus
+    // the vendor_txns since. Migration 029 made opening_balance the carry-forward
+    // anchor for every migrated vendor; a vendor created here has to satisfy the
+    // same invariant, so current_balance starts equal to it rather than at 0.
+    const seeded = cols.includes('opening_balance') ? [...cols, 'current_balance'] : cols;
+    const vals = seeded.map((c) => enc(c, c === 'current_balance' ? b.opening_balance : b[c]));
     try {
       const { rows } = await query(
-        `INSERT INTO vendors (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})
-         RETURNING *, gst_no::text AS gst_no`, cols.map((c) => enc(c, b[c])));
+        `INSERT INTO vendors (${seeded.join(', ')}) VALUES (${seeded.map((_, i) => `$${i + 1}`).join(', ')})
+         RETURNING *, gst_no::text AS gst_no`, vals);
       reply.code(201);
       return { created: true, vendor: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -889,7 +1081,9 @@ export async function registerMastersRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const u = buildUpdate('vendors', VENDOR_COLS, req.body ?? {});
     if (!u) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
-    u.args[0] = req.params.id;
+    const existing = await findVendor(req.params.id, 'id');
+    if (!existing) return reply.code(404).send({ error: 'NOT_FOUND' });
+    u.args[0] = existing.id;
     try {
       const { rows } = await query(u.sql, u.args);
       if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -899,8 +1093,7 @@ export async function registerMastersRoutes(app) {
 
   app.get('/vendors/:id/ledger', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
-    const { rows: [v] } = await query(
-      'SELECT id, vendor_name, opening_balance FROM vendors WHERE id = $1::uuid', [req.params.id]);
+    const v = await findVendor(req.params.id, 'id, vendor_name, opening_balance');
     if (!v) return reply.code(404).send({ error: 'NOT_FOUND' });
     const [txns, fuel] = await Promise.all([
       query(`SELECT * FROM vendor_txns WHERE vendor_id = $1::uuid ORDER BY txn_date DESC, created_at DESC LIMIT 300`, [v.id]),
@@ -934,7 +1127,7 @@ export async function registerMastersRoutes(app) {
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
       const b = req.body;
-      const { rows: [v] } = await query('SELECT id, vendor_name, vendor_type FROM vendors WHERE id = $1::uuid', [req.params.id]);
+      const v = await findVendor(req.params.id, 'id, vendor_name, vendor_type');
       if (!v) return reply.code(404).send({ error: 'NOT_FOUND' });
       const date = b.txn_date ?? new Date().toISOString().slice(0, 10);
 
@@ -981,7 +1174,9 @@ export async function registerMastersRoutes(app) {
   // ═══ LANES (rtkm_master) ══════════════════════════════════════════════════
   const LANE_COLS = ['customer_name', 'registered_assessee', 'depot_link', 'consignee_id',
     'consignee_name', 'vehicle_capacity', 'item_type', 'rtkm_distance', 'fixed_hsd_qty',
-    'fixed_cash_amt', 'toll_amt', 'status'];
+    'fixed_cash_amt', 'toll_amt', 'status',
+    // migration 029 — the billing formula and its quarterly rate windows
+    'billing_type', 'rate_history'];
 
   app.get('/lanes', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -1040,7 +1235,11 @@ export async function registerMastersRoutes(app) {
   });
 
   // ═══ RATES (rate_master) ══════════════════════════════════════════════════
-  const RATE_COLS = ['customer_name', 'route', 'rate_type', 'rate', 'unit', 'valid_from', 'valid_to', 'status'];
+  const RATE_COLS = ['customer_name', 'route', 'rate_type', 'rate', 'unit', 'valid_from', 'valid_to', 'status',
+    // migration 029 — a rule is keyed on customer + source + destination, which
+    // is what freightEngine.resolveTripBilling() matches on. `route` stays for
+    // the derived IOCL card rows, which name a ship-to rather than a lane.
+    'source', 'destination', 'calc_type', 'rtkm_distance'];
 
   app.get('/rates', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);

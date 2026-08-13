@@ -1,34 +1,59 @@
 // @ts-nocheck
-// 📖 CUSTOMER KHATA (Party Ledger) — CA-ready receivables statement.
-// Convention (per the owner's mental model): CREDIT column = bill banya (due /
-// lena baki), DEBIT column = paisa aaya (receipt). Running Balance = live
-// outstanding (kitna lena baki hai).
-// 🏢 STRICT MULTI-COMPANY: the top Operating-Company filter applies to every
-// row, KPI and the payment form — companies kabhi mix nahi hote.
-// Data: MONTHLY_INVOICES (net_payable → Cr) + CUSTOMER_PAYMENTS (receipts →
-// Dr, new collection). Every payment also posts the canonical double-entry
-// journal (Dr Bank/Cash, Cr Debtors) so the master books stay in sync.
+// 📖 CUSTOMER KHATA (Party Ledger) — CA-ready receivables statement. Live PostgreSQL.
+//
+// Convention (the owner's, not an accountant's): CREDIT column = bill banya
+// (due / lena baki), DEBIT column = paisa aaya (receipt), Running Balance =
+// live outstanding. That is the exact inverse of the debtor account's own
+// Dr/Cr, so the flip happens once on the server (`/masters/customers/:id/
+// ledger` returns `dr`/`cr` already in this screen's sense, and `gl_dr_cr`
+// carries the unflipped truth) instead of being re-derived in four places here.
+//
+// WHY THIS FILE CHANGED. It read MONTHLY_INVOICES and CUSTOMER_PAYMENTS from
+// Firestore while COMPANY_BILLS and BANK_TRANSACTIONS had already moved to
+// PostgreSQL — so a bill raised in Bill Management and the receipt that settled
+// it were invisible in the statement the customer actually gets shown. One
+// endpoint now returns both, from the bill register and the general ledger.
+//
+// AND WHY THERE IS NO CUSTOMER_PAYMENTS ANY MORE. The old save wrote its own
+// payment document AND a journal — two records of one rupee, which is exactly
+// how BANK_TRANSACTIONS came to disagree with the ledger. A receipt is now a
+// RECEIPT voucher through TARA and nothing else. Migration 026 refused the
+// table for this reason and 029 refused it again.
+//
+// 🏢 The Operating-Company filter still applies to every row, KPI and the
+// payment form — companies kabhi mix nahi hote.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
-import { postEntry } from './lib/accounting/journal';
-import { toISODate, round2, isDateInRange } from './lib/accounting/tripMath';
+import { toISODate } from './lib/accounting/tripMath';
 import { currentUser } from './lib/rbac';
-import { companyMatches } from './lib/company';
 import { logAudit } from './lib/audit';
 import BottomSheet from './ui/BottomSheet';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso) => { const d = toISODate(iso); return d ? `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}` : ''; };
 
+const EMPTY = { rows: [], opening: 0, billed: 0, received: 0, outstanding: 0, companies: [] };
+
 export default function CustomerLedger() {
   const user = currentUser();
-  const [invoices, setInvoices] = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [companyBills, setCompanyBills] = useState([]);   // Bill Management invoices
-  const [bankReceipts, setBankReceipts] = useState([]);   // settle-modal receipts
+  const [customers, setCustomers] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [ledger, setLedger] = useState(EMPTY);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
 
-  // Filters
+  // Filters. `cust` is the customer UUID now, not the name — the khata is
+  // fetched by id, so two customers with similar names can never merge.
   const [company, setCompany] = useState('ALL');
   const [cust, setCust] = useState('');
   const [fromDate, setFromDate] = useState('');
@@ -37,129 +62,88 @@ export default function CustomerLedger() {
   // ➕ Add Payment sheet
   const [showPay, setShowPay] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [pay, setPay] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', mode: 'Bank', ref: '', bank: '', remarks: '' });
+  const [pay, setPay] = useState({ date: new Date().toISOString().slice(0, 10), amount: '', account: '', ref: '', remarks: '' });
 
-  // 🔥 REAL-TIME: sab sources live via onSnapshot — Auto-Billing invoices,
-  // manual receipts, Bill Management invoices, aur settle-modal bank receipts.
+  const custName = useMemo(
+    () => customers.find((c: any) => c.id === cust)?.customer_name || '',
+    [customers, cust]);
+
   useEffect(() => {
-    const u1 = onSnapshot(collection(db, 'MONTHLY_INVOICES'), s => setInvoices(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
-    const u2 = onSnapshot(collection(db, 'CUSTOMER_PAYMENTS'), s => setPayments(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
-    const u3 = onSnapshot(collection(db, 'COMPANY_BILLS'), s => setCompanyBills(s.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
-    const u4 = onSnapshot(collection(db, 'BANK_TRANSACTIONS'), s => setBankReceipts(
-      // 🚨 party_type-missing receipts ab bhi aati hain (purane records me
-      // field nahi hoti) — sirf explicitly Vendor/Driver-tagged exclude hote hain.
-      s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => /receipt/i.test(String(t.type || '')) && ['', 'Customer'].includes(String(t.party_type || '')))
-    ), () => {});
-    return () => { u1(); u2(); u3(); u4(); };
+    fetchJson(`${MASTERS}/customers?limit=1000`)
+      .then(j => setCustomers(j.customers ?? []))
+      .catch(e => setErr(e?.message || 'customer list unavailable'));
+    fetchJson(`${FIN}/accounts`).then(j => setAccounts(j.accounts ?? [])).catch(() => {});
   }, []);
 
-  const companies = useMemo(() => [...new Set([
-    ...invoices.map(i => i.company), ...payments.map(p => p.company), ...companyBills.map(b => b.company),
-  ].filter(c => c && c !== 'ALL'))].sort(), [invoices, payments, companyBills]);
-  const customers = useMemo(() => [...new Set([
-    ...invoices.map(i => i.customer), ...payments.map(p => p.customer),
-    ...companyBills.map(b => b.customer_name), ...bankReceipts.map(r => r.party_name),
-  ].filter(Boolean))].sort(), [invoices, payments, companyBills, bankReceipts]);
+  // The statement is refetched on every filter change: the date window decides
+  // the opening balance, and computing that in the browser from a partial set
+  // is how the old version could show an opening that did not tie to anything.
+  const loadLedger = async () => {
+    if (!cust) { setLedger(EMPTY); return; }
+    setLoading(true); setErr(null);
+    try {
+      const qs = new URLSearchParams();
+      if (fromDate) qs.set('from', fromDate);
+      if (toDate) qs.set('to', toDate);
+      if (company !== 'ALL') qs.set('company', company);
+      setLedger(await fetchJson(`${MASTERS}/customers/${cust}/ledger?${qs}`));
+    } catch (e: any) { setErr(e?.message || 'khata load failed'); setLedger(EMPTY); }
+    setLoading(false);
+  };
+  useEffect(() => { loadLedger(); }, [cust, company, fromDate, toDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const invDate = (i) => toISODate(i.period_to) || toISODate(i.createdAt?.toDate?.()) || toISODate(i.month ? `${i.month}-28` : '');
+  // The company list comes from the selected customer's own records, computed
+  // server-side without the company filter applied so the dropdown stays
+  // two-way. Before a customer is chosen there is nothing to offer.
+  const companies = ledger.companies ?? [];
 
-  // 📒 LEDGER ROWS: Cr = invoice net_payable (due), Dr = receipts. Sorted by
-  // date, then running balance (outstanding) computed in order.
-  const ledger = useMemo(() => {
-    if (!cust) return { rows: [], billed: 0, received: 0, outstanding: 0 };
-    // 🏢 Normalized: 'M/S …'/'Pvt Ltd' variants match; record-side blank => shown.
-    const match = (v, sel) => companyMatches(v, sel === 'ALL' ? '' : sel);
-    const rows = [];
-    invoices.filter(i => match(i.company, company) && String(i.customer || '').toUpperCase() === cust.toUpperCase()).forEach(i => {
-      const amt = round2(Number(i.net_payable ?? ((i.freight_total || 0) + (i.detention_total || 0))) || 0);
-      if (amt <= 0) return;
-      rows.push({
-        date: invDate(i), company: i.company,
-        particulars: `🧾 Invoice ${i.invoice_no || ''}${i.det_invoice_no && i.detention_total > 0 ? ` + Det ${i.det_invoice_no}` : ''} (${i.billing_period === 'H1' ? '1st half' : i.billing_period === 'H2' ? '2nd half' : i.month || ''})${i.total_deductions > 0 ? ` · net of ₹${inr(i.total_deductions)} deductions` : ''}`,
-        dr: 0, cr: amt,
-      });
-    });
-    payments.filter(p => match(p.company, company) && String(p.customer || '').toUpperCase() === cust.toUpperCase()).forEach(p => {
-      rows.push({
-        date: toISODate(p.date), company: p.company,
-        particulars: `💰 Receipt ${p.ref || p.id.slice(0, 6)} (${p.mode}${p.bank ? ' · ' + p.bank : ''})${p.remarks ? ' — ' + p.remarks : ''}`,
-        dr: round2(Number(p.amount) || 0), cr: 0,
-      });
-    });
-    // 🧾 Bill Management invoices (COMPANY_BILLS) — Cr rows.
-    companyBills.filter(b => match(b.company === 'ALL' ? '' : b.company, company) && String(b.customer_name || '').toUpperCase() === cust.toUpperCase()).forEach(b => {
-      const amt = round2(Number(b.total_net_expected) || 0);
-      if (amt <= 0) return;
-      rows.push({
-        date: toISODate(b.bill_date) || toISODate(b.createdAt?.toDate?.()), company: b.company === 'ALL' ? '' : b.company,
-        particulars: `🧾 Bill ${b.bill_no || ''} (${b.trips?.length || 0} trips · Bill Mgmt)${b.status === 'SETTLED' ? ' ✓ settled' : b.status === 'PARTIALLY_PAID' ? ' · partial' : ''}`,
-        dr: 0, cr: amt,
-      });
-    });
-    // 💰 Bill Management settle-modal receipts (BANK_TRANSACTIONS) — Dr rows.
-    bankReceipts.filter(r => match(r.company === 'ALL' ? '' : r.company, company) && String(r.party_name || '').toUpperCase() === cust.toUpperCase()).forEach(r => {
-      const amt = round2(Number(r.amount) || 0);
-      if (amt <= 0) return;
-      rows.push({
-        date: toISODate(r.date) || toISODate(r.created_at?.toDate?.()), company: r.company === 'ALL' ? '' : r.company,
-        particulars: `💰 Receipt ${r.ref_no || ''} (${r.bank_account || 'Bank'} · Bill Mgmt settle)${r.particulars ? ' — ' + String(r.particulars).slice(0, 60) : ''}`,
-        dr: amt, cr: 0,
-      });
-    });
-    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.cr - a.cr));
-    // Opening balance = sab kuch filter-range se PEHLE ka net.
-    let opening = 0;
-    const inRange = rows.filter(r => {
-      if (fromDate && r.date && r.date < fromDate) { opening = round2(opening + r.cr - r.dr); return false; }
-      return isDateInRange(r.date, fromDate || undefined, toDate || undefined);
-    });
-    let bal = opening;
-    const withBal = inRange.map(r => { bal = round2(bal + r.cr - r.dr); return { ...r, balance: bal }; });
-    const billed = round2(inRange.reduce((s, r) => s + r.cr, 0));
-    const received = round2(inRange.reduce((s, r) => s + r.dr, 0));
-    return { rows: withBal, opening, billed, received, outstanding: bal };
-  }, [invoices, payments, companyBills, bankReceipts, cust, company, fromDate, toDate]);
-
-  // 💾 Save payment: CUSTOMER_PAYMENTS doc + canonical journal entry.
+  // 💾 Save receipt: ONE RECEIPT voucher. No second store of the same cash.
   const savePayment = async () => {
-    const amount = round2(parseFloat(pay.amount) || 0);
+    const amount = parseFloat(pay.amount) || 0;
     if (!cust) return alert('⚠️ Pehle customer chunein!');
     if (amount <= 0) return alert('⚠️ Amount daalein!');
     if (company === 'ALL') return alert('🏢 Payment kis company ke khate mein aayi — upar Operating Company chunein (ALL par entry nahi ho sakti).');
+    if (!pay.account) return alert('🏦 Paisa kis account me aaya? Bank ya cash account chunein — koi account apne aap maan nahi liya jata.');
     setSaving(true);
     try {
-      const ref = await addDoc(collection(db, 'CUSTOMER_PAYMENTS'), {
-        customer: cust, company,
-        amount, date: pay.date, mode: pay.mode, ref: pay.ref || '', bank: pay.bank || '', remarks: pay.remarks || '',
-        entered_by: user?.full_name || user?.name || 'staff', created_at: serverTimestamp(),
+      await fetchJson(`${MASTERS}/customers/${cust}/receipt`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          account: pay.account,
+          amount,
+          entry_date: pay.date,
+          ref_no: pay.ref || null,
+          company,
+          remarks: pay.remarks || null,
+          created_by: user?.full_name || user?.name || user?.email || 'staff',
+        }),
       });
-      await postEntry({
-        source_type: 'CUSTOMER_PAYMENT', source_ref: ref.id, date: pay.date,
-        narration: `Payment received — ${cust} (${pay.mode}${pay.ref ? ' ' + pay.ref : ''})`,
-        company,
-        lines: [
-          { ledger: pay.mode === 'Cash' ? 'Cash' : 'Bank', dr_cr: 'Dr', amount },
-          { ledger: `Debtors: ${cust}`, dr_cr: 'Cr', amount },
-        ],
-      }).catch(() => {});
-      logAudit({ action: 'CUSTOMER_PAYMENT', target: cust, details: `₹${amount} ${pay.mode} (${company})` });
-      alert(`✅ ₹${inr(amount)} receipt save ho gayi — ${cust} ka khata + journal update.`);
-      setPay({ date: new Date().toISOString().slice(0, 10), amount: '', mode: 'Bank', ref: '', bank: '', remarks: '' });
+      logAudit({ action: 'CUSTOMER_RECEIPT', target: custName, details: `₹${amount} into ${pay.account} (${company})` });
+      alert(`✅ ₹${inr(amount)} receipt post ho gayi — ${custName} ka khata + ledger voucher.`);
+      setPay({ date: new Date().toISOString().slice(0, 10), amount: '', account: '', ref: '', remarks: '' });
       setShowPay(false);
-    } catch (e) { alert('❌ Save fail: ' + (e?.message || '')); }
+      loadLedger();
+    } catch (e: any) {
+      const said = {
+        DUPLICATE_REF: 'Yeh UTR/reference pehle hi post ho chuka hai — dobara nahi hoga.',
+        OVERDRAFT: 'Us account par yeh entry balance se aage nikal jati hai.',
+        NO_ACCOUNT: 'Account chunein.',
+      }[e?.code];
+      alert('❌ Save fail: ' + (said || e?.message || ''));
+    }
     setSaving(false);
   };
 
   // 📥 CSV export (CA ko dene ke liye)
   const exportCsv = () => {
     if (!ledger.rows.length) return alert('⚠️ Export ke liye data nahi hai.');
-    let csv = `Customer Khata,${cust},Company,${company}\nDate,Particulars,Debit (Received),Credit (Billed),Balance (Lena Baki)\n`;
+    let csv = `Customer Khata,${custName},Company,${company}\nDate,Particulars,Debit (Received),Credit (Billed),Balance (Lena Baki)\n`;
     if (ledger.opening) csv += `,Opening Balance,,,${ledger.opening}\n`;
-    ledger.rows.forEach(r => { csv += `${r.date},"${r.particulars.replace(/"/g, "'")}",${r.dr || ''},${r.cr || ''},${r.balance}\n`; });
+    ledger.rows.forEach(r => { csv += `${r.date},"${String(r.particulars).replace(/"/g, "'")}",${r.dr || ''},${r.cr || ''},${r.balance}\n`; });
     csv += `,TOTALS,${ledger.received},${ledger.billed},${ledger.outstanding}\n`;
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
-    a.download = `Khata_${cust}_${company}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }));
+    a.download = `Khata_${custName}_${company}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
   };
 
@@ -168,7 +152,7 @@ export default function CustomerLedger() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
         <div>
           <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: 0, color: '#38bdf8' }}>📖 Customer Khata (Party Ledger)</h1>
-          <p style={{ color: '#94a3b8', margin: '4px 0 0', fontSize: '13px' }}>SAB bills ek statement mein — Auto-Billing + Bill Management · Receipts: manual entry + Bill-Mgmt settlements. Invoice = Cr (lena baki), Receipt = Dr, Balance = Live Outstanding. Real-time.</p>
+          <p style={{ color: '#94a3b8', margin: '4px 0 0', fontSize: '13px' }}>SAB bills ek statement mein — bill register + general ledger. Bill = Cr (lena baki), Receipt = Dr, Balance = Live Outstanding. Har receipt ek RECEIPT voucher hai.</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button className="pt-btn pt-btn--ghost" style={{ minHeight: '48px' }} onClick={exportCsv}>📥 Export CSV</button>
@@ -190,7 +174,7 @@ export default function CustomerLedger() {
             <label className="pt-label" style={{ color: '#38bdf8' }}>👤 Customer *</label>
             <select className="pt-input" style={{ borderColor: '#38bdf8' }} value={cust} onChange={e => setCust(e.target.value)}>
               <option value="">— Select Customer —</option>
-              {customers.map(c => <option key={c} value={c}>{c}</option>)}
+              {customers.map((c: any) => <option key={c.id} value={c.id}>{c.customer_name}</option>)}
             </select>
           </div>
           <div><label className="pt-label">From Date</label><input type="date" className="pt-input" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
@@ -198,9 +182,19 @@ export default function CustomerLedger() {
         </div>
       </div>
 
+      {err && (
+        <div className="pt-anim-up" style={{ padding: '14px 18px', marginBottom: '14px', borderRadius: '12px', border: '1px solid #ef4444', background: 'rgba(239,68,68,0.08)', color: '#fca5a5', fontSize: '13px' }}>
+          ⚠️ {err}
+        </div>
+      )}
+
       {!cust ? (
         <div className="pt-anim-up" style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b', border: '1px dashed #334155', borderRadius: '16px' }}>
           👆 Customer chunein — uska poora khata (bills, receipts, live outstanding) yahan aa jayega.
+        </div>
+      ) : loading ? (
+        <div className="pt-anim-up" style={{ textAlign: 'center', padding: '60px 20px', color: '#38bdf8', border: '1px dashed #334155', borderRadius: '16px' }}>
+          ⏳ Khata load ho raha hai…
         </div>
       ) : (
         <>
@@ -251,26 +245,43 @@ export default function CustomerLedger() {
       )}
 
       {/* ➕ ADD PAYMENT — BottomSheet (swipeable on phone) */}
-      <BottomSheet open={showPay} onClose={() => setShowPay(false)} title={`💰 Payment Entry — ${cust || 'select customer'}`} accent="#10b981" maxWidth={640}>
+      <BottomSheet open={showPay} onClose={() => setShowPay(false)} title={`💰 Receipt Entry — ${custName || 'select customer'}`} accent="#10b981" maxWidth={640}>
         <div className="pt-anim-fade">
           <div style={{ marginBottom: '14px', fontSize: '13px', color: '#94a3b8' }}>
-            Khata: <b style={{ color: '#38bdf8' }}>{cust || '—'}</b> · Company: <b style={{ color: '#f59e0b' }}>{company === 'ALL' ? '⚠ chunein (required)' : company}</b>
+            Khata: <b style={{ color: '#38bdf8' }}>{custName || '—'}</b> · Company: <b style={{ color: '#f59e0b' }}>{company === 'ALL' ? '⚠ chunein (required)' : company}</b>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px' }}>
             <div><label className="pt-label" style={{ color: '#10b981' }}>Amount (₹) *</label><input type="number" inputMode="decimal" className="pt-input" style={{ borderColor: '#10b981', fontSize: '18px', fontWeight: 'bold' }} value={pay.amount} onChange={e => setPay({ ...pay, amount: e.target.value })} placeholder="0.00" /></div>
             <div><label className="pt-label">Date</label><input type="date" className="pt-input" value={pay.date} onChange={e => setPay({ ...pay, date: e.target.value })} /></div>
           </div>
-          <label className="pt-label" style={{ marginTop: '14px' }}>Mode</label>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {['Bank', 'Cash', 'UPI', 'Cheque'].map(m => <button key={m} type="button" className={`pt-chip ${pay.mode === m ? 'is-on is-on--success' : ''}`} onClick={() => setPay({ ...pay, mode: m })}>{m === 'Bank' ? '🏦' : m === 'Cash' ? '💵' : m === 'UPI' ? '📱' : '📝'} {m}</button>)}
+          {/* The receipt is a RECEIPT voucher: Dr <account> / Cr the debtor. So
+              the account is a real ledger, chosen from the chart — a typed
+              bank name could not be posted against anything. */}
+          <div style={{ marginTop: '14px' }}>
+            <label className="pt-label" style={{ color: '#10b981' }}>Paisa kis account me aaya? *</label>
+            <select className="pt-input" style={{ borderColor: '#10b981' }} value={pay.account} onChange={e => setPay({ ...pay, account: e.target.value })}>
+              <option value="">— Select the bank / cash account —</option>
+              {accounts.map((a: any) => (
+                <option key={a.ledger_name} value={a.ledger_name}>
+                  {a.ledger_name} — ₹{inr(a.balance)}
+                </option>
+              ))}
+            </select>
+            <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+              Posts <b style={{ color: '#34d399' }}>Dr {pay.account || 'the account you select'}</b>
+              {' / '}<b style={{ color: '#f87171' }}>Cr Debtors: {custName || 'customer'}</b>
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '14px', marginTop: '14px' }}>
-            <div><label className="pt-label">UTR / Ref No</label><input className="pt-input" value={pay.ref} onChange={e => setPay({ ...pay, ref: e.target.value })} placeholder="UTR123456" /></div>
-            <div><label className="pt-label">Bank Name</label><input className="pt-input" value={pay.bank} onChange={e => setPay({ ...pay, bank: e.target.value })} placeholder="SBI" /></div>
+          <div style={{ marginTop: '14px' }}>
+            <label className="pt-label">UTR / Ref No</label>
+            <input className="pt-input" value={pay.ref} onChange={e => setPay({ ...pay, ref: e.target.value })} placeholder="UTR123456" />
+            <div style={{ marginTop: '6px', fontSize: '11px', color: '#64748b' }}>
+              Optional, but a reference is what stops the same receipt being posted twice.
+            </div>
           </div>
           <div style={{ marginTop: '14px' }}><label className="pt-label">Remarks</label><input className="pt-input" value={pay.remarks} onChange={e => setPay({ ...pay, remarks: e.target.value })} placeholder="e.g. June bill part payment" /></div>
           <button className={`pt-btn pt-btn--success ${saving ? 'is-loading' : ''}`} disabled={saving} onClick={savePayment} style={{ width: '100%', marginTop: '20px', minHeight: '52px', fontWeight: 900, fontSize: '15px' }}>
-            {saving ? 'Saving…' : '💾 Save Receipt (Khata + Journal)'}
+            {saving ? 'Posting…' : '💾 Post Receipt (RECEIPT voucher)'}
           </button>
         </div>
       </BottomSheet>

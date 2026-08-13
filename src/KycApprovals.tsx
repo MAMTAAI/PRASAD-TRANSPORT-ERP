@@ -7,6 +7,14 @@
 import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
+const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+const mastersFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${MASTERS_API}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
 import { vGstin, vPan, vMobile, gstinPanMatch, runChecks } from './lib/validators';
 import { logAudit } from './lib/audit';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -45,42 +53,60 @@ export default function KycApprovals() {
   const approve = async (a) => {
     if (busy) return;
     const name = a.type === 'CUSTOMER' ? a.corporate_name : a.agency_name;
-    if (!window.confirm(`✅ "${name}" ko approve karke ${a.type === 'CUSTOMER' ? 'CUSTOMER' : 'VENDOR (Fleet Partner)'} master + ledger banayein?`)) return;
+    if (!window.confirm(`✅ "${name}" ko approve karke ${a.type === 'CUSTOMER' ? 'CUSTOMER' : 'VENDOR (Fleet Partner)'} master banayein?`)) return;
     setBusy(true);
     try {
       const user = JSON.parse(localStorage.getItem('prasad_user') || '{}');
-      const batch = writeBatch(db);
-      const masterRef = doc(collection(db, a.type === 'CUSTOMER' ? 'CUSTOMERS' : 'VENDORS'));
+
+      // The approved master goes to PostgreSQL — that is where Customer Master
+      // and Vendor Master read from now, so a Firestore record here would
+      // approve an applicant into a table nobody looks at. A customer
+      // approved from the portal is created as customer_source = 'PORTAL',
+      // which is exactly what the External B2B tab lists.
+      //
+      // The auto-LEDGERS rows are gone: TARA opens the party account on the
+      // first real posting, so an approval no longer leaves two empty ledgers.
+      let masterId = '';
       if (a.type === 'CUSTOMER') {
-        batch.set(masterRef, {
-          customer_name: (a.corporate_name || '').toUpperCase(), gst_no: a.gst_no || '', pan_no: a.pan_no || '',
-          mobile_no: a.mobile_no || '', address: a.address || '', contact_person: a.contact_person || '',
-          status: 'ACTIVE', portal_access: true, source: 'PORTAL_KYC', application_id: a.id, createdAt: serverTimestamp(),
+        const j = await mastersFetch('/customers', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_name: (a.corporate_name || '').toUpperCase(),
+            gst_no: a.gst_no || null,
+            pan_no: a.pan_no || null,
+            mobile_no: a.mobile_no || '',
+            address: a.address || '',
+            contact_person: a.contact_person || '',
+            status: 'ACTIVE',
+            customer_source: 'PORTAL',
+            approval_status: 'APPROVED',
+            portal_enabled: true,
+          }),
         });
-        batch.set(doc(collection(db, 'LEDGERS')), {
-          ledger_name: (a.corporate_name || '').toUpperCase(), group: 'Sundry Debtors', group_head: 'Sundry Debtors',
-          opening_balance: 0, current_balance: 0, creation_type: 'AUTO_SYSTEM', linked_module: 'CUSTOMER',
-          linked_id: masterRef.id, created_at: serverTimestamp(),
-        });
+        masterId = j.customer?.id || '';
       } else {
-        batch.set(masterRef, {
-          vendor_name: a.agency_name || '', vendor_type: 'FLEET PARTNER', contact_person: a.owner_name || '',
-          mobile_no: a.mobile_no || '', gst_no: a.gst_no || '', pan_no: a.pan_no || '',
-          aadhaar_last4: a.aadhaar_last4 || '', status: 'Active', opening_balance: 0, current_balance: 0,
-          source: 'PORTAL_KYC', application_id: a.id, createdAt: serverTimestamp(),
+        const j = await mastersFetch('/vendors', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vendor_name: a.agency_name || '',
+            vendor_type: 'FLEET PARTNER',
+            contact_person: a.owner_name || '',
+            mobile_no: a.mobile_no || '',
+            gst_no: a.gst_no || null,
+            opening_balance: 0,
+            status: 'ACTIVE',
+          }),
         });
-        batch.set(doc(collection(db, 'LEDGERS')), {
-          ledger_name: a.agency_name || '', group: 'Sundry Creditors (Vendors)', group_head: 'Sundry Creditors (Vendors)',
-          op_balance: 0, dr_cr: 'Cr (Credit)', creation_type: 'AUTO_SYSTEM', linked_module: 'VENDOR',
-          linked_id: masterRef.id, created_at: serverTimestamp(),
-        });
+        masterId = j.vendor?.id || '';
       }
+
+      const batch = writeBatch(db);
       batch.update(doc(db, 'ONBOARDING_APPLICATIONS', a.id), {
-        status: 'APPROVED', approved_at: serverTimestamp(), approved_by: user.full_name || user.email || 'admin', master_id: masterRef.id,
+        status: 'APPROVED', approved_at: serverTimestamp(), approved_by: user.full_name || user.email || 'admin', master_id: masterId,
       });
       await batch.commit();
-      logAudit({ action: 'KYC_APPROVE', target: name, details: `${a.type} approved → master ${masterRef.id}` });
-      alert(`✅ ${name} approved — master + ledger ban gaye.`);
+      logAudit({ action: 'KYC_APPROVE', target: name, details: `${a.type} approved → master ${masterId}` });
+      alert(`✅ ${name} approved — ${a.type === 'CUSTOMER' ? 'Customer' : 'Vendor'} Master me ban gaya.`);
     } catch (e) { console.error(e); alert('❌ Approve fail: ' + (e.message || 'error')); }
     setBusy(false);
   };

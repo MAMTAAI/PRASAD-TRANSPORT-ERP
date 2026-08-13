@@ -2,6 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch, query, where } from 'firebase/firestore';
 import { db } from './firebase';
+const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+const mastersFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${MASTERS_API}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
 import { extractJsonFromImage } from './lib/aiScanner';
 
 // 🌟 CRASH-PROOF SAFE DATE PARSER FOR OLD DATA
@@ -224,15 +232,27 @@ export default function TyreMgmt() {
     if (!newVendorData.vendor_name) return alert("⚠️ Vendor Name is mandatory!");
     setLoading(true);
     try {
-       const docRef = await addDoc(collection(db, "VENDORS"), { ...newVendorData, createdAt: serverTimestamp() });
-       await addDoc(collection(db, "LEDGERS"), { ledger_name: newVendorData.vendor_name, group_head: "Sundry Creditors", opening_balance: parseFloat(newVendorData.opening_balance || '0'), current_balance: parseFloat(newVendorData.opening_balance || '0'), creation_type: "AUTO_SYSTEM", linked_module: "VENDOR", linked_id: docRef.id, created_at: serverTimestamp() });
-       alert("✅ Vendor & Ledger Created Successfully!");
+       // Same reason as BatteryMgmt: the vendor master is PostgreSQL's now, so
+       // a tyre supplier created here has to land in the same table the Vendor
+       // Master reads, or it exists only on this screen.
+       await mastersFetch('/vendors', {
+         method: 'POST', headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+           vendor_name: newVendorData.vendor_name,
+           vendor_type: newVendorData.vendor_category || 'Tyre Shop / Factory',
+           contact_person: newVendorData.contact_person,
+           mobile_no: newVendorData.mobile_no,
+           gst_no: newVendorData.gst_number || null,
+           opening_balance: parseFloat(newVendorData.opening_balance || '0') || 0,
+         }),
+       });
+       alert("✅ Vendor Created in the Vendor Master!");
        if (isTyreModalOpen) setPurchaseData({ ...purchaseData, vendor_name: newVendorData.vendor_name });
        if (isDispatchResoleModalOpen) setDispatchData({ ...dispatchData, vendor_name: newVendorData.vendor_name });
        if (isFitmentModalOpen) setNewTyreProc({ ...newTyreProc, vendor_name: newVendorData.vendor_name });
        if (isReceiveResoleModalOpen) setResoleData({ ...resoleData, vendor_name: newVendorData.vendor_name });
        setIsVendorModalOpen(false); setNewVendorData({ vendor_name: '', vendor_category: 'Tyre Shop / Factory', contact_person: '', mobile_no: '', gst_number: '', opening_balance: '0' }); fetchData();
-    } catch(e) { alert("❌ Error adding vendor"); }
+    } catch(e: any) { alert(e?.code === 'DUPLICATE' ? "⚠️ Yeh vendor pehle se master me hai." : "❌ Error adding vendor: " + (e?.message || '')); }
     setLoading(false);
   };
 

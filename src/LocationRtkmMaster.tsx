@@ -1,8 +1,43 @@
 // @ts-nocheck
+// 🗺️ LOCATION / RTKM MASTER — lanes, distances and their quarterly rates.
+// Live PostgreSQL (`rtkm_master`; billing_type + rate_history from migration 029).
+//
+// The lane is the unit of pricing: Customer + Depot + Consignee + Item Type is
+// unique, and TRIPURA refuses to quote a lane that has no row here. The list
+// now arrives joined to `v_iocl_lane_rate` — the rate card derived from bills
+// IOCL actually paid — so `rtd_variance` shows, per lane, how far the stored
+// distance is from the one being billed against. Migration 016 documented that
+// they disagree (242.400 stored vs 262.8 billed); this is where that shows up
+// instead of quietly mispricing a trip.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { BILLING_TYPES, resolveRate } from './lib/freightEngine';
+import { fetchLanes } from './lib/masters/rateApi';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// The PascalCase adapter lives in lib/masters/rateApi.ts — MonthlyBilling reads
+// these same lanes through it, so there is one mapping, not two.
+const toApi = (f: any, rateHistory: any[]) => ({
+  customer_name: f.Customer,
+  depot_link: f.Depot_Link,
+  consignee_name: f.Consignee_Name,
+  item_type: f.Item_Type,
+  vehicle_capacity: f.Vehicle_Capacity,
+  rtkm_distance: parseFloat(f.RTKM_Distance) || null,
+  fixed_hsd_qty: parseFloat(f.Fixed_HSD) || null,
+  fixed_cash_amt: parseFloat(f.Fixed_Cash) || null,
+  billing_type: f.Billing_Type || 'PER_KL',
+  rate_history: rateHistory,
+  status: f.Status === 'Inactive' ? 'INACTIVE' : 'ACTIVE',
+});
 
 // 🛠️ Fleet fuel-economy config (km per litre) by vehicle capacity, used to
 // derive Fixed HSD = RTKM ÷ mileage when a route has no saved value.
@@ -72,9 +107,8 @@ export default function LocationRtkmMaster() {
 
   const fetchCustomers = async () => {
     try {
-      const snap = await getDocs(collection(db, "CUSTOMERS"));
-      const custData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setCustomers(custData);
+      const j = await fetchJson(`${MASTERS}/customers?limit=1000`);
+      setCustomers(j.customers ?? []);
     } catch (error) {
       console.error("Error fetching Customers:", error);
     }
@@ -83,10 +117,7 @@ export default function LocationRtkmMaster() {
   const fetchRoutes = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "RTKM_MASTER"));
-      const routeData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      routeData.sort((a: any, b: any) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      setRoutes(routeData);
+      setRoutes(await fetchLanes());
     } catch (error) {
       console.error("Error fetching RTKM:", error);
     } finally {
@@ -175,28 +206,27 @@ export default function LocationRtkmMaster() {
 
     setIsSubmitting(true);
     try {
-      const payload = {
-        ...formData,
-        rate_history: cleanRates,
-        customer_name: formData.Customer,
-        depot_link: formData.Depot_Link,
-        consignee_name: formData.Consignee_Name,
-        rtkm_distance: formData.RTKM_Distance,
-      };
+      const payload = toApi(formData, cleanRates);
       if (editingId) {
-        await updateDoc(doc(db, "RTKM_MASTER", editingId), { ...payload, updatedAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/lanes/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert("✅ मास्टर डेटा सफलतापूर्वक अपडेट हो गया!");
       } else {
-        await addDoc(collection(db, "RTKM_MASTER"), { ...payload, createdAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/lanes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert(`✅ नया रूट सफलतापूर्वक सेव हुआ!`);
       }
-      
+
       resetForm();
       fetchRoutes();
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error saving:", error);
-      alert("❌ डेटा सेव या अपडेट नहीं हो पाया!");
+      alert(error?.code === 'DUPLICATE'
+        ? "⚠️ Yeh lane pehle se master mein hai."
+        : "❌ डेटा सेव या अपडेट नहीं हो पाया: " + (error?.message || ''));
     } finally {
       setIsSubmitting(false);
     }
@@ -221,23 +251,29 @@ export default function LocationRtkmMaster() {
   };
 
   const handleToggleStatus = async (id: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
+    const newStatus = currentStatus === 'Active' ? 'INACTIVE' : 'ACTIVE';
     try {
-      await updateDoc(doc(db, "RTKM_MASTER", id), { Status: newStatus });
+      await fetchJson(`${MASTERS}/lanes/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }),
+      });
       fetchRoutes();
     } catch (error) {
       alert("❌ स्टेटस बदलने में समस्या आई!");
     }
   };
 
+  // A lane is RETIRED, never erased: historic trips were priced against it, so
+  // deleting the row would leave those trips unable to explain their own
+  // freight. The API does the retire; this says so rather than claiming a
+  // deletion that did not happen.
   const handleDelete = async (id: string) => {
-    if (window.confirm("⚠️ क्या आप वाकई इस रूट रिकॉर्ड को हमेशा के लिए मिटाना चाहते हैं?")) {
-      try {
-        await deleteDoc(doc(db, "RTKM_MASTER", id));
-        fetchRoutes();
-      } catch (error) {
-        alert("❌ डिलीट करने में समस्या आई!");
-      }
+    if (!window.confirm("⚠️ Is route ko band karein?\n\nपुरानी trips isi lane par price hui hain, isliye record delete nahi hoga — INACTIVE ho jayega aur nayi trips me nahi aayega.")) return;
+    try {
+      await fetchJson(`${MASTERS}/lanes/${id}`, { method: 'DELETE' });
+      alert("✅ Route retire ho gaya (INACTIVE) — purana record surakshit hai.");
+      fetchRoutes();
+    } catch (error: any) {
+      alert("❌ Retire nahi hua: " + (error?.message || ''));
     }
   };
 

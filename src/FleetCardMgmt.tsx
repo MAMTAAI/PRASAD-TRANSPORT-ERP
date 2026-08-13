@@ -6,6 +6,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, doc, setDoc, writeBatch, increment, serverTimestamp, query, orderBy } from 'firebase/firestore';
 import { db } from './firebase';
+const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+const mastersFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${MASTERS_API}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
 import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { CARD_PROVIDERS, extractCardStatement, reconcileStatement } from './lib/fleetCard';
@@ -124,9 +132,24 @@ export default function FleetCardMgmt() {
         ref: form.ref || '', createdAt: serverTimestamp(),
       });
       batch.update(doc(db, 'FLEET_CARDS', card.id), { current_balance: increment(-amt) });
-      // Legacy display balance is stored as mixed string/number — write computed number
-      batch.update(doc(db, 'VENDORS', vendor.id), { current_balance: round2((parseFloat(vendor.current_balance) || 0) - amt) });
       await batch.commit();
+
+      // The pump's balance is derived in PostgreSQL now, so settling by card is
+      // a PAYMENT_GIVEN row rather than a rewritten counter. It is posted after
+      // the batch, not inside it — a Firestore batch cannot span an HTTP call,
+      // and the card transaction is the record that must not be lost.
+      // post_to_ledger is false: the double entry below is already posted here.
+      await mastersFetch(`/vendors/${vendor.id}/ledger`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: 'PAYMENT_GIVEN',
+          amount: amt,
+          txn_date: form.date,
+          payment_mode: `Fleet card — ${card.name}`,
+          remarks: `Card settlement${form.ref ? ' ' + form.ref : ''}`,
+          post_to_ledger: false,
+        }),
+      }).catch(e => console.error('vendor khata:', e));
 
       // Double-entry: pump liability cleared against the wallet asset
       await postEntry({

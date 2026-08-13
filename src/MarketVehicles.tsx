@@ -103,6 +103,21 @@ export default function MarketVehicles() {
     }));
   };
 
+  // ⚠️ STILL FIRESTORE, AND DELIBERATELY SO — read this before "fixing" it.
+  //
+  // Every other writer of the VENDORS collection moved to PostgreSQL with the
+  // party cluster (Vander, BatteryMgmt, TyreMgmt, KycApprovals, FuelMgmt,
+  // FleetCardMgmt). This one did not, because a fleet partner is not the same
+  // record: it carries agency_name, a subscription plan, a vehicle limit and
+  // portal feature flags, none of which `vendors` has columns for, plus a fleet
+  // of trucks that needs the `market_vehicles` table TRIPURA declares but no
+  // migration has created yet.
+  //
+  // That is bazaar-cluster work, not party-cluster work. It is safe to leave
+  // for now for one checkable reason: PostgreSQL `vendors` contains ZERO agency
+  // rows (all 18 are fuel pumps and spares suppliers), so these records do not
+  // overlap the ones the Vendor Master now owns and cannot diverge from them.
+  // The moment that stops being true, this is the first thing to move.
   const handleSaveVendor = async () => {
     if (!vendorFormData.agency_name || !vendorFormData.mobile) return alert("Agency Name & Mobile are required!");
     setLoading(true);

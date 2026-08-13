@@ -2,6 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp, increment } from 'firebase/firestore';
 import { db } from './firebase';
+const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+const mastersFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${MASTERS_API}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
 import { extractJsonFromImage } from './lib/aiScanner';
 
 export default function FuelMgmt() {
@@ -405,9 +413,24 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       });
 
       if (vendor) {
-         const currentBal = parseFloat(vendor.current_balance || vendor.opening_balance || '0');
-         const newBal = currentBal + parseFloat(vendorBillAmount);
-         await updateDoc(doc(db, "VENDORS", vendor.id), { current_balance: newBal });
+         // The pump's balance is no longer a counter to read-modify-write — the
+         // Vendor Master derives it from vendor_txns. A verified fuel bill is a
+         // BILL_RECEIVED row, and the endpoint accepts this screen's Firestore
+         // document id (vendors.legacy_id) so no id translation is needed here.
+         //
+         // post_to_ledger is false on purpose: this screen still posts its own
+         // Firestore journal above, and posting a second one in PostgreSQL
+         // would double-count the liability. That leg moves when FuelMgmt does.
+         await mastersFetch(`/vendors/${vendor.id}/ledger`, {
+           method: 'POST', headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({
+             txn_type: 'BILL_RECEIVED',
+             amount: parseFloat(vendorBillAmount),
+             txn_date: new Date().toISOString().slice(0, 10),
+             remarks: `Fuel bill verified — ${selectedSlips.length} slip(s)`,
+             post_to_ledger: false,
+           }),
+         }).catch(e => console.error('vendor khata:', e));
       }
 
       alert(`✅ SUCCESS: Slips Reconciled!\n\n₹${vendorBillAmount} POSTED to ${vName}'s Ledger Account.\n🚛 ${tripsBumped} trips ke kharche me diesel value update ho gayi (P&L me dikhega).`);

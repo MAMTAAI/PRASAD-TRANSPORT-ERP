@@ -1,7 +1,43 @@
 // @ts-nocheck
+// 🏢 VENDOR MASTER — pumps, garages, spares, brokers. Live PostgreSQL.
+//
+// TWO THINGS CHANGED SHAPE HERE, and both were bugs before.
+//
+// 1. THE BALANCE IS DERIVED. The Firestore version kept a stored
+//    `current_balance` on the vendor and hand-adjusted it on every save:
+//    read it, add or subtract, write it back. Two people paying the same pump
+//    at once lost one of the payments, and nothing ever reconciled the counter
+//    against the ledger. Now the balance is `opening_balance + Σ vendor_txns`,
+//    computed by the API on every read, so it cannot drift by construction.
+//    Migration 029 seeded opening_balance from the migrated current_balance so
+//    no vendor's carried-forward figure was lost in the move.
+//
+// 2. A PAYMENT POSTS TO THE GENERAL LEDGER. Money leaving a bank account is a
+//    PAYMENT voucher (Dr Creditors: <vendor> / Cr the account) posted through
+//    TARA — which is why the payment form now asks WHICH account it left. The
+//    old screen only bumped the counter, so the vendor sub-ledger and the books
+//    disagreed the moment anyone paid anybody. "Subsidiary only" is still
+//    available for a correction that must not touch the GL.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// record_status is ACTIVE/INACTIVE; this form has always said Active/Inactive.
+const toDbStatus = (v: any) => (String(v || 'Active').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+
+// The card reads `current_balance`. The honest number is the API's derived
+// running_balance, so that is what the card is handed — the stored column is
+// left untouched as the historical marker migration 029 anchored to.
+const fromApi = (v: any) => ({ ...v, current_balance: v.running_balance ?? v.current_balance ?? '0' });
 
 export default function Vander() {
   const [activeTab, setActiveTab] = useState('MASTER');
@@ -22,84 +58,117 @@ export default function Vander() {
 
   // Vendor Transaction Data (Bill/Payment)
   const [txnData, setTxnData] = useState({
-    vendor_id: '', vendor_name: '', txn_date: new Date().toISOString().split('T')[0], 
-    txn_type: 'PAYMENT_GIVEN', amount: '', payment_mode: 'Bank Transfer', remarks: ''
+    vendor_id: '', vendor_name: '', txn_date: new Date().toISOString().split('T')[0],
+    txn_type: 'PAYMENT_GIVEN', amount: '', payment_mode: 'Bank Transfer', remarks: '',
+    // Which bank/cash account the money left. Never defaulted — the operator
+    // names it, or the payment stays out of the general ledger on purpose.
+    account: '', post_to_ledger: true,
   });
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [savingTxn, setSavingTxn] = useState(false);
 
   useEffect(() => {
     fetchVendors();
+    fetchJson(`${FIN}/accounts`).then(j => setAccounts(j.accounts ?? [])).catch(() => {});
   }, []);
-
   const fetchVendors = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "VENDORS"));
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Crash-safe: VENDORS holds two doc shapes (vendor_name from this form,
-      // agency_name from MarketVehicles) — a missing field must not throw and
-      // silently blank the whole list.
-      setVendors(data.sort((a: any, b: any) => String(a.vendor_name || a.agency_name || '').localeCompare(String(b.vendor_name || b.agency_name || ''))));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${MASTERS}/vendors?limit=1000`);
+      setVendors((j.vendors ?? []).map(fromApi));
+    } catch (e) { console.error('vendors:', e); }
     setLoading(false);
   };
 
-  // 📝 SAVE VENDOR MASTER & CREATE AUTO LEDGER
+  // 📝 SAVE VENDOR MASTER
+  // The auto-LEDGERS write is gone: TARA opens `Creditors: <name>` the first
+  // time a payment is actually posted against the vendor, so creating one here
+  // would leave an empty account in the chart with nothing behind it.
   const handleSaveVendor = async () => {
     if (!formData.vendor_name || !formData.mobile_no) return alert("⚠️ Name & Mobile required!");
+    const payload = {
+      vendor_name: formData.vendor_name,
+      vendor_type: formData.vendor_type,
+      contact_person: formData.contact_person,
+      mobile_no: formData.mobile_no,
+      address: formData.address,
+      gst_no: formData.gst_no || null,
+      bank_account: formData.bank_account,
+      ifsc_code: formData.ifsc_code,
+      status: toDbStatus(formData.status),
+    };
     try {
       if (editingId) {
-        await updateDoc(doc(db, "VENDORS", editingId), formData);
+        // opening_balance is deliberately NOT sent on edit — it is the anchor
+        // the derived balance is measured from, and silently rewriting it would
+        // move every historical figure at once.
+        await fetchJson(`${MASTERS}/vendors/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert("✅ Vendor Master Updated Successfully!");
       } else {
-        const docRef = await addDoc(collection(db, "VENDORS"), { ...formData, current_balance: formData.opening_balance, createdAt: serverTimestamp() });
-        
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: formData.vendor_name,         
-          group_head: "Sundry Creditors",            
-          opening_balance: parseFloat(formData.opening_balance || '0'), 
-          current_balance: parseFloat(formData.opening_balance || '0'),
-          creation_type: "AUTO_SYSTEM",
-          linked_module: "VENDOR",
-          linked_id: docRef.id,
-          created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/vendors`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, opening_balance: parseFloat(formData.opening_balance || '0') || 0 }),
         });
-
-        alert("✅ New Vendor Saved & Sundry Creditors Ledger Created!");
+        alert("✅ New Vendor Saved!");
       }
       setIsVendorModalOpen(false); fetchVendors();
-    } catch (e) { alert("❌ Error saving vendor."); }
+    } catch (e: any) {
+      alert(e?.code === 'DUPLICATE' ? "⚠️ Yeh vendor pehle se hai." : "❌ Error saving vendor: " + (e?.message || ''));
+    }
   };
 
-  // 💰 SAVE VENDOR TRANSACTION & UPDATE BALANCE
+  // 💰 SAVE VENDOR TRANSACTION
+  // No balance arithmetic here any more. The row is inserted and the balance
+  // is recomputed from it on the next read; a payment additionally posts a
+  // PAYMENT voucher so the sub-ledger and the general ledger cannot disagree.
   const handleSaveTxn = async () => {
     if (!txnData.vendor_id || !txnData.amount) return alert("⚠️ Select Vendor and enter Amount!");
-    
+
     const txnAmt = parseFloat(txnData.amount);
     if (isNaN(txnAmt) || txnAmt <= 0) return alert("⚠️ Please enter a valid amount greater than 0!");
 
+    const posting = txnData.txn_type === 'PAYMENT_GIVEN' && txnData.post_to_ledger;
+    if (posting && !txnData.account) {
+      return alert('🏦 Yeh paisa kis account se gaya?\n\nBank ya cash account chunein — entry ledger me post hogi aur koi account apne aap maan nahi liya jayega.\n\n(Sirf vendor khata update karna hai to "Subsidiary only" tick karein.)');
+    }
+
+    setSavingTxn(true);
     try {
-      const vendorRef = doc(db, "VENDORS", txnData.vendor_id);
-      const selectedVendor = vendors.find(v => v.id === txnData.vendor_id);
-      let currentBal = parseFloat(selectedVendor.current_balance || '0');
-
-      if (txnData.txn_type === 'BILL_RECEIVED') {
-        currentBal += txnAmt; // Liability increases
-      } else {
-        currentBal -= txnAmt; // Liability decreases
-      }
-
-      await addDoc(collection(db, "VENDOR_TXNS"), { ...txnData, createdAt: serverTimestamp() });
-      await updateDoc(vendorRef, { current_balance: currentBal.toFixed(2) });
-
-      alert("✅ Transaction Saved & Ledger Updated!");
+      const j = await fetchJson(`${MASTERS}/vendors/${txnData.vendor_id}/ledger`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: txnData.txn_type,
+          amount: txnAmt,
+          txn_date: txnData.txn_date,
+          payment_mode: txnData.payment_mode,
+          account: posting ? txnData.account : null,
+          remarks: txnData.remarks || null,
+          post_to_ledger: posting,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+        }),
+      });
+      alert(j.voucher_id
+        ? "✅ Payment saved — vendor khata + ledger voucher posted."
+        : "✅ Transaction saved to the vendor khata." + (j.ledger_note ? `\n\n⚠️ Ledger: ${j.ledger_note}` : ''));
       setIsTxnModalOpen(false);
-      setTxnData({ vendor_id: '', vendor_name: '', txn_date: new Date().toISOString().split('T')[0], txn_type: 'PAYMENT_GIVEN', amount: '', payment_mode: 'Bank Transfer', remarks: '' });
+      setTxnData({ vendor_id: '', vendor_name: '', txn_date: new Date().toISOString().split('T')[0], txn_type: 'PAYMENT_GIVEN', amount: '', payment_mode: 'Bank Transfer', remarks: '', account: '', post_to_ledger: true });
       fetchVendors();
-    } catch (e) { alert("❌ Transaction failed."); console.error(e); }
+    } catch (e: any) {
+      const said = {
+        OVERDRAFT: 'Us account me itna balance nahi hai.',
+        NO_ACCOUNT: 'Account chunein — koi account apne aap nahi maana jata.',
+        DUPLICATE_REF: 'Yeh reference pehle hi post ho chuka hai.',
+      }[e?.code];
+      alert("❌ " + (said || e?.message || 'Transaction failed.'));
+      console.error(e);
+    }
+    setSavingTxn(false);
   };
 
   const openVendorModal = (vendor: any = null) => {
-    if (vendor) { setFormData(vendor); setEditingId(vendor.id); } 
+    if (vendor) { setFormData({ ...vendor, status: vendor.status === 'INACTIVE' ? 'Inactive' : 'Active' }); setEditingId(vendor.id); }
     else { setFormData({ vendor_name: '', vendor_type: 'Fuel Pump', contact_person: '', mobile_no: '', address: '', gst_no: '', bank_account: '', ifsc_code: '', opening_balance: '0', current_balance: '0', status: 'Active' }); setEditingId(null); }
     setIsVendorModalOpen(true);
   };
@@ -113,7 +182,9 @@ export default function Vander() {
       txn_type: 'PAYMENT_GIVEN',
       amount: '',
       payment_mode: 'Bank Transfer',
-      remarks: ''
+      remarks: '',
+      account: '',
+      post_to_ledger: true
     });
     setIsTxnModalOpen(true);
   };
@@ -322,22 +393,49 @@ export default function Vander() {
               </div>
 
               {txnData.txn_type === 'PAYMENT_GIVEN' && (
-                <div>
-                  <label style={{ fontSize:'12px', color:'#94a3b8' }}>Payment Mode</label>
-                  <select className="modern-input" value={txnData.payment_mode} onChange={e=>setTxnData({...txnData, payment_mode: e.target.value})}>
-                    <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
-                    <option value="UPI">UPI</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Cheque">Cheque</option>
-                  </select>
-                </div>
+                <>
+                  <div>
+                    <label style={{ fontSize:'12px', color:'#94a3b8' }}>Payment Mode</label>
+                    <select className="modern-input" value={txnData.payment_mode} onChange={e=>setTxnData({...txnData, payment_mode: e.target.value})}>
+                      <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
+                      <option value="UPI">UPI</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Cheque">Cheque</option>
+                    </select>
+                  </div>
+
+                  {/* A payment moves real money out of a real account. The
+                      account is the operator's choice and is never defaulted —
+                      guessing it would post the entry against the wrong bank. */}
+                  <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '10px', padding: '14px' }}>
+                    <label style={{ fontSize:'12px', color:'#f59e0b', fontWeight:'bold' }}>Paid from which account? *</label>
+                    <select className="modern-input" style={{ marginTop: '6px' }} disabled={!txnData.post_to_ledger}
+                            value={txnData.account} onChange={e=>setTxnData({...txnData, account: e.target.value})}>
+                      <option value="">-- Select the bank / cash account --</option>
+                      {accounts.map((a: any) => (
+                        <option key={a.ledger_name} value={a.ledger_name}>
+                          {a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ marginTop: '10px', fontSize: '11px', color: '#94a3b8' }}>
+                      Posts <b style={{ color: '#f87171' }}>Dr Creditors: {txnData.vendor_name || 'vendor'}</b>
+                      {' / '}<b style={{ color: '#34d399' }}>Cr {txnData.account || 'the account you select'}</b>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '11px', color: '#94a3b8', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!txnData.post_to_ledger}
+                             onChange={e=>setTxnData({...txnData, post_to_ledger: !e.target.checked, account: e.target.checked ? '' : txnData.account})} />
+                      Subsidiary only — record in the vendor khata without a ledger voucher
+                    </label>
+                  </div>
+                </>
               )}
 
               <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Remarks / Bill No / Reference</label><input className="modern-input" value={txnData.remarks} onChange={e=>setTxnData({...txnData, remarks: e.target.value})} placeholder="e.g. Bill #104 or UTR No" /></div>
             </div>
             
-            <button className="glow-btn" style={{ width: '100%', marginTop: '25px', padding: '15px', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={handleSaveTxn}>
-              {txnData.txn_type === 'BILL_RECEIVED' ? '🧾 Add to Bill Ledger' : '💸 Confirm Payment'}
+            <button className="glow-btn" disabled={savingTxn} style={{ width: '100%', marginTop: '25px', padding: '15px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', opacity: savingTxn ? 0.6 : 1, cursor: savingTxn ? 'wait' : 'pointer' }} onClick={handleSaveTxn}>
+              {savingTxn ? 'Posting…' : txnData.txn_type === 'BILL_RECEIVED' ? '🧾 Add to Bill Ledger' : '💸 Confirm Payment'}
             </button>
           </div>
         </div>
