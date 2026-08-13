@@ -1,264 +1,266 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc } from 'firebase/firestore';
-import { db } from './firebase'; 
+// 🔗 LINK VEHICLE & DRIVER — live PostgreSQL.
+//
+// One live link per vehicle and per driver, enforced server-side: POST
+// /masters/assignments releases whatever either side was on and creates the new
+// link in a single transaction. The Firestore version only appended a row and
+// warned about clashes in a confirm dialog, so a truck could end up with two
+// live drivers and the readers had to sort by date and hope.
+//
+// Unlinking is a RELEASE, not a delete. Who drove what, and when, is history the
+// settlement and shortage screens still refer to.
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+const up = (s: any) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 export default function VehicleDriverLink() {
-  const VEHICLE_COLLECTION_NAME = "VEHICLES"; 
-  const DRIVER_COLLECTION_NAME = "DRIVERS";   
-
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [err, setErr] = useState('');
 
-  // Form States
   const [selectedVehicleName, setSelectedVehicleName] = useState('');
   const [selectedDriverName, setSelectedDriverName] = useState('');
   const [assignDate, setAssignDate] = useState(new Date().toISOString().split('T')[0]);
-
-  // 🌟 NEW: List Search State
   const [listSearch, setListSearch] = useState('');
+  const [showReleased, setShowReleased] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    setErr('');
     try {
-      const vSnap = await getDocs(collection(db, VEHICLE_COLLECTION_NAME));
-      setVehicles(vSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-      const dSnap = await getDocs(collection(db, DRIVER_COLLECTION_NAME));
-      setDrivers(dSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-      const rSnap = await getDocs(collection(db, 'Vehicle_Assignments'));
-      const rData = rSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      rData.sort((a: any, b: any) => new Date(b.assignDate).getTime() - new Date(a.assignDate).getTime());
-      setRecords(rData);
-
-    } catch (error) {
-      console.error("Data Fetch Error:", error);
-    } finally {
-      setLoading(false);
+      const [v, d, a] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles?limit=1000`),
+        fetchJson(`${MASTERS}/drivers?limit=1000`),
+        fetchJson(`${MASTERS}/assignments`),
+      ]);
+      setVehicles(v.vehicles ?? []);
+      setDrivers(d.drivers ?? []);
+      setRecords(a.assignments ?? []);
+    } catch (e: any) {
+      setErr(`Link data could not load from ${API} — ${e.message}`);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
+    setLoading(false);
   }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedVehicleName || !selectedDriverName || !assignDate) {
-      alert("⚠️ कृपया सभी जानकारी भरें!"); return;
-    }
-    
-    // 🔐 Conflict validation — one active link per vehicle AND per driver.
-    const up = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const active = records.filter(r => String(r.status).toUpperCase() === 'LINKED');
-    const vClash = active.find(r => up(r.vehicleName) === up(selectedVehicleName));
-    const dName0 = selectedDriverName.split('(')[0].trim();
-    const dClash = active.find(r => up(r.driverName) === up(dName0));
-    if (vClash) { if (!window.confirm(`⚠️ ${selectedVehicleName} pehle se ${vClash.driverName} ke saath linked hai. Naya link banayein? (purana record rahega — history safe)`)) return; }
-    if (dClash) { if (!window.confirm(`⚠️ Driver ${dName0} pehle se ${dClash.vehicleName} ke saath linked hai. Phir bhi link karein?`)) return; }
+    if (!selectedVehicleName || !selectedDriverName) return alert('⚠️ कृपया गाड़ी और ड्राइवर दोनों चुनें!');
+
+    const vObj = vehicles.find((v) => up(v.vehicle_no) === up(selectedVehicleName));
+    // The driver datalist shows "NAME (mobile)", so the name is the part before '('.
+    const rawDriverName = selectedDriverName.split('(')[0].trim();
+    const dObj = drivers.find((d) => up(d.name) === up(rawDriverName));
+
+    // Both sides must exist in the master: the link is a foreign key now, not a
+    // pair of free-text names, so a typo cannot create a phantom assignment.
+    if (!vObj) return alert(`⚠️ "${selectedVehicleName}" is not in the vehicle master.\n\nAdd it in Our Vehicle Fleet first.`);
+    if (!dObj) return alert(`⚠️ "${rawDriverName}" is not in the driver master.\n\nAdd them in Driver Master first.`);
+
+    // The server will release these anyway; warning first means the operator is
+    // not surprised by it.
+    const live = records.filter((r) => !r.released_at);
+    const vClash = live.find((r) => r.vehicle_id === vObj.id);
+    const dClash = live.find((r) => r.driver_id === dObj.id);
+    if (vClash && !window.confirm(`⚠️ ${vObj.vehicle_no} is currently linked to ${vClash.driver_name}.\n\nRe-linking releases that pairing (the history is kept). Continue?`)) return;
+    if (dClash && !window.confirm(`⚠️ ${dObj.name} is currently linked to ${dClash.vehicle_no}.\n\nRe-linking releases that pairing. Continue?`)) return;
 
     setIsSubmitting(true);
     try {
-      // 🔍 Find IDs based on the typed/selected names
-      const vObj = vehicles.find(v => (v.vehicle_no || v.vehical_no || v.registration_no || '').toUpperCase() === selectedVehicleName.toUpperCase());
-      
-      // Driver list has name + mobile, so we extract just the name part
-      const rawDriverName = selectedDriverName.split('(')[0].trim().toUpperCase();
-      const dObj = drivers.find(d => (d.name || '').toUpperCase() === rawDriverName || (d.name || '').toUpperCase() === selectedDriverName.toUpperCase());
-      
-      const vId = vObj ? vObj.id : 'CUSTOM_VEHICLE';
-      const dId = dObj ? dObj.id : 'CUSTOM_DRIVER';
-      const vName = vObj ? (vObj.vehicle_no || vObj.vehical_no || vObj.registration_no) : selectedVehicleName.toUpperCase();
-      const dName = dObj ? dObj.name : rawDriverName;
-      const dMobile = dObj ? (dObj.mobile || dObj.mobile_no || dObj.phone || '') : '';
-
-      await addDoc(collection(db, 'Vehicle_Assignments'), {
-        vehicleId: vId,
-        vehicleName: vName,
-        driverId: dId,
-        driverName: dName,
-        driverMobile: dMobile, // 🔥 Added Mobile Save
-        assignDate: assignDate,
-        status: 'LINKED',
-        assignedAt: new Date().toISOString()
+      await fetchJson(`${MASTERS}/assignments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_id: vObj.id,
+          driver_id: dObj.id,
+          remarks: assignDate ? `assigned ${assignDate}` : null,
+        }),
       });
+      setSelectedVehicleName('');
+      setSelectedDriverName('');
+      alert(`✅ ${vObj.vehicle_no} → ${dObj.name} linked.\n\nAny previous link on either side has been released.`);
+      fetchData();
+    } catch (e: any) {
+      alert(`❌ Link not saved.\n\n${e.message}`);
+    }
+    setIsSubmitting(false);
+  };
 
-      setSelectedVehicleName(''); 
-      setSelectedDriverName(''); 
-      fetchData(); 
-      alert("✅ सफलतापूर्वक! गाड़ी और ड्राइवर लिंक हो गए हैं।");
-
-    } catch (error) {
-      console.error("Save Error:", error);
-      alert("❌ डेटा सेव नहीं हो पाया!");
-    } finally {
-      setIsSubmitting(false);
+  const handleRelease = async (r: any) => {
+    if (!window.confirm(`Release ${r.vehicle_no} from ${r.driver_name}?\n\nThe record stays as history — it is marked released, not deleted.`)) return;
+    try {
+      await fetchJson(`${MASTERS}/assignments/${r.id}`, { method: 'DELETE' });
+      fetchData();
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'NOT_LINKED' ? 'That link is already released.' : 'Release failed.'}\n\n${e.message}`);
     }
   };
 
-  // 🔥 FILTER LOGIC FOR THE LIST
-  const filteredRecords = records.filter(r => {
+  const filteredRecords = useMemo(() => {
     const q = listSearch.toLowerCase();
-    const dMob = r.driverMobile || (drivers.find(d => d.name === r.driverName)?.mobile) || '';
-    return (
-      (r.vehicleName || '').toLowerCase().includes(q) ||
-      (r.driverName || '').toLowerCase().includes(q) ||
-      dMob.toLowerCase().includes(q)
-    );
-  });
+    return records
+      .filter((r) => showReleased || !r.released_at)
+      .filter((r) => !q
+        || String(r.vehicle_no ?? '').toLowerCase().includes(q)
+        || String(r.driver_name ?? '').toLowerCase().includes(q)
+        || String(r.driver_mobile ?? '').toLowerCase().includes(q));
+  }, [records, listSearch, showReleased]);
 
-  if (loading) return <div style={{ color: '#38bdf8', padding: '40px', textAlign: 'center', fontSize: '20px', background: 'radial-gradient(circle at top left, #0f172a, #020617)', height: '100vh' }}>Loading Live Database...</div>;
+  const liveCount = records.filter((r) => !r.released_at).length;
+
+  if (loading) {
+    return <div style={{ color: '#38bdf8', padding: '40px', textAlign: 'center', fontSize: '20px', background: 'radial-gradient(circle at top left, #0f172a, #020617)', height: '100vh' }}>Loading from PostgreSQL…</div>;
+  }
 
   const inputStyle = { background: 'rgba(15, 23, 42, 0.6)', color: '#fff', border: '1px solid rgba(51, 65, 85, 0.8)', padding: '12px 16px', borderRadius: '10px', outline: 'none', fontSize: '14px', width: '100%', boxSizing: 'border-box' as const };
 
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
-      
-      {/* 🚀 Header */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '30px', gap: '15px' }}>
-        <h1 style={{ background: 'linear-gradient(135deg, #38bdf8, #818cf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontSize: '38px', fontWeight: '900', margin: 0, letterSpacing: '-1px' }}>
-          Fleet Command: Assign Driver
-        </h1>
-        <div style={{ flex: 1, height: '1px', background: 'linear-gradient(90deg, #1e293b, transparent)' }}></div>
+
+      <div style={{ marginBottom: '25px' }}>
+        <h1 style={{ margin: 0, color: '#f8fafc', fontSize: 'clamp(22px,4vw,30px)', fontWeight: 900 }}>🔗 Link Vehicle &amp; Driver</h1>
+        <p style={{ color: '#94a3b8', margin: '6px 0 0', fontSize: 14 }}>
+          Live PostgreSQL · one live link per vehicle and per driver, enforced server-side
+          {liveCount ? ` · ${liveCount} active` : ''}
+        </p>
       </div>
 
-      {/* 🛸 HORIZONTAL FORM CARD */}
+      {err && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
+          ⚠️ {err}
+          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{MASTERS}/assignments</code>. Check that the ERP API is running.</div>
+        </div>
+      )}
+
+      {/* 🛸 FORM */}
       <div style={{ background: 'rgba(30, 41, 59, 0.4)', backdropFilter: 'blur(12px)', border: '1px solid rgba(56, 189, 248, 0.4)', borderRadius: '20px', padding: '25px', marginBottom: '30px', boxShadow: '0 10px 30px -10px rgba(56, 189, 248, 0.25)' }}>
         <form onSubmit={handleLinkSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '25px', alignItems: 'end' }}>
-          
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Search & Select Vehicle *</label>
-            <input 
-              list="vehicle-search-list" 
-              placeholder="Type Vehicle No..." 
-              value={selectedVehicleName} 
-              onChange={(e) => setSelectedVehicleName(e.target.value.toUpperCase())} 
-              required 
-              style={{...inputStyle, borderColor: '#38bdf8'}} 
-              autoComplete="off"
-            />
+            <label style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Search &amp; Select Vehicle *</label>
+            <input list="vehicle-search-list" placeholder="Type vehicle no…" value={selectedVehicleName}
+              onChange={(e) => setSelectedVehicleName(e.target.value.toUpperCase())} required
+              style={{ ...inputStyle, borderColor: '#38bdf8' }} autoComplete="off" />
             <datalist id="vehicle-search-list">
-              {vehicles.map(v => {
-                 const vno = v.vehicle_no || v.vehical_no || v.registration_no;
-                 return vno ? <option key={v.id} value={vno} /> : null;
-              })}
+              {vehicles.map((v) => v.vehicle_no ? <option key={v.id} value={v.vehicle_no} /> : null)}
             </datalist>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Search & Select Driver *</label>
-            <input 
-              list="driver-search-list" 
-              placeholder="Type Driver Name or Mobile..." 
-              value={selectedDriverName} 
-              onChange={(e) => setSelectedDriverName(e.target.value)} 
-              required 
-              style={{...inputStyle, borderColor: '#10b981'}} 
-              autoComplete="off"
-            />
+            <label style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Search &amp; Select Driver *</label>
+            <input list="driver-search-list" placeholder="Type driver name or mobile…" value={selectedDriverName}
+              onChange={(e) => setSelectedDriverName(e.target.value)} required
+              style={{ ...inputStyle, borderColor: '#10b981' }} autoComplete="off" />
             <datalist id="driver-search-list">
-              {drivers.filter(d => d.status === 'ACTIVE').map(d => (
-                <option key={d.id} value={`${d.name} (${d.mobile || d.mobile_no || d.phone || 'No Mobile'})`} />
+              {drivers.filter((d) => d.status === 'ACTIVE').map((d) => (
+                <option key={d.id} value={`${d.name} (${d.mobile || 'No Mobile'})`} />
               ))}
             </datalist>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Assignment Date *</label>
-            <input 
-              type="date" 
-              value={assignDate} 
-              onChange={(e) => setAssignDate(e.target.value)} 
-              required 
-              style={{...inputStyle, borderColor: '#f59e0b', colorScheme: 'dark'}} 
-            />
+            <label style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' }}>Assignment Date</label>
+            <input type="date" value={assignDate} onChange={(e) => setAssignDate(e.target.value)}
+              style={{ ...inputStyle, borderColor: '#f59e0b', colorScheme: 'dark' }} />
           </div>
 
-          <button type="submit" disabled={isSubmitting} style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s', boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)', height: '46px', fontSize: '14px' }} onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 0 25px rgba(59, 130, 246, 0.6)'; }} onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 0 15px rgba(59, 130, 246, 0.3)'; }}>
-            {isSubmitting ? '⏳ SAVING...' : '➕ ASSIGN & LINK'}
+          <button type="submit" disabled={isSubmitting}
+            style={{ background: isSubmitting ? '#334155' : 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white', border: 'none', padding: '12px 25px', borderRadius: '10px', fontWeight: 'bold', cursor: isSubmitting ? 'not-allowed' : 'pointer', boxShadow: '0 0 15px rgba(59, 130, 246, 0.3)', height: '46px', fontSize: '14px' }}>
+            {isSubmitting ? '⌛ Linking…' : '🔗 Link Them'}
           </button>
-
         </form>
       </div>
 
-      {/* 🔍 SMART LIST SEARCH BAR */}
-      <div style={{ marginBottom: '20px' }}>
-        <input 
-          type="text" 
-          placeholder="🔍 Search List by Vehicle No, Driver Name, or Mobile No..." 
-          value={listSearch} 
-          onChange={(e) => setListSearch(e.target.value)} 
-          style={{...inputStyle, borderColor: '#64748b', fontSize: '15px'}} 
-        />
-      </div>
+      {/* 📋 RECORDS */}
+      <div style={{ background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', overflow: 'hidden' }}>
+        <div style={{ padding: '18px 25px', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <input placeholder="🔍 Search vehicle, driver or mobile…" value={listSearch} onChange={(e) => setListSearch(e.target.value)}
+            style={{ ...inputStyle, flex: 2, minWidth: 220 }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>
+            <input type="checkbox" checked={showReleased} onChange={(e) => setShowReleased(e.target.checked)} style={{ accentColor: '#f59e0b' }} />
+            Show released links (history)
+          </label>
+          <button onClick={fetchData} style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', padding: '10px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', fontSize: 13 }}>🔄 Refresh</button>
+        </div>
 
-      {/* 📋 RECORDS LIST */}
-      <div style={{ background: 'rgba(15, 23, 42, 0.4)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '20px', overflow: 'hidden' }}>
-        
-        {/* Table Header */}
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr', padding: '15px 25px', background: 'rgba(0,0,0,0.3)', borderBottom: '2px solid #334155', color: '#f59e0b', fontSize: '11px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '1px' }}>
           <div>Vehicle Identity</div>
           <div>Assigned Driver</div>
-          <div>Date of Assignment</div>
-          <div style={{ textAlign: 'right' }}>System Status</div>
+          <div>Assigned On</div>
+          <div style={{ textAlign: 'right' }}>Status</div>
         </div>
 
-        {/* Table Body */}
         {filteredRecords.length === 0 ? (
-           <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No matching records found.</div>
+          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+            {records.length === 0 ? 'No links yet — create one above.' : 'No matching records.'}
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {filteredRecords.map((r, index) => {
-              
-              // Get Mobile No (Fallback to Driver DB if old record doesn't have it saved)
-              const mob = r.driverMobile || (drivers.find(d => d.name === r.driverName)?.mobile) || (drivers.find(d => d.name === r.driverName)?.mobile_no) || 'N/A';
-
+              const isLive = !r.released_at;
               return (
-              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr', padding: '20px 25px', borderBottom: index === filteredRecords.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.05)', alignItems: 'center', transition: '0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                
-                {/* Vehicle Column */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                  <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '2px solid #38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', background: '#1e293b', fontSize: '20px' }}>🚛</div>
-                  <div>
-                    <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>{r.vehicleName}</div>
-                    <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>Asset Attached</div>
-                  </div>
-                </div>
-
-                {/* Driver Column */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                  <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '2px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', background: '#1e293b', fontSize: '20px' }}>👨‍✈️</div>
-                  <div>
-                    <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>{r.driverName}</div>
-                    {/* 🔥 Added Driver Mobile Display */}
-                    <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                      📞 {mob}
+                <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr', padding: '20px 25px', borderBottom: index === filteredRecords.length - 1 ? 'none' : '1px solid rgba(255,255,255,0.05)', alignItems: 'center', opacity: isLive ? 1 : 0.55 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '2px solid #38bdf8', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', background: '#1e293b', fontSize: '20px' }}>🚛</div>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>{r.vehicle_no}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>Asset attached</div>
                     </div>
                   </div>
-                </div>
 
-                {/* Date Column */}
-                <div style={{ color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold' }}>
-                  {r.assignDate}
-                </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                    <div style={{ width: '45px', height: '45px', borderRadius: '50%', border: '2px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', background: '#1e293b', fontSize: '20px' }}>👨‍✈️</div>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>{r.driver_name}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '2px' }}>📞 {r.driver_mobile || 'N/A'}</div>
+                    </div>
+                  </div>
 
-                {/* Status Column */}
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #10b981' }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 5px #10b981' }}></span>
-                    LINKED ACTIVE
-                  </span>
-                </div>
+                  <div style={{ color: '#cbd5e1', fontSize: '14px', fontWeight: 'bold' }}>
+                    {r.assigned_at ? new Date(r.assigned_at).toLocaleDateString('en-GB') : '—'}
+                    {!isLive && (
+                      <div style={{ color: '#64748b', fontSize: 11, fontWeight: 'normal' }}>
+                        released {new Date(r.released_at).toLocaleDateString('en-GB')}
+                      </div>
+                    )}
+                  </div>
 
-              </div>
-            )})}
+                  <div style={{ textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                    {isLive ? (
+                      <>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #10b981' }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 5px #10b981' }} />
+                          LINKED
+                        </span>
+                        <button onClick={() => handleRelease(r)} title="Release this pairing"
+                          style={{ background: 'rgba(239,68,68,.12)', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 12 }}>
+                          ✕
+                        </button>
+                      </>
+                    ) : (
+                      <span style={{ background: 'rgba(100,116,139,0.15)', color: '#94a3b8', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: '1px solid #475569' }}>
+                        RELEASED
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
-
     </div>
   );
 }

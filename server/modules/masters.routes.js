@@ -27,6 +27,11 @@ import { drain } from '../agents/bus.js';
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const money = (v) => Number(v ?? 0);
 
+// Columns typed jsonb. node-postgres encodes a JS array as a Postgres ARRAY
+// literal, which jsonb refuses, so these are stringified on the way in.
+const JSONB_COLS = new Set(['additional_docs', 'consignees', 'locations', 'portal_features', 'extra_expenses']);
+const enc = (col, v) => (JSONB_COLS.has(col) && v !== null && typeof v === 'object' ? JSON.stringify(v) : v);
+
 // A generic writable-column helper. Each master declares its own allow-list so a
 // client can never patch a column the screen has no business setting (balances,
 // audit stamps, foreign keys it does not own).
@@ -36,7 +41,7 @@ const buildUpdate = (table, allowed, body) => {
   const sets = cols.map((c, i) => `${c} = $${i + 2}`);
   return {
     sql: `UPDATE ${table} SET ${sets.join(', ')}, updated_at = now() WHERE id = $1::uuid RETURNING *`,
-    args: [null, ...cols.map((c) => body[c])],
+    args: [null, ...cols.map((c) => enc(c, body[c]))],
   };
 };
 
@@ -107,7 +112,7 @@ export async function registerMastersRoutes(app) {
     try {
       const { rows } = await query(
         `INSERT INTO vehicles (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *, status::text AS status`,
-        cols.map((c) => b[c]));
+        cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, vehicle: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -149,7 +154,8 @@ export async function registerMastersRoutes(app) {
   const DRIVER_COLS = ['name', 'mobile', 'alt_mobile', 'address', 'profile_pic_url', 'license_no',
     'license_expiry', 'dl_photo_url', 'hzd_cert_no', 'hzd_expiry', 'hzd_photo_url', 'aadhar_no',
     'aadhar_photo_url', 'pan_no', 'bank_name', 'account_no', 'ifsc_code', 'bank_photo_url',
-    'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status', 'status', 'remarks', 'company_id'];
+    'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status', 'status', 'remarks',
+    'company_id', 'additional_docs'];
 
   app.get(
     '/drivers',
@@ -204,7 +210,7 @@ export async function registerMastersRoutes(app) {
     try {
       const { rows } = await query(
         `INSERT INTO drivers (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *, status::text AS status, approval_status::text AS approval_status`,
-        cols.map((c) => b[c]));
+        cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, driver: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -332,11 +338,46 @@ export async function registerMastersRoutes(app) {
     }
   );
 
+  // Every driver transaction, across all drivers — the "All Transactions" register.
+  // Source-tagged like the per-driver khata so an operator can see at a glance
+  // which entries came from a trip and which were typed here.
+  app.get(
+    '/driver-transactions',
+    { schema: { querystring: { type: 'object', properties: {
+      driver_name: { type: ['string', 'null'], maxLength: 120 },
+      txn_type: { type: ['string', 'null'], maxLength: 30 },
+      from: { type: ['string', 'null'], format: 'date' },
+      to: { type: ['string', 'null'], format: 'date' },
+      limit: { type: 'integer', minimum: 1, maximum: 2000, default: 500 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows } = await query(
+        `SELECT dt.id, dt.driver_id, dt.driver_name, dt.txn_date, dt.txn_type, dt.amount,
+                dt.mode, dt.remarks, dt.trip_id, t.trip_code, dt.created_at,
+                CASE WHEN dt.legacy_id LIKE 'BILLREC-%'   THEN 'bill settlement'
+                     WHEN dt.legacy_id LIKE 'UNLOADREC-%' THEN 'unloading shortage'
+                     WHEN dt.trip_id IS NOT NULL          THEN 'trip'
+                     ELSE 'manual' END AS source
+           FROM driver_transactions dt
+           LEFT JOIN trips t ON t.id = dt.trip_id
+          WHERE ($1::text IS NULL OR dt.driver_name = $1::text)
+            AND ($2::text IS NULL OR dt.txn_type = $2::text)
+            AND ($3::date IS NULL OR dt.txn_date >= $3::date)
+            AND ($4::date IS NULL OR dt.txn_date <= $4::date)
+          ORDER BY dt.txn_date DESC NULLS LAST, dt.created_at DESC
+          LIMIT $5`,
+        [req.query.driver_name || null, req.query.txn_type || null,
+         req.query.from || null, req.query.to || null, req.query.limit ?? 500]);
+      return { count: rows.length, transactions: rows };
+    }
+  );
+
   // ── Driver app request queue ───────────────────────────────────────────────
   app.get(
     '/driver-requests',
     { schema: { querystring: { type: 'object', properties: {
-      status: { type: ['string', 'null'], enum: ['PENDING', 'PAID', 'REJECTED', null] },
+      status: { type: ['string', 'null'], enum: ['PENDING', 'APPROVED', 'PAID', 'REJECTED', 'OPEN', null] },
       driver_name: { type: ['string', 'null'], maxLength: 120 },
       limit: { type: 'integer', minimum: 1, maximum: 500, default: 200 },
     } } } },
@@ -345,7 +386,11 @@ export async function registerMastersRoutes(app) {
       const { rows } = await query(
         `SELECT r.*, t.trip_code
            FROM driver_requests r LEFT JOIN trips t ON t.id = r.trip_id
-          WHERE ($1::text IS NULL OR r.status = $1::text)
+          -- 'OPEN' is the queue the screen actually wants: approved-but-unpaid
+          -- is still outstanding work, so it lists with the pending ones.
+          WHERE ($1::text IS NULL
+                 OR ($1::text = 'OPEN' AND r.status IN ('PENDING','APPROVED'))
+                 OR r.status = $1::text)
             AND ($2::text IS NULL OR r.driver_name = $2::text)
           ORDER BY r.requested_at DESC LIMIT $3`,
         [req.query.status || null, req.query.driver_name || null, req.query.limit ?? 200]);
@@ -391,8 +436,10 @@ export async function registerMastersRoutes(app) {
       const b = req.body ?? {};
       const { rows: [r] } = await query('SELECT * FROM driver_requests WHERE id = $1::uuid', [req.params.id]);
       if (!r) return reply.code(404).send({ error: 'NOT_FOUND' });
-      if (r.status !== 'PENDING') {
-        return reply.code(409).send({ error: 'NOT_PENDING', detail: `this request is already ${r.status}` });
+      // Payable from PENDING (pay directly) or APPROVED (someone signed it off
+      // first). Already PAID or REJECTED is refused — that is the double-pay guard.
+      if (r.status !== 'PENDING' && r.status !== 'APPROVED') {
+        return reply.code(409).send({ error: 'NOT_PAYABLE', detail: `this request is already ${r.status}` });
       }
       const amount = b.amount != null ? b.amount : money(r.amount);
       if (!(amount > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'the request has no amount to pay' });
@@ -409,7 +456,7 @@ export async function registerMastersRoutes(app) {
         const { rows: [req2] } = await t.query(
           `UPDATE driver_requests SET status = 'PAID', payment_mode = $2, txn_id = $3::uuid,
                                       settled_at = now(), settled_by = $4
-            WHERE id = $1::uuid RETURNING *`,
+            WHERE id = $1::uuid AND status IN ('PENDING','APPROVED') RETURNING *`,
           [req.params.id, b.payment_mode ?? 'Office Cash', txn.id, b.settled_by ?? null]);
         return { request: req2, transaction: txn };
       });
@@ -420,21 +467,31 @@ export async function registerMastersRoutes(app) {
   app.patch(
     '/driver-requests/:id',
     { schema: { body: { type: 'object', required: ['status'], additionalProperties: false, properties: {
-      status: { type: 'string', enum: ['REJECTED'] },
+      status: { type: 'string', enum: ['APPROVED', 'REJECTED'] },
       remarks: { type: ['string', 'null'], maxLength: 300 },
-      settled_by: { type: ['string', 'null'], maxLength: 100 },
+      by: { type: ['string', 'null'], maxLength: 100 },
     } } } },
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
-      // Only rejection is a PATCH. Paying goes through /pay, which is the only
-      // path that may create a khata entry.
-      const { rows } = await query(
-        `UPDATE driver_requests SET status = 'REJECTED',
-                remarks = COALESCE($2, remarks), settled_at = now(), settled_by = $3
-          WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`,
-        [req.params.id, req.body.remarks ?? null, req.body.settled_by ?? null]);
-      if (!rows.length) return reply.code(409).send({ error: 'NOT_PENDING', detail: 'no pending request with that id' });
-      return { rejected: true, request: rows[0] };
+      // Approve or reject only. Paying goes through /pay, which is the sole path
+      // that may create a khata entry — keeping the money-writing route separate
+      // is what makes the approval a real separation of duties rather than a flag.
+      const b = req.body;
+      const sql = b.status === 'APPROVED'
+        ? `UPDATE driver_requests SET status = 'APPROVED', remarks = COALESCE($2, remarks),
+                  approved_at = now(), approved_by = $3
+            WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`
+        : `UPDATE driver_requests SET status = 'REJECTED', remarks = COALESCE($2, remarks),
+                  settled_at = now(), settled_by = $3
+            WHERE id = $1::uuid AND status IN ('PENDING','APPROVED') RETURNING *`;
+      const { rows } = await query(sql, [req.params.id, b.remarks ?? null, b.by ?? null]);
+      if (!rows.length) {
+        return reply.code(409).send({
+          error: 'NOT_OPEN',
+          detail: b.status === 'APPROVED' ? 'no PENDING request with that id' : 'no open request with that id',
+        });
+      }
+      return { [b.status === 'APPROVED' ? 'approved' : 'rejected']: true, request: rows[0] };
     }
   );
 
@@ -442,7 +499,7 @@ export async function registerMastersRoutes(app) {
   app.get('/assignments', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
-      `SELECT a.id, a.vehicle_id, a.driver_id, a.assigned_at, a.released_at, a.state, a.remarks,
+      `SELECT a.id, a.vehicle_id, a.driver_id, a.assigned_at, a.released_at, a.state::text AS state, a.remarks,
               v.vehicle_no, d.name AS driver_name, d.mobile AS driver_mobile
          FROM vehicle_assignments a
          JOIN vehicles v ON v.id = a.vehicle_id
@@ -467,12 +524,12 @@ export async function registerMastersRoutes(app) {
       try {
         const out = await withTransaction(async (t) => {
           await t.query(
-            `UPDATE vehicle_assignments SET released_at = now(), state = 'RELEASED', updated_at = now()
+            `UPDATE vehicle_assignments SET released_at = now(), state = 'ENDED', updated_at = now()
               WHERE released_at IS NULL AND (vehicle_id = $1::uuid OR driver_id = $2::uuid)`,
             [b.vehicle_id, b.driver_id]);
           const { rows } = await t.query(
             `INSERT INTO vehicle_assignments (vehicle_id, driver_id, assigned_at, state, remarks)
-             VALUES ($1::uuid, $2::uuid, now(), 'LINKED', $3) RETURNING *`,
+             VALUES ($1::uuid, $2::uuid, now(), 'ACTIVE', $3) RETURNING *, state::text AS state`,
             [b.vehicle_id, b.driver_id, b.remarks ?? null]);
           return rows[0];
         });
@@ -486,8 +543,8 @@ export async function registerMastersRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     // Unlinking is a release, not a delete: who drove what, when, is history.
     const { rows } = await query(
-      `UPDATE vehicle_assignments SET released_at = now(), state = 'RELEASED', updated_at = now()
-        WHERE id = $1::uuid AND released_at IS NULL RETURNING *`, [req.params.id]);
+      `UPDATE vehicle_assignments SET released_at = now(), state = 'ENDED', updated_at = now()
+        WHERE id = $1::uuid AND released_at IS NULL RETURNING *, state::text AS state`, [req.params.id]);
     if (!rows.length) return reply.code(409).send({ error: 'NOT_LINKED', detail: 'no live assignment with that id' });
     return { released: true, assignment: rows[0] };
   });
@@ -546,7 +603,7 @@ export async function registerMastersRoutes(app) {
       const { rows } = await query(
         `INSERT INTO customers (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})
          RETURNING *, gst_no::text AS gst_no, pan_no::text AS pan_no`,
-        cols.map((c) => b[c]));
+        cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, customer: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -627,7 +684,7 @@ export async function registerMastersRoutes(app) {
     try {
       const { rows } = await query(
         `INSERT INTO vendors (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})
-         RETURNING *, gst_no::text AS gst_no`, cols.map((c) => b[c]));
+         RETURNING *, gst_no::text AS gst_no`, cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, vendor: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -759,7 +816,7 @@ export async function registerMastersRoutes(app) {
     try {
       const { rows } = await query(
         `INSERT INTO rtkm_master (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-        cols.map((c) => b[c]));
+        cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, lane: rows[0] };
     } catch (err) { return pgErr(reply, err); }
@@ -810,7 +867,7 @@ export async function registerMastersRoutes(app) {
     try {
       const { rows } = await query(
         `INSERT INTO rate_master (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
-        cols.map((c) => b[c]));
+        cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, rate: rows[0] };
     } catch (err) { return pgErr(reply, err); }

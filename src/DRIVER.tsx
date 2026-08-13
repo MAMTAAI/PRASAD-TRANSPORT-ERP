@@ -1,11 +1,67 @@
 // @ts-nocheck
+// 👨‍✈️ DRIVER MASTER — KYC, salary/settlement, khata. Live PostgreSQL.
+//
+// The khata is the point of this cutover. `driver_transactions` is written by
+// three modules now — this one (manual entries, app request payouts), ops (trip
+// advances, pump cash, unloading recovery) and billing (party deductions
+// recovered from a driver). While this screen read the Firestore collection it
+// could not see an advance issued from Trip Command Center, and an entry made
+// here was invisible to Master Trip Settlement. Both now read the same table.
+//
+// ⚠️ STILL ON FIREBASE: document photos. uploadMedia() writes to Firebase
+// STORAGE, which is a different service from Firestore and a separate migration
+// — the server has multipart support and the S3 config exists in .env.example,
+// but no upload endpoint yet. Uploads keep working; see the notes for the plan.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
-import { db } from './firebase';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
 import { sendWhatsApp, waResultText } from './lib/waSend';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// ── Photo field names ──────────────────────────────────────────────────────
+// PostgreSQL stores these as *_url (they are URLs); this screen's KYC form and
+// its many document tiles use the shorter Firestore names. Mapped in one pair of
+// functions at the data boundary rather than renamed through ~500 lines of form
+// JSX. Delete both when the form is modernised.
+const PHOTO_FIELDS: Array<[string, string]> = [
+  ['profile_pic', 'profile_pic_url'],
+  ['dl_photo', 'dl_photo_url'],
+  ['hzd_photo', 'hzd_photo_url'],
+  ['aadhar_photo', 'aadhar_photo_url'],
+  ['pan_photo', 'pan_photo_url'],
+  ['bank_photo', 'bank_photo_url'],
+];
+
+const fromApi = (d: any) => {
+  const out: any = { ...d, additional_docs: d.additional_docs ?? [] };
+  for (const [legacy, pg] of PHOTO_FIELDS) out[legacy] = d[pg] ?? '';
+  return out;
+};
+
+const toApi = (d: any) => {
+  const out: any = {};
+  const COLS = ['name', 'mobile', 'alt_mobile', 'address', 'license_no', 'license_expiry',
+    'hzd_cert_no', 'hzd_expiry', 'aadhar_no', 'pan_no', 'bank_name', 'account_no',
+    'ifsc_code', 'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status',
+    'status', 'remarks', 'additional_docs'];
+  for (const c of COLS) if (d[c] !== undefined && d[c] !== '') out[c] = d[c];
+  for (const [legacy, pg] of PHOTO_FIELDS) if (d[legacy]) out[pg] = d[legacy];
+  // Empty date strings would fail the date cast; send null so the column clears.
+  for (const dt of ['license_expiry', 'hzd_expiry', 'join_date']) {
+    if (d[dt] === '') out[dt] = null;
+  }
+  return out;
+};
 
 // 📅 Document expiry status -> design-system pill (valid / expiring / expired).
 const parseExpiry = (s: string): number | null => {
@@ -104,69 +160,92 @@ export default function DriverMgmt() {
     fetchData();
   }, []);
 
+  const [err, setErr] = useState('');
+
   const fetchData = async () => {
     setLoading(true);
+    setErr('');
     try {
-      const dSnap = await getDocs(collection(db, "DRIVERS"));
-      setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => (a.name || '').localeCompare(b.name || '')));
-
-      const tSnap = await getDocs(collection(db, "DRIVER_TRANSACTIONS"));
-      setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime()));
-
-      const aSnap = await getDocs(collection(db, "Vehicle_Assignments"));
-      setAssignments(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-    } catch (e) { console.error(e); }
+      // The khata balance and the vehicle link arrive computed with each driver:
+      // the old screen downloaded every transaction in the business to total them
+      // per driver in the browser.
+      const [dr, tx, asg] = await Promise.all([
+        fetchJson(`${MASTERS}/drivers?limit=1000`),
+        fetchJson(`${MASTERS}/driver-transactions?limit=2000`),
+        fetchJson(`${MASTERS}/assignments`),
+      ]);
+      setDrivers((dr.drivers ?? []).map(fromApi));
+      // `date` is the name the settlement tab and the register read.
+      setTransactions((tx.transactions ?? []).map((t: any) => ({ ...t, date: t.txn_date })));
+      setAssignments((asg.assignments ?? []).map((a: any) => ({
+        ...a, vehicleName: a.vehicle_no, driverName: a.driver_name,
+        status: a.released_at ? 'RELEASED' : 'LINKED',
+      })));
+    } catch (e: any) {
+      setErr(`Driver master could not load from ${API} — ${e.message}`);
+    }
     setLoading(false);
   };
 
-  // 📡 LIVE driver requests — the old one-time fetch meant an EMERGENCY/advance
-  // request sat unseen until someone happened to reopen this module.
+  // 📡 Open driver requests. Firestore gave this a live onSnapshot so an
+  // EMERGENCY advance could not sit unseen; PostgreSQL has no push channel here,
+  // so it polls on the same interval the rest of the ERP uses. The 'OPEN' status
+  // covers PENDING and APPROVED — approved-but-unpaid is still outstanding work.
+  const loadRequests = async () => {
+    try {
+      const j = await fetchJson(`${MASTERS}/driver-requests?status=OPEN&limit=200`);
+      setPendingRequests((j.requests ?? []).map((r: any) => ({ ...r, type: r.request_type })));
+    } catch { /* the banner already reports a dead API */ }
+  };
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "DRIVER_REQUESTS"), (snap) => {
-      setPendingRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .filter((r:any) => r.status === 'PENDING' || r.status === 'APPROVED'));
-    }, (e) => console.error(e));
-    return () => unsub();
+    loadRequests();
+    const t = setInterval(loadRequests, 60000);
+    return () => clearInterval(t);
   }, []);
 
   const handleApproveRequest = async (req: any) => {
-    if (!window.confirm(`Pass ${req.type} of ₹${req.amount} for ${req.driver_name}?\n(This will send it to Cashier for Payment)`)) return;
+    if (!window.confirm(`Pass ${req.type} of ₹${req.amount} for ${req.driver_name}?\n\nThis sends it to the cashier for payment — it does NOT move money.`)) return;
     try {
-      await updateDoc(doc(db, "DRIVER_REQUESTS", req.id), { status: 'APPROVED', approvedAt: serverTimestamp() });
-      alert("✅ Request Passed! Forwarded to Cashier for Payment.");
-      fetchData(); 
-    } catch(e) { alert("❌ Error processing approval."); }
+      await fetchJson(`${MASTERS}/driver-requests/${req.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'APPROVED' }),
+      });
+      alert('✅ Request passed. Forwarded to the cashier for payment.');
+      loadRequests();
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'NOT_OPEN' ? 'That request is no longer pending.' : 'Approval failed.'}\n\n${e.message}`);
+    }
   };
 
   const handlePayRequest = async (req: any) => {
-    const payMode = window.prompt(`How are you paying ₹${req.amount} to ${req.driver_name}?\n(Type: Cash / Bank / PhonePe / Petrol Pump Name)`, 'Cash');
-    if (!payMode) return; 
+    const payMode = window.prompt(
+      `How are you paying ₹${req.amount} to ${req.driver_name}?\n(Cash / Bank / PhonePe / pump name)`, 'Cash');
+    if (!payMode) return;
     try {
-      await updateDoc(doc(db, "DRIVER_REQUESTS", req.id), { status: 'PAID', paidAt: serverTimestamp(), payment_mode: payMode });
-      if (req.type === 'ADVANCE' || req.type === 'FUEL' || req.type === 'EXPENSE') {
-        await addDoc(collection(db, "DRIVER_TRANSACTIONS"), { 
-          driver_name: req.driver_name, 
-          txn_type: req.type === 'ADVANCE' ? 'ADVANCE_GIVEN' : 'FUEL_EXPENSE',
-          amount: parseFloat(req.amount || 0), 
-          date: new Date().toISOString().split('T')[0], 
-          remarks: `[APP PAID via ${payMode}] ${req.remarks || req.type}`, 
-          createdAt: serverTimestamp() 
-        });
-        alert(`✅ Payment Done via ${payMode} & Auto-Posted to Ledger!`);
-      } else {
-        alert("✅ Request Settled!");
-      }
-      fetchData(); 
-    } catch(e) { alert("❌ Error processing payment."); }
+      // One call: marks the request PAID, writes the khata row and links the two
+      // in a single transaction. A request cannot be paid twice, and the entry can
+      // always be traced back to the request that caused it.
+      const out = await fetchJson(`${MASTERS}/driver-requests/${req.id}/pay`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_mode: payMode }),
+      });
+      alert(`✅ ₹${out.transaction.amount} paid via ${payMode} and posted to ${req.driver_name}'s khata.`);
+      loadRequests();
+      fetchData();
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'NOT_PAYABLE' ? 'That request is already settled.' : 'Payment failed.'}\n\n${e.message}`);
+    }
   };
 
   const handleRejectRequest = async (reqId: string) => {
-    if (!window.confirm("Are you sure you want to REJECT this request?")) return;
+    if (!window.confirm('Reject this request?')) return;
     try {
-      await updateDoc(doc(db, "DRIVER_REQUESTS", reqId), { status: 'REJECTED', rejectedAt: serverTimestamp() });
-      fetchData();
-    } catch(e) { alert("Error rejecting request."); }
+      await fetchJson(`${MASTERS}/driver-requests/${reqId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'REJECTED' }),
+      });
+      loadRequests();
+    } catch (e: any) { alert(`❌ Rejection failed.\n\n${e.message}`); }
   };
 
   // 📂 REAL upload to Firebase Storage + 🤖 local Gemma OCR (Truth Sprint).
@@ -320,29 +399,40 @@ export default function DriverMgmt() {
   };
 
   const handleSaveDriver = async () => {
-    if (!driverData.name || !driverData.mobile) return alert("⚠️ Name and Mobile are required!");
-    // A file still uploading means its URL isn't in driverData yet — saving now
-    // would register the driver WITHOUT that photo/document.
-    if (uploadingField) return alert("⏳ File upload abhi chal raha hai — upload complete hone ke baad save karein.");
+    if (!driverData.name || !driverData.mobile) return alert('⚠️ Name and mobile are required.');
+    // A file still uploading means its URL is not in driverData yet — saving now
+    // would register the driver WITHOUT that photo or document.
+    if (uploadingField) return alert('⏳ A file is still uploading. Wait for it to finish, then save.');
     try {
+      const body = toApi(driverData);
       if (editingId) {
-        await updateDoc(doc(db, "DRIVERS", editingId), driverData);
-        alert("✅ Driver Profile Updated Successfully!");
-      } else {
-        const docRef = await addDoc(collection(db, "DRIVERS"), { ...driverData, createdAt: serverTimestamp() });
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: driverData.name, group_head: "Current Assets - Driver Advances", opening_balance: 0, current_balance: 0, creation_type: "AUTO_SYSTEM", linked_module: "DRIVER", linked_id: docRef.id, created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/drivers/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
-        alert("✅ Full KYC Profile & Auto-Ledger Created Successfully!");
+        alert('✅ Driver profile updated.');
+      } else {
+        await fetchJson(`${MASTERS}/drivers`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        // No companion ledger row is created here. A driver's advance account is
+        // 'Driver Advance: <name>' and TARA creates it on the first posting, so
+        // creating one now would leave an empty duplicate under a second name.
+        alert('✅ KYC profile created.');
       }
-      closeModal(); fetchData();
-    } catch (e) { alert("❌ Error saving driver."); }
+      closeModal();
+      fetchData();
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'DUPLICATE' ? 'A driver with that licence or PAN already exists.' : 'Driver not saved.'}\n\n${e.message}`);
+    }
   };
 
   const handleDeleteDriver = async (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to permanently erase the record of ${name}?`)) {
-      try { await deleteDoc(doc(db, "DRIVERS", id)); fetchData(); } catch (e) { alert("Error deleting driver."); }
-    }
+    if (!window.confirm(`Remove ${name}?\n\nIf they have trips or khata entries the record is marked INACTIVE instead of deleted, so the money that references them stays resolvable.`)) return;
+    try {
+      const out = await fetchJson(`${MASTERS}/drivers/${id}`, { method: 'DELETE' });
+      alert(out.hard_deleted ? `✅ ${name} deleted.` : `✅ ${name} marked INACTIVE.\n\n${out.detail ?? ''}`);
+      fetchData();
+    } catch (e: any) { alert(`❌ Not removed.\n\n${e.message}`); }
   };
 
   const openEditModal = (driver: any) => {
@@ -359,12 +449,23 @@ export default function DriverMgmt() {
   };
 
   const handleSaveTransaction = async () => {
-    if (!selectedDriver || !settleData.amount) return alert("⚠️ Select Driver and Enter Amount!");
+    if (!selectedDriver || !settleData.amount) return alert('⚠️ Select a driver and enter an amount.');
+    const drv = drivers.find((d: any) => d.name === selectedDriver);
+    if (!drv) return alert('⚠️ That driver is not in the master — refresh and retry.');
     try {
-      await addDoc(collection(db, "DRIVER_TRANSACTIONS"), { driver_name: selectedDriver, txn_type: settleData.txn_type, amount: parseFloat(settleData.amount), date: settleData.date, remarks: settleData.remarks, createdAt: serverTimestamp() });
-      alert(`✅ ${settleData.txn_type.replace('_', ' ')} entry saved!`);
-      setSettleData({ ...settleData, amount: '', remarks: '' }); fetchData();
-    } catch (e) { alert("❌ Error saving transaction."); }
+      await fetchJson(`${MASTERS}/drivers/${drv.id}/ledger`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: settleData.txn_type,
+          amount: parseFloat(settleData.amount),
+          txn_date: settleData.date,
+          remarks: settleData.remarks || null,
+        }),
+      });
+      alert(`✅ ${settleData.txn_type.replace(/_/g, ' ')} entry saved to ${selectedDriver}'s khata.`);
+      setSettleData({ ...settleData, amount: '', remarks: '' });
+      fetchData();
+    } catch (e: any) { alert(`❌ Entry not saved.\n\n${e.message}`); }
   };
 
   const sendDriverWhatsApp = async (driver: any) => {
