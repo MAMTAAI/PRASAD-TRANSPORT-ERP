@@ -1,4 +1,31 @@
 // @ts-nocheck
+// ⚠️ STILL FIRESTORE — the one cluster-3 screen that did NOT move. Read this
+// before starting it, because the reason is not "ran out of time".
+//
+// TOLL_TRANSACTIONS has a SECOND writer that lives outside this app:
+// `toll-sync.cjs`, a background runner that pulls FASTag statements from the
+// provider portals with the Firebase Admin SDK and writes rows using the same
+// deterministic id scheme as tollEngine.tollDocId(). Moving this screen to
+// PostgreSQL without moving that runner would leave two processes writing the
+// same tolls to two different databases — the exact divergence the cluster rule
+// exists to prevent, and the worst possible one, because a toll that exists in
+// only one of them is a toll that gets billed twice or never.
+//
+// It is safe to leave TODAY for a checkable reason: the runner is dormant. It
+// is not in pm2 and not in cron on the box (verified 2026-08-13). The moment
+// anyone schedules it, this becomes urgent.
+//
+// The PostgreSQL side is already built and tested and is waiting:
+//   POST /api/v1/toll/transactions/import   idempotent on ext_txn_id
+//   GET  /api/v1/toll/claimable             billable + unclaimed, trip-grouped
+//   POST /api/v1/toll/claims                claim + toll stamps in ONE txn
+//   POST /api/v1/toll/recharges             wallet top-up, posts a PAYMENT
+// migration 030 added toll_claims, toll_recharges and toll_transactions.claim_id.
+//
+// What moving it needs: this screen's fetch/writes, the three write helpers in
+// lib/tollEngine.ts (saveTollBatch, saveClaim, nextClaimSeq), the provider
+// config in lib/fastagProviders.ts (FASTAG_PROVIDERS / FASTAG_ACCOUNTS /
+// TOLL_SETTINGS), and toll-sync.cjs itself.
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';

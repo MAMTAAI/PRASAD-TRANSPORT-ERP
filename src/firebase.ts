@@ -1,7 +1,6 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // 🔑 आपकी असली Firebase API Keys
@@ -9,8 +8,10 @@ export const firebaseConfig = {
   apiKey: "AIzaSyBzbSLXzmbOvaQlCZKFuUcJqPLGp_a6Bv8", // current Browser key (old value was a hand-typed variant rejected by Identity Toolkit)
   authDomain: "prasad-transport-grup.firebaseapp.com",
   projectId: "prasad-transport-grup",
-  // ⚠️ Bucket lives on the newer firebasestorage.app domain — the old
-  // appspot.com name 404s, which silently killed every photo/KYC upload.
+  // ⚠️ Kept only so the SDK config stays well-formed. NOTHING WRITES HERE any
+  // more — uploads go to POST /api/v1/files (src/lib/uploadMedia.ts). The
+  // bucket still holds objects referenced by old rows; see the migration note
+  // on `storage` below before switching the Firebase project off.
   storageBucket: "prasad-transport-grup.firebasestorage.app",
   messagingSenderId: "837828662164",
   appId: "1:837828662164:web:e10fbd98e869f009cd3581"
@@ -34,8 +35,17 @@ try {
   _db = getFirestore(app);
 }
 export const db = _db;
-export const storage = getStorage(app);
 export const auth = getAuth(app);
+
+// ⛔ `storage` IS GONE, deliberately — do not re-add it.
+// Firebase Storage was the last Google service this app wrote to. Uploads now
+// go through src/lib/uploadMedia.ts → POST /api/v1/files, which stores objects
+// on the ERP's own backend (server/lib/storage.js). Re-exporting getStorage()
+// would let a new screen quietly start a second object store again.
+//
+// Objects already IN the bucket are re-hosted by scripts/migrate-storage.cjs.
+// Run it and confirm it reports zero remaining before the Firebase project is
+// switched off, or every document link written before today breaks.
 
 // 🔐 SECURITY: Firestore/Storage rules now require a signed-in user
 // (request.auth != null). Until real per-user Firebase Auth ships (Phase 1),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from './firebase';
+import { uploadMedia, slug } from './lib/uploadMedia';
 
 export default function CompanyMgmt() {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -23,7 +23,6 @@ export default function CompanyMgmt() {
     logo_url: '', gst_pdf_url: '', pan_pdf_url: ''
   });
 
-  const storage = getStorage();
 
   useEffect(() => { fetchCompanies(); }, []);
 
@@ -42,13 +41,14 @@ export default function CompanyMgmt() {
     if (!file) return;
     setUploading(true);
     try {
-      const storageRef = ref(storage, `company_docs/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      // Through uploadMedia(), so a company document gets the same WebP/PDF
+      // compression as every other upload — this screen used to send the raw
+      // file, which is how a 6 MB scan of a GST certificate got stored whole.
+      const { url } = await uploadMedia(file, `company_docs/${Date.now()}_${slug(file.name)}`);
       setFormData(prev => ({ ...prev, [fieldName]: url }));
       alert(`✅ File Uploaded Successfully!`);
-    } catch (error) {
-      alert("Error uploading file. Please check Firebase Storage rules.");
+    } catch (error: any) {
+      alert("❌ Upload failed: " + (error?.message || 'unknown error'));
       console.error(error);
     }
     setUploading(false);

@@ -1,8 +1,43 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
+
+// ✂️ TDS REGISTER — live PostgreSQL (`tds_entries`, migration 030).
+//
+// A REGISTER, not a ledger: what a customer withheld from us, tracked so it can
+// be claimed against the 26AS and reconciled. The accounting leg already exists
+// — TARA books TDS Receivable 194C on every RECEIPT that carries a tds amount
+// (that is how the IOCL pipeline posts it), so this screen posts nothing. Two
+// places writing the same withheld rupee is exactly the drift being unwound.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const TOLL = `${API}/api/v1/toll`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+const fromApi = (r: any) => ({
+  id: r.id,
+  Consignee_Name: r.consignee_name ?? '',
+  Date: r.entry_date ?? '',
+  Gross_Freight: r.gross_freight ?? '0',
+  TDS_Rate: r.tds_rate ?? '0',
+  TDS_Deducted: r.tds_deducted ?? '0',
+  Status: r.status ?? 'PENDING',
+  section: r.section ?? '194C',
+});
+
+const toApi = (f: any) => ({
+  consignee_name: f.Consignee_Name,
+  entry_date: f.Date || null,
+  gross_freight: parseFloat(f.Gross_Freight) || 0,
+  tds_rate: parseFloat(f.TDS_Rate) || 0,
+  tds_deducted: parseFloat(f.TDS_Deducted) || 0,
+  status: f.Status || 'PENDING',
+});
 
 export default function TdsMgmt() {
   const [tdsRecords, setTdsRecords] = useState<any[]>([]);
@@ -47,10 +82,9 @@ total_gross_amount = grand total gross freight amount. Numbers only, no commas.`
   const fetchTDSData = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "TDS_MANAGEMENT"));
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setTdsRecords(data.sort((a, b) => new Date(b.Date).getTime() - new Date(a.Date).getTime()));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${TOLL}/tds`);
+      setTdsRecords((j.records ?? []).map(fromApi));
+    } catch (e) { console.error('tds:', e); }
     setLoading(false);
   };
 
@@ -72,9 +106,9 @@ total_gross_amount = grand total gross freight amount. Numbers only, no commas.`
     }
     
     try {
-      await addDoc(collection(db, "TDS_MANAGEMENT"), {
-        ...formData,
-        createdAt: serverTimestamp()
+      await fetchJson(`${TOLL}/tds`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toApi(formData)),
       });
       alert("✅ TDS Record Saved Successfully!");
       setFormData({ ...formData, Consignee_Name: '', Gross_Freight: '', TDS_Deducted: '0' });
@@ -86,16 +120,21 @@ total_gross_amount = grand total gross freight amount. Numbers only, no commas.`
   const toggleFilingStatus = async (id: string, currentStatus: string) => {
     const newStatus = currentStatus === 'PENDING' ? 'FILED' : 'PENDING';
     try {
-      await updateDoc(doc(db, "TDS_MANAGEMENT", id), { Status: newStatus });
+      await fetchJson(`${TOLL}/tds/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
       fetchTDSData();
-    } catch (error) { alert("Error updating status"); }
+    } catch (error: any) { alert("Error updating status: " + (error?.message || '')); }
   };
 
   // 🗑️ Delete TDS Record
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete the TDS record for ${name}?`)) {
       try {
-        await deleteDoc(doc(db, "TDS_MANAGEMENT", id));
+        // A FILED entry is not deletable — it has been claimed against the
+        // 26AS and the API refuses rather than quietly erasing the claim.
+        await fetchJson(`${TOLL}/tds/${id}`, { method: 'DELETE' });
         fetchTDSData();
       } catch (error) { alert("Error deleting record"); }
     }

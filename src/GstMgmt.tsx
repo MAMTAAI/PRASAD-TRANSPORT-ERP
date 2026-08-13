@@ -1,8 +1,53 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { extractJsonFromImage } from './lib/aiScanner';
+
+// 🏛️ GST REGISTER — live PostgreSQL (`gst_returns`, migration 030).
+//
+// This is a REGISTER, not a ledger. It records what was charged on an invoice
+// so a return can be filed and reconciled; it does not post anything. GST
+// already reaches the books through TARA, and a second set of tax numbers that
+// has to agree with the ledger is the drift this whole migration has been
+// unwinding — so nothing here writes a voucher, deliberately.
+//
+// Transport freight is largely reverse charge (the customer discharges it),
+// which the register now records per row instead of leaving it implied.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const TOLL = `${API}/api/v1/toll`;
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// The form and table are written in the Firestore-era PascalCase; mapped at
+// the boundary rather than renamed through the JSX.
+const fromApi = (r: any) => ({
+  id: r.id,
+  Customer_Name: r.customer_name ?? '',
+  GST_Type: r.gst_type ?? 'CGST+SGST',
+  Invoice_No: r.invoice_no ?? '',
+  Taxable_Amt: r.taxable_amt ?? '0',
+  GST_Rate: r.gst_rate ?? '0',
+  Total_GST: r.total_gst ?? '0',
+  is_submitted: !!r.is_submitted,
+  reverse_charge: !!r.reverse_charge,
+  Entry_Date: r.entry_date ?? '',
+});
+
+const toApi = (f: any) => ({
+  customer_name: f.Customer_Name,
+  gst_type: f.GST_Type,
+  invoice_no: f.Invoice_No || null,
+  taxable_amt: parseFloat(f.Taxable_Amt) || 0,
+  gst_rate: parseFloat(f.GST_Rate) || 0,
+  total_gst: parseFloat(f.Total_GST) || 0,
+  is_submitted: !!f.is_submitted,
+  reverse_charge: !!f.reverse_charge,
+});
 
 export default function GstMgmt() {
   const [gstRecords, setGstRecords] = useState<any[]>([]);
@@ -52,18 +97,16 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
   const fetchGSTData = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "GST_MANAGEMENT"));
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Sort by latest entry date or creation time
-      setGstRecords(data.sort((a, b) => new Date(b.Entry_Date || b.createdAt).getTime() - new Date(a.Entry_Date || a.createdAt).getTime()));
-    } catch (e) { console.error(e); }
+      const j = await fetchJson(`${TOLL}/gst`);
+      setGstRecords((j.records ?? []).map(fromApi));
+    } catch (e) { console.error('gst:', e); }
     setLoading(false);
   };
 
   const fetchCustomers = async () => {
     try {
-      const snap = await getDocs(collection(db, "CUSTOMERS"));
-      setCustomers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const j = await fetchJson(`${MASTERS}/customers?limit=1000`);
+      setCustomers(j.customers ?? []);
     } catch (e) { console.error("Error fetching customers", e); }
   };
 
@@ -81,32 +124,46 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
       return alert("⚠️ Please fill Customer Name, Invoice No, and Taxable Amount!");
     }
     try {
-      await addDoc(collection(db, "GST_MANAGEMENT"), {
-        ...formData,
-        Entry_Date: new Date().toISOString().split('T')[0],
-        createdAt: serverTimestamp()
+      await fetchJson(`${TOLL}/gst`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(toApi(formData)),
       });
       alert("✅ GST Record Saved Successfully!");
       setFormData({ Customer_Name: '', GST_Type: 'CGST+SGST', Invoice_No: '', Taxable_Amt: '', GST_Rate: '5', Total_GST: '0', is_submitted: false });
       fetchGSTData();
-    } catch (e) { alert("❌ Error saving GST data!"); }
+    } catch (e: any) {
+      // One invoice is declared once — the database enforces it now, so say
+      // which invoice rather than a generic failure.
+      alert(e?.code === 'DUPLICATE'
+        ? "⚠️ Is invoice ka GST record pehle se hai."
+        : "❌ Error saving GST data: " + (e?.message || ''));
+    }
   };
 
   // ✅ Toggle "Submitted" Status
   const toggleSubmitStatus = async (id: string, currentStatus: boolean) => {
     try {
-      await updateDoc(doc(db, "GST_MANAGEMENT", id), { is_submitted: !currentStatus });
+      await fetchJson(`${TOLL}/gst/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_submitted: !currentStatus }),
+      });
       fetchGSTData();
-    } catch (error) { alert("Error updating status"); }
+    } catch (error: any) { alert("Error updating status: " + (error?.message || '')); }
   };
 
   // 🗑️ Delete GST Record
   const handleDelete = async (id: string, invoice: string) => {
     if (window.confirm(`Are you sure you want to delete the GST record for Invoice: ${invoice}?`)) {
       try {
-        await deleteDoc(doc(db, "GST_MANAGEMENT", id));
+        // A submitted return is not deletable — the filing is a fact about
+        // the past, and the API refuses rather than quietly erasing it.
+        await fetchJson(`${TOLL}/gst/${id}`, { method: 'DELETE' });
         fetchGSTData();
-      } catch (error) { alert("Error deleting record"); }
+      } catch (error: any) {
+        alert(error?.code === 'SUBMITTED_OR_MISSING'
+          ? "🔒 Yeh return file ho chuka hai — delete nahi hoga. Galti hai to nayi correcting entry banayein."
+          : "Error deleting record: " + (error?.message || ''));
+      }
     }
   };
 

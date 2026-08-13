@@ -1,5 +1,13 @@
-// 📸 Real media uploads to Firebase Storage — with STRICT client-side
-// compression (Subhash Sir mandate 2026-07-20: storage cost ≈ zero).
+// 📸 Real media uploads to the ERP's own document store — with STRICT
+// client-side compression (Subhash Sir mandate 2026-07-20: storage cost ≈ zero).
+//
+// The bytes now go to POST /api/v1/files instead of Firebase Storage. That was
+// the last Google service the app still WROTE to, so this is the change that
+// makes "no Firebase" achievable rather than just "no Firestore".
+//
+// The compression below did not change and did not need to: it was never
+// Firebase-specific. It matters more now, not less — the files land on the
+// box's own disk, which it shares with the trading system.
 //
 //  • Images  → WebP, quality/dimension search targeting ≤ ~140 KB while
 //    keeping documents readable (JPEG fallback for browsers that can't
@@ -9,8 +17,7 @@
 //    images, which is fine for KYC/bill archives).
 //  • The compressed result is used ONLY when it is actually smaller than
 //    the original — compression can never make an upload worse.
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from '../firebase';
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
 
 const TARGET_BYTES = 140 * 1024;          // sweet spot of the 100–150 KB mandate
 const IMG_EDGES = [1600, 1280, 1024];     // never below 1024px — docs must stay readable
@@ -132,20 +139,44 @@ export async function uploadMedia(
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
   const c = isPdf ? await compressPdf(file) : await compressImage(file);
 
-  // Re-extension the storage path to match what we actually encoded.
+  // Re-extension the path to match what we actually encoded. The server does
+  // the same from the received content-type and wins if they disagree, so a
+  // stored object's extension always describes its real bytes.
   const cleanPath = c.ext ? path.replace(/\.[^.\/]+$/, '') + c.ext : path;
-  const storageRef = ref(storage, cleanPath);
-  const task = uploadBytesResumable(storageRef, c.blob, { contentType: c.mime });
-  await new Promise<void>((resolve, reject) => {
-    task.on(
-      'state_changed',
-      snap => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      () => resolve()
-    );
+
+  const form = new FormData();
+  // `path` first: @fastify/multipart exposes preceding fields on the file part,
+  // and a field sent after the file would not be visible when it is handled.
+  form.append('path', cleanPath);
+  form.append('file', c.blob, cleanPath.split('/').pop() || 'upload');
+
+  // XHR rather than fetch purely for upload progress — the callers show a real
+  // percentage on slow site connections, and fetch still cannot report it.
+  const result = await new Promise<UploadResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API}/api/v1/files`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      let body: any = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON error page */ }
+      if (xhr.status >= 200 && xhr.status < 300 && body.url) {
+        resolve({ url: body.url, path: body.key ?? cleanPath, bytes: body.bytes ?? c.blob.size });
+      } else {
+        // Surface the server's own words. NO_SPACE in particular is an
+        // operator problem, not a user one, and must not read as "try again".
+        reject(Object.assign(
+          new Error(body.detail || body.error || `Upload failed (HTTP ${xhr.status})`),
+          { code: body.error }));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed — could not reach the server'));
+    xhr.ontimeout = () => reject(new Error('Upload timed out'));
+    xhr.timeout = 120000;
+    xhr.send(form);
   });
-  const url = await getDownloadURL(storageRef);
-  return { url, path: cleanPath, bytes: c.blob.size };
+  return result;
 }
 
 /** Safe filename fragment from an id/label. */

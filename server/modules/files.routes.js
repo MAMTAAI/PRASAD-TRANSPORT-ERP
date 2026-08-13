@@ -1,0 +1,143 @@
+// server/modules/files.routes.js
+// ─────────────────────────────────────────────────────────────────────────────
+// /api/v1/files — document upload and delivery. The replacement for Firebase
+// Storage, which was the last Google service the app still wrote to.
+//
+//   POST /files            multipart: file + path   → { url, key, bytes }
+//   GET  /files/*          stream a stored object
+//   GET  /files-stats      driver, object count, bytes, free disk
+//   POST /files/import     fetch a remote URL and re-host it (used once, to
+//                          pull the 17 surviving Firebase objects across)
+//
+// COMPRESSION STAYS IN THE BROWSER. src/lib/uploadMedia.ts already re-encodes
+// images to WebP and rebuilds PDFs to hit ~140 KB before anything is sent, and
+// that is deliberate: it saves the bandwidth as well as the disk, and it works
+// the same whether the bytes end up on this disk or in a bucket later. The
+// server does not re-compress; it stores what it is given, and enforces a
+// ceiling in case a caller skips the client path.
+// ─────────────────────────────────────────────────────────────────────────────
+import multipart from '@fastify/multipart';
+import { put, openStream, remove, stats, safeKey, MAX_BYTES, DRIVER, StorageError } from '../lib/storage.js';
+
+// Only what a document archive should ever hold. An upload endpoint that
+// accepts anything is an upload endpoint that will eventually serve a script
+// back to a browser from the app's own origin.
+const ALLOWED = new Map([
+  ['image/webp', '.webp'], ['image/jpeg', '.jpg'], ['image/png', '.png'],
+  ['application/pdf', '.pdf'],
+]);
+
+const fail = (reply, code, status, detail) => reply.code(status).send({ error: code, detail });
+
+export async function registerFileRoutes(app) {
+  // Registered here as well as in fleet.routes: Fastify encapsulates plugins
+  // per scope, so a sibling module's registration is not visible to this one.
+  await app.register(multipart, { limits: { fileSize: MAX_BYTES, files: 1 } });
+
+  app.post('/files', async (req, reply) => {
+    let part;
+    try { part = await req.file(); } catch (e) { return fail(reply, 'BAD_MULTIPART', 400, e.message); }
+    if (!part) return fail(reply, 'NO_FILE', 400, 'multipart field "file" is required');
+
+    const contentType = String(part.mimetype || '').split(';')[0].trim();
+    if (!ALLOWED.has(contentType)) {
+      return fail(reply, 'BAD_TYPE', 415,
+        `refused ${contentType || 'unknown type'} — this archive stores ${[...ALLOWED.keys()].join(', ')} only`);
+    }
+
+    const buffer = await part.toBuffer();
+    // @fastify/multipart truncates at the limit rather than throwing, so a file
+    // over the ceiling would otherwise be stored silently half-written.
+    if (part.file?.truncated) return fail(reply, 'TOO_LARGE', 413, `file exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MB`);
+
+    // The client sends the path it wants (mirroring the old Firebase layout).
+    // The extension is forced to match the bytes actually received — a .pdf
+    // holding a JPEG would be served with the wrong content type forever.
+    const wanted = part.fields?.path?.value ?? part.fields?.key?.value ?? '';
+    const ext = ALLOWED.get(contentType);
+    const base = String(wanted).replace(/\.[^./]+$/, '') || `misc/${Date.now()}`;
+    try {
+      const out = await put(safeKey(base + ext), buffer, contentType);
+      reply.code(201);
+      return out;
+    } catch (e) {
+      if (e instanceof StorageError) {
+        const status = { NO_SPACE: 507, TOO_LARGE: 413, BAD_KEY: 400, DRIVER_UNAVAILABLE: 503 }[e.code] ?? 400;
+        return fail(reply, e.code, status, e.message);
+      }
+      throw e;
+    }
+  });
+
+  app.get('/files/*', async (req, reply) => {
+    let found;
+    try { found = await openStream(req.params['*']); }
+    catch (e) { return fail(reply, e.code ?? 'BAD_KEY', 400, e.message); }
+    if (!found) return fail(reply, 'NOT_FOUND', 404, 'no such object');
+
+    const key = req.params['*'];
+    const type = key.endsWith('.webp') ? 'image/webp'
+      : key.endsWith('.png') ? 'image/png'
+      : key.endsWith('.pdf') ? 'application/pdf'
+      : 'image/jpeg';
+    // Content-addressed enough in practice (paths carry record ids) and these
+    // are documents that rarely change, so a long cache is safe and keeps the
+    // Node process out of the way of repeat views.
+    reply.header('Content-Type', type)
+      .header('Content-Length', found.bytes)
+      .header('Cache-Control', 'private, max-age=86400')
+      // Never let a stored object be interpreted as markup on our own origin.
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Content-Security-Policy', "default-src 'none'; img-src 'self'; object-src 'none'");
+    return reply.send(found.stream);
+  });
+
+  app.delete('/files/*', async (req, reply) => {
+    try { await remove(req.params['*']); return { deleted: true }; }
+    catch (e) { return fail(reply, e.code ?? 'BAD_KEY', 400, e.message); }
+  });
+
+  app.get('/files-stats', async () => ({ driver: DRIVER, ...(await stats()) }));
+
+  // ── One-time import ────────────────────────────────────────────────────────
+  // Firebase download URLs are public (they carry their own token), so the
+  // objects can be pulled across without any Firebase SDK or credential. This
+  // exists so the surviving objects can be re-hosted before the Firebase
+  // project is switched off — otherwise "disconnect Firebase" would silently
+  // mean "break every document link already in the database".
+  app.post(
+    '/files/import',
+    { schema: { body: { type: 'object', required: ['url', 'path'], additionalProperties: false, properties: {
+      url: { type: 'string', minLength: 8, maxLength: 2000 },
+      path: { type: 'string', minLength: 1, maxLength: 400 },
+    } } } },
+    async (req, reply) => {
+      const { url, path } = req.body;
+      // Only the host we are migrating away from. An open fetcher on an
+      // internal API is a server-side request forgery waiting to happen.
+      let host;
+      try { host = new URL(url).host; } catch { return fail(reply, 'BAD_URL', 400, 'not a URL'); }
+      if (!/(^|\.)(firebasestorage\.googleapis\.com|storage\.googleapis\.com|firebasestorage\.app)$/.test(host)) {
+        return fail(reply, 'HOST_NOT_ALLOWED', 400, `import only accepts Firebase Storage hosts, got ${host}`);
+      }
+
+      const res = await fetch(url).catch((e) => ({ ok: false, statusText: e.message }));
+      if (!res.ok) return fail(reply, 'FETCH_FAILED', 502, `source returned ${res.status ?? ''} ${res.statusText ?? ''}`.trim());
+      const contentType = String(res.headers.get('content-type') || '').split(';')[0].trim();
+      if (!ALLOWED.has(contentType)) return fail(reply, 'BAD_TYPE', 415, `source served ${contentType || 'unknown'}`);
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      try {
+        const out = await put(safeKey(String(path).replace(/\.[^./]+$/, '') + ALLOWED.get(contentType)), buffer, contentType);
+        reply.code(201);
+        return { ...out, imported_from: url };
+      } catch (e) {
+        if (e instanceof StorageError) {
+          const status = { NO_SPACE: 507, TOO_LARGE: 413, BAD_KEY: 400 }[e.code] ?? 400;
+          return fail(reply, e.code, status, e.message);
+        }
+        throw e;
+      }
+    }
+  );
+}

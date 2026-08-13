@@ -3,18 +3,32 @@
 //   pump CREDIT (liability) → CARD SETTLEMENT (swipe clears pump) → WALLET
 //   RECHARGE (freight deductions load the card). Plus the Mamta AI reconciler
 //   that reads IOCL/HPCL/BPCL statements and catches missed/unknown swipes.
+//
+// Live PostgreSQL (`fleet_cards` / `card_transactions`, migration 030).
+//
+// THE BALANCE IS DERIVED NOW. The old version kept `current_balance` on the
+// card and moved it with increment() in the same batch as the transaction, and
+// posted the double entry separately through the Firestore journal helper. Two
+// records of one rupee, maintained by two different mechanisms — the wallet
+// could disagree with both its own transactions and the ledger. `card_balance`
+// below comes from v_fleet_card_balance: opening + loads − spends, recomputed
+// on every read, so it cannot drift.
+//
+// The VOUCHER is now posted by the API through TARA, in the same request that
+// writes the transaction — not by this screen afterwards, where a failed
+// journal used to leave the money recorded and the books untouched.
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, doc, setDoc, writeBatch, increment, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
-const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
-const mastersFetch = async (path: string, opts?: RequestInit) => {
-  const res = await fetch(`${MASTERS_API}${path}`, opts);
+const API_ROOT = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const TOLL_API = `${API_ROOT}/api/v1/toll`;
+const MASTERS_API = `${API_ROOT}/api/v1/masters`;
+const apiFetch = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
   return json;
 };
+const mastersFetch = (path: string, opts?: RequestInit) => apiFetch(`${MASTERS_API}${path}`, opts);
 
-import { postEntry } from './lib/accounting/journal';
 import { round2, toISODate } from './lib/accounting/tripMath';
 import { CARD_PROVIDERS, extractCardStatement, reconcileStatement } from './lib/fleetCard';
 import { classifyDocument } from './lib/billScanner';
@@ -51,23 +65,40 @@ export default function FleetCardMgmt() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      let [cSnap, tSnap, vSnap, custSnap] = await Promise.all([
-        getDocs(collection(db, 'FLEET_CARDS')).catch(() => ({ docs: [] })),
-        getDocs(query(collection(db, 'CARD_TRANSACTIONS'), orderBy('date', 'desc'))).catch(() => getDocs(collection(db, 'CARD_TRANSACTIONS')).catch(() => ({ docs: [] }))),
-        getDocs(collection(db, 'VENDORS')).catch(() => ({ docs: [] })),
-        getDocs(collection(db, 'CUSTOMERS')).catch(() => ({ docs: [] })),
+      const [cardsRes, vendorsRes, custRes] = await Promise.all([
+        apiFetch(`${TOLL_API}/cards`),
+        mastersFetch('/vendors?limit=1000').catch(() => ({ vendors: [] })),
+        mastersFetch('/customers?limit=1000').catch(() => ({ customers: [] })),
       ]);
-      // First run: seed the three provider wallets (deterministic ids — idempotent)
-      if (cSnap.docs.length === 0) {
+      // The three provider wallets are seeded on first run, same as before, but
+      // through the API so the row lands in the table the balance view reads.
+      let list = cardsRes.cards ?? [];
+      if (!list.length) {
         for (const [key, meta] of Object.entries(CARD_PROVIDERS)) {
-          await setDoc(doc(db, 'FLEET_CARDS', key), { provider: key, name: meta.name, current_balance: 0, created_at: serverTimestamp() }, { merge: true });
+          await apiFetch(`${TOLL_API}/cards`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: meta.name, provider: key, opening_balance: 0 }),
+          }).catch(() => {});
         }
-        cSnap = await getDocs(collection(db, 'FLEET_CARDS'));
+        list = (await apiFetch(`${TOLL_API}/cards`)).cards ?? [];
       }
-      setCards(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setTxns(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setVendors(vSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(v => v.vendor_name || v.agency_name));
-      setCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setCards(list);
+
+      // Transactions for every card, newest first. Small volumes; one request
+      // per card keeps the endpoint simple and the list is card-scoped anyway.
+      const perCard = await Promise.all(
+        list.map((c: any) => apiFetch(`${TOLL_API}/cards/${c.id}/txns`)
+          .then(r => (r.transactions ?? []).map((t: any) => ({ ...t, type: t.txn_type, date: t.txn_date })))
+          .catch(() => [])));
+      setTxns(perCard.flat().sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))));
+
+      // running_balance is the DERIVED figure (opening + vendor_txns); the raw
+      // current_balance column is the frozen migration-time marker. The picker
+      // must show the live one or it quotes a stale payable back at the operator.
+      setVendors((vendorsRes.vendors ?? [])
+        .filter((v: any) => v.vendor_name)
+        .map((v: any) => ({ ...v, current_balance: v.running_balance ?? v.current_balance ?? '0' })));
+      setCustomers(custRes.customers ?? []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -78,41 +109,44 @@ export default function FleetCardMgmt() {
     which === 'RECHARGE' ? setRechargeSheet(true) : setSettleSheet(true);
   };
 
-  // 💰 RECHARGE: freight deduction (~40% advance cut from the bill) loads the wallet
+  // 💰 RECHARGE: freight deduction (~40% advance cut from the bill) loads the
+  // wallet. funded_by=DEDUCTION tells the API this is Dr wallet / Cr the
+  // customer's receivable — no bank account moves, because none did.
   const saveRecharge = async () => {
     const amt = round2(parseFloat(form.amount));
     const card = cardById(form.card_id);
     if (!card || !Number.isFinite(amt) || amt <= 0) return alert('⚠️ Card aur sahi amount chunein!');
+    if (!form.party) return alert('🏢 Kis customer ki freight deduction se recharge hua? Party chunein — uska receivable isi se ghatta hai.');
     setSaving(true);
     try {
-      const txnRef = doc(collection(db, 'CARD_TRANSACTIONS'));
-      const batch = writeBatch(db);
-      batch.set(txnRef, {
-        card_id: card.id, provider: card.provider, type: 'RECHARGE',
-        amount: amt, date: form.date, party: form.party || '',
-        narration: `Freight deduction recharge${form.party ? ' — ' + form.party : ''}${form.ref ? ' (' + form.ref + ')' : ''}`,
-        ref: form.ref || '', createdAt: serverTimestamp(),
+      const j = await apiFetch(`${TOLL_API}/cards/${card.id}/txns`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: 'LOAD', funded_by: 'DEDUCTION',
+          amount: amt, txn_date: form.date, party: form.party,
+          ref: form.ref || null,
+          narration: `Freight deduction recharge — ${form.party}${form.ref ? ` (${form.ref})` : ''}`,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+        }),
       });
-      batch.update(doc(db, 'FLEET_CARDS', card.id), { current_balance: increment(amt) });
-      await batch.commit();
-
-      // Double-entry: wallet asset up; customer's receivable down (they kept the money)
-      await postEntry({
-        source_type: 'CARD_RECHARGE', source_ref: txnRef.id, date: form.date,
-        narration: `Fleet card recharge via freight deduction — ${card.name}${form.party ? ' (' + form.party + ')' : ''}`,
-        lines: [
-          { ledger: CARD_PROVIDERS[card.provider].wallet, dr_cr: 'Dr', amount: amt },
-          { ledger: form.party ? `Debtors: ${form.party}` : 'Freight Deductions Clearing', dr_cr: 'Cr', amount: amt },
-        ],
-      }).catch(e => alert('⚠️ Journal entry fail hui (data save hai): ' + e.message));
-
-      alert(`✅ ${card.name} me ${inr(amt)} recharge darj!`);
+      alert(`✅ ${card.name} me ${inr(amt)} recharge darj!` + (j.ledger_note ? `\n\n⚠️ Ledger: ${j.ledger_note}` : ''));
       setRechargeSheet(false); fetchAll();
-    } catch (e) { console.error(e); alert('❌ Save nahi hua: ' + (e.message || 'error')); }
+    } catch (e: any) {
+      const said = { DUPLICATE: 'Yeh reference pehle hi darj ho chuka hai.', DUPLICATE_REF: 'Yeh reference pehle hi post ho chuka hai.' }[e?.code];
+      console.error(e); alert('❌ Save nahi hua: ' + (said || e?.message || 'error'));
+    }
     setSaving(false);
   };
 
   // 🤝 SETTLEMENT: card swipe clears the pump's credit (liability)
+  //
+  // ONE request now does all three things the old version did in three places:
+  // it writes the card transaction, posts the JOURNAL (Dr Creditors: pump /
+  // Cr card wallet) through TARA, and returns the recomputed wallet balance.
+  // Before, the transaction went into a Firestore batch, the balance was
+  // increment()ed alongside it, and the journal was posted afterwards over the
+  // network — so a failed journal left the money spent and the books silent,
+  // and the alert said "data save hai" as if that were fine.
   const saveSettlement = async () => {
     const amt = round2(parseFloat(form.amount));
     const card = cardById(form.card_id);
@@ -120,50 +154,48 @@ export default function FleetCardMgmt() {
     if (!card || !vendor || !Number.isFinite(amt) || amt <= 0) return alert('⚠️ Card, pump aur sahi amount chunein!');
     const bal = round2(parseFloat(card.current_balance) || 0);
     if (amt > bal && !window.confirm(`⚠️ Card balance ${inr(bal)} se zyada settlement (${inr(amt)}). Phir bhi darj karein?`)) { return; }
-    const vName = vendor.vendor_name || vendor.agency_name;
+    const vName = vendor.vendor_name;
     setSaving(true);
     try {
-      const txnRef = doc(collection(db, 'CARD_TRANSACTIONS'));
-      const batch = writeBatch(db);
-      batch.set(txnRef, {
-        card_id: card.id, provider: card.provider, type: 'SETTLEMENT',
-        amount: amt, date: form.date, party: vName, vendor_id: vendor.id,
-        narration: `Pump bill settled by card swipe — ${vName}${form.ref ? ' (' + form.ref + ')' : ''}`,
-        ref: form.ref || '', createdAt: serverTimestamp(),
+      const j = await apiFetch(`${TOLL_API}/cards/${card.id}/txns`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: 'SETTLEMENT',
+          amount: amt,
+          txn_date: form.date,
+          party: vName,
+          vendor_id: vendor.id,
+          ref: form.ref || null,
+          narration: `Pump bill settled by card swipe — ${vName}${form.ref ? ` (${form.ref})` : ''}`,
+          created_by: (JSON.parse(localStorage.getItem('prasad_user') || '{}').email) || null,
+        }),
       });
-      batch.update(doc(db, 'FLEET_CARDS', card.id), { current_balance: increment(-amt) });
-      await batch.commit();
 
-      // The pump's balance is derived in PostgreSQL now, so settling by card is
-      // a PAYMENT_GIVEN row rather than a rewritten counter. It is posted after
-      // the batch, not inside it — a Firestore batch cannot span an HTTP call,
-      // and the card transaction is the record that must not be lost.
-      // post_to_ledger is false: the double entry below is already posted here.
+      // The pump's own subsidiary khata still needs the row. post_to_ledger is
+      // false because the JOURNAL above already cleared the creditor — posting
+      // again here would double-count the payment.
       await mastersFetch(`/vendors/${vendor.id}/ledger`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          txn_type: 'PAYMENT_GIVEN',
-          amount: amt,
-          txn_date: form.date,
+          txn_type: 'PAYMENT_GIVEN', amount: amt, txn_date: form.date,
           payment_mode: `Fleet card — ${card.name}`,
           remarks: `Card settlement${form.ref ? ' ' + form.ref : ''}`,
           post_to_ledger: false,
         }),
       }).catch(e => console.error('vendor khata:', e));
 
-      // Double-entry: pump liability cleared against the wallet asset
-      await postEntry({
-        source_type: 'CARD_SETTLEMENT', source_ref: txnRef.id, date: form.date,
-        narration: `Pump credit settled via ${card.name} — ${vName}`,
-        lines: [
-          { ledger: `Creditors: ${vName}`, dr_cr: 'Dr', amount: amt },
-          { ledger: CARD_PROVIDERS[card.provider].wallet, dr_cr: 'Cr', amount: amt },
-        ],
-      }).catch(e => alert('⚠️ Journal entry fail hui (data save hai): ' + e.message));
+      alert(`✅ ${vName} ka ${inr(amt)} card se settle!` + (j.ledger_note ? `
 
-      alert(`✅ ${vName} ka ${inr(amt)} card se settle!`);
+⚠️ Ledger: ${j.ledger_note}` : ''));
       setSettleSheet(false); fetchAll();
-    } catch (e) { console.error(e); alert('❌ Save nahi hua: ' + (e.message || 'error')); }
+    } catch (e: any) {
+      const said = {
+        DUPLICATE: 'Yeh reference pehle hi darj ho chuka hai.',
+        DUPLICATE_REF: 'Yeh reference pehle hi post ho chuka hai.',
+        NO_PARTY: 'Pump chunein.',
+      }[e?.code];
+      console.error(e); alert('❌ Save nahi hua: ' + (said || e?.message || 'error'));
+    }
     setSaving(false);
   };
 

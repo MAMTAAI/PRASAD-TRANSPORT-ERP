@@ -1,8 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from './firebase';
+import { db } from './firebase';
+import { uploadMedia, slug } from './lib/uploadMedia';
 
 export default function WebSettings() {
   // 🌟 वेबसाइट का पूरा डिफ़ॉल्ट डेटा (ALL WEBSITE FIELDS)
@@ -87,13 +87,14 @@ export default function WebSettings() {
             continue;
         }
         try {
-            const imageRef = ref(storage, `website_bgs/prasad_${Date.now()}_${file.name}`);
-            await uploadBytes(imageRef, file);
-            const downloadUrl = await getDownloadURL(imageRef);
-            newImages.push(downloadUrl);
-        } catch (error) {
+            // Hero images are the largest things this app stores and were the
+            // one upload path with no compression at all. uploadMedia() takes
+            // them to WebP at ~140 KB, which the public site loads faster for.
+            const { url } = await uploadMedia(file, `website_bgs/prasad_${Date.now()}_${slug(file.name)}`);
+            newImages.push(url);
+        } catch (error: any) {
             console.error("Image Upload Failed:", error);
-            alert("❌ फोटो अपलोड होने में दिक्कत आई।");
+            alert("❌ फोटो अपलोड नहीं हुई: " + (error?.message || ''));
         }
       }
       
