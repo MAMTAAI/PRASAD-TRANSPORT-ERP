@@ -1,386 +1,158 @@
 // @ts-nocheck
-import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from './firebase';
-import { getJournal, ledgerBalances, reconcile } from './lib/accounting/journal';
-import { getTripFreight, getTripExpense, round2, isDateInRange as inRange } from './lib/accounting/tripMath';
-import { scopeCurrent } from './lib/rbac';
-import { normCompany } from './lib/company';
-// 📊 IMPORTING CHARTS
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
+// 📊 BALANCE SHEET / P&L (CA-READY) — live PostgreSQL, zero Firestore.
+//
+// The statements are no longer assembled in the browser. They come from the
+// chart of accounts in the database (`f_profit_and_loss`, `f_balance_sheet`,
+// `f_trial_balance`, migrations 011–021), which matters for one reason: the old
+// screen derived revenue from trip fields and expenses from Firestore ledger
+// groups, so the P&L and the balance sheet were two independent calculations
+// that could — and did — disagree. Now both are projections of the same ledger,
+// and the balance sheet returns `balanced` so it announces its own health.
+//
+// Two filters were dropped rather than faked. The ledger has no vehicle
+// dimension, and the old vehicle filter simply blanked most of the balance sheet
+// when set; per-vehicle profitability belongs in the trip reports. Branch is not
+// carried consistently on postings either. Company IS honoured, via the same
+// normalizing match the rest of the ERP uses (M/S PRASAD TRANSPORT ==
+// PRASAD TRANSPORT), so a company-scoped statement no longer silently drops the
+// 616 postings that carry no company at all.
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-// 🔥 UNIVERSAL AUTO-RECOVERY HELPER
-const getVal = (obj: any, keysArr: string[], defaultVal = '') => {
-  if(!obj) return defaultVal;
-  for(const k of keysArr) {
-    if(obj[k] !== undefined && obj[k] !== null && obj[k] !== '') return obj[k];
-  }
-  return defaultVal;
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string) => {
+  const res = await fetch(url);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
 };
 
-// 🌟 SMART MATCHING LOGIC
-const isMatch = (recordVal: any, filterVal: string) => {
-  if (!filterVal || filterVal === 'ALL') return true;
-  if (!recordVal || recordVal === 'ALL') return true;
-  // 🏢 Normalized compare: 'M/S PRASAD TRANSPORT' == 'PRASAD TRANSPORT' ==
-  // 'Prasad Transport Pvt Ltd' — cross-module naming variants ab match hote hain.
-  return normCompany(recordVal) === normCompany(filterVal);
-};
+const inr = (n: any) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dmy = (d: any) => (d ? new Date(d).toLocaleDateString('en-GB') : '—');
 
 export default function FinancialReports() {
-  const [activeTab, setActiveTab] = useState('PNL'); 
-  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('PNL');
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState('');
 
-  // 🏢 DYNAMIC MASTER DATA STATES
-  const [companies, setCompanies] = useState<string[]>(['Loading...']);
-  const [branches, setBranches] = useState<string[]>(['Loading...']);
-  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState('ALL');
+  // Default to the current Indian financial year, which is what a CA asks for.
+  const fyStart = useMemo(() => {
+    const d = new Date();
+    const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+    return `${y}-04-01`;
+  }, []);
+  const [fromDate, setFromDate] = useState(fyStart);
+  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
 
-  // 🗄️ REAL DATABASE STATES
-  const [trips, setTrips] = useState<any[]>([]);
-  const [loans, setLoans] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
-  const [vendors, setVendors] = useState<any[]>([]);
-  const [ledgers, setLedgers] = useState<any[]>([]);
-  const [ledgerEntries, setLedgerEntries] = useState<any[]>([]);
-  const [bankTxns, setBankTxns] = useState<any[]>([]);
+  const [pnl, setPnl] = useState<any>(null);
+  const [bs, setBs] = useState<any>(null);
+  const [tb, setTb] = useState<any>(null);
+  const [health, setHealth] = useState<any>(null);
 
-  // 📒 Live double-entry JOURNAL (single source of truth, additive — does not
-  // alter the existing P&L/Balance Sheet logic).
-  const [jBal, setJBal] = useState<any[]>([]);
-  const [jMeta, setJMeta] = useState<any>({ count: 0, balanced: true, findings: [] });
+  const [expanded, setExpanded] = useState<any>({ inc: true, exp: true, assets: true, liab: true });
+  const toggle = (k: string) => setExpanded((p: any) => ({ ...p, [k]: !p[k] }));
+
   useEffect(() => {
-    ledgerBalances().then(setJBal).catch(() => setJBal([]));
-    reconcile().then(setJMeta).catch(() => {});
+    fetchJson(`${FIN}/masters/companies`)
+      .then((m) => setCompanies(m.companies || []))
+      .catch(() => setCompanies([]));
   }, []);
 
-  // 🎛️ SMART FILTERS & DATES
-  const [selectedCompany, setSelectedCompany] = useState('ALL'); 
-  const [selectedBranch, setSelectedBranch] = useState('ALL');
-  const [selectedVehicle, setSelectedVehicle] = useState('ALL');
-  // Debounced copy — the P&L/BS recompute waits until typing pauses instead of
-  // rescanning every ledger entry on each keystroke of the vehicle filter.
-  const [debouncedVehicle, setDebouncedVehicle] = useState('ALL');
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedVehicle(selectedVehicle), 250);
-    return () => clearTimeout(t);
-  }, [selectedVehicle]);
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-
-  // 🌟 EXPANDABLE ACCORDION STATES
-  const [expandedSections, setExpandedSections] = useState<any>({
-      dirExp: true, 
-      dirInc: true,
-      bsCap: true,
-      bsLoan: true,
-      bsCurLiab: true,
-      bsFixed: true,
-      bsCurAss: true,
-      bsBank: true
-  });
-
-  const toggleSection = (section: string) => {
-      setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
-
-  useEffect(() => {
-    fetchMasterData();
-    fetchRealSystemData();
-  }, []);
-
-  const fetchMasterData = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
+    setErr('');
+    const q = new URLSearchParams();
+    if (fromDate) q.set('from', fromDate);
+    if (toDate) q.set('to', toDate);
+    if (selectedCompany !== 'ALL') q.set('company', selectedCompany);
     try {
-      const cSnap1 = await getDocs(collection(db, "COMPANY")).catch(() => ({ docs: [] }));
-      const cSnap2 = await getDocs(collection(db, "COMPANIES")).catch(() => ({ docs: [] }));
-      let compList = [...cSnap1.docs, ...cSnap2.docs].map(d => d.data().company_name || d.data().name || d.data().Company_Name);
-      compList = [...new Set(compList.filter(Boolean))];
-      setCompanies(compList);
-
-      const bSnap = await getDocs(collection(db, "BRANCH")).catch(() => ({ docs: [] }));
-      let branchList = bSnap.docs.map(d => d.data().branch_name || d.data().name);
-      branchList = [...new Set(branchList.filter(Boolean))];
-      setBranches(branchList);
-
-      const vSnap = await getDocs(collection(db, "VEHICLES")).catch(() => ({ docs: [] }));
-      const vehList = vSnap.docs.map(d => ({ 
-          id: d.id, 
-          no: d.data().vehical_no || d.data().vehicle_no, 
-          company: d.data().company_name || d.data().Company_Name || d.data().company || 'ALL' 
-      }));
-      setVehicles(vehList.filter(v => v.no));
-    } catch (error) { console.error(error); }
+      const [p, b, t] = await Promise.all([
+        fetchJson(`${FIN}/reports/profit-and-loss?${q}`),
+        fetchJson(`${FIN}/reports/balance-sheet?${q}`),
+        fetchJson(`${FIN}/reports/trial-balance?${q}`),
+      ]);
+      setPnl(p); setBs(b); setTb(t);
+    } catch (e: any) {
+      setPnl(null); setBs(null); setTb(null);
+      setErr(`Statements could not load from ${API} — ${e.message}`);
+    }
+    // The accounting-health view answers 409 when something is genuinely wrong,
+    // so a non-OK response here is information, not a failure to hide.
+    try {
+      const res = await fetch(`${FIN}/health/accounting`);
+      setHealth(await res.json());
+    } catch { setHealth(null); }
     setLoading(false);
-  };
+  }, [fromDate, toDate, selectedCompany]);
 
-  const fetchRealSystemData = async () => {
-    try {
-       // All collections in parallel (was 8 sequential round trips)
-       const [tSnap, lSnap1, lSnap2, cSnap, vSnap, ledSnap, leSnap, bSnap] = await Promise.all([
-         getDocs(collection(db, "TRIPS")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "LOAN_MASTER")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "LOANS")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "CUSTOMERS")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "VENDORS")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "LEDGERS")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "LEDGER_ENTRIES")).catch(()=>({docs:[]})),
-         getDocs(collection(db, "BANK_TRANSACTIONS")).catch(()=>({docs:[]})),
-       ]);
-       // 🔐 RBAC scope — same as Dashboard, so a branch-scoped user sees the
-       // same Revenue on both screens (and stops seeing other branches' money).
-       setTrips(scopeCurrent(tSnap.docs.map(d => ({id: d.id, ...d.data()}))) || []);
-       setLoans([...lSnap1.docs, ...lSnap2.docs].map(d => ({id: d.id, ...d.data()})));
-       setCustomers(cSnap.docs.map(d => ({id: d.id, ...d.data()})));
-       setVendors(vSnap.docs.map(d => ({id: d.id, ...d.data()})));
-       setLedgers(ledSnap.docs.map(d => ({id: d.id, ...d.data()})));
-       setLedgerEntries(leSnap.docs.map(d => ({id: d.id, ...d.data()})));
-       setBankTxns(bSnap.docs.map(d => ({id: d.id, ...d.data()})));
-    } catch(e) { console.error(e); }
-  };
+  useEffect(() => { load(); }, [load]);
+
+  const income = pnl?.income ?? [];
+  const expenses = pnl?.expenses ?? [];
+  const totalIncome = Number(pnl?.total_income ?? 0);
+  const totalExpense = Number(pnl?.total_expense ?? 0);
+  const netProfit = Number(pnl?.net_profit ?? 0);
+
+  const assets = bs?.assets ?? [];
+  const liabs = bs?.liabilities_and_equity ?? [];
+  const totalAssets = Number(bs?.total_assets ?? 0);
+  const totalLiab = Number(bs?.total_liabilities_equity ?? 0);
+
+  const pnlChartData = [
+    { name: 'Income', Value: totalIncome, fill: '#10b981' },
+    { name: 'Expenses', Value: totalExpense, fill: '#ef4444' },
+  ];
+  const PIE = ['#8b5cf6', '#38bdf8', '#f59e0b', '#ec4899', '#10b981', '#f43f5e', '#c084fc'];
+  const bsPieData = assets.filter((a: any) => Number(a.amount) > 0)
+    .map((a: any, i: number) => ({ name: a.group_head, value: Number(a.amount), color: PIE[i % PIE.length] }));
 
   const handlePrint = () => window.print();
-  const clearDates = () => { setFromDate(''); setToDate(''); };
-
-  // Normalized date filtering (handles DD-MM-YYYY, ISO, Firestore Timestamp) —
-  // the old lexical string compare silently mis-filtered mixed-format rows.
-  const isDateInRange = (dateVal: any) => inRange(dateVal, fromDate || undefined, toDate || undefined);
-
-  // ==========================================
-  // 📈 PNL + BALANCE SHEET — memoized (Phase B)
-  // The full O(ledgers × entries) aggregation used to run in the render body
-  // on EVERY state change (each keystroke, accordion toggle, tab switch).
-  // Now it recomputes only when the underlying data or (debounced) filters change.
-  // ==========================================
-  const fin = useMemo(() => {
-  const selectedVehicle = debouncedVehicle; // shadow: debounced inside the memo
-  let directIncomes = 0;
-  let directExpenses = 0;
-  let indirectIncomes = 0;
-  let indirectExpenses = 0;
-
-  const dirExpBreakdown: any = { 'Fuel (Diesel/Petrol)': 0, 'Driver Bhatta/Salary': 0, 'Toll & Fastag': 0, 'Vehicle Compliance & RTO': 0, 'Tyres & Maintenance': 0, 'Other Direct Exp': 0 };
-  const dirIncBreakdown: any = { 'Trip Freight Revenue': 0, 'Other Direct Incomes': 0 };
-  const indExpBreakdown: any = { 'Office Rent & Utilities': 0, 'Staff Salary': 0, 'Misc Indirect Exp': 0 };
-  const indIncBreakdown: any = { 'Discount Received': 0, 'Misc Indirect Inc': 0 };
-
-  trips.forEach(t => {
-     const tDate = getVal(t, ['Loading_Date', 'start_date', 'loading_date', 'date']);
-     if (!isDateInRange(tDate)) return;
-     if (!isMatch(getVal(t, ['Operating_Company', 'operating_company', 'company']), selectedCompany)) return;
-     if (!isMatch(getVal(t, ['Branch', 'branch']), selectedBranch)) return;
-     if (!isMatch(getVal(t, ['Vehicle_No', 'vehicle_no', 'vehical_no']), selectedVehicle)) return;
-
-     // 💰 Canonical trip math — identical helpers to the Finance Hub, so both
-     // screens always report the same Revenue/Expense for the same trip.
-     const freightAmt = getTripFreight(t);
-     directIncomes = round2(directIncomes + freightAmt);
-     dirIncBreakdown['Trip Freight Revenue'] += freightAmt;
-
-     // Breakdown lines are capped so they always sum EXACTLY to the canonical
-     // trip expense (legacy rows sometimes carry component fields that exceed
-     // total_expense). Note: driver_advance is deliberately NOT an expense —
-     // advances are recoverable khata, not P&L.
-     const te = getTripExpense(t);
-     const fuelRaw = parseFloat(getVal(t, ['diesel_amount', 'fuel_amount', 'diesel'], '0')) || 0;
-     const tollRaw = parseFloat(getVal(t, ['toll_amount', 'toll', 'fastag'], '0')) || 0;
-     const bhattaRaw = parseFloat(getVal(t, ['driver_bhatta', 'bhatta'], '0')) || 0;
-     const fuel = Math.min(fuelRaw, te);
-     const toll = Math.min(tollRaw, Math.max(0, te - fuel));
-     const bhatta = Math.min(bhattaRaw, Math.max(0, te - fuel - toll));
-     const otherExp = round2(Math.max(0, te - fuel - toll - bhatta));
-
-     directExpenses = round2(directExpenses + te);
-     dirExpBreakdown['Fuel (Diesel/Petrol)'] += fuel;
-     dirExpBreakdown['Toll & Fastag'] += toll;
-     dirExpBreakdown['Driver Bhatta/Salary'] += bhatta;
-     if(otherExp > 0) dirExpBreakdown['Other Direct Exp'] += otherExp;
-  });
-
-  ledgers.forEach(l => {
-     if (!isMatch(l.company, selectedCompany)) return;
-     if (!isMatch(l.branch, selectedBranch)) return;
-
-     if (selectedVehicle !== 'ALL' && l.linked_module === 'VEHICLE_DOCS') {
-         const linkedVeh = vehicles.find(v => v.id === l.linked_id);
-         if (!linkedVeh || !isMatch(linkedVeh.no, selectedVehicle)) return;
-     } else if (selectedVehicle !== 'ALL') {
-         return; 
-     }
-
-     ledgerEntries.forEach(e => {
-        if(e.ledgerId === l.id && isDateInRange(e.date)) {
-           if (!isMatch(e.company, selectedCompany) || !isMatch(e.branch, selectedBranch)) return;
-           
-           const amt = parseFloat(e.amount || '0');
-           if (l.group === 'Direct Incomes (Freight/Trip Revenue)') {
-              if (String(e.dr_cr).includes('Cr')) { directIncomes += amt; dirIncBreakdown['Other Direct Incomes'] += amt; } 
-              else { directIncomes -= amt; dirIncBreakdown['Other Direct Incomes'] -= amt; }
-           } else if (l.group === 'Indirect Incomes') {
-              if (String(e.dr_cr).includes('Cr')) { indirectIncomes += amt; indIncBreakdown['Misc Indirect Inc'] += amt; } 
-              else { indirectIncomes -= amt; indIncBreakdown['Misc Indirect Inc'] -= amt; }
-           } else if (l.group === 'Direct Expenses (Fuel, Toll, Driver Bhatta)' || l.group === 'Direct Expenses (Vehicle Compliance & Docs)' || l.group === 'Direct Expenses (Tyres & Maintenance)') {
-              if (String(e.dr_cr).includes('Dr')) {
-                  directExpenses += amt;
-                  if(l.group.includes('Compliance')) dirExpBreakdown['Vehicle Compliance & RTO'] += amt;
-                  else if(l.group.includes('Tyres')) dirExpBreakdown['Tyres & Maintenance'] += amt;
-                  else dirExpBreakdown['Other Direct Exp'] += amt;
-              } else {
-                  directExpenses -= amt;
-                  if(l.group.includes('Compliance')) dirExpBreakdown['Vehicle Compliance & RTO'] -= amt;
-                  else if(l.group.includes('Tyres')) dirExpBreakdown['Tyres & Maintenance'] -= amt;
-                  else dirExpBreakdown['Other Direct Exp'] -= amt;
-              }
-           } else if (l.group === 'Indirect Expenses (Office Rent, Salary)') {
-              if (String(e.dr_cr).includes('Dr')) { indirectExpenses += amt; indExpBreakdown['Misc Indirect Exp'] += amt; } 
-              else { indirectExpenses -= amt; indExpBreakdown['Misc Indirect Exp'] -= amt; }
-           }
-        }
-     });
-  });
-
-  const pnlData = {
-    incomes: { direct: { label: 'Direct Incomes (Freight & Ops)', amount: directIncomes, details: dirIncBreakdown }, indirect: { label: 'Indirect Incomes (Discounts/Misc)', amount: indirectIncomes, details: indIncBreakdown } },
-    expenses: { direct: { label: 'Direct Expenses (Fuel, Toll, RTO)', amount: directExpenses, details: dirExpBreakdown }, indirect: { label: 'Indirect Expenses (Office/Staff)', amount: indirectExpenses, details: indExpBreakdown } }
-  };
-
-  const grossProfit = pnlData.incomes.direct.amount - pnlData.expenses.direct.amount;
-  const netProfit = (grossProfit + pnlData.incomes.indirect.amount) - pnlData.expenses.indirect.amount;
-
-  // ==========================================
-  // ⚖️ BALANCE SHEET CALCULATIONS
-  // ==========================================
-  let capitalAcc = 0; let fixedAssets = 0; let totalLoans = 0; let sundryDebtors = 0; let sundryCreditors = 0; let bankBalances = 0;
-  
-  const creditorsBreakdown: any = { 'Vendors/Suppliers': 0, 'Drivers/Staff': 0, 'Other Creditors': 0 };
-  const debtorsBreakdown: any = { 'Customers (Market)': 0, 'Other Debtors': 0 };
-  const bankBreakdown: any = {};
-
-  ledgers.forEach(l => {
-     if (!isMatch(l.company, selectedCompany) || !isMatch(l.branch, selectedBranch)) return;
-     if (selectedVehicle !== 'ALL') return; 
-
-     const bal = parseFloat(l.op_balance || '0');
-     const isOpDr = String(l.dr_cr || '').includes('Dr');
-     let currentBalance = isOpDr ? bal : -bal; 
-
-     ledgerEntries.forEach(e => {
-        if(e.ledgerId === l.id && isDateInRange(e.date)) {
-           if (!isMatch(e.company, selectedCompany) || !isMatch(e.branch, selectedBranch)) return;
-           const amt = parseFloat(e.amount || '0');
-           if (String(e.dr_cr).includes('Dr')) currentBalance += amt; else currentBalance -= amt;
-        }
-     });
-
-     if (l.group === 'Capital Account') capitalAcc += Math.abs(currentBalance);
-     if (l.group === 'Fixed Assets (Trucks, Office)') fixedAssets += Math.abs(currentBalance);
-     if (l.group === 'Sundry Debtors (Customers)') { sundryDebtors += Math.abs(currentBalance); debtorsBreakdown['Other Debtors'] += Math.abs(currentBalance); }
-     if (l.group === 'Sundry Creditors (Vendors)') { sundryCreditors += Math.abs(currentBalance); creditorsBreakdown['Other Creditors'] += Math.abs(currentBalance); }
-     if (l.group === 'Current Assets' || l.group === 'Cash & Bank') { bankBalances += currentBalance; bankBreakdown[l.name || 'Bank'] = currentBalance; }
-  });
-
-  customers.forEach(c => {
-     if (!isMatch(c.company, selectedCompany)) return;
-     if (selectedVehicle !== 'ALL') return; 
-     const cBal = parseFloat(c.opening_balance || c.op_balance || '0');
-     sundryDebtors += cBal;
-     debtorsBreakdown['Customers (Market)'] += cBal;
-  });
-
-  vendors.forEach(v => {
-     if (!isMatch(v.company, selectedCompany)) return;
-     if (selectedVehicle !== 'ALL') return; 
-     const vBal = parseFloat(v.current_balance || v.opening_balance || '0');
-     sundryCreditors += vBal;
-     creditorsBreakdown['Vendors/Suppliers'] += vBal;
-  });
-
-  loans.forEach(l => {
-     const status = getVal(l, ['Payment_Status', 'status', 'payment_status']);
-     if (status !== 'CLOSED') {
-        const vNo = getVal(l, ['Vehicle_No', 'vehicle_no', 'vehical_no']);
-        if (selectedVehicle !== 'ALL' && !isMatch(vNo, selectedVehicle)) return;
-        const linkedVeh = vehicles.find(v => isMatch(v.no, vNo));
-        const vehCompany = linkedVeh ? linkedVeh.company : 'ALL';
-        if (selectedCompany !== 'ALL' && !isMatch(vehCompany, selectedCompany)) return;
-
-        totalLoans += parseFloat(getVal(l, ['Remaining_Principal', 'remaining_principal', 'Principal_Amt', 'balance'], '0'));
-        if (selectedVehicle !== 'ALL') fixedAssets += parseFloat(getVal(l, ['Principal_Amt', 'principal_amt', 'loan_amount'], '0')); 
-     }
-  });
-
-  bankTxns.forEach(t => {
-     if (!isDateInRange(t.date) || !isMatch(t.company, selectedCompany) || !isMatch(t.branch, selectedBranch)) return;
-     if (selectedVehicle !== 'ALL') return; 
-     const amt = parseFloat(t.amount || '0');
-     if (t.type === 'Receipt (IN)') { bankBalances += amt; bankBreakdown[t.bank_account || 'Bank'] = (bankBreakdown[t.bank_account || 'Bank'] || 0) + amt; }
-     else if (t.type === 'Payment (OUT)') { bankBalances -= amt; bankBreakdown[t.bank_account || 'Bank'] = (bankBreakdown[t.bank_account || 'Bank'] || 0) - amt; }
-  });
-
-  const bsData = {
-    liabilities: { 
-      capital: { label: 'Capital Account', amount: capitalAcc, details: {'Owners Capital': capitalAcc} }, 
-      loans: { label: 'Secured Loans (Vehicle EMIs)', amount: totalLoans, details: {'Vehicle Finance/EMIs': totalLoans} }, 
-      current: { label: 'Sundry Creditors & Payables', amount: sundryCreditors, details: creditorsBreakdown }, 
-      pnl: { label: 'Profit & Loss A/c', amount: netProfit, details: {'Current Period Profit': netProfit} } 
-    },
-    assets: { 
-      fixed: { label: 'Fixed Assets (Trucks, Office Eq.)', amount: fixedAssets, details: {'Purchased Assets': fixedAssets} }, 
-      current: { label: 'Sundry Debtors (Customers)', amount: sundryDebtors, details: debtorsBreakdown }, 
-      bank: { label: 'Cash & Bank Balances', amount: bankBalances, details: Object.keys(bankBreakdown).length > 0 ? bankBreakdown : {'Liquid Cash/Bank Accounts': bankBalances} } 
-    }
-  };
-
-  const totalLiabilities = Object.values(bsData.liabilities).reduce((acc, curr) => acc + curr.amount, 0);
-  const totalAssets = Object.values(bsData.assets).reduce((acc, curr) => acc + curr.amount, 0);
-
-  // CHARTS DATA
-  const pnlChartData = [
-      { name: 'Income', Value: directIncomes + indirectIncomes, fill: '#10b981' },
-      { name: 'Expenses', Value: directExpenses + indirectExpenses, fill: '#ef4444' }
-  ];
-
-  const bsPieData = [
-      { name: 'Fixed Assets', value: fixedAssets, color: '#8b5cf6' },
-      { name: 'Current Assets (Debtors/Bank)', value: sundryDebtors + bankBalances, color: '#38bdf8' },
-      { name: 'Current Liabilities (Creditors)', value: sundryCreditors, color: '#f59e0b' },
-      { name: 'Long-term Liabilities (Loans)', value: totalLoans, color: '#ec4899' }
-  ].filter(d => d.value > 0);
-
-  return { directIncomes, directExpenses, indirectIncomes, indirectExpenses, pnlData, grossProfit, netProfit, bsData, totalLiabilities, totalAssets, pnlChartData, bsPieData };
-  }, [trips, ledgers, ledgerEntries, customers, vendors, loans, vehicles, bankTxns, selectedCompany, selectedBranch, debouncedVehicle, fromDate, toDate]);
-
-  const { directIncomes, directExpenses, indirectIncomes, indirectExpenses, pnlData, grossProfit, netProfit, bsData, totalLiabilities, totalAssets, pnlChartData, bsPieData } = fin;
 
   const handleDownloadExcel = () => {
-    let csv = `Company: ${selectedCompany}\nReport: ${activeTab === 'PNL' ? 'Profit & Loss Account' : 'Balance Sheet'}\nPeriod: ${fromDate ? new Date(fromDate).toLocaleDateString('en-GB') : 'Start'} to ${toDate ? new Date(toDate).toLocaleDateString('en-GB') : 'Today'}\n\n`;
-    
+    const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    let csv = `Company: ${selectedCompany}\n`
+      + `Report: ${activeTab === 'PNL' ? 'Profit & Loss' : activeTab === 'BS' ? 'Balance Sheet' : 'Trial Balance'}\n`
+      + `Period: ${dmy(fromDate)} to ${dmy(toDate)}\nSource: PostgreSQL general ledger\n\n`;
+
     if (activeTab === 'PNL') {
-      csv += `Expenses (Dr.),Amount (Rs.),Incomes (Cr.),Amount (Rs.)\n`;
-      csv += `Direct Expenses,,Direct Incomes,\n`;
-      csv += `"${pnlData.expenses.direct.label}",${pnlData.expenses.direct.amount},"${pnlData.incomes.direct.label}",${pnlData.incomes.direct.amount}\n`;
-      csv += `"Gross Profit c/d",${grossProfit > 0 ? grossProfit : '0'},"Gross Loss c/d",${grossProfit < 0 ? Math.abs(grossProfit) : '0'}\n\n`;
-      csv += `Indirect Expenses,,Indirect Incomes,\n`;
-      csv += `"${pnlData.expenses.indirect.label}",${pnlData.expenses.indirect.amount},"${pnlData.incomes.indirect.label}",${pnlData.incomes.indirect.amount}\n`;
-      csv += `"Net Profit",${netProfit > 0 ? netProfit : '0'},"Net Loss",${netProfit < 0 ? Math.abs(netProfit) : '0'}\n`;
+      csv += 'Expenses (Dr.),Amount (Rs.),Incomes (Cr.),Amount (Rs.)\n';
+      const rows = Math.max(expenses.length, income.length);
+      for (let i = 0; i < rows; i++) {
+        csv += `${esc(expenses[i]?.group_head ?? '')},${expenses[i]?.amount ?? ''},`
+          + `${esc(income[i]?.group_head ?? '')},${income[i]?.amount ?? ''}\n`;
+      }
+      csv += `${esc(netProfit >= 0 ? 'Net Profit' : 'Net Loss')},${Math.abs(netProfit).toFixed(2)},,\n`;
+      csv += `TOTAL,${(totalExpense + Math.max(0, netProfit)).toFixed(2)},TOTAL,${totalIncome.toFixed(2)}\n`;
+    } else if (activeTab === 'BS') {
+      csv += 'Liabilities & Equity,Amount (Rs.),Assets,Amount (Rs.)\n';
+      const rows = Math.max(liabs.length, assets.length);
+      for (let i = 0; i < rows; i++) {
+        csv += `${esc(liabs[i]?.group_head ?? '')},${liabs[i]?.amount ?? ''},`
+          + `${esc(assets[i]?.group_head ?? '')},${assets[i]?.amount ?? ''}\n`;
+      }
+      csv += `TOTAL,${totalLiab.toFixed(2)},TOTAL,${totalAssets.toFixed(2)}\n`;
+      csv += `\nDifference,${bs?.difference ?? ''},Balanced,${bs?.balanced ? 'YES' : 'NO'}\n`;
     } else {
-      csv += `Liabilities,Amount (Rs.),Assets,Amount (Rs.)\n`;
-      csv += `"${bsData.liabilities.capital.label}",${bsData.liabilities.capital.amount},"${bsData.assets.fixed.label}",${bsData.assets.fixed.amount}\n`;
-      csv += `"${bsData.liabilities.pnl.label}",${bsData.liabilities.pnl.amount},"${bsData.assets.current.label}",${bsData.assets.current.amount}\n`;
-      csv += `"${bsData.liabilities.loans.label}",${bsData.liabilities.loans.amount},"${bsData.assets.bank.label}",${bsData.assets.bank.amount}\n`;
-      csv += `"${bsData.liabilities.current.label}",${bsData.liabilities.current.amount},,\n`;
-      csv += `TOTAL,${totalLiabilities},TOTAL,${totalAssets}\n`;
+      csv += 'Group,Type,Statement,Debit (Rs.),Credit (Rs.),Dr (voucher era),Cr (voucher era)\n';
+      (tb?.rows ?? []).forEach((r: any) => {
+        csv += `${esc(r.group_head)},${r.account_type},${r.statement},${r.dr},${r.cr},${r.dr_voucher_era},${r.cr_voucher_era}\n`;
+      });
+      const t = tb?.totals ?? {};
+      csv += `TOTAL,,,${(t.dr ?? 0).toFixed(2)},${(t.cr ?? 0).toFixed(2)},${(t.dr_voucher_era ?? 0).toFixed(2)},${(t.cr_voucher_era ?? 0).toFixed(2)}\n`;
     }
-    
+
     const a = document.createElement('a');
-    a.href = window.URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = `${activeTab === 'PNL' ? 'Profit_Loss' : 'Balance_Sheet'}_${selectedCompany.replace(/ /g, '_')}.csv`;
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${activeTab === 'PNL' ? 'Profit_Loss' : activeTab === 'BS' ? 'Balance_Sheet' : 'Trial_Balance'}_${selectedCompany.replace(/[^A-Za-z0-9]/g, '_')}_${toDate}.csv`;
     a.click();
   };
 
   return (
-    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: '30px' }}>
-      
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: 50, background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: 30 }}>
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -393,489 +165,330 @@ export default function FinancialReports() {
           th { background: #f0f0f0 !important; -webkit-print-color-adjust: exact; }
           h2, h3, p, div, span { color: black !important; }
           .expand-icon { display: none !important; }
-          .details-row { display: table-row !important; } 
         }
-        
         .modern-table { width: 100%; border-collapse: collapse; }
         .modern-table th { background: rgba(0,0,0,0.3); color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 15px; border-bottom: 2px solid #334155; }
         .modern-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0; font-size: 13px; }
-        
-        .expandable-row { cursor: pointer; transition: all 0.3s ease; background: rgba(15, 23, 42, 0.4); }
-        .expandable-row:hover { background: rgba(56, 189, 248, 0.1); transform: translateX(2px); border-left: 3px solid #38bdf8; }
-        
-        .details-row { background: rgba(0,0,0,0.2); animation: fadeIn 0.3s ease-in-out; }
-        .details-row td { padding: 8px 15px 8px 40px !important; color: #94a3b8; border-bottom: 1px solid rgba(255,255,255,0.02); }
-        .details-row:hover { background: rgba(255,255,255,0.02); color: #fff; }
-
-        .metric-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3); transition: 0.3s; }
-        .metric-card:hover { transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.5); border-color: rgba(56, 189, 248, 0.3); }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        .expandable-row { cursor: pointer; transition: all .3s ease; background: rgba(15,23,42,.4); }
+        .expandable-row:hover { background: rgba(56,189,248,.1); }
+        .metric-card { background: rgba(30,41,59,.5); border: 1px solid rgba(255,255,255,.05); border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
       `}</style>
 
-      {/* HEADER SECTION */}
-      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
+      {/* HEADER */}
+      <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, flexWrap: 'wrap', gap: 15 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: '32px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px', fontWeight: '900', letterSpacing: '-0.5px' }}>
-            📊 Financial Statements (CA Ready)
-          </h2>
-          <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>Real-Time Consolidated Profit & Loss Account and Balance Sheet</p>
+          <h2 style={{ margin: 0, fontSize: 32, color: '#fff', fontWeight: 900, letterSpacing: '-0.5px' }}>📊 Financial Statements (CA Ready)</h2>
+          <p style={{ margin: '5px 0 0', color: '#94a3b8', fontSize: 14 }}>
+            Derived from the PostgreSQL general ledger — the P&L and the balance sheet read the same postings
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button onClick={handleDownloadExcel} style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid #10b981', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: '0.3s' }}>
-            📥 Export to Excel
-          </button>
-          <button onClick={handlePrint} style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: '900', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 5px 15px rgba(245,158,11,0.4)', transition: '0.3s' }}>
-            🖨️ Print Document
-          </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={load} style={btn('#1e293b', '#38bdf8', '1px solid #38bdf8')}>🔄 Refresh</button>
+          <button onClick={handlePrint} style={btn('#334155', '#fff')}>🖨️ Print</button>
+          <button onClick={handleDownloadExcel} style={btn('linear-gradient(135deg,#10b981,#059669)', '#fff')}>📥 CSV</button>
         </div>
       </div>
 
-      {/* 🏢 SMART FILTERS & DATES */}
-      <div className="no-print" style={{ background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(51, 65, 85, 0.5)', padding: '20px', borderRadius: '12px', marginBottom: '25px', display: 'flex', gap: '15px', flexWrap: 'wrap', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>Company Focus *</label>
-          <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} style={{ width: '100%', padding: '12px', background: '#020617', border: '1px solid #38bdf8', color: '#fff', borderRadius: '8px', outline: 'none', marginTop: '5px', fontWeight: 'bold', appearance: 'none' }}>
-            <option value="ALL">-- All Companies (Consolidated) --</option>
-            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+      {err && (
+        <div className="no-print" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '16px 20px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
+          ⚠️ {err}
+          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{FIN}/reports/*</code>. Check that the ERP API is running.</div>
+        </div>
+      )}
+
+      {/* FILTERS */}
+      <div className="no-print" style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.05)', padding: 20, borderRadius: 15, marginBottom: 20, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: '1 1 240px' }}>
+          <label style={lbl('#94a3b8')}>Operating Company</label>
+          <select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} style={inp('#334155')}>
+            <option value="ALL">-- Consolidated (all companies) --</option>
+            {companies.map((c) => <option key={c.company_name} value={c.company_name}>{c.company_name}</option>)}
           </select>
         </div>
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>Branch Level</label>
-          <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} style={{ width: '100%', padding: '12px', background: '#020617', border: '1px solid #334155', color: '#fff', borderRadius: '8px', outline: 'none', marginTop: '5px', appearance: 'none' }}>
-            <option value="ALL">-- All Branches (Consolidated) --</option>
-            {branches.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
+        <div style={{ flex: '1 1 160px' }}>
+          <label style={lbl('#94a3b8')}>Period From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...inp('#334155'), colorScheme: 'dark' }} />
         </div>
-        <div style={{ flex: 1, minWidth: '200px' }}>
-          <label style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>Vehicle / Fleet Level</label>
-          {/* 🌟 SMART SEARCH DROPDOWN FOR VEHICLE */}
-          <input 
-            list="vehicle-search-list"
-            placeholder="Search Vehicle... (Empty = ALL)"
-            value={selectedVehicle === 'ALL' ? '' : selectedVehicle} 
-            onChange={e => setSelectedVehicle(e.target.value.toUpperCase() || 'ALL')} 
-            style={{ width: '100%', padding: '12px', background: '#020617', border: '1px solid #10b981', color: '#10b981', borderRadius: '8px', outline: 'none', marginTop: '5px', fontWeight: 'bold', boxSizing: 'border-box' }} 
-          />
-          <datalist id="vehicle-search-list">
-            {vehicles.map((v, i) => <option key={i} value={v.no}>{v.no}</option>)}
-          </datalist>
+        <div style={{ flex: '1 1 160px' }}>
+          <label style={lbl('#94a3b8')}>Period To {activeTab === 'BS' && <span style={{ color: '#10b981' }}>(as on)</span>}</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inp('#334155'), colorScheme: 'dark' }} />
         </div>
-        
-        {/* 📅 DATE FILTERS */}
-        <div style={{ flex: '0.8', minWidth: '150px' }}>
-          <label style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>From Date</label>
-          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} style={{ width: '100%', padding: '12px', background: '#020617', border: '1px solid #475569', color: '#fff', borderRadius: '8px', outline: 'none', marginTop: '5px', colorScheme: 'dark', boxSizing: 'border-box' }} />
-        </div>
-        <div style={{ flex: '0.8', minWidth: '150px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-             <label style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>To Date</label>
-             {(fromDate || toDate) && <span onClick={clearDates} style={{ color: '#ef4444', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold', background: 'rgba(239, 68, 68, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Clear</span>}
-          </div>
-          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} style={{ width: '100%', padding: '12px', background: '#020617', border: '1px solid #475569', color: '#fff', borderRadius: '8px', outline: 'none', marginTop: '5px', colorScheme: 'dark', boxSizing: 'border-box' }} />
-        </div>
+        <button onClick={() => { setFromDate(fyStart); setToDate(new Date().toISOString().slice(0, 10)); }} style={btn('#334155', '#cbd5e1')}>This FY</button>
       </div>
 
-      {/* MODULE TABS */}
-      <div className="no-print" style={{ display: 'flex', gap: '15px', marginBottom: '25px', paddingBottom: '10px' }}>
-        <button onClick={() => setActiveTab('PNL')} style={{ padding: '12px 25px', background: activeTab === 'PNL' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(30, 41, 59, 0.5)', color: activeTab === 'PNL' ? '#38bdf8' : '#94a3b8', border: '1px solid', borderColor: activeTab === 'PNL' ? '#38bdf8' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: 'all 0.3s ease', borderRadius: '8px', boxShadow: activeTab === 'PNL' ? '0 0 15px rgba(56, 189, 248, 0.3)' : 'none' }}>
-          📊 Statement of Profit & Loss
-        </button>
-        <button onClick={() => setActiveTab('BS')} style={{ padding: '12px 25px', background: activeTab === 'BS' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(30, 41, 59, 0.5)', color: activeTab === 'BS' ? '#10b981' : '#94a3b8', border: '1px solid', borderColor: activeTab === 'BS' ? '#10b981' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', transition: 'all 0.3s ease', borderRadius: '8px', boxShadow: activeTab === 'BS' ? '0 0 15px rgba(16, 185, 129, 0.3)' : 'none' }}>
-          ⚖️ Balance Sheet Position
-        </button>
-        <button onClick={() => setActiveTab('JOURNAL')} style={{ padding: '12px 25px', background: activeTab === 'JOURNAL' ? 'rgba(192, 132, 252, 0.15)' : 'rgba(30, 41, 59, 0.5)', color: activeTab === 'JOURNAL' ? '#c084fc' : '#94a3b8', border: '1px solid', borderColor: activeTab === 'JOURNAL' ? '#c084fc' : '#334155', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '8px' }}>
-          📒 Live Journal {jMeta.count > 0 && <span style={{fontSize:'11px'}}>({jMeta.count})</span>}
-        </button>
+      {/* HEALTH BANNER — the ledger reporting on itself */}
+      {health && (
+        <div className="no-print" style={{
+          background: health.ok ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.1)',
+          border: `1px solid ${health.ok ? '#10b981' : '#f59e0b'}`,
+          color: health.ok ? '#6ee7b7' : '#fcd34d',
+          padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13,
+        }}>
+          {health.ok
+            ? '✅ Ledger integrity: every voucher balances, no unresolvable postings, no accounts off the chart.'
+            : `⚠️ Ledger integrity checks failing: ${(health.failures || []).join(', ')}`}
+        </div>
+      )}
+
+      {/* TABS */}
+      <div className="no-print" style={{ display: 'flex', gap: 10, marginBottom: 25, flexWrap: 'wrap' }}>
+        {[
+          { k: 'PNL', label: '📈 Profit & Loss', color: '#38bdf8' },
+          { k: 'BS', label: '⚖️ Balance Sheet', color: '#10b981' },
+          { k: 'TB', label: '📒 Trial Balance', color: '#c084fc' },
+        ].map((t) => (
+          <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
+            padding: '12px 25px',
+            background: activeTab === t.k ? `${t.color}26` : 'rgba(30,41,59,0.5)',
+            color: activeTab === t.k ? t.color : '#94a3b8',
+            border: `1px solid ${activeTab === t.k ? t.color : '#334155'}`,
+            fontWeight: 'bold', cursor: 'pointer', fontSize: 14, borderRadius: 8,
+          }}>{t.label}</button>
+        ))}
       </div>
 
-      {/* 📒 LIVE JOURNAL — single source of truth (double-entry). Additive view. */}
-      {activeTab === 'JOURNAL' && (
-        <div className="glass-panel" style={{ background: '#0f172a', borderRadius: '15px', padding: '30px', border: '1px solid #1e293b' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
-            <h3 style={{ margin: 0, color: '#c084fc' }}>📒 Live Ledger Balances <span style={{ fontSize: '12px', color: '#64748b' }}>(from double-entry journal)</span></h3>
-            <span className={`pt-pill ${jMeta.balanced ? 'pt-pill--completed' : 'pt-pill--pending-unload'}`}>{jMeta.count} entries · {jMeta.balanced ? 'Balanced' : `${jMeta.findings?.length} flagged`}</span>
+      {loading && <div style={{ color: '#38bdf8', fontWeight: 'bold', padding: 20 }}>Loading statements from PostgreSQL…</div>}
+
+      {!loading && !err && (
+        <div className="printable-area">
+          {/* REPORT HEADING */}
+          <div style={{ textAlign: 'center', marginBottom: 25, borderBottom: '2px solid #334155', paddingBottom: 15 }}>
+            <h2 style={{ margin: 0, fontSize: 26, color: '#fff', fontWeight: 900, letterSpacing: 1 }}>
+              {selectedCompany === 'ALL' ? 'CONSOLIDATED FINANCIAL REPORT' : selectedCompany.toUpperCase()}
+            </h2>
+            <h3 style={{ margin: '15px 0 8px', color: activeTab === 'PNL' ? '#38bdf8' : activeTab === 'BS' ? '#10b981' : '#c084fc', fontSize: 20, letterSpacing: 1 }}>
+              {activeTab === 'PNL' ? 'STATEMENT OF PROFIT & LOSS (INCOME STATEMENT)'
+                : activeTab === 'BS' ? 'BALANCE SHEET (STATEMENT OF FINANCIAL POSITION)'
+                : 'TRIAL BALANCE'}
+            </h3>
+            <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+              {activeTab === 'BS' ? `As on ${dmy(toDate)}` : `Period: ${dmy(fromDate)} to ${dmy(toDate)}`}
+            </p>
           </div>
-          {jBal.length === 0 ? (
-            <p style={{ color: '#94a3b8' }}>Journal abhi khaali hai. Operations → Accounts sync chalao (backfill) tab balances yahan dikhenge.</p>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-                <thead><tr style={{ color: '#94a3b8', textAlign: 'left', borderBottom: '2px solid #334155' }}>
-                  <th style={{ padding: '10px' }}>Ledger</th><th style={{ padding: '10px', textAlign: 'right', color: '#38bdf8' }}>Debit ₹</th><th style={{ padding: '10px', textAlign: 'right', color: '#f59e0b' }}>Credit ₹</th><th style={{ padding: '10px', textAlign: 'right' }}>Balance ₹</th>
-                </tr></thead>
+
+          {/* ── P&L ── */}
+          {activeTab === 'PNL' && (
+            <>
+              <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 15, marginBottom: 25 }}>
+                {metric('Total Income', totalIncome, '#10b981')}
+                {metric('Total Expenses', totalExpense, '#ef4444')}
+                {metric(netProfit >= 0 ? 'Net Profit' : 'Net Loss', Math.abs(netProfit), netProfit >= 0 ? '#38bdf8' : '#f43f5e')}
+                <div className="metric-card">
+                  <div style={{ color: '#c084fc', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Net Margin</div>
+                  <div style={{ fontSize: 26, fontWeight: 900, color: '#fff', marginTop: 6 }}>
+                    {pnl?.margin_pct == null ? '—' : `${pnl.margin_pct}%`}
+                  </div>
+                  {pnl?.margin_pct == null && <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>no revenue in period</div>}
+                </div>
+              </div>
+
+              <div className="glass-panel" style={panel}>
+                <table className="modern-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Expenses (Dr.)</th>
+                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
+                      <th style={{ textAlign: 'left' }}>Incomes (Cr.)</th>
+                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="expandable-row" onClick={() => { toggle('exp'); toggle('inc'); }}>
+                      <td style={{ fontWeight: 'bold', color: '#ef4444' }}>
+                        <span className="expand-icon">{expanded.exp ? '▼' : '▶'}</span> Expenses by group
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{inr(totalExpense)}</td>
+                      <td style={{ fontWeight: 'bold', color: '#10b981' }}>
+                        <span className="expand-icon">{expanded.inc ? '▼' : '▶'}</span> Income by group
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{inr(totalIncome)}</td>
+                    </tr>
+                    {(expanded.exp || expanded.inc) && Array.from({ length: Math.max(expenses.length, income.length) }).map((_, i) => (
+                      <tr key={i}>
+                        <td style={{ paddingLeft: 40, color: '#94a3b8' }}>{expenses[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{expenses[i] ? inr(expenses[i].amount) : ''}</td>
+                        <td style={{ paddingLeft: 40, color: '#94a3b8' }}>{income[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{income[i] ? inr(income[i].amount) : ''}</td>
+                      </tr>
+                    ))}
+                    {expenses.length === 0 && income.length === 0 && (
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No postings in this period.</td></tr>
+                    )}
+                    <tr style={{ background: 'rgba(56,189,248,0.08)', fontWeight: 'bold' }}>
+                      <td style={{ color: netProfit >= 0 ? '#10b981' : '#f43f5e' }}>{netProfit >= 0 ? 'Net Profit c/d' : 'Net Loss c/d'}</td>
+                      <td style={{ textAlign: 'right' }}>{netProfit >= 0 ? inr(netProfit) : '—'}</td>
+                      <td style={{ color: '#94a3b8' }}>{netProfit < 0 ? 'Net Loss' : ''}</td>
+                      <td style={{ textAlign: 'right' }}>{netProfit < 0 ? inr(Math.abs(netProfit)) : ''}</td>
+                    </tr>
+                    <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900, fontSize: 15 }}>
+                      <td>TOTAL</td>
+                      <td style={{ textAlign: 'right' }}>{inr(totalExpense + Math.max(0, netProfit))}</td>
+                      <td>TOTAL</td>
+                      <td style={{ textAlign: 'right' }}>{inr(totalIncome + Math.max(0, -netProfit))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="no-print" style={{ ...panel, marginTop: 25, height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pnlChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="name" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" tickFormatter={(v) => `${(v / 100000).toFixed(1)}L`} />
+                    <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
+                    <Legend />
+                    <Bar dataKey="Value" name="Amount (₹)" radius={[8, 8, 0, 0]}>
+                      {pnlChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
+
+          {/* ── BALANCE SHEET ── */}
+          {activeTab === 'BS' && (
+            <>
+              {bs && !bs.balanced && (
+                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: '14px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+                  ⚠️ This sheet is out by ₹{inr(bs.difference)}.
+                  {Math.abs(Number(bs.legacy_imbalance)) > 0.01 && Math.abs(Number(bs.legacy_imbalance) - Number(bs.difference)) < 0.01 ? (
+                    <div style={{ marginTop: 6, color: '#fde68a' }}>
+                      The whole difference is the migrated single-entry history: those pre-double-entry rows net to zero only
+                      once all of them are included, and this date cuts through them. The voucher era balances exactly
+                      (₹{inr(bs.voucher_imbalance)}). Set “as on” to a date after the migrated history — or leave the period
+                      open — and the sheet foots.
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 6, color: '#fde68a' }}>
+                      Voucher-era imbalance ₹{inr(bs.voucher_imbalance)}, legacy imbalance ₹{inr(bs.legacy_imbalance)}.
+                      A non-zero voucher-era figure is a real defect — check <code>/finance/health/accounting</code>.
+                    </div>
+                  )}
+                </div>
+              )}
+              {bs?.balanced && (
+                <div className="no-print" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid #10b981', color: '#6ee7b7', padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+                  ✅ Balanced — assets equal liabilities and equity to the paisa.
+                </div>
+              )}
+
+              <div className="glass-panel" style={panel}>
+                <table className="modern-table">
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left' }}>Liabilities & Equity</th>
+                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
+                      <th style={{ textAlign: 'left' }}>Assets</th>
+                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: Math.max(liabs.length, assets.length) }).map((_, i) => (
+                      <tr key={i}>
+                        <td style={{ color: liabs[i]?.account_type === 'EQUITY' ? '#c084fc' : '#e2e8f0' }}>{liabs[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', fontWeight: liabs[i] ? 'bold' : 'normal' }}>{liabs[i] ? inr(liabs[i].amount) : ''}</td>
+                        <td>{assets[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', fontWeight: assets[i] ? 'bold' : 'normal' }}>{assets[i] ? inr(assets[i].amount) : ''}</td>
+                      </tr>
+                    ))}
+                    {liabs.length === 0 && assets.length === 0 && (
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No balances as on this date.</td></tr>
+                    )}
+                    <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900, fontSize: 15 }}>
+                      <td>TOTAL</td>
+                      <td style={{ textAlign: 'right' }}>{inr(totalLiab)}</td>
+                      <td>TOTAL</td>
+                      <td style={{ textAlign: 'right' }}>{inr(totalAssets)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {bsPieData.length > 0 && (
+                <div className="no-print" style={{ ...panel, marginTop: 25, height: 340 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={bsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} label={(e: any) => e.name}>
+                        {bsPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── TRIAL BALANCE ── */}
+          {activeTab === 'TB' && (
+            <div className="glass-panel" style={panel}>
+              <p className="no-print" style={{ color: '#94a3b8', fontSize: 12.5, marginTop: 0 }}>
+                Two pairs of columns: everything posted, and the voucher era alone. The voucher-era pair must be equal —
+                it is enforced by a deferred database constraint on every voucher. The full pair can differ by the migrated
+                single-entry history, which is why both are shown rather than one blended figure.
+              </p>
+              <table className="modern-table">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left' }}>Account Group</th>
+                    <th style={{ textAlign: 'left' }}>Type</th>
+                    <th style={{ textAlign: 'right' }}>Debit (₹)</th>
+                    <th style={{ textAlign: 'right' }}>Credit (₹)</th>
+                    <th style={{ textAlign: 'right' }}>Dr — voucher era</th>
+                    <th style={{ textAlign: 'right' }}>Cr — voucher era</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  {[...jBal].sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance)).map((b, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
-                      <td style={{ padding: '10px', color: '#e2e8f0' }}>{b.ledger}</td>
-                      <td style={{ padding: '10px', textAlign: 'right', color: '#38bdf8' }}>{b.dr ? `₹${b.dr.toLocaleString('en-IN')}` : '-'}</td>
-                      <td style={{ padding: '10px', textAlign: 'right', color: '#f59e0b' }}>{b.cr ? `₹${b.cr.toLocaleString('en-IN')}` : '-'}</td>
-                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold', color: b.balance >= 0 ? '#10b981' : '#ef4444' }}>₹{Math.abs(b.balance).toLocaleString('en-IN')} {b.balance >= 0 ? 'Dr' : 'Cr'}</td>
+                  {(tb?.rows ?? []).map((r: any) => (
+                    <tr key={r.group_head}>
+                      <td>{r.group_head}</td>
+                      <td style={{ color: '#64748b', fontSize: 11 }}>{r.account_type}</td>
+                      <td style={{ textAlign: 'right' }}>{inr(r.dr)}</td>
+                      <td style={{ textAlign: 'right' }}>{inr(r.cr)}</td>
+                      <td style={{ textAlign: 'right', color: '#94a3b8' }}>{inr(r.dr_voucher_era)}</td>
+                      <td style={{ textAlign: 'right', color: '#94a3b8' }}>{inr(r.cr_voucher_era)}</td>
                     </tr>
                   ))}
+                  {(tb?.rows ?? []).length === 0 && (
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No postings in this period.</td></tr>
+                  )}
+                  <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900 }}>
+                    <td colSpan={2}>TOTAL</td>
+                    <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.dr)}</td>
+                    <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.cr)}</td>
+                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#10b981' : '#f43f5e' }}>
+                      {inr(tb?.totals?.dr_voucher_era)}
+                    </td>
+                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#10b981' : '#f43f5e' }}>
+                      {inr(tb?.totals?.cr_voucher_era)}
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
           )}
-          <p style={{ marginTop: '15px', fontSize: '12px', color: '#64748b' }}>ℹ️ Ye live double-entry journal se aate hain (idempotent, duplicate-proof). P&L/Balance Sheet upar waise ke waise — ye additive view hai.</p>
+
+          <p style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginTop: 25 }}>
+            Generated from the PostgreSQL general ledger on {new Date().toLocaleString('en-GB')} · Prasad Transport ERP
+          </p>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* 🖨️ PRINTABLE AREA STARTS HERE */}
-      <div className="printable-area glass-panel" style={{ background: '#0f172a', borderRadius: '15px', padding: '30px', border: '1px solid #1e293b', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
-        
-        {/* REPORT HEADER */}
-        <div style={{ textAlign: 'center', marginBottom: '40px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '25px' }}>
-          <h2 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '28px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: '900' }}>
-            {selectedCompany === 'ALL' ? 'CONSOLIDATED FINANCIAL REPORT' : selectedCompany}
-          </h2>
-          {selectedBranch !== 'ALL' && <div style={{ color: '#94a3b8', fontSize: '15px', marginBottom: '8px', fontWeight: 'bold' }}>Branch Location: {selectedBranch}</div>}
-          
-          <h3 style={{ margin: '15px 0 8px 0', color: activeTab === 'PNL' ? '#38bdf8' : '#10b981', fontSize: '20px', letterSpacing: '1px' }}>
-            {activeTab === 'PNL' ? 'STATEMENT OF PROFIT & LOSS (INCOME STATEMENT)' : 'BALANCE SHEET (STATEMENT OF FINANCIAL POSITION)'}
-          </h3>
-          
-          <p style={{ margin: 0, color: '#f59e0b', fontSize: '14px', fontWeight: 'bold', display: 'inline-block', background: 'rgba(245, 158, 11, 0.1)', padding: '5px 15px', borderRadius: '20px' }}>
-            Period: {fromDate ? new Date(fromDate).toLocaleDateString('en-GB') : 'Start of Business'} to {toDate ? new Date(toDate).toLocaleDateString('en-GB') : 'Present Day'}
-          </p>
+const btn = (bg: string, color: string, border = 'none'): React.CSSProperties => ({ background: bg, color, border, padding: '10px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', fontSize: 13 });
+const lbl = (color: string): React.CSSProperties => ({ color, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', display: 'block', marginBottom: 6 });
+const inp = (border: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#0f172a', border: `1px solid ${border}`, color: '#fff', borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
+const panel: React.CSSProperties = { background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 15, padding: 20, overflowX: 'auto' };
 
-          {selectedVehicle !== 'ALL' && (
-            <div style={{ marginTop: '20px' }}>
-               <span style={{ display: 'inline-flex', alignItems: 'center', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '8px 25px', borderRadius: '30px', border: '1px solid #10b981', fontWeight: 'bold', fontSize: '13px', letterSpacing: '1px' }}>
-                 🚛 Dedicated Vehicle Tracking: {selectedVehicle}
-               </span>
-            </div>
-          )}
-        </div>
-
-        {loading ? (
-           <div style={{ textAlign: 'center', color: '#38bdf8', padding: '80px', fontSize: '18px', fontWeight: 'bold' }}>
-             <span style={{ fontSize: '30px', display: 'block', marginBottom: '10px' }}>⏳</span>
-             Compiling Real-Time Financials...
-           </div>
-        ) : (
-          <>
-            {/* 📊 TAB 1: PROFIT & LOSS A/C */}
-            {activeTab === 'PNL' && (
-              <>
-                {/* SMART CHARTS & METRICS (No Print) */}
-                <div className="no-print" style={{ display: 'flex', gap: '25px', marginBottom: '40px', flexWrap: 'wrap' }}>
-                   
-                   {/* Main Metric Card */}
-                   <div className="metric-card" style={{ flex: '1 1 250px', background: netProfit >= 0 ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.2))' : 'linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(185, 28, 28, 0.2))', borderColor: netProfit >= 0 ? '#10b981' : '#ef4444' }}>
-                       <p style={{ margin: '0 0 10px 0', color: '#e2e8f0', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Net Result for Period</p>
-                       <h1 style={{ margin: '0', color: netProfit >= 0 ? '#10b981' : '#ef4444', fontSize: '48px', fontWeight: '900', textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>
-                          ₹{Math.abs(netProfit).toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                       </h1>
-                       <div style={{ marginTop: '15px', padding: '5px 15px', borderRadius: '20px', background: netProfit >= 0 ? '#10b981' : '#ef4444', color: '#fff', fontSize: '12px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                          {netProfit >= 0 ? '📈 Profit Generated' : '📉 Loss Incurred'}
-                       </div>
-                   </div>
-
-                   {/* Chart Card */}
-                   <div className="metric-card" style={{ flex: '2 1 400px', height: '250px', padding: '15px', alignItems: 'stretch' }}>
-                     <h4 style={{ color: '#94a3b8', textAlign: 'center', margin: '0 0 10px 0', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Revenue vs Expenses Comparison</h4>
-                     <ResponsiveContainer width="100%" height="100%">
-                       <BarChart data={pnlChartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }} barSize={60}>
-                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                         <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: '#cbd5e1', fontSize: 12, fontWeight: 'bold' }} axisLine={false} tickLine={false} />
-                         <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '8px', backdropFilter: 'blur(10px)' }} />
-                         <Bar dataKey="Value" radius={[6, 6, 0, 0]}>
-                            {pnlChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
-                         </Bar>
-                       </BarChart>
-                     </ResponsiveContainer>
-                   </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
-                  
-                  {/* DR. EXPENSES SIDE */}
-                  <div style={{ flex: 1, minWidth: '350px' }}>
-                    <h3 style={{ color: '#ef4444', margin: '0 0 15px 0', fontSize: '16px', display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #ef4444', paddingBottom: '10px' }}>
-                      <span>DR. EXPENSES</span>
-                      <span>₹ {pnlData.expenses.direct.amount + pnlData.expenses.indirect.amount}</span>
-                    </h3>
-                    
-                    <table className="modern-table">
-                      <tbody>
-                        <tr><td colSpan={2} style={{ padding: '20px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Operational Costs</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('dirExp')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['dirExp'] ? '▼' : '▶'}</span>
-                              {pnlData.expenses.direct.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>
-                              {pnlData.expenses.direct.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                           </td>
-                        </tr>
-                        {expandedSections['dirExp'] && Object.keys(pnlData.expenses.direct.details).filter(k => pnlData.expenses.direct.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row">
-                             <td style={{ paddingLeft: '35px' }}>{k}</td>
-                             <td style={{ textAlign: 'right' }}>{pnlData.expenses.direct.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                           </tr>
-                        ))}
-                        
-                        <tr style={{ background: 'rgba(16, 185, 129, 0.05)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                          <td style={{ padding: '15px', fontWeight: '900', color: '#10b981', textTransform: 'uppercase', letterSpacing: '1px' }}>Gross Profit Carried Down (c/d)</td>
-                          <td style={{ padding: '15px', textAlign: 'right', fontWeight: '900', color: '#10b981', fontSize: '16px' }}>{grossProfit > 0 ? grossProfit.toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}</td>
-                        </tr>
-
-                        <tr><td colSpan={2} style={{ padding: '30px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Administrative Costs</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('indExp')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['indExp'] ? '▼' : '▶'}</span>
-                              {pnlData.expenses.indirect.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>
-                              {pnlData.expenses.indirect.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                           </td>
-                        </tr>
-                        {expandedSections['indExp'] && Object.keys(pnlData.expenses.indirect.details).filter(k => pnlData.expenses.indirect.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row">
-                             <td style={{ paddingLeft: '35px' }}>{k}</td>
-                             <td style={{ textAlign: 'right' }}>{pnlData.expenses.indirect.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                           </tr>
-                        ))}
-                        
-                        <tr style={{ background: 'rgba(56, 189, 248, 0.05)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                          <td style={{ padding: '20px 15px', fontWeight: '900', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '1px' }}>Net Profit (Transferred to Capital)</td>
-                          <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', color: '#38bdf8', fontSize: '18px' }}>{netProfit > 0 ? netProfit.toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* CR. INCOMES SIDE */}
-                  <div style={{ flex: 1, minWidth: '350px' }}>
-                    <h3 style={{ color: '#10b981', margin: '0 0 15px 0', fontSize: '16px', display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #10b981', paddingBottom: '10px' }}>
-                      <span>CR. INCOMES & REVENUES</span>
-                      <span>₹ {pnlData.incomes.direct.amount + pnlData.incomes.indirect.amount}</span>
-                    </h3>
-
-                    <table className="modern-table">
-                      <tbody style={{ color: '#cbd5e1', fontSize: '14px' }}>
-                        <tr><td colSpan={2} style={{ padding: '20px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Operating Revenue</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('dirInc')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['dirInc'] ? '▼' : '▶'}</span>
-                              {pnlData.incomes.direct.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>
-                              {pnlData.incomes.direct.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                           </td>
-                        </tr>
-                        {expandedSections['dirInc'] && Object.keys(pnlData.incomes.direct.details).filter(k => pnlData.incomes.direct.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row">
-                             <td style={{ paddingLeft: '35px' }}>{k}</td>
-                             <td style={{ textAlign: 'right' }}>{pnlData.incomes.direct.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                           </tr>
-                        ))}
-                        
-                        <tr style={{ background: 'rgba(239, 68, 68, 0.05)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                          <td style={{ padding: '15px', fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>Gross Loss Carried Down (c/d)</td>
-                          <td style={{ padding: '15px', textAlign: 'right', fontWeight: '900', color: '#ef4444', fontSize: '16px' }}>{grossProfit < 0 ? Math.abs(grossProfit).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}</td>
-                        </tr>
-
-                        <tr><td colSpan={2} style={{ padding: '30px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Other Incomes</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('indInc')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['indInc'] ? '▼' : '▶'}</span>
-                              {pnlData.incomes.indirect.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>
-                              {pnlData.incomes.indirect.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
-                           </td>
-                        </tr>
-                        {expandedSections['indInc'] && Object.keys(pnlData.incomes.indirect.details).filter(k => pnlData.incomes.indirect.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row">
-                             <td style={{ paddingLeft: '35px' }}>{k}</td>
-                             <td style={{ textAlign: 'right' }}>{pnlData.incomes.indirect.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                           </tr>
-                        ))}
-                        
-                        <tr style={{ background: 'rgba(239, 68, 68, 0.05)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                          <td style={{ padding: '20px 15px', fontWeight: '900', color: '#ef4444', textTransform: 'uppercase', letterSpacing: '1px' }}>Net Loss (Transferred to Capital)</td>
-                          <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', color: '#ef4444', fontSize: '18px' }}>{netProfit < 0 ? Math.abs(netProfit).toLocaleString('en-IN', {minimumFractionDigits: 2}) : '-'}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* ⚖️ TAB 2: BALANCE SHEET */}
-            {activeTab === 'BS' && (
-              <>
-                {selectedVehicle !== 'ALL' && (
-                  <div className="no-print" style={{ textAlign: 'center', padding: '15px', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', borderRadius: '10px', marginBottom: '25px', fontSize: '13px', border: '1px dashed #f59e0b', fontWeight: 'bold' }}>
-                    ⚠️ Note: A Balance Sheet reflects the Company's overall financial position. When viewing for a specific Vehicle, only direct apportioned assets and liabilities (like Loan amount) will be shown. For accurate BS, select 'ALL Fleet'.
-                  </div>
-                )}
-
-                {/* SMART CHARTS (No Print) */}
-                <div className="no-print" style={{ display: 'flex', gap: '20px', marginBottom: '40px', flexWrap: 'wrap' }}>
-                   
-                   <div className="metric-card" style={{ flex: 1, minWidth: '300px', height: '280px', padding: '10px' }}>
-                     <h4 style={{ color: '#94a3b8', textAlign: 'center', margin: '0 0 5px 0', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Asset Distribution Portfolio</h4>
-                     {bsPieData.filter(d => d.name.includes('Asset')).length === 0 ? <p style={{color:'#64748b', textAlign:'center', marginTop:'50px'}}>No Assets Logged</p> : (
-                       <ResponsiveContainer width="100%" height="100%">
-                         <PieChart>
-                           <Pie data={bsPieData.filter(d => d.name.includes('Asset'))} cx="50%" cy="45%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value">
-                             {bsPieData.filter(d => d.name.includes('Asset')).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />)}
-                           </Pie>
-                           <Tooltip contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '8px', backdropFilter: 'blur(10px)' }} />
-                           <Legend verticalAlign="bottom" height={36} wrapperStyle={{ color: '#cbd5e1', fontSize: '11px', fontWeight: 'bold' }} />
-                         </PieChart>
-                       </ResponsiveContainer>
-                     )}
-                   </div>
-
-                   <div className="metric-card" style={{ flex: 1, minWidth: '300px', height: '280px', padding: '10px' }}>
-                     <h4 style={{ color: '#94a3b8', textAlign: 'center', margin: '0 0 5px 0', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>Liability & Debt Structure</h4>
-                     {bsPieData.filter(d => d.name.includes('Liabilit')).length === 0 ? <p style={{color:'#64748b', textAlign:'center', marginTop:'50px'}}>No Liabilities Logged</p> : (
-                       <ResponsiveContainer width="100%" height="100%">
-                         <PieChart>
-                           <Pie data={bsPieData.filter(d => d.name.includes('Liabilit'))} cx="50%" cy="45%" innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value">
-                             {bsPieData.filter(d => d.name.includes('Liabilit')).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />)}
-                           </Pie>
-                           <Tooltip contentStyle={{ background: 'rgba(15, 23, 42, 0.9)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '8px', backdropFilter: 'blur(10px)' }} />
-                           <Legend verticalAlign="bottom" height={36} wrapperStyle={{ color: '#cbd5e1', fontSize: '11px', fontWeight: 'bold' }} />
-                         </PieChart>
-                       </ResponsiveContainer>
-                     )}
-                   </div>
-
-                </div>
-
-                <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
-                  
-                  {/* LIABILITIES SIDE */}
-                  <div style={{ flex: 1, minWidth: '350px' }}>
-                    <h3 style={{ color: '#f59e0b', margin: '0 0 15px 0', fontSize: '16px', display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #f59e0b', paddingBottom: '10px' }}>
-                      <span>CAPITAL & LIABILITIES</span>
-                      <span>₹ {totalLiabilities.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                    </h3>
-
-                    <table className="modern-table">
-                      <tbody>
-                        <tr><td colSpan={2} style={{ padding: '20px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Internal Equity</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('bsCap')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsCap'] ? '▼' : '▶'}</span>
-                              {bsData.liabilities.capital.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.liabilities.capital.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsCap'] && Object.keys(bsData.liabilities.capital.details).filter(k => bsData.liabilities.capital.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.liabilities.capital.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-
-                        <tr>
-                          <td style={{ padding: '15px', color: '#10b981', fontWeight: 'bold', background: 'rgba(16, 185, 129, 0.02)' }}>↳ Add: {bsData.liabilities.pnl.label}</td>
-                          <td style={{ padding: '15px', textAlign: 'right', color: '#10b981', fontWeight: 'bold', background: 'rgba(16, 185, 129, 0.02)' }}>{bsData.liabilities.pnl.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        
-                        <tr><td colSpan={2} style={{ padding: '30px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>External Liabilities</td></tr>
-
-                        <tr className="expandable-row" onClick={() => toggleSection('bsLoan')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsLoan'] ? '▼' : '▶'}</span>
-                              {bsData.liabilities.loans.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.liabilities.loans.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsLoan'] && Object.keys(bsData.liabilities.loans.details).filter(k => bsData.liabilities.loans.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.liabilities.loans.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-
-                        <tr className="expandable-row" onClick={() => toggleSection('bsCurLiab')}>
-                           <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsCurLiab'] ? '▼' : '▶'}</span>
-                              {bsData.liabilities.current.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.liabilities.current.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsCurLiab'] && Object.keys(bsData.liabilities.current.details).filter(k => bsData.liabilities.current.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.liabilities.current.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ background: 'rgba(255,255,255,0.05)', borderTop: '2px solid #94a3b8' }}>
-                          <td style={{ padding: '20px 15px', fontWeight: '900', color: '#fff', fontSize: '18px', textTransform: 'uppercase', letterSpacing: '2px' }}>Total Liabilities</td>
-                          <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', color: '#fff', fontSize: '20px', letterSpacing: '1px' }}>₹ {totalLiabilities.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-
-                  {/* ASSETS SIDE */}
-                  <div style={{ flex: 1, minWidth: '350px' }}>
-                    <h3 style={{ color: '#38bdf8', margin: '0 0 15px 0', fontSize: '16px', display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #38bdf8', paddingBottom: '10px' }}>
-                      <span>ASSETS & PROPERTIES</span>
-                      <span>₹ {totalAssets.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
-                    </h3>
-
-                    <table className="modern-table">
-                      <tbody style={{ color: '#cbd5e1', fontSize: '14px' }}>
-                        <tr><td colSpan={2} style={{ padding: '20px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Non-Current Assets</td></tr>
-                        
-                        <tr className="expandable-row" onClick={() => toggleSection('bsFixed')}>
-                           <td style={{ color: '#10b981', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsFixed'] ? '▼' : '▶'}</span>
-                              {bsData.assets.fixed.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.assets.fixed.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsFixed'] && Object.keys(bsData.assets.fixed.details).filter(k => bsData.assets.fixed.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.assets.fixed.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-
-                        <tr><td colSpan={2} style={{ padding: '30px 15px 10px 15px', color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '2px', fontWeight: 'bold', background: 'transparent' }}>Current & Liquid Assets</td></tr>
-
-                        <tr className="expandable-row" onClick={() => toggleSection('bsCurAss')}>
-                           <td style={{ color: '#10b981', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsCurAss'] ? '▼' : '▶'}</span>
-                              {bsData.assets.current.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.assets.current.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsCurAss'] && Object.keys(bsData.assets.current.details).filter(k => bsData.assets.current.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.assets.current.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-
-                        <tr className="expandable-row" onClick={() => toggleSection('bsBank')}>
-                           <td style={{ color: '#10b981', fontWeight: 'bold' }}>
-                              <span className="expand-icon" style={{marginRight:'10px', display:'inline-block', width:'12px', fontSize:'10px'}}>{expandedSections['bsBank'] ? '▼' : '▶'}</span>
-                              {bsData.assets.bank.label}
-                           </td>
-                           <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{bsData.assets.bank.amount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                        {expandedSections['bsBank'] && Object.keys(bsData.assets.bank.details).filter(k => bsData.assets.bank.details[k] !== 0).map(k => (
-                           <tr key={k} className="details-row"><td style={{ paddingLeft: '35px' }}>{k}</td><td style={{ textAlign: 'right' }}>{bsData.assets.bank.details[k].toLocaleString('en-IN', {minimumFractionDigits: 2})}</td></tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr style={{ background: 'rgba(255,255,255,0.05)', borderTop: '2px solid #94a3b8' }}>
-                          <td style={{ padding: '20px 15px', fontWeight: '900', color: '#fff', fontSize: '18px', textTransform: 'uppercase', letterSpacing: '2px' }}>Total Assets</td>
-                          <td style={{ padding: '20px 15px', textAlign: 'right', fontWeight: '900', color: '#fff', fontSize: '20px', letterSpacing: '1px' }}>₹ {totalAssets.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
+function metric(label: string, value: number, color: string) {
+  return (
+    <div className="metric-card" key={label}>
+      <div style={{ color, fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 900, color: '#fff', marginTop: 6 }}>₹{inr(value)}</div>
     </div>
   );
 }
