@@ -101,6 +101,10 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (activeModule === 'OPERATION') {
       return [
         { id: 'DASHBOARD', label: 'Dashboard', icon: '🖥️' },
+        { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
+        { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
+        { id: 'FINANCE_2026', label: 'Finance Hub 2026', icon: '💠' },
+        { id: 'LIVE_TRACKING', label: 'Live Tracking (GPS)', icon: '🛰' },
         { id: 'BAZAAR_ADMIN', label: 'Bazaar Admin (KYC/Bids)', icon: '🌍' }, 
         { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
         { id: 'LOADING', label: 'Loading Details', icon: '📦' },

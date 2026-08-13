@@ -12,6 +12,10 @@ import Login from './Login';
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
 // visitors on the public site / login no longer pay for the whole back office.
 const Dashboard = lazy(() => import('./Dashboard'));
+const AgentFleetCommand = lazy(() => import('./AgentFleetCommand'));
+const SmartScanner = lazy(() => import('./SmartScanner'));
+const FinanceHub2026 = lazy(() => import('./FinanceHub2026'));
+const TripTrackingMap = lazy(() => import('./TripTrackingMap'));
 const Vehical = lazy(() => import('./Vehical'));
 const DRIVER = lazy(() => import('./DRIVER'));
 const TripManagment = lazy(() => import('./TripManagment'));
@@ -286,6 +290,10 @@ export default function App() {
     switch (activeComponent) {
       // 🔥 MAIN FIX IS HERE: PASSING currentUser={user} TO DASHBOARD
       case 'DASHBOARD': return <Dashboard activeModule={activeModule} currentUser={user} />;
+      case 'AGENT_FLEET': return <AgentFleetCommand />;
+      case 'SMART_SCANNER': return <SmartScanner />;
+      case 'FINANCE_2026': return <FinanceHub2026 />;
+      case 'LIVE_TRACKING': return <TripTrackingMap />;
       case 'BAZAAR_ADMIN': return <BazaarAdmin />; 
       case 'MARKET_VEHICLE': return <MarketVehicles />; 
       

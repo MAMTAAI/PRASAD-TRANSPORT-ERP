@@ -1,8 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy, where, limit, startAfter, writeBatch, increment, getDoc } from 'firebase/firestore';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
-import { postShortageRecovery, buildDraftInvoice } from './lib/postTripEngine';
 import { sendWhatsApp, waResultText } from './lib/waSend';
 import BottomSheet from './ui/BottomSheet';
 import { useIsMobile } from './hooks/useIsMobile';
@@ -23,8 +21,40 @@ function TripMeter({ label, used, target, unit, color }) {
     </div>
   );
 }
-import { db } from './firebase';
 import { getDrivingDistance, loadGoogleMaps } from './lib/maps';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const OPS = `${API}/api/v1/ops`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// ── Field-name adapter ─────────────────────────────────────────────────────
+// This screen's 900 lines of JSX, its Google-Maps route view and its LR print
+// all read Firestore-era field names. Rewriting every reference would have meant
+// touching presentation code that has nothing to do with the data layer, on the
+// last file of the cluster — so the legacy names are mapped in exactly ONE place
+// instead, right where rows enter the component.
+//
+// This is deliberate, visible debt: when the JSX is modernised, delete this
+// function and the aliases go with it. Nothing else in the file depends on
+// Firestore any more.
+const withCompatFields = (t: any) => ({
+  ...t,
+  trip_status: t.status,                       // PG: status
+  Trip_ID: t.trip_code,                        // PG: trip_code
+  trip_id: t.trip_code,
+  sort_date: t.loading_date,                   // PG orders on loading_date
+  start_date: t.loading_date,
+  gross_freight: t.freight_amount,             // PG: freight_amount
+  driver_mobil_no: t.driver_mobile,            // PG: driver_mobile
+  total_advances: Number(t.driver_advances ?? 0),
+  shortage_amt: t.shortage_penalty,
+});
 import { scopeCurrent } from './lib/rbac';
 import { logAudit } from './lib/audit';
 
@@ -68,12 +98,13 @@ const fmtToll = (iso: any): string => {
 const escapeHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 /** Normalize a TOLL_TRANSACTIONS doc → the compact shape the UI needs. */
 const normalizeToll = (x: any) => ({
-  plaza: x.Toll_Plaza_Name || x.Plaza || 'Toll Plaza',
-  datetime: x.txn_datetime || x.Txn_Date || '',
-  lat: x.lat, long: x.long,
-  amount: Number(x.Amount) || 0,
-  ref: x.Transaction_Ref || x.ext_txn_id || '',
-  vehicle: x.Vehicle_No || x.vehicle_no || '',
+  plaza: x.plaza_name || x.Toll_Plaza_Name || x.Plaza || 'Toll Plaza',
+  datetime: x.txn_datetime || x.txn_date || x.Txn_Date || '',
+  // PG stores lng; the map helper below still reads `long`.
+  lat: x.lat, long: x.lng ?? x.long,
+  amount: Number(x.amount ?? x.Amount) || 0,
+  ref: x.ref || x.txn_ref || x.Transaction_Ref || x.ext_txn_id || '',
+  vehicle: x.vehicle_no || x.Vehicle_No || '',
 });
 /** True only when a toll carries usable map coordinates (strict null checks). */
 const tollHasCoords = (toll: any) => {
@@ -251,7 +282,10 @@ export default function TripManagment() {
     setFreightBusy(true);
     try {
       for (const t of freightTargets) {
-        await updateDoc(doc(db, 'TRIPS', t.id), { gross_freight: String(rate), freight_set_by: 'bulk_tool' });
+        await fetchJson(`${OPS}/trips/${t.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ freight_amount: rate, freight_set_by: 'bulk_tool' }),
+        });
       }
       logAudit({ action: 'FREIGHT_BULK_SET', target: freightCust, details: `₹${rate} × ${freightTargets.length} trips` });
       alert(`✅ ${freightTargets.length} trips mein freight ₹${rate} set ho gaya. Ab Accounts → Live Journal sync par Revenue flow karega.`);
@@ -306,16 +340,22 @@ export default function TripManagment() {
   const fetchLatestToll = async (tripDocId: string) => {
     if (!tripDocId) return null;
     try {
-      const snap = await getDocs(query(collection(db, 'TOLL_TRANSACTIONS'), where('trip_db_id', '==', tripDocId)));
-      if (snap.empty) return null;
-      let best: any = null, bestDt = '';
-      snap.forEach(d => {
-        const x = d.data();
-        const dt = String(x.txn_datetime || x.Txn_Date || '');
-        if (dt > bestDt) { bestDt = dt; best = x; }
-      });
-      return best ? normalizeToll(best) : null;
+      const j = await fetchJson(`${OPS}/tolls/latest?trip_ids=${tripDocId}`);
+      const r = j.tolls?.[tripDocId];
+      return r ? normalizeToll(r) : null;
     } catch { return null; }
+  };
+
+  // One request for every active trip, newest-per-trip picked by the index. The
+  // Firestore version fired a query per trip and sorted in the browser.
+  const fetchLatestTolls = async (ids: string[]) => {
+    if (!ids.length) return {};
+    try {
+      const j = await fetchJson(`${OPS}/tolls/latest?trip_ids=${ids.join(',')}`);
+      const map: Record<string, any> = {};
+      for (const [id, row] of Object.entries(j.tolls ?? {})) map[id] = normalizeToll(row);
+      return map;
+    } catch { return {}; }
   };
 
   useEffect(() => { fetchData(); }, []);
@@ -332,10 +372,8 @@ export default function TripManagment() {
     let cancelled = false;
     setTollLoaded(false);
     (async () => {
-      const pairs = await Promise.all(ids.map(async id => [id, await fetchLatestToll(id)] as const));
+      const map = await fetchLatestTolls(ids);
       if (cancelled) return;
-      const map: Record<string, any> = {};
-      for (const [id, toll] of pairs) if (toll) map[id] = toll;
       setTollByTrip(map);
       setTollLoaded(true);
     })();
@@ -354,48 +392,49 @@ export default function TripManagment() {
 
   // 📄 PAGINATED lifecycle queries (Phase B3): the old full-collection fetch
   // downloaded all 800+ completed trips on every mount/mutation. Active trips
-  // load fully (small set); history loads HISTORY_PAGE at a time via cursor.
+  // load fully (small set); history loads HISTORY_PAGE at a time by OFFSET.
   const HISTORY_PAGE = 100;
-  const historyCursor = React.useRef(null);
+  const historyOffset = React.useRef(0);
+  const [err, setErr] = useState('');
   const [historyDone, setHistoryDone] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
+    setErr('');
     try {
-      const safe = (p) => p.catch((e) => { console.error(e); return { docs: [] }; });
-      const [activeSnap, histSnap, vehSnap, drvSnap, venSnap, rtkmSnap] = await Promise.all([
-        safe(getDocs(query(collection(db, "TRIPS"), where('trip_status', '!=', 'COMPLETED')))),
-        safe(getDocs(query(collection(db, "TRIPS"), where('trip_status', '==', 'COMPLETED'), orderBy('sort_date', 'desc'), limit(HISTORY_PAGE)))),
-        safe(getDocs(collection(db, "VEHICLES"))),
-        safe(getDocs(collection(db, "DRIVERS"))),
-        safe(getDocs(collection(db, "VENDORS"))),
-        safe(getDocs(collection(db, "RTKM_MASTER"))),
+      // Active trips load in full (a small set); history is paginated by OFFSET.
+      // The Firestore version needed a composite index and a '!=' filter that
+      // silently dropped every trip whose status field was missing.
+      const [m, active, hist] = await Promise.all([
+        fetchJson(`${OPS}/masters`),
+        fetchJson(`${OPS}/trips?exclude_status=COMPLETED,SETTLED,CANCELLED&limit=500`),
+        fetchJson(`${OPS}/trips?status=COMPLETED&limit=${HISTORY_PAGE}&offset=0`),
       ]);
-      const active = activeSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      active.sort((a, b) => String(b.sort_date || '').localeCompare(String(a.sort_date || '')));
-      const hist = histSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      historyCursor.current = histSnap.docs.length ? histSnap.docs[histSnap.docs.length - 1] : null;
-      setHistoryDone(histSnap.docs.length < HISTORY_PAGE);
-      setTrips(scopeCurrent([...active, ...hist])); // 🔐 RBAC: scoped roles see only their own trips
+      historyOffset.current = (hist.trips ?? []).length;
+      setHistoryDone(!hist.has_more);
+      // RBAC scoping still applies: a branch-scoped role sees only its own trips.
+      setTrips(scopeCurrent([...(active.trips ?? []), ...(hist.trips ?? [])].map(withCompatFields)));
 
-      setVehicles(vehSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setDrivers(drvSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setFuelVendors(venSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(v => String(v.vendor_type).toLowerCase().includes('fuel') || String(v.vendor_type).toLowerCase().includes('pump')));
-      setRtkmMaster(rtkmSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { console.error(e); }
+      setVehicles(m.vehicles ?? []);
+      setDrivers(m.drivers ?? []);
+      setFuelVendors((m.vendors ?? []).filter((v: any) => /fuel|pump|petrol|diesel|hsd|oil/i.test(v.vendor_type ?? '')));
+      setRtkmMaster(m.routes ?? []);
+    } catch (e: any) {
+      setErr(`Trips could not load from ${API} — ${e.message}`);
+    }
     setLoading(false);
   };
 
   const loadMoreHistory = async () => {
-    if (!historyCursor.current || loadingMore) return;
+    if (historyDone || loadingMore) return;
     setLoadingMore(true);
     try {
-      const snap = await getDocs(query(collection(db, "TRIPS"), where('trip_status', '==', 'COMPLETED'), orderBy('sort_date', 'desc'), startAfter(historyCursor.current), limit(HISTORY_PAGE)));
-      const more = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      historyCursor.current = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
-      setHistoryDone(snap.docs.length < HISTORY_PAGE);
-      setTrips(prev => scopeCurrent([...prev, ...more.filter(m => !prev.some(p => p.id === m.id))]));
+      const j = await fetchJson(`${OPS}/trips?status=COMPLETED&limit=${HISTORY_PAGE}&offset=${historyOffset.current}`);
+      const more = (j.trips ?? []).map(withCompatFields);
+      historyOffset.current += more.length;
+      setHistoryDone(!j.has_more);
+      setTrips((prev) => scopeCurrent([...prev, ...more.filter((mm: any) => !prev.some((pp: any) => pp.id === mm.id))]));
     } catch (e) { console.error(e); }
     setLoadingMore(false);
   };
@@ -513,21 +552,49 @@ export default function TripManagment() {
   };
 
   const handleSaveTrip = async () => {
-    if (!formData.vehicle_no || !formData.consignee_name) return alert("⚠️ Please fill Vehicle No and Consignee!");
+    if (!formData.vehicle_no || !formData.consignee_name) return alert('⚠️ Please fill Vehicle No and Consignee!');
     try {
-      const sortDate = formData.start_date || new Date().toISOString().split('T')[0]; // paginated queries order on this
+      const veh = vehicles.find((v: any) => checkMatch(v.vehicle_no, formData.vehicle_no));
+      const drv = drivers.find((d: any) => d.name === formData.driver_name);
+      const body = {
+        vehicle_id: veh?.id ?? null,
+        vehicle_no: formData.vehicle_no,
+        driver_id: drv?.id ?? null,
+        driver_name: formData.driver_name || null,
+        driver_mobile: formData.driver_mobil_no || null,
+        loading_point: formData.loading_point || null,
+        consignee_name: formData.consignee_name || null,
+        customer_name: formData.customer_name || null,
+        challan_no: formData.challan_no || null,
+        loading_date: formData.start_date || new Date().toISOString().slice(0, 10),
+        freight_amount: formData.gross_freight ? Number(formData.gross_freight) : null,
+        rtkm: formData.rtkm ? Number(formData.rtkm) : null,
+        fixed_hsd: formData.fixed_hsd ? Number(formData.fixed_hsd) : null,
+        fixed_cash: formData.fixed_cash ? Number(formData.fixed_cash) : null,
+        operating_company: formData.operating_company || null,
+        status: formData.trip_status || 'IN_TRANSIT',
+      };
       if (editingTripId) {
-        await updateDoc(doc(db, "TRIPS", editingTripId), { ...formData, sort_date: sortDate });
-        alert("✅ Trip Updated Successfully!");
+        await fetchJson(`${OPS}/trips/${editingTripId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        alert('✅ Trip updated.');
         setEditingTripId('');
       } else {
-        await addDoc(collection(db, "TRIPS"), { ...formData, sort_date: sortDate, created_at: serverTimestamp(), total_expense: 0, office_cash_paid: 0, bank_paid: 0, hsd_issued: 0, pump_cash_advance: 0 });
-        alert("✅ New Trip Started Successfully!");
+        // The LR code is minted server-side inside the insert transaction, so
+        // two people starting a trip at once cannot collide on it.
+        const out = await fetchJson(`${OPS}/trips`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        alert(`✅ New trip started.\n\nLR / Trip code: ${out.trip.trip_code}`);
       }
-      setFormData({ trip_id: 'TRP-' + Math.floor(Math.random() * 90000 + 10000), vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '', customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0], gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '', trip_status: 'IN_TRANSIT', billing_status: 'PENDING' });
+      setFormData({ trip_id: '', vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '', customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0], gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '', operating_company: '', trip_status: 'IN_TRANSIT', billing_status: 'PENDING' });
       setActiveTab('ACTIVE');
       fetchData();
-    } catch (e) { alert("❌ Error saving trip."); }
+    } catch (e: any) {
+      const hint = { TRIP_BILLED: 'This trip is on a live bill — its figures are frozen.', BAD_STATUS: 'That status is not allowed.' }[e.code];
+      alert(`❌ ${hint ?? 'Trip not saved.'}\n\n${e.message}`);
+    }
   };
 
   const handleEditCompletedTrip = (t: any) => {
@@ -571,25 +638,28 @@ export default function TripManagment() {
   const handleDriverPayment = async () => {
     if (!paymentData.amount || !activeTrip || savingPayment) return;
     const amt = round2(parseFloat(paymentData.amount));
-    if (!Number.isFinite(amt) || amt <= 0) return alert("⚠️ Enter a valid amount!");
-    if (!paymentData.date) return alert("⚠️ Payment Date required hai — date select karein!");
+    if (!Number.isFinite(amt) || amt <= 0) return alert('⚠️ Enter a valid amount!');
+    if (!paymentData.date) return alert('⚠️ Pick a payment date.');
     setSavingPayment(true);
     try {
-      const updateField = paymentData.mode === 'Office Cash' ? 'office_cash_paid' : 'bank_paid';
-
-      // 💰 TRUTH FIX: cash to the driver is a recoverable ADVANCE (driver khata),
-      // NOT a trip expense — total_expense no longer accrues it. Atomic batch +
-      // increment() so double-clicks/concurrent edits can't clobber balances.
-      const batch = writeBatch(db);
-      batch.update(doc(db, "TRIPS", activeTrip.id), { [updateField]: increment(amt), total_advances: increment(amt) });
-      batch.set(doc(collection(db, "DRIVER_TRANSACTIONS")), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'PAYMENT_GIVEN', amount: amt, mode: paymentData.mode, date: paymentData.date, trip_id: activeTrip.trip_id || activeTrip.Trip_ID, remarks: `Trip: ${activeTrip.trip_id || activeTrip.Trip_ID} - ${paymentData.remarks}`, createdAt: serverTimestamp() });
-      await batch.commit();
-
-      alert(`✅ ₹${amt} Paid via ${paymentData.mode} (driver khata mein darj)`);
+      // Cash to the driver is a recoverable ADVANCE in their khata, not a trip
+      // expense. The endpoint writes the subsidiary row and moves the trip's own
+      // cash column in one transaction, so a double-click cannot clobber either.
+      await fetchJson(`${OPS}/trips/${activeTrip.id}/driver-txn`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          txn_type: 'PAYMENT_GIVEN', amount: amt, txn_date: paymentData.date,
+          mode: paymentData.mode,
+          remarks: `Trip: ${activeTrip.trip_code} - ${paymentData.remarks || 'advance'}`,
+        }),
+      });
+      alert(`✅ ₹${amt} paid via ${paymentData.mode} and recorded in the driver's khata.`);
       setShowPaymentModal(false);
       setPaymentData({ amount: '', mode: 'Office Cash', date: new Date().toISOString().split('T')[0], remarks: '' });
       fetchData();
-    } catch (e) { alert("❌ Payment Error"); }
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'NO_DRIVER' ? 'This trip has no driver assigned.' : 'Payment failed.'}\n\n${e.message}`);
+    }
     setSavingPayment(false);
   };
 
@@ -643,57 +713,74 @@ export default function TripManagment() {
   };
 
   const handleSaveFuelMemo = async () => {
-    if(!activeTrip || savingMemo) return;
-    const hasValidPump = pumps.some(p => p.vendor_id && p.qty);
-    if (!hasValidPump) return alert("⚠️ Please select a 'Petrol Pump' and enter 'Liters'!");
-    if (!memoData.date) return alert("⚠️ Transaction / Issue Date required hai — date select karein!");
-    // 💰 TRUTH FIX: without a rate the diesel value saves as ₹0 and the whole
-    // HSD cost silently vanishes from trip settlement. Rate is now mandatory.
-    const missingRate = pumps.find(p => p.vendor_id && p.qty && !(parseFloat(p.rate) > 0));
-    if (missingRate) return alert("⚠️ Enter the Rate (₹/Liter) for every pump row — bina rate ke diesel ka kharcha ₹0 ban jata hai!");
+    if (!activeTrip || savingMemo) return;
+    const hasValidPump = pumps.some((p) => p.vendor_id && p.qty);
+    if (!hasValidPump) return alert("⚠️ Select a petrol pump and enter litres.");
+    if (!memoData.date) return alert('⚠️ Pick the transaction / issue date.');
+    // Without a rate the diesel value saves as ₹0 and the HSD cost silently
+    // vanishes from settlement, so the rate is mandatory.
+    if (pumps.find((p) => p.vendor_id && p.qty && !(parseFloat(p.rate) > 0))) {
+      return alert('⚠️ Enter the rate (₹/litre) on every pump row.');
+    }
 
     setSavingMemo(true);
     try {
-      let newFuelExpense = 0; let newHsdIssued = 0; let newPumpCash = 0; const savedSlips = [];
-      // Atomic: all slips + khata entries + trip totals commit together or not at all.
-      const batch = writeBatch(db);
-
+      const savedSlips = [];
+      const failures = [];
       for (const pump of pumps) {
         if (!pump.vendor_id || !pump.qty) continue;
-        const amt = round2(parseFloat(pump.qty) * parseFloat(pump.rate));
+        const qty = parseFloat(pump.qty);
+        const rate = parseFloat(pump.rate);
         const cashAmt = round2(parseFloat(pump.cash_advance || '0') || 0);
-
-        newFuelExpense += amt;          // diesel value = trip EXPENSE
-        newPumpCash += cashAmt;         // pump cash    = driver ADVANCE (khata)
-        newHsdIssued += parseFloat(pump.qty);
-
-        const slipData = { date: memoData.date, vehicle_no: activeTrip.vehicle_no || activeTrip.Vehical_No, route_name: `${activeTrip.loading_point || activeTrip.Loading_Point} To ${activeTrip.consignee_name || activeTrip.Consignee_Name}`, driver_name: activeTrip.driver_name || activeTrip.Driver_Name, memo_no: memoData.memo_no, vendor_id: pump.vendor_id, vendor_name: pump.vendor_name, fuel_type: pump.fuel_type, liters: pump.qty, rate: pump.rate, amount: amt.toFixed(2), cash_given_to_pump: pump.cash_advance, pump_mobile: pump.mobile, bill_status: 'UNBILLED', trip_id: activeTrip.trip_id || activeTrip.Trip_ID, createdAt: serverTimestamp() };
-        batch.set(doc(collection(db, "FUEL_ENTRIES")), slipData);
-        savedSlips.push(slipData);
-
-        // NOTE (double-count fix): the vendor's balance is deliberately NOT
-        // credited here. FuelMgmt reconciliation credits the vendor when the
-        // pump's physical bill is VERIFIED — crediting at memo time too would
-        // bill every liter twice the moment amounts became non-zero.
-
-        if (cashAmt > 0 && (activeTrip.driver_name || activeTrip.Driver_Name)) {
-          batch.set(doc(collection(db, "DRIVER_TRANSACTIONS")), { driver_name: activeTrip.driver_name || activeTrip.Driver_Name, txn_type: 'ADVANCE_GIVEN', amount: cashAmt, date: memoData.date, trip_id: activeTrip.trip_id || activeTrip.Trip_ID, remarks: `Trip ${activeTrip.trip_id || activeTrip.Trip_ID} Cash from ${pump.vendor_name}`, createdAt: serverTimestamp() });
+        try {
+          const out = await fetchJson(`${OPS}/trips/${activeTrip.id}/fuel-slip`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              vendor_id: pump.vendor_id,
+              memo_no: memoData.memo_no || null,
+              entry_date: memoData.date,
+              fuel_type: pump.fuel_type,
+              liters: qty,
+              rate,
+              amount: round2(qty * rate),
+              cash_given_to_pump: cashAmt,
+              pump_mobile: pump.mobile || null,
+            }),
+          });
+          // Shaped for sendFuelMemoWhatsApp, which reads the slip it is handed.
+          savedSlips.push({
+            ...out.fuel_entry,
+            date: out.fuel_entry.entry_date,
+            trip_id: activeTrip.trip_code,
+            route_name: `${activeTrip.loading_point ?? '?'} To ${activeTrip.consignee_name ?? '?'}`,
+            pump_mobile: pump.mobile,
+            vendor_name: pump.vendor_name,
+          });
+        } catch (e: any) {
+          // Each slip is posted on its own, so one bad row cannot discard the
+          // others — the server's guards are reported per pump instead.
+          const hint = { SLIP_ARITHMETIC: 'amount does not match litres × rate', DUPLICATE_MEMO: 'this memo is already recorded for that pump' }[e.code];
+          failures.push(`${pump.vendor_name || 'pump'}: ${hint ?? e.message}`);
         }
       }
-
-      batch.update(doc(db, "TRIPS", activeTrip.id), {
-        total_expense: increment(round2(newFuelExpense)),       // expenses: fuel value only
-        hsd_issued: increment(newHsdIssued),
-        pump_cash_advance: increment(round2(newPumpCash)),      // advances: tracked separately
-        total_advances: increment(round2(newPumpCash)),
-        fixed_hsd: memoData.fixed_hsd,
-        fixed_cash: memoData.fixed_cash
-      });
-      await batch.commit();
-
+      // Fixed targets are trip fields, not slip fields.
+      if (memoData.fixed_hsd !== '' || memoData.fixed_cash !== '') {
+        await fetchJson(`${OPS}/trips/${activeTrip.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fixed_hsd: memoData.fixed_hsd === '' ? null : Number(memoData.fixed_hsd),
+            fixed_cash: memoData.fixed_cash === '' ? null : Number(memoData.fixed_cash),
+          }),
+        }).catch(() => {});
+      }
+      if (failures.length) {
+        alert(`⚠️ ${savedSlips.length} slip(s) saved, ${failures.length} refused:\n\n${failures.join('\n')}`);
+      }
       setGeneratedMemos(savedSlips);
       fetchData();
-    } catch(e) { alert("❌ Error saving Fuel Memo."); }
+    } catch (e: any) {
+      alert(`❌ Fuel memo not saved.\n\n${e.message}`);
+    }
     setSavingMemo(false);
   };
 
@@ -710,8 +797,8 @@ export default function TripManagment() {
     if (!activeTrip?.id || gpsRefreshing) return;
     setGpsRefreshing(true);
     try {
-      const snap = await getDoc(doc(db, "TRIPS", activeTrip.id));
-      if (snap.exists()) setActiveTrip({ id: snap.id, ...snap.data() });
+      const j = await fetchJson(`${OPS}/trips/${activeTrip.id}`);
+      if (j.trip) setActiveTrip(withCompatFields(j.trip));
     } catch (e) { console.error(e); }
     setGpsRefreshing(false);
   };
@@ -732,45 +819,49 @@ export default function TripManagment() {
   };
 
   const handleCompleteTrip = async () => {
-    if(!activeTrip) return;
+    if (!activeTrip) return;
     try {
-      // 💰 TRUTH FIX: settlement uses canonical trip math — freight and true
-      // expenses (fuel/toll), with recoverable advances reported separately
-      // instead of being silently mixed into "expense".
       const gross = getTripFreight(activeTrip);
       const expenses = getTripExpense(activeTrip);
       const advances = getTripAdvances(activeTrip);
       const penalty = round2(parseFloat(unloadData.shortage_penalty || '0') || 0);
       const finalBal = round2(gross - expenses - penalty);
+      const unloadDate = unloadData.unloading_date || new Date().toISOString().slice(0, 10);
 
-      const completionStamp = new Date().toISOString();
-      const unloadDate = unloadData.unloading_date || completionStamp.split('T')[0];
-      const shortageQty = parseFloat(unloadData.shortage_qty || '0') || 0;
-      // 🧾 Auto-draft invoice for the Pending Billing dashboard (client format math)
-      const draft = buildDraftInvoice(activeTrip, { unloaded_qty: unloadData.unloaded_qty, shortage_qty: shortageQty, penalty_amount: penalty });
-      await updateDoc(doc(db, "TRIPS", activeTrip.id), {
-        ...unloadData,
-        trip_status: 'COMPLETED',
-        final_balance: finalBal,
-        total_advances: advances,
-        // Party-side deduction mirrors the driver penalty on the client bill
-        shortage_amt: penalty, Shortage_Amt: penalty,
-        draft_invoice: draft,
-        ...((activeTrip.billing_status || '') === 'BILLED' ? {} : { billing_status: 'PENDING' }),
-        // Unify the two completion doors (TripManagment vs UnlodingDetals):
-        // both now stamp approval + completed_at so registers/filters agree.
-        office_approved_unloading: true,
-        completed_at: completionStamp,
-        unloading_date: unloadDate
+      // One call closes the trip: the server recomputes the shortage from the two
+      // quantities (never trusting the browser with a figure a driver is charged
+      // for), stamps approval, debits the driver's khata and posts the matching
+      // ledger journal — the leg the Firestore version never wrote.
+      const out = await fetchJson(`${OPS}/trips/${activeTrip.id}/unload`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unloading_date: unloadDate,
+          unloading_location: unloadData.unloading_location || null,
+          unloaded_qty: Number(unloadData.unloaded_qty || 0),
+          shortage_penalty: penalty,
+          unloading_remarks: unloadData.remarks || null,
+          complete: true,
+          recover_from_driver: penalty > 0,
+        }),
       });
-      // ⚖️ Auto-Shortage Recovery: idempotent debit to the driver's khata + journal
-      const debited = penalty > 0
-        ? await postShortageRecovery(activeTrip, { shortage_qty: shortageQty, penalty_amount: penalty, date: unloadDate }).catch(() => false)
-        : false;
-      alert(`✅ Trip Completed!\n\n💰 Settlement (Freight − Kharcha − Penalty): ₹${finalBal.toLocaleString('en-IN')}\n🤝 Driver advances outstanding (khata se vasooli): ₹${advances.toLocaleString('en-IN')}${debited ? `\n💸 Shortage penalty ₹${penalty.toLocaleString('en-IN')} driver khata mein auto-debit ho gaya.` : ''}\n🧾 Draft invoice ready — Bill Management → Pending Billing.`);
+      const rec = out.driver_recovery;
+      alert(`✅ Trip completed.\n\n`
+        + `💰 Settlement (freight − kharcha − penalty): ₹${finalBal.toLocaleString('en-IN')}\n`
+        + `🤝 Driver advances outstanding: ₹${advances.toLocaleString('en-IN')}\n`
+        + `📉 Shortage ${out.shortage_qty}${penalty > 0 ? ` · penalty ₹${penalty.toLocaleString('en-IN')}` : ''}\n`
+        + (rec
+          ? rec.already_posted
+            ? `💸 Already debited to ${rec.driver}'s khata.\n`
+            : rec.ledger_note
+              ? `💸 ₹${rec.amount} debited to ${rec.driver}'s khata.\n⚠️ Ledger: ${rec.ledger_note}\n`
+              : `💸 ₹${rec.amount} debited to ${rec.driver}'s khata and posted to the ledger.\n`
+          : '')
+        + `\n🧾 The trip now appears in Bill Management → Pending Billing.`);
       setShowUnloadModal(false);
       fetchData();
-    } catch(e) { alert("Error completing trip"); }
+    } catch (e: any) {
+      alert(`❌ ${e.code === 'TRIP_SETTLED' ? 'This trip is already settled.' : 'Could not complete the trip.'}\n\n${e.message}`);
+    }
   };
 
   // 🗺️ Cached route lookup: rtkmMaster fuzzy-match ran regex-normalization
@@ -1095,9 +1186,24 @@ export default function TripManagment() {
 
       {/* --- HEADER & TABS --- */}
       <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-        <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: 'white' }}>🚛 Trip Command Center</h1>
-        <button onClick={() => setShowFreightTool(true)} className="pt-btn pt-btn--ai" title="Trips mein freight bharo taaki Revenue dikhe">💰 Set Freight (Bulk)</button>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: 'white' }}>🚛 Trip Command Center</h1>
+          <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: '13px' }}>
+            Live PostgreSQL · advances, fuel slips and trip closure post through the ledger
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={fetchData} className="pt-btn pt-btn--ghost" title="Reload from PostgreSQL">🔄 Refresh</button>
+          <button onClick={() => setShowFreightTool(true)} className="pt-btn pt-btn--ai" title="Fill missing freight so Revenue flows">💰 Set Freight (Bulk)</button>
+        </div>
       </div>
+
+      {err && (
+        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+          ⚠️ {err}
+          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}/trips</code>. Check that the ERP API is running.</div>
+        </div>
+      )}
 
       {/* 💰 BULK FREIGHT TOOL — fills missing freight so Accounts Revenue flows */}
       <BottomSheet open={showFreightTool} onClose={() => setShowFreightTool(false)} title="💰 Set Freight (Bulk)" accent="#c084fc" maxWidth={480}>
