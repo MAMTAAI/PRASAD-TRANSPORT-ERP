@@ -121,5 +121,45 @@ to net against a later remittance (`v_iocl_open_items`). One live:
 `11024699AS26075`, ₹5,970.52 owed to IOCL. Trip marked `DISPUTED`,
 `received_amount = 0` — never a negative figure.
 
-**Known gap:** driver shortage recovery writes `driver_transactions` but has no
-GL journal leg — needs a JOURNAL voucher type TARA does not yet have.
+~~**Known gap:** driver shortage recovery writes `driver_transactions` but has no
+GL journal leg~~ — **CLOSED.** TARA has a JOURNAL voucher type, and
+`POST /ops/trips/:id/unload` posts the recovery's GL leg in the same transaction
+as the khata row.
+
+---
+
+# Firebase is gone (2026-08-14)
+
+The app has no Firebase. `src/firebase.ts` is deleted, the `firebase` package is
+uninstalled, and every screen, the WhatsApp engine and the bill parser read and
+write PostgreSQL through the API. Migrations 040–046 added the last tables.
+
+**Do not re-add a Firebase import.** If something appears to need one, the thing
+it actually needs is an endpoint.
+
+## Two things the cutover still requires
+
+1. **Every staff password must be set again.** Firebase Auth held the
+   credentials; they cannot be exported. All six `users.password_hash` values
+   were the placeholder `MIGRATION-RESET-REQUIRED`, and `/auth/login` answers
+   `409 PASSWORD_RESET_REQUIRED` for those accounts so the message is clear.
+   Break the circle from the box itself — the endpoint needs an admin token that
+   nobody can obtain yet:
+
+   ```bash
+   node -r dotenv/config scripts/set-password.mjs --list
+   node -r dotenv/config scripts/set-password.mjs --email <addr> --generate
+   ```
+
+2. **OTP now goes over WhatsApp, not SMS.** Firebase sent the SMS; there is no
+   gateway on this host, so `server/lib/otpChannel.js` uses the engine on :5001.
+   **If that engine is not linked, no driver and no portal user can log in** —
+   `GET /api/v1/auth/health` reports the channel state. Buying an SMS gateway
+   means implementing one `send()` in that file and setting `OTP_CHANNEL=sms`.
+
+## Still Firebase-shaped, on purpose
+
+`scripts/firestore-backup.cjs` and `scripts/kg-sync-transport.cjs` use
+`firebase-admin` (from `whatsapp-server/node_modules`, not the root package).
+The backup script is how you take the FINAL export before disabling the project
+— deleting it before that would be the one irreversible mistake here.

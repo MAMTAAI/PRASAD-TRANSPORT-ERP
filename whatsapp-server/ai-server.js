@@ -1,15 +1,27 @@
 // @ts-nocheck
 const express = require('express');
 const cors = require('cors');
-const admin = require('firebase-admin');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
 // Firebase Setup
 const serviceAccount = require("./serviceAccountKey.json"); 
-if (!admin.apps.length) { 
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) }); 
-}
-const db = admin.firestore();
+// The ERP API replaces firebase-admin here — one writer for wa_chats, and the
+// wa_msg_id dedupe that stops a reconnect from doubling the history.
+const ERP_API = process.env.ERP_API_URL || 'http://127.0.0.1:3300';
+const CRM_API = `${ERP_API}/api/v1/crm`;
+
+const crmPost = async (path, body) => {
+    const res = await fetch(`${CRM_API}${path}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json().catch(() => ({}));
+};
+const crmGet = async (path) => {
+    const res = await fetch(`${CRM_API}${path}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+};
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -52,7 +64,7 @@ const startWhatsAppForUser = (userId) => {
             const senderPhone = msg.from.replace('@c.us', '').replace(/\D/g, '').slice(-10);
             
             // Save Incoming Chat to Firebase
-            await db.collection('WA_CHATS').add({
+            await crmPost('/chats', {
                 userId: userId,
                 phone: senderPhone,
                 text: msg.body,
@@ -62,21 +74,27 @@ const startWhatsAppForUser = (userId) => {
 
             // Mamta AI Chatbot Logic
             const text = msg.body.toLowerCase();
-            const rulesSnapshot = await db.collection('WA_RULES').get();
-            rulesSnapshot.forEach(async doc => {
-                const rule = doc.data();
-                if (text.includes(rule.keyword.toLowerCase())) { 
-                    msg.reply(rule.reply); 
-                    // Save AI Reply to Database too!
-                    await db.collection('WA_CHATS').add({
-                        userId: 'Mamta AI',
-                        phone: senderPhone,
-                        text: rule.reply,
-                        type: 'outgoing',
-                        timestamp: new Date().toISOString()
-                    });
-                }
-            });
+            const { items: rules } = await crmGet('/rules');
+            // A for..of, not forEach(async): forEach ignores the returned
+            // promise, so every matching rule fired its reply and its log write
+            // unawaited and unordered — and an error inside them escaped the
+            // try/catch below entirely.
+            for (const rule of rules ?? []) {
+                if (!rule?.keyword) continue;
+                if (!text.includes(String(rule.keyword).toLowerCase())) continue;
+                await msg.reply(rule.reply);
+                // Save AI Reply to the CRM too.
+                await crmPost('/chats', {
+                    userId: 'Mamta AI',
+                    phone: senderPhone,
+                    text: rule.reply,
+                    type: 'outgoing',
+                    timestamp: new Date().toISOString()
+                });
+                // First match wins; without this a message containing two
+                // keywords got two replies.
+                break;
+            }
         } catch (error) { console.error("Chatbot Error:", error); }
     });
 
@@ -105,7 +123,7 @@ app.post('/api/send-whatsapp', async (req, res) => {
         await waClients[userId].sendMessage(formattedNumber, message);
         
         // Save Sent Chat to Firebase
-        await db.collection('WA_CHATS').add({
+        await crmPost('/chats', {
             userId: userId,
             phone: cleanNumber,
             text: message,

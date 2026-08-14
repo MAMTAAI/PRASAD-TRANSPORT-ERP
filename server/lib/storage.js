@@ -13,9 +13,15 @@
 //   local   writes under UPLOAD_DIR and serves through GET /api/v1/files/*.
 //           Files arrive already compressed to ~140 KB by the browser, so this
 //           is a few GB even at years of volume.
-//   s3      a drop-in: implement put/get/remove against the bucket and set
-//           STORAGE_DRIVER=s3. Nothing above this module changes — the stored
-//           URL is produced by `publicUrl()`, so old rows keep resolving.
+//   s3      implemented below. Set STORAGE_DRIVER=s3 + S3_BUCKET and give the
+//           box credentials (instance role preferred, else AWS_ACCESS_KEY_ID /
+//           AWS_SECRET_ACCESS_KEY). Nothing above this module changes — the
+//           stored URL is produced by `publicUrl()`, so old rows keep resolving
+//           and reads stay behind the app's auth instead of a public bucket.
+//
+// Switching drivers does NOT move existing objects. Files written under `local`
+// stay on disk; point the new driver at a bucket and sync the directory into it
+// under the same keys first, or old links 404.
 //
 // ⚠️ DISK. /var/www lives on the box's single 100 GB root volume, which was 91%
 // full when this was written (9.4 GB free, shared with the trading system).
@@ -120,16 +126,111 @@ const local = {
   },
 };
 
-// ── s3 driver (not implemented — see the header) ────────────────────────────
-// To enable: add @aws-sdk/client-s3, implement these three against the bucket,
-// set S3_BUCKET + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, STORAGE_DRIVER=s3.
-// `publicUrl()` should then return the CDN/bucket URL. Nothing else changes.
+// ── s3 driver ───────────────────────────────────────────────────────────────
+// Enabled by STORAGE_DRIVER=s3, or automatically when S3_BUCKET and
+// AWS_ACCESS_KEY_ID are both present (see DRIVER above).
+//
+// The SDK is imported lazily. On the local-driver box the @aws-sdk packages may
+// be absent or the credential chain unconfigured, and a top-level import would
+// turn that into a boot failure for an API that never touches S3. Paying the
+// import cost on the first upload instead keeps `STORAGE_DRIVER=local` free.
+//
+// publicUrl() is deliberately NOT changed to a bucket URL: every stored row
+// holds `/api/v1/files/<key>`, so reads keep flowing through GET
+// /api/v1/files/* and stay behind the app's own auth. The bucket can then stay
+// private — no public-read policy, no signed-URL expiry visible to the client.
+const S3_BUCKET = process.env.S3_BUCKET;
+const S3_PREFIX = (process.env.S3_PREFIX || '').replace(/^\/+|\/+$/g, '');
+const AWS_REGION = process.env.AWS_REGION || 'ap-south-1';
+
+// Prefix lets one bucket hold several environments (prasad/, staging/) without
+// the key hygiene above having to know about it.
+const s3Key = (key) => (S3_PREFIX ? `${S3_PREFIX}/${key}` : key);
+
+let _client = null;
+async function s3Client() {
+  if (_client) return _client;
+  if (!S3_BUCKET) throw new StorageError('DRIVER_UNAVAILABLE', 'STORAGE_DRIVER=s3 but S3_BUCKET is not set');
+  try {
+    const { S3Client } = await import('@aws-sdk/client-s3');
+    // No explicit credentials object: the default chain picks up
+    // AWS_ACCESS_KEY_ID/SECRET from the environment, or the EC2 instance role
+    // when the box has one. An instance role is the better answer on AWS —
+    // nothing to rotate, nothing to leak into .env.
+    _client = new S3Client({ region: AWS_REGION });
+    return _client;
+  } catch (e) {
+    throw new StorageError('DRIVER_UNAVAILABLE', `@aws-sdk/client-s3 could not be loaded: ${e.message}`);
+  }
+}
+
 const s3 = {
-  async put() { throw new StorageError('DRIVER_UNAVAILABLE', 's3 driver is not implemented — no credentials on this host; see server/lib/storage.js'); },
-  async openStream() { throw new StorageError('DRIVER_UNAVAILABLE', 's3 driver is not implemented'); },
-  async remove() { throw new StorageError('DRIVER_UNAVAILABLE', 's3 driver is not implemented'); },
-  async stats() { return { driver: 's3', implemented: false }; },
+  async put(key, buffer, contentType) {
+    const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await s3Client();
+    await client.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: s3Key(key),
+      Body: buffer,
+      ContentType: contentType,
+      // Objects are documents of record (bills, DLs, RCs). Server-side
+      // encryption is free and the audit asks for it.
+      ServerSideEncryption: 'AES256',
+    }));
+    return { key, url: publicUrl(key), bytes: buffer.length, contentType, driver: 's3' };
+  },
+
+  async openStream(key) {
+    const { GetObjectCommand, NoSuchKey } = await import('@aws-sdk/client-s3');
+    const client = await s3Client();
+    try {
+      const out = await client.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: s3Key(key) }));
+      // Body is a Node Readable under Node's HTTP handler — the same shape
+      // createReadStream() returns, so files.routes.js needs no branch.
+      return { stream: out.Body, bytes: Number(out.ContentLength ?? 0) };
+    } catch (e) {
+      // A missing object is `null`, matching the local driver's contract; the
+      // route turns that into a 404. Anything else is a real fault and rises.
+      if (e instanceof NoSuchKey || e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404) return null;
+      throw e;
+    }
+  },
+
+  async remove(key) {
+    const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = await s3Client();
+    await client.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: s3Key(key) }));
+  },
+
+  async stats() {
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const client = await s3Client();
+    // Paginated on purpose: ListObjectsV2 caps at 1000 keys per call and the
+    // document store passes that within a year. Capped at 20 pages (20k keys)
+    // so an operator's health check can never turn into a long bucket scan.
+    let files = 0, bytes = 0, token, pages = 0, truncated = false;
+    do {
+      const out = await client.send(new ListObjectsV2Command({
+        Bucket: S3_BUCKET, Prefix: S3_PREFIX || undefined, ContinuationToken: token,
+      }));
+      for (const o of out.Contents ?? []) { files++; bytes += Number(o.Size ?? 0); }
+      token = out.NextContinuationToken;
+      if (++pages >= 20 && token) { truncated = true; break; }
+    } while (token);
+    return { driver: 's3', bucket: S3_BUCKET, prefix: S3_PREFIX || null, region: AWS_REGION, files, bytes, truncated };
+  },
 };
+
+/** Presigned GET, for the rare case a client must fetch straight from the
+ *  bucket (a bulk export, a link mailed out). Unused by the upload path — the
+ *  default read route proxies through the API so the bucket stays private. */
+export async function presignGet(key, ttlSeconds = Number(process.env.S3_PRESIGN_TTL_SECONDS ?? 900)) {
+  if (DRIVER !== 's3') throw new StorageError('DRIVER_UNAVAILABLE', 'presigned URLs need the s3 driver');
+  const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+  const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+  const client = await s3Client();
+  return getSignedUrl(client, new GetObjectCommand({ Bucket: S3_BUCKET, Key: s3Key(safeKey(key)) }), { expiresIn: ttlSeconds });
+}
 
 const drivers = { local, s3 };
 const active = drivers[DRIVER] ?? local;

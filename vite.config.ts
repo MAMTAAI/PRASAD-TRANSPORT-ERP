@@ -44,7 +44,7 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
-            if (id.includes('firebase')) return 'vendor-firebase';
+            // No vendor-firebase chunk: the client SDK is gone from the app.
             if (id.includes('recharts') || id.includes('d3-')) return 'vendor-recharts';
             if (id.includes('quill')) return 'vendor-quill';
             if (id.includes('react')) return 'vendor-react';

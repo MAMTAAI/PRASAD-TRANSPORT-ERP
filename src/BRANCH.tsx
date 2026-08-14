@@ -1,7 +1,32 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase'; 
+
+// ── Where a branch actually lives ──────────────────────────────────────────
+// There is no `branches` table, and migration 026 refused to create one on
+// purpose: the distinct branch values already on ledgers and ledger_entries ARE
+// the list, so a master table would let this screen offer a branch that no
+// record uses. The Firestore BRANCHES collection was never written to either —
+// zero documents, which is why nothing was lost by not migrating it.
+//
+// What this screen genuinely owns is the per-branch MODULE MAP (which parts of
+// the ERP a branch may use) plus its contact details. That is configuration,
+// not an entity, so it lives in app_settings under 'branch_modules', keyed by
+// branch name. The list of branches to configure comes from the ledgers.
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const FIN = `${API}/api/v1/finance`;
+const CRM = `${API}/api/v1/crm`;
+const SETTINGS_KEY = 'branch_modules';
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+const saveBranchSettings = (all: any) => fetchJson(`${CRM}/settings/${SETTINGS_KEY}`, {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: all }),
+});
 
 export default function BRANCH() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -57,11 +82,30 @@ export default function BRANCH() {
 
   // 🔄 FETCH BRANCHES
   useEffect(() => { fetchBranches(); }, []);
+  // The saved settings keyed by branch name, so a save can merge rather than
+  // clobber another branch's configuration.
+  const [settingsMap, setSettingsMap] = useState<any>({});
+
   const fetchBranches = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "BRANCHES"));
-      setBranchesList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const [master, saved] = await Promise.all([
+        // Branch names in real use, derived from the ledgers.
+        fetchJson(`${FIN}/masters/companies`).catch(() => ({ branches: [] })),
+        fetchJson(`${CRM}/settings/${SETTINGS_KEY}`).catch(() => ({ value: null })),
+      ]);
+      const cfg = saved.value ?? {};
+      setSettingsMap(cfg);
+      // A branch that appears in the ledgers but has never been configured
+      // still lists — with defaults — so it can be configured. One that was
+      // configured but no longer appears also lists, so it can be cleaned up.
+      const names = Array.from(new Set([...(master.branches ?? []), ...Object.keys(cfg)])).sort();
+      setBranchesList(names.map((name) => ({
+        id: name,                       // the branch name IS the key
+        branch_name: name,
+        ...(cfg[name] ?? {}),
+        status: cfg[name]?.status ?? 'ACTIVE',
+      })));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -71,14 +115,17 @@ export default function BRANCH() {
     if (!formData.branch_name || !formData.city) return alert("⚠️ Branch Name and City are required!");
     setLoading(true);
     try {
-      const finalData = { ...formData, allowedModules: branchModules, updatedAt: serverTimestamp() };
-      if (editingId) {
-        await updateDoc(doc(db, "BRANCHES", editingId), finalData);
-      } else {
-        await addDoc(collection(db, "BRANCHES"), { ...finalData, createdAt: serverTimestamp() });
-      }
+      const name = String(formData.branch_name).trim();
+      const finalData = { ...formData, branch_name: name, allowedModules: branchModules, updatedAt: new Date().toISOString() };
+      // Merge, never replace: the settings value holds every branch, and a PUT
+      // sends the whole document.
+      const next = { ...settingsMap };
+      // A rename leaves the old key behind otherwise.
+      if (editingId && editingId !== name) delete next[editingId];
+      next[name] = finalData;
+      await saveBranchSettings(next);
       setIsModalOpen(false); fetchBranches(); alert("✅ Branch Settings Saved!");
-    } catch (e) { alert("❌ Error saving branch!"); }
+    } catch (e: any) { alert("❌ Error saving branch: " + (e?.message || '')); }
     setLoading(false);
   };
 
@@ -103,15 +150,20 @@ export default function BRANCH() {
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
-      await deleteDoc(doc(db, "BRANCHES", id));
-      fetchBranches();
+      // Only the configuration is removed. The branch itself is whatever the
+      // ledgers say it is, and this screen does not get to delete history.
+      const next = { ...settingsMap };
+      delete next[id];
+      try { await saveBranchSettings(next); fetchBranches(); }
+      catch (e: any) { alert("❌ " + (e?.message || '')); }
     }
   };
 
   const toggleStatus = async (branch) => {
     const newStatus = branch.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    await updateDoc(doc(db, "BRANCHES", branch.id), { status: newStatus });
-    fetchBranches();
+    const next = { ...settingsMap, [branch.id]: { ...(settingsMap[branch.id] ?? {}), ...branch, status: newStatus } };
+    try { await saveBranchSettings(next); fetchBranches(); }
+    catch (e: any) { alert("❌ " + (e?.message || '')); }
   };
 
   // 🛡️ TOGGLE MODULE FOR BRANCH

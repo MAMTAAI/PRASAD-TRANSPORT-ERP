@@ -7,8 +7,8 @@
 //  • Auto-reconnect with exponential backoff + a getState() watchdog heartbeat
 //  • Frontend-compatible API: GET /api/status/:userId, POST /api/send-whatsapp
 //  • USER FOOTPRINT: every outbound message logs WHO sent it (sentByUserId /
-//    sentByUserName / timestamp) to Firestore WA_CHATS + WA_LOGS via
-//    firebase-admin; incoming replies are logged too so Trip Chat shows both sides.
+//    sentByUserName / timestamp) to wa_chats + wa_logs via
+//    the ERP API; incoming replies are logged too so Trip Chat shows both sides.
 const express = require('express');
 const cors = require('cors');
 const { Client, LocalAuth } = require('whatsapp-web.js');
@@ -18,7 +18,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
 const stream = require('stream');
 const path = require('path');
-const admin = require('firebase-admin');
 const crypto = require('crypto');
 const axios = require('axios');
 
@@ -81,24 +80,43 @@ app.use('/api', requireWaToken);
 app.use('/upload-to-drive', requireWaToken);
 
 // ==========================================
-// 🔥 FIRESTORE (audit trail + chat history)
+// 🗒️ AUDIT TRAIL + CHAT HISTORY -> the ERP API
 // ==========================================
-let fdb = null;
-try {
-    admin.initializeApp({ credential: admin.credential.cert(require('./serviceAccountKey.json')) });
-    fdb = admin.firestore();
-    console.log('🔥 Firestore connected (audit trail active).');
-} catch (e) { console.error('⚠️ Firestore init failed — footprint logging disabled:', e.message); }
+// Was firebase-admin writing WA_CHATS/WA_LOGS straight to Firestore. The engine
+// and the dashboard were two services racing on the same collections with two
+// different dedupe rules; now there is one insert path and one rule.
+//
+// The ERP API is the only writer, and it dedupes on wa_msg_id — which matters
+// here specifically: this engine retries sends after a reconnect, and without
+// that key a reconnect storm doubled every message in Trip Chat.
+//
+// Logging must never break a send. Every failure here is swallowed and logged,
+// exactly as the Firestore version was.
+const ERP_API = process.env.ERP_API_URL || 'http://127.0.0.1:3300';
+const CRM_API = `${ERP_API}/api/v1/crm`;
+
+const postCrm = async (path, body) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 5000);
+    try {
+        const res = await fetch(`${CRM_API}${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: ctl.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return await res.json().catch(() => ({}));
+    } finally { clearTimeout(t); }
+};
 
 const last10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 
 async function logChat(entry) {
-    if (!fdb) return;
-    try { await fdb.collection('WA_CHATS').add(entry); } catch (e) { console.error('WA_CHATS log error:', e.message); }
+    try { await postCrm('/chats', entry); } catch (e) { console.error('WA_CHATS log error:', e.message); }
 }
 async function logAction(user, action) {
-    if (!fdb) return;
-    try { await fdb.collection('WA_LOGS').add({ user: user || 'System', action, timestamp: new Date().toISOString() }); } catch (e) { /* non-fatal */ }
+    try { await postCrm('/logs', { user: user || 'System', action }); } catch (e) { /* non-fatal */ }
 }
 
 // ==========================================

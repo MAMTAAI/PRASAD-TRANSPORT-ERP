@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from './firebase'; // 👈 FIREBASE IMPORT
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
 
 export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => void }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -41,15 +40,15 @@ export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => v
   useEffect(() => {
     const fetchSiteSettings = async () => {
       try {
-        const docRef = doc(db, "WEBSITE", "SETTINGS");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const fetchedData = docSnap.data();
-          // Merge old default with new fetched data
-          setSiteData(prevData => ({ ...prevData, ...fetchedData })); 
-        }
+        const res = await fetch(`${API}/api/v1/crm/website`);
+        if (!res.ok) return;                 // keep the built-in defaults
+        const { website } = await res.json();
+        // Merge old default with new fetched data
+        if (website) setSiteData(prevData => ({ ...prevData, ...website }));
       } catch (error) {
-        console.error("Error fetching website settings from Firebase:", error);
+        // The public page must still render if the API is down — the defaults
+        // baked into this component are the fallback, so this is not fatal.
+        console.error("Error fetching website settings:", error);
       }
     };
     fetchSiteSettings();

@@ -7,8 +7,18 @@
 // customer ke billing rules (RATE_MASTER) ke context me Claude se extract
 // karta hai. Data ADMIN-ONLY hai (app passwords) — firestore.rules enforced.
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, getDoc, setDoc, serverTimestamp, query, orderBy, limit } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const QUEUES = `${API}/api/v1/queues`;
+const CRM = `${API}/api/v1/crm`;
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 const fmtINR = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 
@@ -32,18 +42,19 @@ export default function EmailParserSettings() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [aSnap, cSnap, sDoc, pSnap] = await Promise.all([
-        getDocs(collection(db, 'EMAIL_ACCOUNTS')),
-        getDocs(collection(db, 'CUSTOMERS')),
-        getDoc(doc(db, 'EMAIL_SETTINGS', 'master')),
-        getDocs(query(collection(db, 'EMAIL_PARSED_BILLS'), orderBy('createdAt', 'desc'), limit(10))).catch(() => ({ docs: [] })),
+      const [a, c, st, p] = await Promise.all([
+        fetchJson(`${QUEUES}/email-accounts`),
+        fetchJson(`${MASTERS}/customers`),
+        fetchJson(`${CRM}/settings/email_parser`),
+        fetchJson(`${QUEUES}/parsed-bills?limit=10`).catch(() => ({ bills: [] })),
       ]);
-      setAccounts(aSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setCustomers(cSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-      const s = sDoc.exists() ? sDoc.data() : {};
-      setMasterOn(!!s.master_switch);
-      setPollMinutes(String(s.poll_minutes || 10));
-      setParsed(pSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // app_password comes back masked — the real value never leaves the server.
+      setAccounts(a.accounts ?? []);
+      setCustomers(c.customers ?? []);
+      const cfg = st.value ?? {};
+      setMasterOn(!!cfg.master_switch);
+      setPollMinutes(String(cfg.poll_minutes || 10));
+      setParsed((p.bills ?? []).map((b: any) => ({ ...b, createdAt: b.created_at })));
       setLoadError('');
     } catch (e) {
       console.error('EmailParser fetch:', e);
@@ -55,9 +66,10 @@ export default function EmailParserSettings() {
 
   const saveMaster = async (on, mins = pollMinutes) => {
     try {
-      await setDoc(doc(db, 'EMAIL_SETTINGS', 'master'), {
-        master_switch: on, poll_minutes: Math.max(2, parseInt(mins) || 10), updatedAt: serverTimestamp(),
-      }, { merge: true });
+      await fetchJson(`${CRM}/settings/email_parser`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: { master_switch: on, poll_minutes: Math.max(2, parseInt(mins) || 10) } }),
+      });
       setMasterOn(on);
     } catch { alert('❌ Master switch save nahi hua!'); }
   };
@@ -83,10 +95,14 @@ export default function EmailParserSettings() {
       // Password: edit me khali chhoda => purana password rakha jata hai
       if (formData.app_password) payload.app_password = formData.app_password;
       if (editingId) {
-        await updateDoc(doc(db, 'EMAIL_ACCOUNTS', editingId), { ...payload, updatedAt: serverTimestamp() });
+        await fetchJson(`${QUEUES}/email-accounts/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert('✅ Email account update ho gaya!');
       } else {
-        await addDoc(collection(db, 'EMAIL_ACCOUNTS'), { ...payload, createdAt: serverTimestamp(), last_result: '', last_error: '' });
+        await fetchJson(`${QUEUES}/email-accounts`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
         alert('✅ Email account add ho gaya — Master Switch ON hote hi parser isse check karega.');
       }
       setEditingId(null); setFormData(emptyForm);
@@ -104,12 +120,17 @@ export default function EmailParserSettings() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   const toggleStatus = async (a) => {
-    try { await updateDoc(doc(db, 'EMAIL_ACCOUNTS', a.id), { status: a.status === 'Active' ? 'Inactive' : 'Active' }); fetchAll(); }
-    catch { alert('❌ Status change nahi hua!'); }
+    try {
+      await fetchJson(`${QUEUES}/email-accounts/${a.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: a.status === 'Active' ? 'Inactive' : 'Active' }),
+      });
+      fetchAll();
+    } catch { alert('❌ Status change nahi hua!'); }
   };
   const handleDelete = async (a) => {
     if (!window.confirm(`⚠️ ${a.email} ko hamesha ke liye remove karein? (Parsed bills delete nahi honge)`)) return;
-    try { await deleteDoc(doc(db, 'EMAIL_ACCOUNTS', a.id)); fetchAll(); }
+    try { await fetchJson(`${QUEUES}/email-accounts/${a.id}`, { method: 'DELETE' }); fetchAll(); }
     catch { alert('❌ Delete nahi hua!'); }
   };
 

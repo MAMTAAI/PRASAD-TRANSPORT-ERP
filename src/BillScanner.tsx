@@ -5,8 +5,18 @@
 // into TRIPS / FUEL_ENTRIES + double-entry JOURNAL. Human reviews before
 // anything is written — the AI proposes, the user files.
 import React, { useState, useRef, useEffect } from 'react';
-import { collection, getDocs, doc, writeBatch, increment, query, where } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+const apiJson = async (path: string, opts: RequestInit = {}) => {
+  const res = await fetch(`${API}/api/v1${path}`, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { extractBill, matchRowsToTrips, matchRowsToFuelEntries, classifyDocument, extractBpclFreightBill } from './lib/billScanner';
 import { getAiEngine, setAiEngine, AI_ENGINES } from './lib/llm';
 import { CARD_PROVIDERS } from './lib/fleetCard';
@@ -43,10 +53,12 @@ export default function BillScanner() {
   useEffect(() => { fetchTargets(); }, []);
   const fetchTargets = async () => {
     try {
-      const tSnap = await getDocs(collection(db, 'TRIPS'));
-      setTrips(scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() }))) || []);
-      const fSnap = await getDocs(query(collection(db, 'FUEL_ENTRIES'), where('bill_status', '==', 'UNBILLED'))).catch(() => ({ docs: [] }));
-      setFuelEntries(fSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const tSnap = await apiJson('/ops/trips?limit=1000');
+      setTrips(scopeCurrent(tSnap.trips ?? []) || []);
+      const fSnap = await apiJson('/queues/fuel-entries?limit=1000').catch(() => ({ entries: [] }));
+      // Only the unbilled ones — the Firestore query filtered server-side and
+      // this list is what the matcher offers as fuel targets.
+      setFuelEntries((fSnap.entries ?? []).filter(f => (f.bill_status || 'UNBILLED') === 'UNBILLED'));
     } catch (e) { console.error(e); }
   };
 
@@ -230,16 +242,34 @@ export default function BillScanner() {
           // Fleet card wallet recharge (idempotent doc id per clearing doc)
           if (bpcl.fleet_card_debit > 0) {
             const txnId = `AP210_${billRef}`.replace(/[^A-Za-z0-9_-]/g, '_');
-            const already = await getDocs(query(collection(db, 'CARD_TRANSACTIONS'), where('ref', '==', txnId)));
-            if (already.empty) {
-              const b2 = writeBatch(db);
-              b2.set(doc(db, 'CARD_TRANSACTIONS', txnId), {
-                card_id: 'BPCL', provider: 'BPCL', type: 'RECHARGE',
-                amount: bpcl.fleet_card_debit, date: bpcl.clearing_date || '', party: 'BPCL',
-                narration: `FLEET CARD DEBIT via AP210 ${billRef}`, ref: txnId, createdAt: new Date().toISOString(),
-              });
-              b2.update(doc(db, 'FLEET_CARDS', 'BPCL'), { current_balance: increment(bpcl.fleet_card_debit) });
-              await b2.commit();
+            // post_to_ledger:false on purpose — the AP210 settlement journal
+            // above ALREADY carries the wallet debit leg. Posting again here
+            // would recharge the wallet twice in the books while the card
+            // balance moved once.
+            //
+            // No "already exists?" read either: card_transactions has a unique
+            // (card_id, ref) index, so a replayed AP210 answers 409 and the
+            // check-then-write race disappears with it.
+            const { cards } = await apiJson('/toll/cards');
+            const bpclCard = (cards ?? []).find((c: any) => c.provider === 'BPCL');
+            if (!bpclCard) {
+              errors.push('AP210: no BPCL fleet card configured — wallet not recharged');
+            } else {
+              try {
+                await apiJson(`/toll/cards/${bpclCard.id}/txns`, {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    txn_type: 'LOAD', amount: bpcl.fleet_card_debit,
+                    txn_date: bpcl.clearing_date || undefined, party: 'BPCL',
+                    narration: `FLEET CARD DEBIT via AP210 ${billRef}`,
+                    ref: txnId, post_to_ledger: false,
+                  }),
+                });
+              } catch (ce: any) {
+                // A repeat of the same clearing document is the expected case on
+                // a re-run, not a failure.
+                if (ce?.code !== 'DUPLICATE') throw ce;
+              }
             }
           }
         } catch (je) { errors.push(`AP210 settlement: ${je?.message || je}`); }

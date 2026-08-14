@@ -1,8 +1,9 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
 import { uploadMedia, slug } from './lib/uploadMedia';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const CRM = `${API}/api/v1/crm`;
 
 export default function WebSettings() {
   // 🌟 वेबसाइट का पूरा डिफ़ॉल्ट डेटा (ALL WEBSITE FIELDS)
@@ -54,9 +55,12 @@ export default function WebSettings() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const docSnap = await getDoc(doc(db, "WEBSITE", "SETTINGS"));
-        if (docSnap.exists()) {
-            const dbData = docSnap.data();
+        const res = await fetch(`${CRM}/website`);
+        const json = await res.json();
+        const dbData = json.website;
+        if (dbData) {
+            // A very old record kept a single `bg` string where the slider now
+            // expects an array. Normalised on read so both shapes still load.
             if(typeof dbData.bg === 'string') { dbData.bgImages = [dbData.bg]; delete dbData.bg; }
             setData({ ...defaultData, ...dbData }); // Merge with defaults
         }
@@ -130,17 +134,30 @@ export default function WebSettings() {
   const saveSettings = async () => {
     setLoading(true);
     try { 
-        await setDoc(doc(db, "WEBSITE", "SETTINGS"), data); 
+        const res = await fetch(`${CRM}/website`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ website: data }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
         alert("✅ वेबसाइट की सेटिंग्स सफलतापूर्वक लाइव कर दी गई हैं!"); 
     } 
-    catch (error) { alert("❌ सेटिंग्स सेव करने में समस्या आ रही है।"); }
+    catch (error) { alert("❌ सेटिंग्स सेव करने में समस्या: " + (error as any).message); }
     setLoading(false);
   };
 
   const restoreDefaults = async () => {
     if (window.confirm("⚠️ क्या आप सच में पुरानी (डिफ़ॉल्ट) सेटिंग्स वापस लाना चाहते हैं?")) {
       setData(defaultData);
-      try { await setDoc(doc(db, "WEBSITE", "SETTINGS"), defaultData); alert("✅ डिफ़ॉल्ट सेटिंग्स वापस आ गई हैं!"); } 
+      try {
+        const res = await fetch(`${CRM}/website`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ website: defaultData }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        alert("✅ डिफ़ॉल्ट सेटिंग्स वापस आ गई हैं!");
+      } 
       catch (e) { alert("❌ डिफ़ॉल्ट करने में समस्या आई।"); }
     }
   };

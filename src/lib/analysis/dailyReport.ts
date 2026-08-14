@@ -1,8 +1,18 @@
 // 📋 Phase 14.2 — Mamta AI daily self-analysis. 100% local, READ-ONLY: gathers
 // the day's operational + financial signals, then Gemma 4 writes a concise
 // report (summary + anomalies + suggestions). Never changes operational data.
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+// A failed source degrades the summary rather than throwing it away — the
+// briefing is advisory, and half a briefing beats an error screen.
+const get = async (url: string, key: string): Promise<any[]> => {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    return (await res.json())[key] ?? [];
+  } catch { return []; }
+};
 import { llmComplete } from '../llm';
 import { reconcile } from '../accounting/journal';
 import { scopeCurrent } from '../rbac';
@@ -34,16 +44,16 @@ export interface DailySignals {
 
 /** Read-only gather of today's signals (RBAC-scoped to the current user). */
 export async function buildDailySummary(): Promise<DailySignals> {
-  const [tSnap, dSnap, vSnap, fSnap, rec] = await Promise.all([
-    getDocs(collection(db, 'TRIPS')),
-    getDocs(collection(db, 'DRIVERS')),
-    getDocs(collection(db, 'VEHICLES')),
-    getDocs(collection(db, 'FUEL_ENTRIES')).catch(() => ({ docs: [] })),
+  const [tRows, dRows, vRows, fRows, rec] = await Promise.all([
+    get(`${API}/api/v1/ops/trips?limit=1000`, 'trips'),
+    get(`${API}/api/v1/masters/drivers`, 'drivers'),
+    get(`${API}/api/v1/masters/vehicles`, 'vehicles'),
+    get(`${API}/api/v1/queues/fuel-entries?limit=1000`, 'entries'),
     reconcile().catch(() => ({ count: 0, balanced: true, findings: [] })),
   ]);
-  const trips = scopeCurrent(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-  const drivers = dSnap.docs.map(d => d.data());
-  const vehicles = scopeCurrent(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+  const trips = scopeCurrent(tRows);
+  const drivers = dRows;
+  const vehicles = scopeCurrent(vRows);
 
   const st = (t: any) => String(g(t, ['trip_status', 'Trip_Status'])).toUpperCase();
   const trCounts = {
@@ -62,7 +72,7 @@ export async function buildDailySummary(): Promise<DailySignals> {
   vehicles.forEach(v => { docFields.forEach(([f, label]) => { const days = daysTo(g(v, [f])); if (days !== null && days <= 30) docExpiring.push({ vehicle: g(v, ['Vehicle_No', 'vehicle_no']), doc: label, days }); }); });
   docExpiring.sort((a, b) => a.days - b.days);
 
-  const fuelEntries = fSnap.docs.map((d: any) => d.data());
+  const fuelEntries = fRows;
   return {
     trips: trCounts, dlExpiring, docExpiring: docExpiring.slice(0, 12),
     journal: { count: rec.count, balanced: rec.balanced, flagged: rec.findings?.length || 0 },

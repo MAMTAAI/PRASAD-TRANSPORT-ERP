@@ -1,8 +1,17 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
+
 import { logAudit } from './lib/audit';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const BAZAAR = `${API}/api/v1/bazaar`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 export default function BazaarAdmin() {
   const [activeTab, setActiveTab] = useState('LIVE_BOARD'); 
@@ -32,21 +41,21 @@ export default function BazaarAdmin() {
   const fetchLoadsAndBids = async () => {
     setLoading(true);
     try {
-      const loadsQ = query(collection(db, "BAZAAR_LOADS"), orderBy("createdAt", "desc"));
-      const loadsSnap = await getDocs(loadsQ);
-      setLoads(loadsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const bidsQ = query(collection(db, "BAZAAR_BIDS"), orderBy("createdAt", "desc"));
-      const bidsSnap = await getDocs(bidsQ);
-      setBids(bidsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const [l, b] = await Promise.all([
+        fetchJson(`${BAZAAR}/loads`),
+        fetchJson(`${BAZAAR}/bids`),
+      ]);
+      // `assigned_to` arrives derived from the accepted bid — see the API note.
+      setLoads(l.loads ?? []);
+      setBids(b.bids ?? []);
     } catch (e) { console.error("Error fetching bazaar data:", e); }
     setLoading(false);
   };
 
   const fetchMarketTrucks = async () => {
     try {
-      const snap = await getDocs(collection(db, "MARKET_VEHICLES"));
-      setMarketTrucks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const { vehicles } = await fetchJson(`${BAZAAR}/market-vehicles`);
+      setMarketTrucks(vehicles ?? []);
     } catch (e) { console.error("Error fetching market trucks:", e); }
   };
 
@@ -92,16 +101,20 @@ export default function BazaarAdmin() {
     if (!loadForm.origin || !loadForm.destination || !loadForm.weight) return alert("Please fill mandatory fields!");
     setLoading(true);
     try {
-      const loadId = 'LD-' + Math.floor(Math.random() * 90000 + 10000);
       const finalVehicleType = isAddingCustomVehicle && customVehicleType ? customVehicleType : loadForm.vehicle_type;
 
-      await addDoc(collection(db, "BAZAAR_LOADS"), {
-        ...loadForm,
-        vehicle_type: finalVehicleType,
-        load_id: loadId,
-        status: 'OPEN', 
-        postedBy: 'ADMIN',
-        createdAt: serverTimestamp()
+      // No client-minted load_id any more: two admins posting at the same
+      // second could both draw the same random LD-#####, and load_id is what
+      // every bid references. The server mints it inside the insert.
+      await fetchJson(`${BAZAAR}/loads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...loadForm,
+          vehicle_type: finalVehicleType,
+          status: 'OPEN',
+          posted_by: 'ADMIN',
+        }),
       });
       alert("✅ Smart Load Posted to Bazaar Successfully!");
       setIsPostModalOpen(false);
@@ -111,7 +124,7 @@ export default function BazaarAdmin() {
       setShowMap(false);
       fetchLoadsAndBids();
     } catch (e) {
-      alert("❌ Error posting load");
+      alert("❌ Error posting load: " + (e as any).message);
     }
     setLoading(false);
   };
@@ -120,12 +133,18 @@ export default function BazaarAdmin() {
     if (window.confirm(`Are you sure you want to award this load to ${vendorName}?`)) {
       setLoading(true);
       try {
-        await updateDoc(doc(db, "BAZAAR_LOADS", loadId), { status: 'ASSIGNED', assigned_to: vendorName, updatedAt: serverTimestamp() });
-        await updateDoc(doc(db, "BAZAAR_BIDS", bidId), { status: 'ACCEPTED', updatedAt: serverTimestamp() });
+        // Was two separate writes: the load could end up assigned with no
+        // accepted bid if the second failed, and two admins could each award a
+        // different bid. Now one transaction, guarded by a unique index.
+        await fetchJson(`${BAZAAR}/loads/${loadId}/award`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bid_id: bidId }),
+        });
         logAudit({ action: 'BAZAAR_BID_AWARD', target: loadId, details: `Awarded to ${vendorName}` });
         alert(`✅ Load successfully assigned to ${vendorName}!`);
         fetchLoadsAndBids();
-      } catch (e) { alert("Error awarding bid."); }
+      } catch (e) { alert("Error awarding bid: " + (e as any).message); }
       setLoading(false);
     }
   };
@@ -243,7 +262,7 @@ export default function BazaarAdmin() {
                     <div style={{ padding: '20px' }}>
                       <div style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 'bold', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
                         <span>LATEST BIDS ({loadBids.length})</span>
-                        {load.status === 'ASSIGNED' && <span style={{color:'#10b981'}}>Awarded to: {load.assigned_to}</span>}
+                        {load.status === 'AWARDED' && <span style={{color:'#10b981'}}>Awarded to: {load.assigned_to}</span>}
                       </div>
                       {loadBids.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '20px 0', color: '#64748b', fontSize: '12px' }}>No bids received yet.</div>
@@ -257,7 +276,7 @@ export default function BazaarAdmin() {
                             <div style={{ textAlign: 'right' }}>
                               <div style={{ fontSize: '16px', fontWeight: '900', color: bid.status === 'ACCEPTED' ? '#10b981' : '#38bdf8' }}>₹{bid.bid_amount}</div>
                               {load.status === 'OPEN' && (
-                                <button onClick={() => handleAwardBid(load.id, bid.id, bid.vendor_name)} style={{ background: '#10b981', color: 'white', border: 'none', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', marginTop: '5px' }}>Award Load</button>
+                                <button onClick={() => handleAwardBid(load.load_id, bid.id, bid.vendor_name)} style={{ background: '#10b981', color: 'white', border: 'none', padding: '4px 10px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', marginTop: '5px' }}>Award Load</button>
                               )}
                               {bid.status === 'ACCEPTED' && <span style={{color:'#10b981', fontSize:'10px', fontWeight:'bold'}}>✅ WINNER</span>}
                             </div>

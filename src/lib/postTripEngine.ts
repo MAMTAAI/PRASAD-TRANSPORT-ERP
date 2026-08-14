@@ -6,16 +6,21 @@
 //   2. Auto-draft invoice computed the moment a trip unloads (feeds the
 //      Pending Billing dashboard in BillManagement).
 //   3. AI-scanned vendor/fuel bills auto-matched to the right trip_id.
-//   4. Shortage → driver-liability debit posted straight to the driver khata.
-// All money postings go through the idempotent double-entry journal
-// (lib/accounting/journal.postEntry) so re-running anything never duplicates.
-import {
-  collection, doc, addDoc, setDoc, updateDoc, getDoc, getDocs,
-  serverTimestamp, increment,
-} from 'firebase/firestore';
-import { db } from '../firebase';
-import { postEntry } from './accounting/journal';
-import { getTripFreight, getTripExpense, getField, round2 } from './accounting/tripMath';
+//   4. (was) Shortage → driver khata. Moved to the unload endpoint — see below.
+// All money postings go through TARA on the server (never from this file — see
+// approveRetroExpense), so re-running anything returns 409 instead of posting
+// the same cost twice.
+import { getField, round2 } from './accounting/tripMath';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const QUEUES = `${API}/api/v1/queues`;
+
+const queuesFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${QUEUES}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { logAudit } from './audit';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -84,91 +89,60 @@ const tripBrief = (t: any) => ({
 /** File a post-unloading bill into the Pending Expenses queue (status PENDING).
  *  Nothing touches the books until an admin approves. */
 export async function submitRetroExpense(exp: Partial<RetroExpense> & { amount: number }, trip?: any): Promise<string> {
-  const brief = trip ? tripBrief(trip) : {};
-  const docData = {
-    status: 'PENDING',
+  const brief: any = trip ? tripBrief(trip) : {};
+  const payload = {
     expense_type: exp.expense_type || 'VENDOR',
-    trip_db_id: '', trip_id: '', vehicle_no: '', driver_name: '', customer_name: '', trip_status_at_entry: '',
+    // PostgreSQL keeps the FK and the human code apart: `trip_id` is the uuid,
+    // `trip_ref` the PT00xxx the bill quotes. The API sorts a non-uuid into
+    // trip_ref itself, so both spellings can be sent.
+    trip_id: exp.trip_db_id || brief.trip_db_id || null,
+    trip_ref: exp.trip_id || brief.trip_id || null,
+    vehicle_no: exp.vehicle_no || brief.vehicle_no || '',
+    driver_name: brief.driver_name || '',
     vendor_name: exp.vendor_name || '',
     bill_no: exp.bill_no || '',
-    bill_date: exp.bill_date || '',
+    bill_date: exp.bill_date || null,
     amount: round2(Number(exp.amount) || 0),
-    gst_amount: round2(Number(exp.gst_amount) || 0),
     description: exp.description || '',
     source: exp.source || 'manual',
     entered_by: exp.entered_by || 'staff',
-    match_confidence: exp.match_confidence || (trip ? 'MATCHED' : 'NONE'),
-    ...brief,
-    ...(exp.trip_db_id ? { trip_db_id: exp.trip_db_id } : {}),
-    ...(exp.trip_id ? { trip_id: exp.trip_id } : {}),
-    ...(exp.vehicle_no ? { vehicle_no: exp.vehicle_no } : {}),
-    created_at: serverTimestamp(),
+    match_confidence: null,
+    trip_status_at_entry: brief.trip_status_at_entry || '',
   };
-  const ref = await addDoc(collection(db, 'EXPENSE_APPROVALS'), docData);
-  logAudit({ action: 'RETRO_EXPENSE_SUBMITTED', target: docData.trip_id || docData.bill_no, details: `${docData.expense_type} ₹${docData.amount} (${docData.vendor_name || 'no vendor'})` });
-  return ref.id;
+  const { expense } = await queuesFetch('/expenses', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  });
+  logAudit({ action: 'RETRO_EXPENSE_SUBMITTED', target: payload.trip_ref || payload.bill_no, details: `${payload.expense_type} ₹${payload.amount} (${payload.vendor_name || 'no vendor'})` });
+  return expense.id;
 }
 
-/** ADMIN APPROVAL: post the retro expense into the books —
- *  Dr expense ledger / Cr vendor (or Cash), bump the trip's total_expense,
- *  and re-finalize a COMPLETED trip's settlement so the closed P&L stays true.
- *  Idempotent: journal doc id is derived from the approval doc id. */
+/** ADMIN APPROVAL: post the retro expense into the books.
+ *
+ *  THE POSTING IS NO LONGER DONE HERE. This used to build both legs of a double
+ *  entry in the browser and write them through lib/accounting/journal. On
+ *  PostgreSQL `ledger_entries` belongs to TARA — append-only by trigger, with a
+ *  deferred Dr=Cr constraint — so a client-side posting is impossible by
+ *  design, not merely discouraged. The endpoint posts a JOURNAL voucher
+ *  (Dr expense / Cr creditor-or-cash), stamps the approval with its voucher_id
+ *  and adjusts the trip's P&L in one transaction.
+ *
+ *  Still idempotent, and more strictly than before: the voucher carries the
+ *  approval id as its reference, so a replay returns 409 rather than posting
+ *  the cost twice. */
 export async function approveRetroExpense(exp: RetroExpense & { id: string }, approverName: string): Promise<void> {
   const amount = round2(Number(exp.amount) || 0);
   if (amount <= 0) throw new Error('Zero-amount expense cannot be approved');
-  const ledger = EXPENSE_LEDGER[exp.expense_type] || EXPENSE_LEDGER.OTHER;
-  const creditLedger = exp.vendor_name ? `Creditors: ${exp.vendor_name}` : 'Cash';
-  const tag = exp.trip_id ? ` [Trip ${exp.trip_id}]` : '';
-
-  await postEntry({
-    source_type: 'RETRO_EXPENSE',
-    source_ref: exp.id,
-    date: exp.bill_date || new Date().toISOString().slice(0, 10),
-    narration: `Retro ${exp.expense_type.toLowerCase()} bill ${exp.bill_no || ''} — ${exp.vendor_name || 'cash'}${tag} (${exp.vehicle_no || ''})`,
-    lines: [
-      { ledger, dr_cr: 'Dr', amount },
-      { ledger: creditLedger, dr_cr: 'Cr', amount },
-    ],
-  });
-
-  // Retro-adjust the specific trip's P&L (and its frozen settlement figure).
-  if (exp.trip_db_id) {
-    const tripRef = doc(db, 'TRIPS', exp.trip_db_id);
-    const patch: any = { total_expense: increment(amount) };
-    try {
-      const snap = await getDoc(tripRef);
-      if (snap.exists()) {
-        const t = snap.data();
-        const status = String(getField(t, ['trip_status', 'Trip_Status']) || '');
-        if (status === 'COMPLETED') {
-          const penalty = Number(getField(t, ['shortage_penalty', 'Shortage_Penalty'])) || 0;
-          patch.final_balance = round2(getTripFreight(t) - (getTripExpense(t) + amount) - penalty);
-          patch.retro_adjusted_at = new Date().toISOString();
-        }
-      }
-    } catch { /* trip re-read failed — expense increment still applies */ }
-    await updateDoc(tripRef, patch);
-  }
-
-  // Fuel bills also land in the FUEL_ENTRIES register (idempotent doc id).
-  if (exp.expense_type === 'FUEL') {
-    await setDoc(doc(db, 'FUEL_ENTRIES', `RETRO_${exp.id}`), {
-      memo_no: exp.bill_no || `RETRO-${exp.id.slice(0, 6)}`,
-      vehicle_no: exp.vehicle_no || '', trip_id: exp.trip_id || '',
-      vendor_name: exp.vendor_name || '', amount, date: exp.bill_date || '',
-      fuel_type: 'RETRO_BILL', source: 'expense_approval', created_at: serverTimestamp(),
-    });
-  }
-
-  await updateDoc(doc(db, 'EXPENSE_APPROVALS', exp.id), {
-    status: 'APPROVED', approved_by: approverName, approved_at: serverTimestamp(),
+  await queuesFetch(`/expenses/${exp.id}/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approved_by: approverName }),
   });
   logAudit({ action: 'RETRO_EXPENSE_APPROVED', target: exp.trip_id || exp.bill_no, details: `${exp.expense_type} ₹${amount} by ${approverName}` });
 }
 
 export async function rejectRetroExpense(expId: string, reason: string, approverName: string): Promise<void> {
-  await updateDoc(doc(db, 'EXPENSE_APPROVALS', expId), {
-    status: 'REJECTED', rejection_reason: reason || '', approved_by: approverName, approved_at: serverTimestamp(),
+  await queuesFetch(`/expenses/${expId}/reject`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: reason || '', rejected_by: approverName }),
   });
   logAudit({ action: 'RETRO_EXPENSE_REJECTED', target: expId, details: reason || '' });
 }
@@ -200,46 +174,24 @@ export function buildDraftInvoice(trip: any, patch: { unloaded_qty?: any; shorta
 }
 
 // ── 4. Auto-shortage recovery → driver khata ─────────────────────────────
-/** Post the shortage penalty as a driver liability the moment unloading is
- *  approved: DRIVER_TRANSACTIONS debit (deterministic doc id — approving the
- *  same trip twice can never double-charge the driver) + journal entry
- *  Dr Driver Advances (recoverable) / Cr Shortage Recovery. */
-export async function postShortageRecovery(trip: any, args: { shortage_qty: number; penalty_amount: number; date?: string }): Promise<boolean> {
-  const penalty = round2(Number(args.penalty_amount) || 0);
-  if (penalty <= 0) return false;
-  const b = tripBrief(trip);
-  const dateISO = args.date || new Date().toISOString().slice(0, 10);
-  const driver = b.driver_name || 'Unknown Driver';
-  const txnId = `SHORTAGE__${(b.trip_id || trip.id).replace(/[^A-Za-z0-9_-]/g, '_')}`;
-
-  await setDoc(doc(db, 'DRIVER_TRANSACTIONS', txnId), {
-    driver_name: driver, vehicle_no: b.vehicle_no, trip_id: b.trip_id,
-    txn_type: 'SHORTAGE_DEDUCTION', amount: penalty, date: dateISO,
-    remarks: `Auto: unloading shortage ${args.shortage_qty || 0} units @ trip ${b.trip_id} — recoverable from driver`,
-    source: 'auto_unloading', createdAt: serverTimestamp(),
-  });
-
-  await postEntry({
-    source_type: 'SHORTAGE_RECOVERY',
-    source_ref: b.trip_id || trip.id,
-    date: dateISO,
-    narration: `Shortage penalty — driver ${driver}, trip ${b.trip_id} (${b.vehicle_no}), qty short ${args.shortage_qty || 0}`,
-    lines: [
-      { ledger: `Driver Advances: ${driver}`, dr_cr: 'Dr', amount: penalty },
-      { ledger: 'Shortage / Loss Recovery', dr_cr: 'Cr', amount: penalty },
-    ],
-  }).catch(() => { /* journal is idempotent; khata entry above already stands */ });
-
-  logAudit({ action: 'SHORTAGE_AUTO_DEBIT', target: b.trip_id, details: `₹${penalty} → ${driver} khata (${args.shortage_qty || 0} short)` });
-  return true;
-}
+// REMOVED — the server does this now, and did it better.
+//
+// postShortageRecovery() debited DRIVER_TRANSACTIONS and posted the journal
+// from the browser. POST /api/v1/ops/trips/:id/unload already does both inside
+// the transaction that records the unloading, keyed on the trip so a re-save
+// converges instead of charging the driver twice. It had no callers left here.
+//
+// This also closes the "driver shortage recovery has no GL leg" gap noted in
+// CLAUDE.md: it has one, posted by TARA at unloading.
 
 // ── Shared: all-trips fetch for bill matching (rare, on-demand) ──────────
 let tripsCache: { at: number; trips: any[] } | null = null;
 export async function fetchTripsForMatching(maxAgeMs = 120000): Promise<any[]> {
   if (tripsCache && Date.now() - tripsCache.at < maxAgeMs) return tripsCache.trips;
-  const snap = await getDocs(collection(db, 'TRIPS'));
-  const trips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const res = await fetch(`${API}/api/v1/ops/trips?limit=1000`);
+  if (!res.ok) return tripsCache?.trips ?? [];
+  const json = await res.json();
+  const trips = json.trips ?? [];
   tripsCache = { at: Date.now(), trips };
   return trips;
 }

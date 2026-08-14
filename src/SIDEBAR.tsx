@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
 
 interface SidebarProps {
   activeComponent: string;
@@ -21,11 +21,24 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
   const [pendingKyc, setPendingKyc] = useState(0);
   const [pendingReq, setPendingReq] = useState(0);
   const [pendingExp, setPendingExp] = useState(0);
+  // Three Firestore listeners became one endpoint returning three integers,
+  // polled while the tab is visible. A badge does not need a live socket, and
+  // the counts are one query server-side.
   useEffect(() => {
-    const u1 = onSnapshot(query(collection(db, 'ONBOARDING_APPLICATIONS'), where('status', '==', 'SUBMITTED')), s => setPendingKyc(s.size), () => {});
-    const u2 = onSnapshot(query(collection(db, 'DRIVER_REQUESTS'), where('status', '==', 'PENDING')), s => setPendingReq(s.size), () => {});
-    const u3 = onSnapshot(query(collection(db, 'EXPENSE_APPROVALS'), where('status', '==', 'PENDING')), s => setPendingExp(s.size), () => {});
-    return () => { u1(); u2(); u3(); };
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API}/api/v1/queues/badges`);
+        if (!res.ok || !alive) return;
+        const b = await res.json();
+        setPendingKyc(b.pending_kyc ?? 0);
+        setPendingReq(b.pending_requests ?? 0);
+        setPendingExp(b.pending_expenses ?? 0);
+      } catch { /* a badge is not worth an error surface */ }
+    };
+    load();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
+    return () => { alive = false; clearInterval(t); };
   }, []);
   const badgeFor = (id) => (id === 'ONBOARDING' || id === 'BAZAAR_ADMIN') ? pendingKyc : id === 'DRIVER' ? pendingReq : id === 'EXPENSE_APPROVALS' ? pendingExp : 0;
 

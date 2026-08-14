@@ -1,7 +1,15 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const BAZAAR = `${API}/api/v1/bazaar`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { vGstin, vPan, vMobile, gstinPanMatch, runChecks } from './lib/validators';
 
 interface CustomerPortalProps {
@@ -104,11 +112,12 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
 
     setLoading(true);
     try {
-      const loadId = `LD-${Math.floor(1000 + Math.random() * 9000)}`;
-      
-      // Save to Firebase Load Bazaar
-      await addDoc(collection(db, "BAZAAR_LOADS"), {
-        load_id: loadId,
+      // load_id is minted server-side inside the insert — a 4-digit random
+      // code collides far too easily, and it is the key every bid references.
+      const { load } = await fetchJson(`${BAZAAR}/loads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
         customer_name: profile.corporateName || 'Customer',
         origin: origin.toUpperCase(),
         destination: destination.toUpperCase(),
@@ -121,9 +130,10 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
         target_rate: budget,
         loading_date: loadDate,
         status: 'OPEN',
-        postedBy: 'CUSTOMER',
-        createdAt: serverTimestamp()
+        posted_by: 'CUSTOMER',
+        }),
       });
+      const loadId = load.load_id;
 
       // Update Local State for UI
       const newLoad = {
@@ -162,7 +172,10 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
 
     setLoading(true);
     try {
-      await addDoc(collection(db, "ONBOARDING_APPLICATIONS"), {
+      await fetchJson(`${BAZAAR}/onboarding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
         type: 'CUSTOMER',
         corporate_name: profile.corporateName.toUpperCase(),
         gst_no: profile.gstNumber.toUpperCase(),
@@ -170,8 +183,7 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
         mobile_no: profile.mobileNo,
         address: profile.address || '',
         contact_person: profile.contactPerson || '',
-        status: 'SUBMITTED',
-        submitted_at: serverTimestamp(),
+        }),
       });
       setProfile({ ...profile, status: 'PENDING' });
       alert("✅ Profile submitted for verification. Prasad Transport office will review and approve your KYC — you will be contacted on the mobile number provided.");

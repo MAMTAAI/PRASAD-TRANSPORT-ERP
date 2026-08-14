@@ -27,6 +27,10 @@ import { registerMastersRoutes } from './modules/masters.routes.js';
 import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
+import { registerBazaarRoutes } from './modules/bazaar.routes.js';
+import { registerCrmRoutes } from './modules/crm.routes.js';
+import { registerAuthRoutes } from './modules/auth.routes.js';
+import { registerQueueRoutes } from './modules/queues.routes.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -125,6 +129,16 @@ await app.register(registerFileRoutes,     { prefix: '/api/v1' });
 await app.register(registerTollRoutes,     { prefix: '/api/v1/toll' });
 // Loans/EMI, tyres, batteries and the service log.
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
+// Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.
+await app.register(registerBazaarRoutes,   { prefix: '/api/v1/bazaar' });
+// Cluster 6 — WhatsApp CRM, letterpad documents, audit trail, site content and
+// the settings singletons. The last collections Firestore still owned.
+await app.register(registerCrmRoutes,      { prefix: '/api/v1/crm' });
+// Identity. Replaces Firebase Auth — password login, WhatsApp OTP, sessions.
+await app.register(registerAuthRoutes,     { prefix: '/api/v1/auth' });
+// Review queues — retroactive expenses, the bill-parser mailboxes and what it
+// extracted, plus the sidebar's pending counts.
+await app.register(registerQueueRoutes,    { prefix: '/api/v1/queues' });
 
 
 // ── Boot ───────────────────────────────────────────────────────────────────

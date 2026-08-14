@@ -1031,8 +1031,13 @@ export async function registerMastersRoutes(app) {
   );
 
   // ═══ VENDORS ══════════════════════════════════════════════════════════════
+  // The fleet-partner columns (migration 044) are writable here too: Market
+  // Vehicles edits agencies through this same endpoint rather than keeping the
+  // second vendor store it used to have in Firestore.
   const VENDOR_COLS = ['vendor_name', 'vendor_type', 'contact_person', 'mobile_no', 'address',
-    'gst_no', 'bank_account', 'ifsc_code', 'opening_balance', 'status'];
+    'gst_no', 'bank_account', 'ifsc_code', 'opening_balance', 'status',
+    'owner_name', 'email', 'pan_no', 'payment_terms', 'portal_access',
+    'subscription_plan', 'max_vehicle_limit', 'portal_features'];
 
   app.get(
     '/vendors',

@@ -33,11 +33,27 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const Anthropic = require('@anthropic-ai/sdk');
 
-// Admin SDK — same pattern as scripts/firestore-backup.cjs (bypasses security rules)
-const admin = require(path.join(__dirname, 'whatsapp-server', 'node_modules', 'firebase-admin'));
-const serviceAccount = require(path.join(__dirname, 'whatsapp-server', 'serviceAccountKey.json'));
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.firestore();
+// ── PostgreSQL, directly ───────────────────────────────────────────────────
+// Not through the ERP HTTP API, deliberately. This job needs the mailbox
+// APP PASSWORD to open an IMAP connection, and /queues/email-accounts masks it
+// on every read — that mask is a feature, and punching a hole in it so a
+// backend job can read a secret would undo it for everyone.
+//
+// A scheduled process on the same box is not a client. It uses the same
+// credentials the API uses, from the same .env.
+const { Pool } = require('pg');
+const pool = new Pool({
+  host: process.env.PGHOST || '127.0.0.1',
+  port: Number(process.env.PGPORT || 5432),
+  database: process.env.PGDATABASE || 'prasad_erp',
+  user: process.env.PGUSER || 'prasad_app',
+  password: process.env.PGPASSWORD,
+  max: 4,
+});
+// NUMERIC as text, same rule as server/db/pool.js: a rupee value must not
+// round-trip through a JS float.
+require('pg').types.setTypeParser(1700, (v) => v);
+const q = (text, params) => pool.query(text, params);
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
@@ -97,15 +113,16 @@ const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 // configured rules, so it reads the right columns (tonne-km vs per-KL vs fixed).
 async function loadCustomerContext(customerName) {
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  const [custSnap, rmSnap, rtkmSnap] = await Promise.all([
-    db.collection('CUSTOMERS').get(),
-    db.collection('RATE_MASTER').get(),
-    db.collection('RTKM_MASTER').get(),
+  const [custRows, rmRows, rtkmRows] = await Promise.all([
+    q('SELECT * FROM customers'),
+    q("SELECT * FROM rate_master WHERE COALESCE(status,'Active') <> 'Inactive'"),
+    q('SELECT * FROM rtkm_master'),
   ]);
-  const cust = custSnap.docs.map(d => d.data()).find(c => norm(c.customer_name) === norm(customerName)) || {};
-  const rates = rmSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-    .filter(r => norm(r.Customer) === norm(customerName) && String(r.Status || 'Active') !== 'Inactive');
-  const routes = rtkmSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const cust = custRows.rows.find(c => norm(c.customer_name) === norm(customerName)) || {};
+  // The column is customer_name; the Firestore field was `Customer`. Both are
+  // checked so a row migrated either way still matches.
+  const rates = rmRows.rows.filter(r => norm(r.customer_name ?? r.Customer) === norm(customerName));
+  const routes = rtkmRows.rows;
 
   const ruleLines = rates.map(r =>
     `- ${r.Source} -> ${r.Destination}: ${r.Calc_Type} @ ₹${r.Rate_Value}` +
@@ -202,27 +219,27 @@ async function processAccount(acc) {
           stats.pdfs++;
           // Idempotency: doc id from message-id + filename — re-runs never duplicate
           const docId = crypto.createHash('sha1').update(`${mail.messageId || uid}::${att.filename}`).digest('hex');
-          const ref = db.collection('EMAIL_PARSED_BILLS').doc(docId);
-          if ((await ref.get()).exists) { stats.skipped++; continue; }
+          // `digest` is UNIQUE, so the insert below would refuse a repeat
+          // anyway; this read just avoids paying Claude for a bill already
+          // extracted.
+          const seen = await q('SELECT 1 FROM email_parsed_bills WHERE digest = $1', [docId]);
+          if (seen.rowCount) { stats.skipped++; continue; }
 
           const { parsed, usage, model } = await extractPdf(att.content, att.filename || 'bill.pdf', ctx);
           const rows = applyBillingRules(parsed.rows || [], acc.customer, ctx);
-          await ref.set({
-            source_email: acc.email,
-            customer: acc.customer || '',
-            mail_subject: mail.subject || '', mail_from: mail.from?.text || '',
-            mail_date: mail.date ? mail.date.toISOString() : '',
-            attachment: att.filename || '',
-            bill_no: String(parsed.bill_no || '').trim(),
-            bill_date: String(parsed.bill_date || '').slice(0, 10),
-            party_name: String(parsed.party_name || '').trim(),
-            total_amount: num(parsed.total_amount),
-            row_sum: r2(rows.reduce((s, r) => s + r.gross_printed, 0)),
-            rows,
-            ai_model: model, ai_usage: { in: usage?.input_tokens || 0, out: usage?.output_tokens || 0 },
-            status: 'PENDING_REVIEW',
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          await q(
+            `INSERT INTO email_parsed_bills (digest, source_email, customer, mail_subject, mail_from,
+               mail_date, attachment, bill_no, bill_date, party_name, total_amount, row_sum,
+               rows, ai_model, ai_usage, status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15::jsonb,'PENDING_REVIEW')
+             ON CONFLICT (digest) DO NOTHING`,
+            [docId, acc.email, acc.customer || '', mail.subject || '', mail.from?.text || '',
+             mail.date ? mail.date.toISOString() : null, att.filename || '',
+             String(parsed.bill_no || '').trim(), String(parsed.bill_date || '').slice(0, 10),
+             String(parsed.party_name || '').trim(), num(parsed.total_amount),
+             r2(rows.reduce((s, r) => s + r.gross_printed, 0)),
+             JSON.stringify(rows), model,
+             JSON.stringify({ in: usage?.input_tokens || 0, out: usage?.output_tokens || 0 })]);
           stats.parsed++;
           log(`  📄 ${att.filename}: bill ${parsed.bill_no || '?'} — ${rows.length} rows → PENDING_REVIEW`);
         }
@@ -248,31 +265,25 @@ async function runOnce() {
   if (running) { log('⏭️ previous cycle still running — skipping'); return; }
   running = true;
   try {
-    const settings = (await db.collection('EMAIL_SETTINGS').doc('master').get()).data() || {};
+    const settings = await readSettings();
     if (!settings.master_switch) { log('🔴 Master Switch OFF — nothing to do'); return; }
     if (!anthropic) { log('❌ ANTHROPIC_API_KEY missing in .env — extraction impossible, skipping cycle'); return; }
 
-    const snap = await db.collection('EMAIL_ACCOUNTS').where('status', '==', 'Active').get();
-    if (snap.empty) { log('🟡 Master Switch ON but no Active accounts in EMAIL_ACCOUNTS'); return; }
-    log(`🟢 Master Switch ON — ${snap.size} active account(s)`);
+    const { rows: accounts } = await q(
+      "SELECT * FROM email_accounts WHERE status = 'Active' ORDER BY email");
+    if (!accounts.length) { log('🟡 Master Switch ON but no Active accounts configured'); return; }
+    log(`🟢 Master Switch ON — ${accounts.length} active account(s)`);
 
-    for (const doc of snap.docs) {
-      const acc = { id: doc.id, ...doc.data() };
+    for (const acc of accounts) {
       try {
         const stats = await processAccount(acc);
-        await doc.ref.update({
-          last_checked_at: admin.firestore.FieldValue.serverTimestamp(),
-          last_result: `OK: ${stats.parsed} parsed / ${stats.pdfs} PDFs`,
-          last_error: stats.errors.slice(0, 3).join(' | ') || '',
-        });
+        await q(`UPDATE email_accounts SET last_run_at = now(), last_result = $2, last_error = $3 WHERE id = $1::uuid`,
+          [acc.id, `OK: ${stats.parsed} parsed / ${stats.pdfs} PDFs`, stats.errors.slice(0, 3).join(' | ') || '']);
       } catch (e) {
         // One broken account (bad password / host down) never stops the others
         log(`❌ ${acc.email}: ${e.message}`);
-        await doc.ref.update({
-          last_checked_at: admin.firestore.FieldValue.serverTimestamp(),
-          last_result: 'FAILED',
-          last_error: String(e.message || e).slice(0, 300),
-        }).catch(() => {});
+        await q(`UPDATE email_accounts SET last_run_at = now(), last_result = 'FAILED', last_error = $2 WHERE id = $1::uuid`,
+          [acc.id, String(e.message || e).slice(0, 300)]).catch(() => {});
       }
     }
   } catch (e) {
@@ -282,12 +293,20 @@ async function runOnce() {
   }
 }
 
+// The master switch + poll interval, stored as one app_settings row.
+async function readSettings() {
+  try {
+    const { rows } = await q("SELECT value FROM app_settings WHERE key = 'email_parser'");
+    return rows[0]?.value || {};
+  } catch (e) { log('⚠️ settings read failed:', e.message); return {}; }
+}
+
 async function main() {
   log(`📧 Email Bill Parser started (${ONCE ? 'single pass' : 'scheduler'}) — model ${CLAUDE_MODEL}`);
   await runOnce();
   if (ONCE) { log('done.'); process.exit(0); }
   const tick = async () => {
-    const settings = (await db.collection('EMAIL_SETTINGS').doc('master').get().catch(() => null))?.data() || {};
+    const settings = await readSettings();
     const mins = Math.max(2, Number(settings.poll_minutes) || 10);
     setTimeout(async () => { await runOnce(); tick(); }, mins * 60000);
     log(`⏰ next check in ${mins} min`);

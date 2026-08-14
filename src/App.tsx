@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { authReady, auth } from './firebase';
-import { signOut } from 'firebase/auth';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
 
 // 🧭 SHELL (needed for first paint — stays in the entry chunk)
 import SIDEBAR from './SIDEBAR';
@@ -98,29 +98,42 @@ export default function App() {
         console.error("Error parsing user data", e);
       }
     }
-    // Wait for the Firebase (anonymous) auth token before any Firestore reads —
-    // security rules reject requests made without it.
-    authReady.then(() => {
-      // 🔐 STALE-SESSION GUARD (root cause of "purana data gayab"): Phase-1 se
-      // pehle ka localStorage login Firebase me sirf ANONYMOUS hota hai — rules
-      // isStaff() (password login) mangte hain, isliye VEHICLES jaise staff-only
-      // collections chupchaap khali aa jate the (TRIPS dikhti thi, fleet nahi).
-      // Aisi stale session ko yahin pakad kar dobara login karwate hain.
-      // ('@local' emails = Playwright QA bypass — unhe nahi chhedte.)
+    // 🔐 SESSION GUARD. There is no anonymous Firebase token to wait for any
+    // more; the question is simply whether the stored session token is still
+    // good. /auth/me answers that in one call — it checks the signature AND
+    // that the session has not been revoked, which a local expiry check cannot.
+    //
+    // A profile in localStorage without a valid token is exactly the stale
+    // login that used to make staff-only screens come back silently empty, so
+    // it is cleared rather than trusted. ('@local' = Playwright QA bypass.)
+    (async () => {
       try {
         const saved = JSON.parse(localStorage.getItem('prasad_user') || 'null');
-        const fbUser = auth.currentUser;
-        const isPasswordLogin = !!fbUser && (fbUser.providerData || []).some((p) => p?.providerId === 'password');
+        const token = localStorage.getItem('prasad_token');
         const isQaBypass = String(saved?.email || '').endsWith('@local');
-        if (saved && !isPasswordLogin && !isQaBypass) {
-          localStorage.removeItem('prasad_user');
-          setUser(null);
-          setShowPublicWebsite(false); // login screen dikhao, public site nahi
-          alert('🔐 Aapka purana login session expire ho gaya hai (naya security system).\n\nKripya apne email/password se DOBARA LOGIN karein — uske baad Vehicle Master samet saara purana data wapas dikhega.');
+        if (saved && !isQaBypass) {
+          let ok = false;
+          if (token) {
+            try {
+              const res = await fetch(`${API}/api/v1/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+              ok = res.ok;
+              // A 503 means the database is down, not that the session is bad —
+              // logging everyone out over an outage would be the wrong call.
+              if (res.status === 503) ok = true;
+            } catch { ok = true; }   // network blip: keep the session, do not evict
+          }
+          if (!ok) {
+            localStorage.removeItem('prasad_user');
+            localStorage.removeItem('prasad_token');
+            localStorage.removeItem('prasad_token_expires');
+            setUser(null);
+            setShowPublicWebsite(false); // login screen dikhao, public site nahi
+            alert('🔐 Aapka login session expire ho gaya hai.\n\nKripya apne email/password se DOBARA LOGIN karein.');
+          }
         }
       } catch { /* guard is best-effort */ }
       setAuthLoading(false);
-    });
+    })();
     
     // ✨ SPLASH SCREEN TIMER 
     const splashTimer = setTimeout(() => {
@@ -151,7 +164,15 @@ export default function App() {
 
   const handleLogout = () => {
     if (window.confirm('Are you sure you want to log out?')) {
-      signOut(auth).catch(() => {}); // firebase.ts listener drops back to anonymous
+      // Tell the server first: a JWT cannot be withdrawn on its own, so logout
+      // is the request that deletes the session row. keepalive because the
+      // clear() and re-render below happen immediately after.
+      const token = localStorage.getItem('prasad_token');
+      if (token) {
+        fetch(`${API}/api/v1/auth/logout`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, keepalive: true,
+        }).catch(() => {});
+      }
       localStorage.clear();
       sessionStorage.clear();
       setUser(null);

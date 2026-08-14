@@ -1,8 +1,20 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, Timestamp, increment } from 'firebase/firestore';
-import { db } from './firebase';
-const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS_API = `${API}/api/v1/masters`;
+const QUEUES_API = `${API}/api/v1/queues`;
+const OPS_API = `${API}/api/v1/ops`;
+
+const apiJson = async (url: string, opts: RequestInit = {}) => {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 const mastersFetch = async (path: string, opts?: RequestInit) => {
   const res = await fetch(`${MASTERS_API}${path}`, opts);
   const json = await res.json().catch(() => ({}));
@@ -63,18 +75,19 @@ export default function FuelMgmt() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap = await getDocs(collection(db, "VEHICLES"));
-      setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const vSnap = await apiJson(`${MASTERS_API}/vehicles`);
+      setVehicles(vSnap.vehicles ?? []);
 
-      const dSnap = await getDocs(collection(db, "DRIVERS"));
-      setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const dSnap = await apiJson(`${MASTERS_API}/drivers`);
+      setDrivers(dSnap.drivers ?? []);
 
-      const venSnap = await getDocs(collection(db, "VENDORS"));
-      const allVendors = venSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const venSnap = await apiJson(`${MASTERS_API}/vendors`);
+      const allVendors = venSnap.vendors ?? [];
       setFuelVendors(allVendors.filter(v => v.vendor_type === 'Fuel Pump' || v.vendor_type === 'Fuel Pump (HSD)'));
 
-      const fSnap = await getDocs(collection(db, "FUEL_ENTRIES"));
-      setFuelHistory(fSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+      const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
+      // Already newest-first from the API (entry_date DESC).
+      setFuelHistory(fSnap.entries ?? []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -126,9 +139,9 @@ export default function FuelMgmt() {
       let matchedTrip = null;
       try {
         const normV = (s) => String(s || '').replace(/[^A-Z0-9]/ig, '').toUpperCase();
-        const tSnap = await getDocs(collection(db, "TRIPS"));
+        const tSnap = await apiJson(`${OPS_API}/trips?limit=1000`);
         const memoTs = new Date(`${memoData.date}T12:00:00`).getTime();
-        const cands = tSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => {
+        const cands = (tSnap.trips ?? []).filter(t => {
           if (normV(t.vehicle_no || t.Vehical_No) !== normV(memoData.vehicle_no)) return false;
           const ld = String(t.loading_date || t.Loading_Date || t.start_date || '').slice(0, 10);
           if (!ld) return false;
@@ -151,50 +164,53 @@ export default function FuelMgmt() {
         totalAmount += amt;
         if (pump.fuel_type !== 'ADVANCE') dieselExpense += amt;
 
-        await addDoc(collection(db, "FUEL_ENTRIES"), {
-          date: memoData.date,
-          vehicle_no: memoData.vehicle_no,
-          route_name: memoData.route_name,
-          driver_name: memoData.driver_name,
-          memo_no: memoData.memo_no,
-          vendor_id: pump.vendor_id,
-          vendor_name: pump.vendor_name,
-          fuel_type: pump.fuel_type,
-          liters: pump.qty,
-          rate: pump.rate,
-          amount: amt.toFixed(2),
-          cash_given_to_pump: pump.cash_advance,
-          pump_mobile: pump.mobile,
-          bill_status: 'UNBILLED',
-          trip_db_id: matchedTrip?.id || '',
-          trip_id: matchedTrip?.trip_id || matchedTrip?.Trip_ID || '',
-          createdAt: serverTimestamp()
+        // CHHINNAMASTA owns fuel_entries and re-applies its two guards (slip
+        // arithmetic within tolerance, one memo per pump) on the way in, so the
+        // slip goes through the ops endpoint rather than a direct insert.
+        await apiJson(`${OPS_API}/trips/${matchedTrip?.id ?? 'unlinked'}/fuel-slip`, {
+          method: 'POST',
+          body: JSON.stringify({
+            entry_date: memoData.date,
+            vehicle_no: memoData.vehicle_no,
+            route_name: memoData.route_name,
+            driver_name: memoData.driver_name,
+            memo_no: memoData.memo_no,
+            vendor_id: pump.vendor_id,
+            vendor_name: pump.vendor_name,
+            fuel_type: pump.fuel_type,
+            liters: Number(pump.qty) || 0,
+            rate: Number(pump.rate) || 0,
+            amount: amt,
+            cash_given_to_pump: Number(pump.cash_advance) || 0,
+            pump_mobile: pump.mobile,
+          }),
         });
 
         // 🔥 AUTO-POST TO DRIVER SETTLEMENT (IF ADVANCE)
         if (pump.fuel_type === 'ADVANCE' && memoData.driver_name) {
           const totalDriverAdvance = amt + cashAmt; 
           
-          await addDoc(collection(db, "DRIVER_TRANSACTIONS"), {
-            driver_name: memoData.driver_name,
-            txn_type: 'ADVANCE_GIVEN',
-            amount: totalDriverAdvance,
-            date: memoData.date,
-            remarks: `Fuel/Cash Advance at ${pump.vendor_name} (Memo: ${memoData.memo_no})`,
-            createdAt: serverTimestamp()
-          });
+          // The khata is written by the masters module now — the same table
+          // the ops and billing modules write, so the Driver Master and Master
+          // Trip Settlement both see this advance.
+          await apiJson(`${MASTERS_API}/drivers/${encodeURIComponent(memoData.driver_name)}/ledger`, {
+            method: 'POST',
+            body: JSON.stringify({
+              txn_type: 'ADVANCE_GIVEN',
+              amount: totalDriverAdvance,
+              txn_date: memoData.date,
+              remarks: `Fuel/Cash Advance at ${pump.vendor_name} (Memo: ${memoData.memo_no})`,
+            }),
+          }).catch(e => console.warn('driver khata:', e?.message));
           advancePosted = true;
         }
       }
 
       // 🔗 Trip P&L propagation: matched trip ka total_expense + diesel_amount
       // bump — ab fuel dono P&L screens par usi trip ke kharch me dikhta hai.
-      if (matchedTrip && dieselExpense > 0) {
-        await updateDoc(doc(db, "TRIPS", matchedTrip.id), {
-          total_expense: increment(Math.round(dieselExpense * 100) / 100),
-          diesel_amount: increment(Math.round(dieselExpense * 100) / 100),
-        }).catch(e => console.warn('Trip expense bump failed:', e?.message));
-      }
+      // The fuel-slip endpoint already attributes the slip to the trip, so the
+      // trip's expense is derived from fuel_entries rather than bumped by a
+      // second write that could drift from it.
 
       const successMsg = `✅ Trip Fuel Memo Generated!\n\n${matchedTrip ? `🔗 Trip ${matchedTrip.trip_id || matchedTrip.Trip_ID || matchedTrip.id} se link — ₹${dieselExpense.toLocaleString('en-IN')} diesel trip kharch me juda (P&L me dikhega).` : '⚠️ Koi single matching trip nahi mili — kharcha trip P&L se nahi juda (memo phir bhi saved hai).'}\n\nNote: Vendor Balance will update ONLY after you Verify the Bill in Reconciliation Tab.`;
       alert(successMsg);
@@ -284,16 +300,21 @@ export default function FuelMgmt() {
 
   const saveEditedSlip = async () => {
     try {
-      await updateDoc(doc(db, "FUEL_ENTRIES", editingSlipId), {
-         liters: editSlipData.liters,
-         rate: editSlipData.rate,
-         amount: editSlipData.amount
+      // Refused with 409 if the slip has already been verified against a
+      // pump bill — its value is what a posted voucher was built from.
+      await apiJson(`${QUEUES_API}/fuel-entries/${editingSlipId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          liters: Number(editSlipData.liters) || 0,
+          rate: Number(editSlipData.rate) || 0,
+          amount: Number(editSlipData.amount) || 0,
+        }),
       });
       setEditingSlipId('');
       alert("✅ Slip Updated!");
       
-      const fSnap = await getDocs(collection(db, "FUEL_ENTRIES"));
-      const freshHistory = fSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
+      const freshHistory = fSnap.entries ?? [];
       setFuelHistory(freshHistory);
       
       const slips = freshHistory.filter(f => f.vendor_id === reconVendor && f.bill_status === 'UNBILLED');
@@ -306,8 +327,8 @@ export default function FuelMgmt() {
     if(window.confirm("⚠️ Are you sure you want to permanently delete this Fuel Slip?")) {
       await deleteDoc(doc(db, "FUEL_ENTRIES", id));
       
-      const fSnap = await getDocs(collection(db, "FUEL_ENTRIES"));
-      const freshHistory = fSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
+      const freshHistory = fSnap.entries ?? [];
       setFuelHistory(freshHistory);
       
       const slips = freshHistory.filter(f => f.vendor_id === reconVendor && f.bill_status === 'UNBILLED');
@@ -354,84 +375,29 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
     }
 
     try {
-      const slipsToUpdate = filteredUnbilledSlips.filter(s => selectedSlips.includes(s.id));
-
-      // 💰 TRIP P&L DISTRIBUTION (2026-07-19 fuel R&D): purani slips ₹0 amount
-      // par saved thin (rate missing) — pump ke PHYSICAL BILL ki value ab
-      // LITERS ke anupat me har slip par batati hai, aur DELTA (naya − purana
-      // amount) us slip ki linked TRIP ke total_expense/diesel_amount me jata
-      // hai. Delta isliye: memo-time par jo amount tha wo trip par pehle se
-      // counted hai (TripManagment/FuelMgmt dono increment karte hain) —
-      // double-count kabhi nahi hota.
-      const billAmt = parseFloat(vendorBillAmount) || 0;
-      const totalLiters = slipsToUpdate.reduce((s, x) => s + (parseFloat(x.liters) || 0), 0);
-      let tripsBumped = 0;
-      const tSnap = await getDocs(collection(db, "TRIPS"));
-      const byTripId = new Map();
-      tSnap.docs.forEach(d => { const v = d.data(); const k = String(v.trip_id || v.Trip_ID || ''); if (k) byTripId.set(k, d.id); });
-      const perTripDelta = new Map();
-
-      for (const slip of slipsToUpdate) {
-        const liters = parseFloat(slip.liters) || 0;
-        const share = (billAmt > 0 && totalLiters > 0) ? Math.round((billAmt * liters / totalLiters) * 100) / 100 : (parseFloat(slip.amount) || 0);
-        const oldAmt = parseFloat(slip.amount) || 0;
-        const rate = liters > 0 ? Math.round((share / liters) * 100) / 100 : 0;
-        await updateDoc(doc(db, "FUEL_ENTRIES", slip.id), {
-          bill_status: 'BILLED_VERIFIED',
-          amount: share.toFixed(2), rate: String(rate), reconciled_share: share,
-        });
-        const tid = slip.trip_db_id || byTripId.get(String(slip.trip_id || ''));
-        const delta = Math.round((share - oldAmt) * 100) / 100;
-        if (tid && Math.abs(delta) > 0.009) perTripDelta.set(tid, Math.round(((perTripDelta.get(tid) || 0) + delta) * 100) / 100);
-      }
-      for (const [tid, delta] of perTripDelta) {
-        await updateDoc(doc(db, "TRIPS", tid), {
-          total_expense: increment(delta), diesel_amount: increment(delta),
-        }).catch(() => {});
-        tripsBumped++;
-      }
-
-      // 🏦 POST TO LEDGER WITH DATE RANGE
+      // ONE server call. This used to be a browser loop: read every trip,
+      // update each slip, bump each trip, then append a ONE-SIDED Cr row to
+      // LEDGER_ENTRIES. That last write is impossible on PostgreSQL — the table
+      // is TARA's, append-only, with a deferred Dr=Cr constraint — and the loop
+      // could half-complete, leaving slips verified with no liability posted.
+      //
+      // The endpoint does the slip values, the per-trip DELTA and the
+      // Dr Diesel / Cr Creditors journal in one transaction, and refuses a
+      // replay (the voucher reference is derived from the slip set).
       const vendor = fuelVendors.find(v => v.id === reconVendor);
       const vName = vendor ? vendor.vendor_name : 'Unknown Vendor';
-      
-      let periodStr = '';
-      if (reconFromDate && reconToDate) {
-         periodStr = ` (Period: ${new Date(reconFromDate).toLocaleDateString('en-GB')} to ${new Date(reconToDate).toLocaleDateString('en-GB')})`;
-      }
 
-      await addDoc(collection(db, "LEDGER_ENTRIES"), {
-         ledgerId: reconVendor, 
-         date: new Date().toISOString().split('T')[0],
-         particulars: `Fuel Bill Verified & Reconciled - Included ${selectedSlips.length} Slips${periodStr}`,
-         dr_cr: 'Cr (Credit)', 
-         amount: parseFloat(vendorBillAmount),
-         source: 'MANUAL', 
-         company: 'ALL',
-         branch: 'ALL',
-         created_at: Timestamp.now()
+      const recon = await apiJson(`${QUEUES_API}/fuel-reconcile`, {
+        method: 'POST',
+        body: JSON.stringify({
+          vendor_id: reconVendor,
+          slip_ids: selectedSlips,
+          bill_amount: parseFloat(vendorBillAmount) || 0,
+          from: reconFromDate || undefined,
+          to: reconToDate || undefined,
+        }),
       });
-
-      if (vendor) {
-         // The pump's balance is no longer a counter to read-modify-write — the
-         // Vendor Master derives it from vendor_txns. A verified fuel bill is a
-         // BILL_RECEIVED row, and the endpoint accepts this screen's Firestore
-         // document id (vendors.legacy_id) so no id translation is needed here.
-         //
-         // post_to_ledger is false on purpose: this screen still posts its own
-         // Firestore journal above, and posting a second one in PostgreSQL
-         // would double-count the liability. That leg moves when FuelMgmt does.
-         await mastersFetch(`/vendors/${vendor.id}/ledger`, {
-           method: 'POST', headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({
-             txn_type: 'BILL_RECEIVED',
-             amount: parseFloat(vendorBillAmount),
-             txn_date: new Date().toISOString().slice(0, 10),
-             remarks: `Fuel bill verified — ${selectedSlips.length} slip(s)`,
-             post_to_ledger: false,
-           }),
-         }).catch(e => console.error('vendor khata:', e));
-      }
+      const tripsBumped = recon.trips_adjusted ?? 0;
 
       alert(`✅ SUCCESS: Slips Reconciled!\n\n₹${vendorBillAmount} POSTED to ${vName}'s Ledger Account.\n🚛 ${tripsBumped} trips ke kharche me diesel value update ho gayi (P&L me dikhega).`);
       
@@ -440,7 +406,11 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       fetchData(); 
       handleVendorSelectRecon(reconVendor); 
       
-    } catch (e) { alert("❌ Error updating slips and ledger."); }
+    } catch (e: any) {
+      alert(e?.code === 'ALREADY_POSTED'
+        ? "⚠️ Ye bill pehle hi verify ho chuka hai — dobara post nahi hoga."
+        : "❌ Error updating slips and ledger: " + (e?.message || ''));
+    }
   };
 
   const sendFuelMemoWhatsApp = (slip: any) => {

@@ -99,45 +99,14 @@ export async function registerFileRoutes(app) {
 
   app.get('/files-stats', async () => ({ driver: DRIVER, ...(await stats()) }));
 
-  // ── One-time import ────────────────────────────────────────────────────────
-  // Firebase download URLs are public (they carry their own token), so the
-  // objects can be pulled across without any Firebase SDK or credential. This
-  // exists so the surviving objects can be re-hosted before the Firebase
-  // project is switched off — otherwise "disconnect Firebase" would silently
-  // mean "break every document link already in the database".
-  app.post(
-    '/files/import',
-    { schema: { body: { type: 'object', required: ['url', 'path'], additionalProperties: false, properties: {
-      url: { type: 'string', minLength: 8, maxLength: 2000 },
-      path: { type: 'string', minLength: 1, maxLength: 400 },
-    } } } },
-    async (req, reply) => {
-      const { url, path } = req.body;
-      // Only the host we are migrating away from. An open fetcher on an
-      // internal API is a server-side request forgery waiting to happen.
-      let host;
-      try { host = new URL(url).host; } catch { return fail(reply, 'BAD_URL', 400, 'not a URL'); }
-      if (!/(^|\.)(firebasestorage\.googleapis\.com|storage\.googleapis\.com|firebasestorage\.app)$/.test(host)) {
-        return fail(reply, 'HOST_NOT_ALLOWED', 400, `import only accepts Firebase Storage hosts, got ${host}`);
-      }
-
-      const res = await fetch(url).catch((e) => ({ ok: false, statusText: e.message }));
-      if (!res.ok) return fail(reply, 'FETCH_FAILED', 502, `source returned ${res.status ?? ''} ${res.statusText ?? ''}`.trim());
-      const contentType = String(res.headers.get('content-type') || '').split(';')[0].trim();
-      if (!ALLOWED.has(contentType)) return fail(reply, 'BAD_TYPE', 415, `source served ${contentType || 'unknown'}`);
-
-      const buffer = Buffer.from(await res.arrayBuffer());
-      try {
-        const out = await put(safeKey(String(path).replace(/\.[^./]+$/, '') + ALLOWED.get(contentType)), buffer, contentType);
-        reply.code(201);
-        return { ...out, imported_from: url };
-      } catch (e) {
-        if (e instanceof StorageError) {
-          const status = { NO_SPACE: 507, TOO_LARGE: 413, BAD_KEY: 400 }[e.code] ?? 400;
-          return fail(reply, e.code, status, e.message);
-        }
-        throw e;
-      }
-    }
-  );
+  // The one-time Firebase Storage import endpoint has been REMOVED.
+  //
+  // It existed to pull surviving objects across before the Firebase project was
+  // switched off. That is done: a scan of all 677 text columns in the schema
+  // finds zero rows pointing at firebasestorage/storage.googleapis.com, so it
+  // had nothing left to fetch — and a server-side fetcher on an internal API is
+  // not something to leave lying around once it has no purpose.
+  //
+  // If an old backup ever needs re-hosting, it is a POST /files away with the
+  // bytes in hand; it does not need the API to go and get them.
 }

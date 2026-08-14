@@ -2,8 +2,17 @@
 import React, { useState, useEffect } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css'; 
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const CRM = `${API}/api/v1/crm`;
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { llmComplete } from './lib/llm';
 
 export default function AiLetterPad() {
@@ -37,14 +46,17 @@ export default function AiLetterPad() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const vSnap = await getDocs(collection(db, "VEHICLES"));
-      setVehicles(vSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const dSnap = await getDocs(collection(db, "DRIVERS"));
-      setDrivers(dSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-      const docSnap = await getDocs(collection(db, "SAVED_DOCUMENTS"));
-      setSavedDocs(docSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a:any, b:any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      // Three independent reads — issued together rather than in sequence, so
+      // the letterpad opens in one round trip instead of three.
+      const [v, d, docs] = await Promise.all([
+        fetchJson(`${MASTERS}/vehicles`),
+        fetchJson(`${MASTERS}/drivers`),
+        fetchJson(`${CRM}/documents`),
+      ]);
+      setVehicles(v.vehicles ?? []);
+      setDrivers(d.drivers ?? []);
+      // The API already returns newest-first; `created_at` is the column name.
+      setSavedDocs((docs.documents ?? []).map((r: any) => ({ ...r, createdAt: r.created_at })));
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -121,20 +133,23 @@ export default function AiLetterPad() {
     try {
       if (editingDocId) {
         // ✅ UPDATE Existing Document
-        await updateDoc(doc(db, "SAVED_DOCUMENTS", editingDocId), {
-          title: docTitle,
-          content: editorContent,
-          updatedAt: serverTimestamp() // keep original createdAt
+        await fetchJson(`${CRM}/documents/${editingDocId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: docTitle, content: editorContent }), // keeps created_at
         });
         alert("✅ Document Updated Successfully!");
       } else {
         // 🆕 ADD New Document
-        await addDoc(collection(db, "SAVED_DOCUMENTS"), {
-          title: docTitle,
-          authority: authority || 'General',
-          vehicle_no: selectedVehicle || 'N/A',
-          content: editorContent,
-          createdAt: new Date().toISOString()
+        await fetchJson(`${CRM}/documents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: docTitle,
+            authority: authority || 'General',
+            vehicle_no: selectedVehicle || 'N/A',
+            content: editorContent,
+          }),
         });
         alert("✅ New Document Saved to Library!");
       }
@@ -143,14 +158,14 @@ export default function AiLetterPad() {
       setEditorContent('');
       setEditingDocId(null);
       fetchData();
-    } catch (e) { alert("❌ Error saving document."); }
+    } catch (e) { alert("❌ Error saving document: " + (e as any).message); }
   };
 
   // 🗑️ DELETE DOCUMENT
   const handleDelete = async (id: string, title: string) => {
     if (window.confirm(`⚠️ Are you sure you want to permanently delete "${title}"?`)) {
       try {
-        await deleteDoc(doc(db, "SAVED_DOCUMENTS", id));
+        await fetchJson(`${CRM}/documents/${id}`, { method: 'DELETE' });
         if (editingDocId === id) {
           setEditorContent('');
           setDocTitle('');

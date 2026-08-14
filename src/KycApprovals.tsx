@@ -1,15 +1,24 @@
 // @ts-nocheck
 // 🪪 KYC APPROVALS — the admin review queue for portal onboarding submissions.
-// Phase A made portal KYC real (validated ONBOARDING_APPLICATIONS docs);
-// this screen is where staff finally SEE and action them: auto-checks re-run
-// on every application, Approve creates the canonical CUSTOMERS/VENDORS master
-// + auto-ledger in one batch, Reject requires a reason the applicant can fix.
+// Phase A made portal KYC real (validated onboarding applications); this screen
+// is where staff finally SEE and action them: auto-checks re-run on every
+// application, Approve creates the canonical customers/vendors master and then
+// stamps the application, Reject requires a reason the applicant can fix.
+//
+// No auto-ledger: TARA opens the party account on the first real posting, so an
+// approval no longer leaves two empty ledgers behind (migration 026).
 import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
-const MASTERS_API = ((import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300') + '/api/v1/masters';
+const API_BASE = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const MASTERS_API = API_BASE + '/api/v1/masters';
+const BAZAAR_API = API_BASE + '/api/v1/bazaar';
 const mastersFetch = async (path: string, opts?: RequestInit) => {
   const res = await fetch(`${MASTERS_API}${path}`, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+const bazaarFetch = async (path: string, opts?: RequestInit) => {
+  const res = await fetch(`${BAZAAR_API}${path}`, opts);
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
   return json;
@@ -32,12 +41,22 @@ export default function KycApprovals() {
   const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  // Firestore's onSnapshot pushed changes; PostgreSQL has no browser socket
+  // here, so the queue refreshes on mount, after every decision, and on a slow
+  // interval while the tab is visible. A KYC queue is reviewed in minutes, not
+  // milliseconds — polling at 30s costs one small query and avoids standing up
+  // a websocket for one screen.
+  const loadApps = async () => {
+    try {
+      const { applications } = await bazaarFetch('/onboarding');   // already newest-first
+      setApps(applications ?? []);
+    } catch (e) { console.error(e); }
+  };
+
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'ONBOARDING_APPLICATIONS'), snap => {
-      setApps(snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => String(b.submitted_at?.seconds || '').toString().localeCompare(String(a.submitted_at?.seconds || ''))));
-    }, e => console.error(e));
-    return () => unsub();
+    loadApps();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') loadApps(); }, 30000);
+    return () => clearInterval(t);
   }, []);
 
   const checksFor = (a) => {
@@ -100,11 +119,13 @@ export default function KycApprovals() {
         masterId = j.vendor?.id || '';
       }
 
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'ONBOARDING_APPLICATIONS', a.id), {
-        status: 'APPROVED', approved_at: serverTimestamp(), approved_by: user.full_name || user.email || 'admin', master_id: masterId,
+      // The endpoint refuses an application that is already decided (409), so a
+      // double-click cannot create a second master for the same applicant.
+      await bazaarFetch(`/onboarding/${a.id}/approve`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ master_id: masterId, approved_by: user.full_name || user.email || 'admin' }),
       });
-      await batch.commit();
+      await loadApps();
       logAudit({ action: 'KYC_APPROVE', target: name, details: `${a.type} approved → master ${masterId}` });
       alert(`✅ ${name} approved — ${a.type === 'CUSTOMER' ? 'Customer' : 'Vendor'} Master me ban gaya.`);
     } catch (e) { console.error(e); alert('❌ Approve fail: ' + (e.message || 'error')); }
@@ -118,11 +139,11 @@ export default function KycApprovals() {
     setBusy(true);
     try {
       const user = JSON.parse(localStorage.getItem('prasad_user') || '{}');
-      const batch = writeBatch(db);
-      batch.update(doc(db, 'ONBOARDING_APPLICATIONS', a.id), {
-        status: 'REJECTED', reject_reason: reason, rejected_at: serverTimestamp(), rejected_by: user.full_name || user.email || 'admin',
+      await bazaarFetch(`/onboarding/${a.id}/reject`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, rejected_by: user.full_name || user.email || 'admin' }),
       });
-      await batch.commit();
+      await loadApps();
       logAudit({ action: 'KYC_REJECT', target: a.corporate_name || a.agency_name, details: reason });
     } catch (e) { console.error(e); alert('❌ Reject fail: ' + (e.message || 'error')); }
     setBusy(false);

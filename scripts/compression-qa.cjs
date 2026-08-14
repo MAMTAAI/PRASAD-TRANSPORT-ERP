@@ -49,10 +49,11 @@ const { chromium } = require('playwright');
     const cPdf = await mod.compressPdf(pdfFile);
     out.pdf = { inKB: Math.round(pdfBytes.byteLength / 1024), outKB: Math.round(cPdf.blob.size / 1024), mime: cPdf.mime };
 
-    // 3) Real end-to-end upload of the compressed image
+    // 3) Real end-to-end upload of the compressed image.
+    // No auth handshake to wait for any more: uploadMedia() posts to the ERP's
+    // own POST /api/v1/files, which does not need a Firebase anonymous token
+    // before the first write the way Firestore rules did.
     try {
-      const fb = await import('/src/firebase.ts');
-      await fb.authReady;
       const res = await mod.uploadMedia(imgFile, 'drivers/upload-probe/e2e-compress.jpg');
       out.upload = { url: res.url.slice(0, 90) + '…', path: res.path, KB: Math.round(res.bytes / 1024) };
     } catch (e) { out.upload = { error: String(e && e.message || e).slice(0, 200) }; }

@@ -1,8 +1,28 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { db } from './firebase'; 
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+
+const ERP_API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+const erp = async (path: string, opts: RequestInit = {}) => {
+  const res = await fetch(`${ERP_API}/api/v1${path}`, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// The Firestore collection names the CRUD helpers are still called with, mapped
+// to their REST paths. Keeping the old names means the call sites in the JSX do
+// not have to change.
+const CRM_PATH: Record<string, string> = {
+  WA_CONTACTS: '/crm/contacts',
+  WA_RULES: '/crm/rules',
+  WA_SCHEDULES: '/crm/schedules',
+  WA_LEADS: '/crm/leads',
+};
 import MamtaChat from './MamtaChat';
 import useIsMobile from './hooks/useIsMobile';
 import { waHeaders, canUseLocalEngine } from './lib/waSend'; // 🔐 P0: X-PT-Token for the hardened engine
@@ -75,8 +95,8 @@ const WhatsappDashboard = () => {
   
   const contacts = [...waContacts, ...sysDrivers, ...sysCustomers, ...sysVendors];
 
-  const logActivity = async (actionDesc) => { 
-      try { await addDoc(collection(db, "WA_LOGS"), { user: activeUser, action: actionDesc, timestamp: new Date().toISOString() }); } catch(e) {} 
+  const logActivity = async (actionDesc) => {
+      try { await erp('/crm/logs', { method: 'POST', body: JSON.stringify({ user: activeUser, action: actionDesc }) }); } catch(e) {}
   };
 
   // 🔄 FETCH ALL DATA FROM FIREBASE
@@ -84,17 +104,40 @@ const WhatsappDashboard = () => {
     const extractPhone = (d) => String(d.phone || d.mobile || d.contact || d.Phone || d.Mobile || d.Contact || '').replace(/\D/g, '').slice(-10);
     const extractName = (d, fallback) => d.name || d.driverName || d.customerName || d.companyName || d.Name || fallback;
 
-    const unsubWa = onSnapshot(collection(db, "WA_CONTACTS"), s => setWaContacts(s.docs.map(d => ({ id: d.id, ...d.data(), phone: extractPhone(d.data()), isSystem: false }))));
-    const unsubDr = onSnapshot(collection(db, "DRIVERS"), s => setSysDrivers(s.docs.map(d => { const data = d.data(); return { id: d.id, name: extractName(data, 'Driver'), phone: extractPhone(data), category: 'Driver', isSystem: true }; }).filter(c => c.phone.length >= 10)));
-    const unsubCu = onSnapshot(collection(db, "CUSTOMERS"), s => setSysCustomers(s.docs.map(d => { const data = d.data(); return { id: d.id, name: extractName(data, 'Customer'), phone: extractPhone(data), category: 'Customer', isSystem: true }; }).filter(c => c.phone.length >= 10)));
-    const unsubVe = onSnapshot(collection(db, "COMPANIES"), s => setSysVendors(s.docs.map(d => { const data = d.data(); return { id: d.id, name: extractName(data, 'Vendor'), phone: extractPhone(data), category: 'Vendor', isSystem: true }; }).filter(c => c.phone.length >= 10)));
-    
-    const unsubRu = onSnapshot(collection(db, "WA_RULES"), s => setRules(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubSc = onSnapshot(collection(db, "WA_SCHEDULES"), s => setSchedules(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubLe = onSnapshot(collection(db, "WA_LEADS"), s => setLeads(s.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const unsubLogs = onSnapshot(collection(db, "WA_LOGS"), s => { const fetchedLogs = s.docs.map(d => ({ id: d.id, ...d.data() })); fetchedLogs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); setLogs(fetchedLogs); });
-    const unsubChats = onSnapshot(collection(db, "WA_CHATS"), s => { const fetchedChats = s.docs.map(d => ({ id: d.id, ...d.data() })); fetchedChats.sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp)); setChatMsgs(fetchedChats); });
-    const unsubTrips = onSnapshot(collection(db, "TRIPS"), s => { const activeErpTrips = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => t.trip_status !== 'COMPLETED' && t.trip_status !== 'UNLOADED'); setLiveTrips(activeErpTrips); });
+    // Ten Firestore listeners became one poll. A CRM board is read by a person
+    // watching it, so 15s is well inside "live", and the chat pane reloads on
+    // send anyway. The alternative was ten websockets for one screen.
+    const loadAll = async () => {
+      const [wa, dr, cu, co, ru, sc, le, lo, ch, tr] = await Promise.all([
+        erp('/crm/contacts').catch(() => ({ items: [] })),
+        erp('/masters/drivers').catch(() => ({ drivers: [] })),
+        erp('/masters/customers').catch(() => ({ customers: [] })),
+        erp('/finance/companies').catch(() => ({ companies: [] })),
+        erp('/crm/rules').catch(() => ({ items: [] })),
+        erp('/crm/schedules').catch(() => ({ items: [] })),
+        erp('/crm/leads').catch(() => ({ items: [] })),
+        erp('/crm/logs?limit=200').catch(() => ({ logs: [] })),
+        erp('/crm/chats?limit=500').catch(() => ({ chats: [] })),
+        erp('/ops/trips?exclude_status=COMPLETED,SETTLED,CANCELLED&limit=200').catch(() => ({ trips: [] })),
+      ]);
+
+      setWaContacts((wa.items ?? []).map((d) => ({ ...d, phone: extractPhone(d), isSystem: false })));
+      setSysDrivers((dr.drivers ?? []).map((d) => ({ id: d.id, name: extractName(d, 'Driver'), phone: extractPhone(d), category: 'Driver', isSystem: true })).filter(c => c.phone.length >= 10));
+      setSysCustomers((cu.customers ?? []).map((d) => ({ id: d.id, name: extractName(d, 'Customer'), phone: extractPhone(d), category: 'Customer', isSystem: true })).filter(c => c.phone.length >= 10));
+      setSysVendors((co.companies ?? []).map((d) => ({ id: d.id, name: extractName(d, 'Vendor'), phone: extractPhone(d), category: 'Vendor', isSystem: true })).filter(c => c.phone.length >= 10));
+
+      setRules(ru.items ?? []);
+      // The column is send_at; the form field is datetime.
+      setSchedules((sc.items ?? []).map((r) => ({ ...r, datetime: r.send_at })));
+      setLeads(le.items ?? []);
+      // Both already ordered by the API: logs newest-first, chats oldest-first,
+      // so the client-side sorts these listeners did are gone.
+      setLogs((lo.logs ?? []).map((r) => ({ ...r, user: r.user_name, timestamp: r.ts })));
+      setChatMsgs((ch.chats ?? []).map((r) => ({ ...r, type: r.direction, userId: r.user_id, sentByUserName: r.sent_by_user_name, tripId: r.trip_id, timestamp: r.ts })));
+      setLiveTrips(tr.trips ?? []);
+    };
+    loadAll();
+    const poll = setInterval(() => { if (document.visibilityState === 'visible') loadAll(); }, 15000);
 
     // 🩺 Live health poll — LOCAL engine first (persistent 24/7), cloud fallback.
     let apiBase = WA_CLOUD;
@@ -130,7 +173,9 @@ const WhatsappDashboard = () => {
     checkServer();
     const interval = setInterval(checkServer, 3000);
     
-    return () => { unsubWa(); unsubDr(); unsubCu(); unsubVe(); unsubRu(); unsubSc(); unsubLe(); unsubLogs(); unsubChats(); unsubTrips(); clearInterval(interval); };
+    // One data poll and the existing health poll — the ten listener
+    // unsubscribes are gone with the listeners.
+    return () => { clearInterval(poll); clearInterval(interval); };
   }, [activeUser]);
 
   // 🖱️ AUTO SCROLL CHAT
@@ -141,19 +186,25 @@ const WhatsappDashboard = () => {
   // 💾 CRUD OPERATIONS
   const save = async (col, data, reset) => { 
     if(!Object.values(data)[0]) return showToast("⚠️ फॉर्म खाली है!", "error");
-    try { 
-        await addDoc(collection(db, col), data); 
+    const path = CRM_PATH[col];
+    if (!path) return showToast("⚠️ Unknown list: " + col, "error");
+    try {
+        await erp(path, { method: 'POST', body: JSON.stringify(data) });
         showToast("✅ सफलतापूर्वक सेव हुआ!"); 
         logActivity(`Created record in ${col.replace('WA_', '')}`); 
         reset(); 
-    } catch(e) { showToast("❌ सेव नहीं हुआ", "error"); }
+    } catch(e) { showToast("❌ सेव नहीं हुआ: " + (e?.message || ''), "error"); }
   };
 
   const del = async (col, id) => { 
-      if(confirm("डिलीट करना चाहते हैं?")) { 
-          await deleteDoc(doc(db, col, id)); 
-          showToast("🗑️ डिलीट हो गया!", "success"); 
-          logActivity(`Deleted record from ${col.replace('WA_', '')}`); 
+      if(confirm("डिलीट करना चाहते हैं?")) {
+          const path = CRM_PATH[col];
+          if (!path) return showToast("⚠️ Unknown list: " + col, "error");
+          try {
+            await erp(`${path}/${id}`, { method: 'DELETE' });
+            showToast("🗑️ डिलीट हो गया!", "success");
+            logActivity(`Deleted record from ${col.replace('WA_', '')}`);
+          } catch(e) { showToast("❌ डिलीट नहीं हुआ: " + (e?.message || ''), "error"); }
       } 
   };
 
@@ -394,7 +445,7 @@ const WhatsappDashboard = () => {
               </div>
               <div style={{ display: 'flex', gap: '20px', overflowX: 'auto', paddingBottom: '20px', minHeight: '60vh' }}>
                 {['NEW LEAD', 'IN CONVERSATION', 'QUOTE SENT', 'CLOSED'].map(colStatus => (
-                  <div key={colStatus} onDragOver={(e) => e.preventDefault()} onDrop={async (e) => { e.preventDefault(); const id = e.dataTransfer.getData("leadId"); if(id) { await updateDoc(doc(db, "WA_LEADS", id), { status: colStatus }); logActivity(`Moved Kanban Lead to ${colStatus}`); showToast(`Moved to ${colStatus}`); } }} style={{ minWidth: '300px', background: '#020617', padding: '20px', borderRadius: '15px', border: `1px dashed ${theme.border}`, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div key={colStatus} onDragOver={(e) => e.preventDefault()} onDrop={async (e) => { e.preventDefault(); const id = e.dataTransfer.getData("leadId"); if(id) { try { await erp(`/crm/leads/${id}`, { method: 'PATCH', body: JSON.stringify({ status: colStatus }) }); logActivity(`Moved Kanban Lead to ${colStatus}`); showToast(`Moved to ${colStatus}`); } catch(err) { showToast("❌ " + (err?.message || ''), "error"); } } }} style={{ minWidth: '300px', background: '#020617', padding: '20px', borderRadius: '15px', border: `1px dashed ${theme.border}`, display: 'flex', flexDirection: 'column', gap: '15px' }}>
                     <h4 style={{ color: colStatus === 'CLOSED' ? theme.wa : theme.accent, borderBottom: `1px solid ${theme.border}`, paddingBottom: '10px' }}>{colStatus} ({leads.filter(l => l.status === colStatus).length})</h4>
                     {leads.filter(l => l.status === colStatus).map(lead => (
                       <div key={lead.id} draggable onDragStart={(e) => e.dataTransfer.setData("leadId", lead.id)} style={{ background: theme.inputBg, padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${theme.accent}`, cursor: 'grab' }}>

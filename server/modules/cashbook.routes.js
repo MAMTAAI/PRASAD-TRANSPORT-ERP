@@ -308,6 +308,81 @@ export async function registerCashbookRoutes(app) {
     return { companies: companies.rows, branches: branches.rows.map((r) => r.branch) };
   });
 
+  // ── Company master CRUD ─────────────────────────────────────────────────────
+  // The read above is the *picker* — active companies plus the branch list, for
+  // dropdowns. The Company Profile screen needs the whole row and the ability to
+  // edit it, so it gets its own endpoints rather than widening that one.
+  const COMPANY_COLS = ['company_name', 'tagline', 'gstin', 'pan_no', 'tds_tan', 'email', 'phone',
+    'address', 'city', 'state', 'pincode', 'bank_name', 'account_no', 'ifsc_code',
+    'logo_url', 'gst_pdf_url', 'pan_pdf_url', 'status'];
+
+  // gstin/pan_no are citext; ::text on the way out so the SPA compares strings.
+  const COMPANY_SELECT = `SELECT id, legacy_id, company_name, tagline, gstin::text AS gstin,
+    pan_no::text AS pan_no, tds_tan, email, phone, address, city, state, pincode,
+    bank_name, account_no, ifsc_code, logo_url, gst_pdf_url, pan_pdf_url,
+    status::text AS status, created_at, updated_at FROM companies`;
+
+  app.get('/companies', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`${COMPANY_SELECT} ORDER BY company_name`);
+    return { companies: rows };
+  });
+
+  app.post('/companies', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    if (!b.company_name) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'company_name is required' });
+    const cols = COMPANY_COLS.filter((c) => b[c] !== undefined && b[c] !== '');
+    try {
+      const { rows } = await query(
+        `INSERT INTO companies (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})
+         RETURNING id`, cols.map((c) => b[c]));
+      const { rows: full } = await query(`${COMPANY_SELECT} WHERE id = $1::uuid`, [rows[0].id]);
+      return reply.code(201).send({ company: full[0] });
+    } catch (e) {
+      if (e.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: e.detail ?? e.message });
+      if (e.code === '23514') return reply.code(400).send({ error: 'CONSTRAINT', detail: e.constraint ?? e.message });
+      throw e;
+    }
+  });
+
+  app.patch('/companies/:id', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const cols = COMPANY_COLS.filter((c) => b[c] !== undefined);
+    if (!cols.length) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
+    const idCol = /^[0-9a-f-]{36}$/i.test(String(req.params.id)) ? 'id = $1::uuid' : 'legacy_id = $1';
+    try {
+      const { rows } = await query(
+        `UPDATE companies SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = now()
+          WHERE ${idCol} RETURNING id`, [req.params.id, ...cols.map((c) => b[c])]);
+      if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+      const { rows: full } = await query(`${COMPANY_SELECT} WHERE id = $1::uuid`, [rows[0].id]);
+      return { company: full[0] };
+    } catch (e) {
+      if (e.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: e.detail ?? e.message });
+      if (e.code === '23514') return reply.code(400).send({ error: 'CONSTRAINT', detail: e.constraint ?? e.message });
+      throw e;
+    }
+  });
+
+  app.delete('/companies/:id', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const idCol = /^[0-9a-f-]{36}$/i.test(String(req.params.id)) ? 'id = $1::uuid' : 'legacy_id = $1';
+    try {
+      const { rowCount } = await query(`DELETE FROM companies WHERE ${idCol}`, [req.params.id]);
+      if (!rowCount) return reply.code(404).send({ error: 'NOT_FOUND' });
+      return { deleted: true };
+    } catch (e) {
+      // Trips, bills and ledgers reference a company. Removing one would strand
+      // them, so the honest answer is to retire it instead.
+      if (e.code === '23503') {
+        return reply.code(409).send({ error: 'IN_USE', detail: 'this company is referenced by existing records — set its status to INACTIVE instead' });
+      }
+      throw e;
+    }
+  });
+
   // ── Generic journal post ────────────────────────────────────────────────────
   // The replacement for src/lib/accounting/journal.postEntry(), which wrote a
   // Firestore JOURNAL collection — a SECOND ledger, separate from

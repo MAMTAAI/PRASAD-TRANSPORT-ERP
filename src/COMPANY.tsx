@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { db } from './firebase';
 import { uploadMedia, slug } from './lib/uploadMedia';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const FIN = `${API}/api/v1/finance`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 export default function CompanyMgmt() {
   const [companies, setCompanies] = useState<any[]>([]);
@@ -29,8 +37,8 @@ export default function CompanyMgmt() {
   const fetchCompanies = async () => {
     setLoading(true);
     try {
-      const querySnapshot = await getDocs(collection(db, "COMPANIES"));
-      setCompanies(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const { companies } = await fetchJson(`${FIN}/companies`);
+      setCompanies(companies ?? []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -62,18 +70,32 @@ export default function CompanyMgmt() {
     if (dup) return alert(`⚠️ Yeh company pehle se hai: "${dup.company_name}" (same name/GSTIN). Duplicate save nahi hoga.`);
     try {
       if (editingId) {
-        await updateDoc(doc(db, "COMPANIES", editingId), formData);
+        await fetchJson(`${FIN}/companies/${editingId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData),
+        });
       } else {
-        await addDoc(collection(db, "COMPANIES"), { ...formData, createdAt: serverTimestamp() });
+        await fetchJson(`${FIN}/companies`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData),
+        });
       }
       resetForm(); fetchCompanies();
-    } catch (err) { alert("Error saving data!"); }
+    } catch (err: any) {
+      // The client-side duplicate guard above only sees the rows it loaded; the
+      // unique index is what actually holds, and it answers 409.
+      alert(err?.code === 'DUPLICATE' ? "⚠️ Yeh company (name/GSTIN) pehle se registered hai." : "Error saving data: " + (err?.message || ''));
+    }
   };
 
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete ${name}?`)) {
-      await deleteDoc(doc(db, "COMPANIES", id));
-      fetchCompanies();
+      try {
+        await fetchJson(`${FIN}/companies/${id}`, { method: 'DELETE' });
+        fetchCompanies();
+      } catch (e: any) {
+        alert(e?.code === 'IN_USE'
+          ? "⚠️ Is company se jude records maujood hain — delete ke bajaye status INACTIVE karein."
+          : "❌ Delete nahi hua: " + (e?.message || ''));
+      }
     }
   };
 

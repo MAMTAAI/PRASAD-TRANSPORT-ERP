@@ -1,7 +1,15 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const BAZAAR = `${API}/api/v1/bazaar`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { vGstin, vPan, vMobile, vAadhaar, gstinPanMatch, runChecks } from './lib/validators';
 
 interface FleetPartnerPortalProps {
@@ -57,11 +65,9 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
   const fetchLiveLoads = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, "BAZAAR_LOADS"), where("status", "==", "OPEN"));
-      const snap = await getDocs(q);
-      const loadsData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      loadsData.sort((a, b) => b.createdAt - a.createdAt);
-      setLiveLoads(loadsData);
+      // Filtered and ordered by the API (status=OPEN, newest first).
+      const { loads } = await fetchJson(`${BAZAAR}/loads?status=OPEN`);
+      setLiveLoads(loads ?? []);
     } catch (e) { console.error("Error fetching loads:", e); }
     setLoading(false);
   };
@@ -69,9 +75,8 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
   const fetchMyBids = async () => {
     if(!profile.agencyName) return;
     try {
-      const q = query(collection(db, "BAZAAR_BIDS"), where("vendor_name", "==", profile.agencyName));
-      const snap = await getDocs(q);
-      setMyBids(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const { bids } = await fetchJson(`${BAZAAR}/bids?vendor_name=${encodeURIComponent(profile.agencyName)}`);
+      setMyBids(bids ?? []);
     } catch (e) { console.error("Error fetching bids:", e); }
   };
 
@@ -91,7 +96,10 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
 
     setLoading(true);
     try {
-      await addDoc(collection(db, "ONBOARDING_APPLICATIONS"), {
+      await fetchJson(`${BAZAAR}/onboarding`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
         type: 'FLEET_PARTNER',
         agency_name: profile.agencyName,
         owner_name: profile.ownerName || '',
@@ -101,8 +109,7 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
         // PII minimization: store Aadhaar masked — full number is not needed
         // for the review step and the collection is broadly readable (interim rules).
         aadhaar_last4: (profile.aadharNumber || '').replace(/[\s-]/g, '').slice(-4),
-        status: 'SUBMITTED',
-        submitted_at: serverTimestamp(),
+        }),
       });
       setProfile({ ...profile, status: 'PENDING' });
       alert("✅ Agency profile submitted for verification. Prasad Transport office will review your KYC and contact you.");
@@ -118,20 +125,24 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
     if(!bidAmount) return alert("Please enter your bidding amount!");
     setLoading(true);
     try {
-      await addDoc(collection(db, "BAZAAR_BIDS"), {
-        load_id: selectedLoad.load_id,
-        vendor_name: profile.agencyName || 'Test Vendor',
-        bid_amount: bidAmount,
-        remarks: bidRemarks,
-        status: 'PENDING',
-        createdAt: serverTimestamp()
+      // The API refuses a bid on a load that is no longer OPEN — this list is
+      // a snapshot, so another vendor may have won it since it was drawn.
+      await fetchJson(`${BAZAAR}/bids`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          load_id: selectedLoad.load_id,
+          vendor_name: profile.agencyName || 'Test Vendor',
+          bid_amount: bidAmount,
+          remarks: bidRemarks,
+        }),
       });
       alert(`✅ Bid of ₹${bidAmount} submitted successfully for Load ${selectedLoad.load_id}!`);
       setSelectedLoad(null);
       setBidAmount('');
       setBidRemarks('');
       fetchMyBids();
-    } catch (err) { alert("❌ Error submitting bid."); }
+    } catch (err) { alert("❌ Error submitting bid: " + (err as any).message); }
     setLoading(false);
   };
 

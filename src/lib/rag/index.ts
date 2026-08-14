@@ -1,26 +1,48 @@
 // 🔎 RAG over ERP data — 100% local. Read-only: builds a local vector index
-// from Firestore and grounds Gemma 4 answers in retrieved ERP context.
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase';
+// from the ERP API and grounds Gemma 4 answers in retrieved ERP context.
+//
+// The embeddings and the vector store stay in the browser (IndexedDB); only the
+// source rows come from PostgreSQL now. Each collection has its own endpoint
+// and its own response key, so the map below is the whole difference between
+// this and the old getDocs() loop.
 import { llmComplete } from '../llm';
 import { embed, embedBatch } from './embeddings';
 import { buildDoc } from './documents';
 import { putVectors, searchVectors, countVectors, clearVectors, type SearchHit } from './store';
 
-// Collections worth retrieving over (core entities first).
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+// Collections worth retrieving over (core entities first). The names are kept
+// in their Firestore spelling because they are stored on every indexed vector
+// and shown as the source label — renaming them would invalidate the index.
 export const RAG_COLLECTIONS = ['TRIPS', 'VEHICLES', 'DRIVERS', 'LEDGERS'];
+
+const SOURCES: Record<string, { url: string; key: string }> = {
+  TRIPS:    { url: `${API}/api/v1/ops/trips?limit=1000`, key: 'trips' },
+  VEHICLES: { url: `${API}/api/v1/masters/vehicles`,     key: 'vehicles' },
+  DRIVERS:  { url: `${API}/api/v1/masters/drivers`,      key: 'drivers' },
+  LEDGERS:  { url: `${API}/api/v1/finance/ledgers`,      key: 'ledgers' },
+};
 
 export interface IndexProgress { phase: string; done: number; total: number; }
 
-/** Rebuild the local vector index from Firestore. Read-only on Firestore. */
+/** Rebuild the local vector index from the ERP API. Read-only. */
 export async function buildIndex(onProgress?: (p: IndexProgress) => void): Promise<{ indexed: number }> {
   await clearVectors();
   // 1) Read + build text docs
   const docs: ReturnType<typeof buildDoc>[] = [];
   for (const coll of RAG_COLLECTIONS) {
     onProgress?.({ phase: `Reading ${coll}`, done: 0, total: 0 });
-    const snap = await getDocs(collection(db, coll));
-    snap.forEach(d => docs.push(buildDoc(coll, d.id, d.data())));
+    const src = SOURCES[coll];
+    if (!src) continue;
+    // One slow or missing endpoint should degrade the index, not abort the
+    // whole rebuild and leave the store empty.
+    try {
+      const res = await fetch(src.url);
+      if (!res.ok) continue;
+      const json = await res.json();
+      for (const row of (json[src.key] ?? [])) docs.push(buildDoc(coll, String(row.id), row));
+    } catch { continue; }
   }
   // 2) Embed in batches, persisting as we go
   const now = Date.now();

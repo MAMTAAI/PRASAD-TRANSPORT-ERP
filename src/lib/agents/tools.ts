@@ -1,7 +1,14 @@
 // 🛠️ Agent tools. Phase 8 starts READ-ONLY (no Firestore writes).
 // Each tool declares its JSON-schema definition + an executor + owning agent.
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../../firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { retrieve } from '../rag';
 import { scopeFilter, type AppUser } from '../rbac';
 import { logAudit } from '../audit';
@@ -32,8 +39,8 @@ const LIFECYCLE: Record<string, string> = {
 };
 
 async function fetchTrips(): Promise<any[]> {
-  const snap = await getDocs(collection(db, 'TRIPS'));
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const { trips } = await fetchJson(`${API}/api/v1/ops/trips?limit=1000`);
+  return trips ?? [];
 }
 
 export const TOOLS: AgentTool[] = [
@@ -119,7 +126,8 @@ export const TOOLS: AgentTool[] = [
 
 // ── Write tools (gated: orchestrator never auto-runs these; they require
 //    explicit user confirmation, then commitWrite() performs the insert).
-//    ADD-ONLY: we only addDoc new records — never update/delete (Section 0).
+//    ADD-ONLY: these create new records — never update or delete (Section 0),
+//    and never post to the ledger (see the note where add_ledger_entry was).
 export const WRITE_TOOLS: AgentTool[] = [
   {
     agent: 'Operations',
@@ -146,47 +154,39 @@ export const WRITE_TOOLS: AgentTool[] = [
       },
     },
     run: async (args) => {
-      const ref = await addDoc(collection(db, 'TRIPS'), {
-        trip_id: 'TRP-' + Math.floor(Math.random() * 90000 + 10000),
-        vehicle_no: args.vehicle_no || '', driver_name: args.driver_name || '',
-        loading_point: args.loading_point || '', consignee_name: args.consignee_name || '',
-        customer_name: args.customer_name || '', product_type: args.product_type || '',
-        loaded_qty: args.loaded_qty || '', rtkm: args.rtkm || '',
-        trip_status: 'PENDING', billing_status: 'PENDING',
-        created_at: serverTimestamp(), created_by: 'MAMTA AI Agent',
+      // The trip code is minted server-side inside the insert transaction
+      // (LOCK TABLE trips), so the agent no longer invents a random TRP-#####
+      // that could collide with a real one.
+      const { trip } = await fetchJson(`${API}/api/v1/ops/trips`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_no: args.vehicle_no || '', driver_name: args.driver_name || '',
+          loading_point: args.loading_point || '', consignee_name: args.consignee_name || '',
+          customer_name: args.customer_name || '', product_type: args.product_type || '',
+          loaded_qty: args.loaded_qty || '', rtkm: args.rtkm || '',
+          status: 'PENDING', created_by: 'MAMTA AI Agent',
+        }),
       });
-      return `Trip created with id ${ref.id}`;
+      return `Trip created with id ${trip?.trip_code ?? trip?.id}`;
     },
   },
-  {
-    agent: 'Accounts',
-    write: true,
-    definition: {
-      type: 'function',
-      function: {
-        name: 'add_ledger_entry',
-        description: 'Add a NEW ledger entry (party transaction). Requires user confirmation before saving.',
-        parameters: {
-          type: 'object',
-          properties: {
-            party_name: { type: 'string' },
-            amount: { type: 'number' },
-            type: { type: 'string', description: 'DEBIT or CREDIT' },
-            remarks: { type: 'string' },
-          },
-          required: ['party_name', 'amount'],
-        },
-      },
-    },
-    run: async (args) => {
-      const ref = await addDoc(collection(db, 'LEDGER_ENTRIES'), {
-        party_name: args.party_name || '', amount: Number(args.amount) || 0,
-        type: (args.type || 'DEBIT').toUpperCase(), remarks: args.remarks || '',
-        created_at: serverTimestamp(), created_by: 'MAMTA AI Agent',
-      });
-      return `Ledger entry added with id ${ref.id}`;
-    },
-  },
+  // ⛔ `add_ledger_entry` WAS HERE, AND IS NOT COMING BACK.
+  //
+  // It let the assistant append a one-sided row to LEDGER_ENTRIES —
+  // {party_name, amount, DEBIT|CREDIT} with no counter-account. Firestore
+  // accepted that; PostgreSQL cannot. `ledger_entries` is TARA's, append-only
+  // by trigger, and a deferred constraint checks ΣDr = ΣCr per voucher at
+  // COMMIT, so a single-legged entry is rejected by the database itself.
+  //
+  // The deeper reason is not the schema. A ledger posting needs BOTH accounts,
+  // and nothing in that tool told the model which the other one was — so the
+  // only way to make it work would be to let an LLM choose where the
+  // contra-entry lands. On a live double-entry book that is not a feature.
+  //
+  // Money is posted by the screens that know the counter-account (cash book,
+  // bill settlement, expense approval), each going through TARA's postVoucher.
+  // If the assistant should be able to start one of those, give it a tool that
+  // files a PROPOSAL for a human to approve — not one that writes the book.
 ];
 
 /** Tools currently enabled (modular — extend per agent rollout). */

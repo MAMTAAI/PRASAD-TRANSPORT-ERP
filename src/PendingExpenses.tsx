@@ -6,8 +6,8 @@
 // the trip's P&L is retro-adjusted and a COMPLETED trip's settlement is
 // re-finalized (all idempotent, closed accounts never double-post).
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from './firebase';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
 import { currentUser } from './lib/rbac';
 import { extractJsonFromImage } from './lib/aiScanner';
 import {
@@ -48,11 +48,17 @@ export default function PendingExpenses() {
   const [scanning, setScanning] = useState(false);
   const [scanNote, setScanNote] = useState('');
 
-  useEffect(() => {
-    const un = onSnapshot(query(collection(db, 'EXPENSE_APPROVALS'), orderBy('created_at', 'desc')),
-      s => setRows(s.docs.map(d => ({ id: d.id, ...d.data() }))), (e) => console.error('EXPENSE_APPROVALS read:', e?.message));
-    return () => un();
-  }, []);
+  // Was an onSnapshot listener; now a fetch on mount plus after each decision.
+  // Exposed as `reload` so approve/reject refresh the queue they just changed.
+  const reload = async () => {
+    try {
+      const res = await fetch(`${API}/api/v1/queues/expenses`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const j = await res.json();
+      setRows(j.expenses ?? []);
+    } catch (e) { console.error('expense queue read:', (e as any)?.message); }
+  };
+  useEffect(() => { reload(); }, []);
 
   // ⛽ FUEL PENDING (2026-07-19 R&D): asli "pending expense" fuel slips hain —
   // memo se liters record hote hain par ₹ value pump ke PHYSICAL BILL ke
@@ -60,15 +66,20 @@ export default function PendingExpenses() {
   // "sab 0 hai, system kharab hai" wala confusion na ho.
   const [fuelPending, setFuelPending] = useState({ count: 0, liters: 0, value: 0 });
   useEffect(() => {
-    const un = onSnapshot(collection(db, 'FUEL_ENTRIES'), s => {
-      const un_ = s.docs.map(d => d.data()).filter(x => (x.bill_status || 'UNBILLED') === 'UNBILLED');
-      setFuelPending({
-        count: un_.length,
-        liters: Math.round(un_.reduce((t, x) => t + (parseFloat(x.liters) || 0), 0)),
-        value: Math.round(un_.reduce((t, x) => t + (parseFloat(x.amount) || 0), 0)),
-      });
-    }, (e) => console.error('FUEL_ENTRIES read:', e?.message));
-    return () => un();
+    (async () => {
+      try {
+        // Three integers computed in SQL. The Firestore listener streamed the
+        // whole fuel register to the browser to reduce it here.
+        const res = await fetch(`${API}/api/v1/queues/fuel-pending`);
+        if (!res.ok) return;
+        const f = await res.json();
+        setFuelPending({
+          count: f.count ?? 0,
+          liters: Math.round(Number(f.liters) || 0),
+          value: Math.round(Number(f.value) || 0),
+        });
+      } catch (e) { console.error('fuel pending read:', (e as any)?.message); }
+    })();
   }, []);
 
   const ensureTrips = async () => {
@@ -155,6 +166,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
     setBusyId(row.id);
     try {
       await approveRetroExpense(row, userName);
+      await reload();
       alert(`✅ Posted! ${row.trip_id ? `Trip ${row.trip_id} ki settlement re-finalize ho gayi.` : 'Journal update ho gaya.'}`);
     } catch (e) { alert('❌ Approve failed: ' + (e?.message || '')); }
     setBusyId('');
@@ -165,7 +177,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
     const reason = window.prompt('Reject reason (driver ko/staff ko dikhega):', 'Bill unclear / duplicate');
     if (reason === null) return;
     setBusyId(row.id);
-    try { await rejectRetroExpense(row.id, reason, userName); }
+    try { await rejectRetroExpense(row.id, reason, userName); await reload(); }
     catch (e) { alert('❌ ' + (e?.message || 'failed')); }
     setBusyId('');
   };

@@ -1,7 +1,52 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db } from './firebase'; 
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const BAZAAR = `${API}/api/v1/bazaar`;
+const MASTERS = `${API}/api/v1/masters`;
+
+const fetchJson = async (url: string, opts?: RequestInit) => {
+  const res = await fetch(url, opts);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
+
+// ── Fleet-partner field adapter ────────────────────────────────────────────
+// This form was built against the Firestore VENDORS shape; PostgreSQL `vendors`
+// is the party master and names the same things differently. Mapped in one pair
+// of functions at the data boundary rather than renamed through the modal JSX.
+// `status` is the real trap: the form says APPROVED/INACTIVE, the column is a
+// record_status enum (ACTIVE|INACTIVE|BLACKLISTED|ARCHIVED).
+const vendorFromApi = (v: any) => ({
+  ...v,
+  id: v.id,
+  agency_name: v.vendor_name,
+  mobile: v.mobile_no,
+  status: v.status === 'ACTIVE' ? 'APPROVED' : v.status,
+  portal_features: v.portal_features ?? {},
+});
+
+const vendorToApi = (f: any) => ({
+  vendor_name: f.agency_name,
+  vendor_type: 'FLEET PARTNER',
+  contact_person: f.owner_name || '',
+  owner_name: f.owner_name || null,
+  mobile_no: f.mobile,
+  email: f.email || null,
+  pan_no: f.pan_no || null,
+  gst_no: f.gst_no || null,
+  address: f.address || null,
+  bank_account: f.bank_account || null,
+  ifsc_code: f.ifsc_code || null,
+  payment_terms: f.payment_terms || null,
+  opening_balance: Number.parseFloat(f.opening_balance || '0'),
+  status: f.status === 'APPROVED' ? 'ACTIVE' : (f.status || 'ACTIVE'),
+  portal_access: f.portal_access !== false,
+  subscription_plan: f.subscription_plan || 'FREE',
+  max_vehicle_limit: Number(f.max_vehicle_limit ?? 2),
+  portal_features: f.portal_features || {},
+});
 
 export default function MarketVehicles() {
   const [activeTab, setActiveTab] = useState('VENDORS');
@@ -50,21 +95,21 @@ export default function MarketVehicles() {
 
   const fetchVehicles = async () => {
     try {
-      const q = query(collection(db, "MARKET_VEHICLES"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setVehiclesList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const { vehicles } = await fetchJson(`${BAZAAR}/market-vehicles`);
+      setVehiclesList(vehicles ?? []);
     } catch (e) { console.error(e); }
   };
 
   const fetchVendors = async () => {
     try {
-      const q = query(collection(db, "VENDORS"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setVendorsList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // Only the agencies — the 13 fuel pumps and spares suppliers in the same
+      // table belong to Vendor Master, not to this screen.
+      const { vendors } = await fetchJson(`${MASTERS}/vendors?vendor_type=FLEET%20PARTNER`);
+      setVendorsList((vendors ?? []).map(vendorFromApi));
     } catch (e) { console.error(e); }
   };
 
-  // ------------------ 🏢 VENDOR CRUD (WITH AUTO LEDGER & SUBSCRIPTION) ------------------
+  // ------------------ 🏢 VENDOR CRUD (SUBSCRIPTION & PORTAL ACCESS) ------------------
   const openVendorModalForAdd = () => {
     setVendorFormData({ 
       agency_name: '', owner_name: '', mobile: '', email: '', pan_no: '', gst_no: '', address: '', 
@@ -103,60 +148,61 @@ export default function MarketVehicles() {
     }));
   };
 
-  // ⚠️ STILL FIRESTORE, AND DELIBERATELY SO — read this before "fixing" it.
+  // Fleet partners now live in PostgreSQL `vendors` like every other party.
   //
-  // Every other writer of the VENDORS collection moved to PostgreSQL with the
-  // party cluster (Vander, BatteryMgmt, TyreMgmt, KycApprovals, FuelMgmt,
-  // FleetCardMgmt). This one did not, because a fleet partner is not the same
-  // record: it carries agency_name, a subscription plan, a vehicle limit and
-  // portal feature flags, none of which `vendors` has columns for, plus a fleet
-  // of trucks that needs the `market_vehicles` table TRIPURA declares but no
-  // migration has created yet.
+  // This block used to carry a documented refusal to move, valid while
+  // PostgreSQL `vendors` held ZERO agency rows so the two stores could not
+  // disagree. Migration 044 added the columns that were missing (owner, plan,
+  // vehicle limit, portal feature flags) and KycApprovals already creates
+  // approved partners here — so keeping a second copy was about to produce two
+  // records for one agency. See the migration header.
   //
-  // That is bazaar-cluster work, not party-cluster work. It is safe to leave
-  // for now for one checkable reason: PostgreSQL `vendors` contains ZERO agency
-  // rows (all 18 are fuel pumps and spares suppliers), so these records do not
-  // overlap the ones the Vendor Master now owns and cannot diverge from them.
-  // The moment that stops being true, this is the first thing to move.
+  // The auto-LEDGERS insert is gone with it: TARA opens the party account on
+  // the first real posting, and a second writer of that table is exactly what
+  // migration 026 removed everywhere else.
   const handleSaveVendor = async () => {
     if (!vendorFormData.agency_name || !vendorFormData.mobile) return alert("Agency Name & Mobile are required!");
     setLoading(true);
     try {
       if (editingVendorId) {
-        await updateDoc(doc(db, "VENDORS", editingVendorId), { ...vendorFormData, updatedAt: serverTimestamp() });
+        await fetchJson(`${MASTERS}/vendors/${editingVendorId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vendorToApi(vendorFormData)),
+        });
         alert("✅ Vendor Profile, Subscription & Limits Updated!");
       } else {
-        const vndId = 'VND-' + Math.floor(Math.random() * 9000 + 1000);
-        const docRef = await addDoc(collection(db, "VENDORS"), { ...vendorFormData, vendor_id: vndId, createdAt: serverTimestamp() });
-        
-        await addDoc(collection(db, "LEDGERS"), {
-          ledger_name: vendorFormData.agency_name,
-          group_head: "Sundry Creditors", 
-          opening_balance: parseFloat(vendorFormData.opening_balance || '0'),
-          current_balance: parseFloat(vendorFormData.opening_balance || '0'),
-          creation_type: "AUTO_SYSTEM",
-          linked_module: "VENDOR",
-          linked_id: docRef.id,
-          created_at: serverTimestamp()
+        await fetchJson(`${MASTERS}/vendors`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vendorToApi(vendorFormData)),
         });
-
         alert("✅ New Vendor Saved with Custom Portal Access!");
       }
       setIsVendorModalOpen(false); fetchVendors(); 
-    } catch (e) { alert("❌ Error saving Vendor"); }
+    } catch (e) { alert("❌ Error saving Vendor: " + (e as any).message); }
     setLoading(false);
   };
 
   const toggleVendorStatus = async (vendor) => {
     if(!canApprove) return alert("Only Boss can change status!");
-    const newStatus = vendor.status === 'APPROVED' ? 'INACTIVE' : 'APPROVED';
-    await updateDoc(doc(db, "VENDORS", vendor.id), { status: newStatus });
-    fetchVendors();
+    // The column is a record_status enum, so the form's APPROVED maps to ACTIVE.
+    const newStatus = vendor.status === 'APPROVED' ? 'INACTIVE' : 'ACTIVE';
+    try {
+      await fetchJson(`${MASTERS}/vendors/${vendor.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      fetchVendors();
+    } catch (e) { alert("❌ " + (e as any).message); }
   };
 
   const handleDeleteVendor = async (id, name) => {
     if (window.confirm(`Delete Vendor: ${name}? This action cannot be undone.`)) {
-      await deleteDoc(doc(db, "VENDORS", id)); fetchVendors();
+      // A vendor with fuel slips or transactions against it answers 409 IN_USE
+      // rather than vanishing and orphaning them.
+      try {
+        await fetchJson(`${MASTERS}/vendors/${id}`, { method: 'DELETE' });
+        fetchVendors();
+      } catch (e) { alert("❌ " + (e as any).message); }
     }
   };
 
@@ -180,11 +226,17 @@ export default function MarketVehicles() {
     setLoading(true);
     try {
       if (editingTruckId) {
-        await updateDoc(doc(db, "MARKET_VEHICLES", editingTruckId), { ...truckFormData, updatedAt: serverTimestamp() });
+        await fetchJson(`${BAZAAR}/market-vehicles/${editingTruckId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(truckFormData),
+        });
         alert("✅ Market Truck Data Updated!");
       } else {
         const finalStatus = canApprove ? 'System Active' : 'PENDING APPROVAL';
-        await addDoc(collection(db, "MARKET_VEHICLES"), { ...truckFormData, system_status: finalStatus, addedBy: currentUser?.full_name || 'Unknown', createdAt: serverTimestamp() });
+        await fetchJson(`${BAZAAR}/market-vehicles`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...truckFormData, system_status: finalStatus, added_by: currentUser?.full_name || 'Unknown' }),
+        });
         alert(canApprove ? "✅ Market Vehicle Registered!" : "⏳ Vehicle sent for Approval!");
       }
       setIsTruckModalOpen(false); fetchVehicles(); 
@@ -193,13 +245,13 @@ export default function MarketVehicles() {
   };
 
   const handleApproveVehicle = async (id) => {
-    await updateDoc(doc(db, "MARKET_VEHICLES", id), { system_status: 'System Active' });
+    await fetchJson(`${BAZAAR}/market-vehicles/${id}/approve`, { method: 'POST' });
     fetchVehicles();
   };
 
   const handleDeleteTruck = async (id, regNo) => {
     if (window.confirm(`Remove Truck ${regNo} from system?`)) {
-      await deleteDoc(doc(db, "MARKET_VEHICLES", id)); fetchVehicles();
+      await fetchJson(`${BAZAAR}/market-vehicles/${id}`, { method: 'DELETE' }); fetchVehicles();
     }
   };
 

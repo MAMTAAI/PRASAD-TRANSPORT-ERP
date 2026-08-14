@@ -1,8 +1,17 @@
 // @ts-nocheck
-import React, { useState, useRef } from 'react';
-import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
-import { db, auth } from './firebase';
-import { signInWithEmailAndPassword, signInWithPhoneNumber, RecaptchaVerifier } from 'firebase/auth';
+import React, { useState } from 'react';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+const AUTH = `${API}/api/v1/auth`;
+
+const authFetch = async (path: string, body: any) => {
+  const res = await fetch(`${AUTH}${path}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 interface LoginProps {
   onLoginSuccess: (userData: any) => void;
@@ -37,36 +46,33 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
     setLoading(true);
 
     try {
-      // 🔐 PHASE 1: REAL Firebase Authentication. The server verifies the
-      // password; security rules then trust request.auth.uid — identity can
-      // no longer be forged via DevTools/localStorage.
-      const cred = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-      const uid = cred.user.uid;
+      // The ERP's own identity provider. One call returns the session token and
+      // the profile together — the password is verified and the role read in
+      // the same request, so there is no window where a session exists without
+      // a profile behind it.
+      const { token, expires_at, user } = await authFetch('/login', {
+        email: email.trim().toLowerCase(), password,
+      });
 
-      // Profile doc is keyed by the auth uid (imported that way).
-      let data = null; let docId = uid;
-      const snap = await getDoc(doc(db, "USERS", uid));
-      if (snap.exists()) { data = snap.data(); }
-      else {
-        // Fallback for any legacy doc not keyed by uid
-        const qs = await getDocs(query(collection(db, "USERS"), where("email", "==", email.trim().toLowerCase())));
-        if (!qs.empty) { data = qs.docs[0].data(); docId = qs.docs[0].id; }
-      }
-
-      if (!data) {
-        alert("🚨 Login to hua par staff profile nahi mila. Admin se sampark karein.");
-      } else if (data.status === 'INACTIVE') {
-        alert("🚨 Your account is disabled. Contact Super Admin.");
-      } else {
-        const { password_hash, password_salt, password: _pw, ...safeData } = data;
-        onLoginSuccess({ id: docId, uid, ...safeData });
-      }
+      // The token authorises every later request; the profile is only for
+      // rendering. Both go where the app already looks for them.
+      localStorage.setItem('prasad_token', token);
+      localStorage.setItem('prasad_token_expires', String(expires_at ?? ''));
+      onLoginSuccess({ ...user, uid: user.id });
     } catch (error: any) {
       console.error("Login error:", error?.code);
-      if (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found', 'auth/invalid-email'].includes(error?.code)) {
+      if (error?.code === 'PASSWORD_RESET_REQUIRED') {
+        // The cutover case, and the reason the API gives it a distinct code:
+        // these accounts never had a password in PostgreSQL, Firebase held it.
+        alert("🔑 Is account ka password abhi set nahi hai.\n\nFirebase se passwords transfer nahi ho sakte the — admin se naya password set karwayein.");
+      } else if (error?.code === 'ACCOUNT_INACTIVE') {
+        alert("🚨 Your account is disabled. Contact Super Admin.");
+      } else if (error?.code === 'ACCOUNT_LOCKED') {
+        alert("🚨 Bahut zyada galat attempts — " + error.message);
+      } else if (error?.code === 'INVALID_CREDENTIALS') {
         alert("❌ Invalid Email or Password!");
-      } else if (error?.code === 'auth/too-many-requests') {
-        alert("🚨 Bahut zyada galat attempts — thodi der baad try karein.");
+      } else if (error?.code === 'DB_UNAVAILABLE') {
+        alert("🚨 Server database se connect nahi ho pa raha — thodi der baad try karein.");
       } else {
         alert("❌ Login failed! Check your internet connection.");
       }
@@ -77,10 +83,13 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   // ==========================================
   // 📱 2. OTP SEND LOGIC 
   // ==========================================
-  // 📱 PHASE 1b: REAL portal OTP via Firebase Phone Auth — the server sends
-  // and verifies the code (the old placeholder accepted any 4 digits).
-  const confirmRef = useRef<any>(null);
-  const recapRef = useRef<any>(null);
+  // 📱 Portal OTP. Firebase Phone Auth sent the SMS; the ERP has no SMS gateway,
+  // so the code goes out over the WhatsApp engine the firm already runs
+  // (server/lib/otpChannel.js — swap the driver there if an SMS gateway is
+  // bought). No reCAPTCHA, because there is no Google widget to satisfy: abuse
+  // is bounded server-side instead, by one live code per number, a 5-minute
+  // expiry and a hard attempt cap — none of which the browser can talk its way
+  // out of.
 
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,17 +97,20 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
     if (!/^[6-9]\d{9}$/.test(m)) return alert("⚠️ Please enter a valid 10-digit mobile number.");
     setLoading(true);
     try {
-      if ((window as any).__QA_DISABLE_APP_VERIFY) (auth as any).settings.appVerificationDisabledForTesting = true;
-      if (!recapRef.current) recapRef.current = new RecaptchaVerifier(auth, 'portal-recaptcha', { size: 'invisible' });
-      confirmRef.current = await signInWithPhoneNumber(auth, '+91' + m, recapRef.current);
+      const r = await authFetch('/otp/request', { mobile: m });
       setMobile(m);
       setOtpSent(true);
-      alert(`📩 OTP sent to +91 ${m}`);
+      alert(`📩 OTP sent to +91 ${m} on ${r.channel === 'whatsapp' ? 'WhatsApp' : r.channel}`);
     } catch (err: any) {
       console.error(err?.code);
-      alert(err?.code === 'auth/too-many-requests' ? '🚨 Too many attempts — please try again later.' : '❌ OTP send failed — check the number and your connection.');
-      try { recapRef.current?.clear(); } catch {}
-      recapRef.current = null;
+      if (err?.code === 'OTP_CHANNEL_UNAVAILABLE' || err?.code === 'OTP_SEND_FAILED') {
+        // Said plainly rather than as a generic failure: when the WhatsApp
+        // engine is unlinked nobody can log in this way, and the operator needs
+        // to know it is the engine and not the number.
+        alert('🚨 OTP bhejne ka channel abhi offline hai (WhatsApp engine). Office se sampark karein.');
+      } else {
+        alert('❌ OTP send failed — check the number and your connection.');
+      }
     }
     setLoading(false);
   };
@@ -108,12 +120,21 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
     if (!/^\d{6}$/.test(otp)) return alert("⚠️ Please enter the 6-digit OTP.");
     setLoading(true);
     try {
-      await confirmRef.current.confirm(otp);
+      const r = await authFetch('/otp/verify', { mobile, code: otp });
+      // A staff number gets a real session; a portal number is identified but
+      // carries no ERP token — the same access the Firebase flow granted.
+      if (r.token) {
+        localStorage.setItem('prasad_token', r.token);
+        localStorage.setItem('prasad_token_expires', String(r.expires_at ?? ''));
+      }
       if (loginMode === 'CUSTOMER') onCustomerClick();
       else if (loginMode === 'PARTNER') onPartnerClick();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('❌ Wrong OTP — please check and try again.');
+      if (err?.code === 'OTP_EXPIRED') alert('⌛ OTP expire ho gaya — naya code mangwayein.');
+      else if (err?.code === 'OTP_ATTEMPTS_EXCEEDED') alert('🚨 Bahut zyada galat attempts — naya code mangwayein.');
+      else if (err?.code === 'NO_ACCOUNT') alert('❌ Is number par koi account nahi mila.');
+      else alert('❌ Wrong OTP — please check and try again.');
     }
     setLoading(false);
   };
@@ -274,7 +295,6 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
         </div>
       </div>
 
-      <div id="portal-recaptcha"></div>
       <style>{`
         .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }

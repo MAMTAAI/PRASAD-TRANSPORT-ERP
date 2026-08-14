@@ -1,10 +1,24 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, setDoc, serverTimestamp, query, orderBy, deleteField } from 'firebase/firestore';
+
 import { logAudit } from './lib/audit';
-import { db, auth, firebaseConfig } from './firebase';
-import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword, signOut as secSignOut, sendPasswordResetEmail } from 'firebase/auth';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+// User administration is admin-only server-side, so every call carries the
+// signed-in admin's token. There is no secondary app instance to juggle any
+// more: creating a staff account no longer risks replacing the admin's own
+// session, because creating one is just an insert.
+const authed = async (path: string, opts: RequestInit = {}) => {
+  const token = localStorage.getItem('prasad_token') || '';
+  const res = await fetch(`${API}/api/v1${path}`, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${token}`, ...(opts.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 
 export default function UGER() {
   // 🔥 NEW: TAB SYSTEM STATE
@@ -68,9 +82,8 @@ export default function UGER() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, "USERS"), orderBy("createdAt", "desc"));
-      const snap = await getDocs(q);
-      setUsersList(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const { users } = await authed('/auth/users');
+      setUsersList(users ?? []);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -78,9 +91,14 @@ export default function UGER() {
   const fetchLogs = async () => {
     try {
       // Assuming you have an 'ACTIVITY_LOGS' collection where every action saves data like {user, action, timestamp}
-      const q = query(collection(db, "ACTIVITY_LOGS"), orderBy("timestamp", "desc"));
-      const snap = await getDocs(q);
-      setActivityLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const { activity } = await fetch(`${API}/api/v1/crm/activity?limit=200`).then(r => r.json());
+      // Column names differ from the Firestore field names the table renders;
+      // mapped here so the JSX below needs no change. `ts` is a real timestamptz
+      // string, so the .toDate() calls the viewer used are gone too.
+      setActivityLogs((activity ?? []).map((r: any) => ({
+        id: String(r.id), user: r.user_name, role: r.role, action: r.action,
+        target: r.target, details: r.details, timestamp: r.ts,
+      })));
     } catch (e) { console.error("No logs yet or error fetching logs."); }
   };
 
@@ -93,35 +111,38 @@ export default function UGER() {
     if (!formData.email || !formData.full_name) return alert("⚠️ Name and Email are required!");
     setLoading(true);
     try {
-      // 🔐 PHASE 1: Firebase Auth owns credentials. New staff get a real auth
-      // account (created on a SECONDARY app instance so the admin's own
-      // session isn't replaced); the profile doc is keyed by the auth uid so
-      // security rules can look roles up directly.
+      // The ERP owns credentials now. A password is set through its own
+      // endpoint rather than carried in the profile save, so a routine edit can
+      // never touch one by accident — and the hash never travels with the form.
       const { password, ...rest } = formData;
       const cleanEmail = String(rest.email || '').trim().toLowerCase();
-      const finalData = { ...rest, email: cleanEmail, permissions: modules, updatedAt: serverTimestamp() };
+      const profile = {
+        full_name: rest.full_name, mobile: rest.mobile, role: rest.role,
+        scope: rest.scope, branch: rest.branch, city: rest.city, state: rest.state,
+        permissions: modules,
+      };
 
       if (editingId) {
-        await updateDoc(doc(db, "USERS", editingId), { ...finalData, password: deleteField(), password_hash: deleteField(), password_salt: deleteField() });
+        await authed(`/auth/users/${editingId}`, { method: 'PATCH', body: JSON.stringify(profile) });
         if (password) {
-          await sendPasswordResetEmail(auth, cleanEmail)
-            .then(() => alert(`📧 Password change ab reset-email se hota hai — ${cleanEmail} par link bhej diya.`))
-            .catch(() => alert('⚠️ Reset email nahi gaya — email address check karein.'));
+          if (password.length < 8) { setLoading(false); return alert("⚠️ Password kam se kam 8 akshar ka hona chahiye!"); }
+          // An admin setting someone else's password does not need the old one.
+          // Every existing session of that user dies with the change.
+          await authed(`/auth/users/${editingId}/password`, { method: 'POST', body: JSON.stringify({ password }) });
+          alert(`🔑 ${cleanEmail} ka naya password set kar diya gaya — unke purane sessions logout ho gaye.`);
         }
       } else {
-        if (!password || password.length < 6) { setLoading(false); return alert("⚠️ New profile ke liye kam se kam 6-akshar ka password chahiye!"); }
-        const sec = initializeApp(firebaseConfig, 'uger-' + Date.now());
-        let uid = '';
-        try {
-          const cred = await createUserWithEmailAndPassword(getAuth(sec), cleanEmail, password);
-          uid = cred.user.uid;
-          await secSignOut(getAuth(sec)).catch(() => {});
-        } finally { await deleteApp(sec).catch(() => {}); }
-        await setDoc(doc(db, "USERS", uid), { ...finalData, createdAt: serverTimestamp() });
+        if (!password || password.length < 8) { setLoading(false); return alert("⚠️ New profile ke liye kam se kam 8-akshar ka password chahiye!"); }
+        const { user } = await authed('/auth/users', { method: 'POST', body: JSON.stringify({ ...profile, email: cleanEmail }) });
+        await authed(`/auth/users/${user.id}/password`, { method: 'POST', body: JSON.stringify({ password }) });
       }
       logAudit({ action: editingId ? 'USER_UPDATE' : 'USER_CREATE', target: formData.email, details: `${formData.full_name} → role ${formData.role}` });
       setIsModalOpen(false); fetchUsers(); fetchLogs(); alert("✅ Data Saved Successfully!");
-    } catch (e) { alert("❌ Error saving data!"); }
+    } catch (e: any) {
+      if (e?.code === 'DUPLICATE') alert('⚠️ Ye email pehle se registered hai.');
+      else if (e?.code === 'FORBIDDEN' || e?.code === 'UNAUTHENTICATED') alert('🔒 Ye kaam sirf admin kar sakta hai — dobara login karein.');
+      else alert("❌ Error saving data: " + (e?.message || 'unknown'));
+    }
     setLoading(false);
   };
 
@@ -136,15 +157,27 @@ export default function UGER() {
 
   const handleDelete = async (id, name) => {
     if (window.confirm(`Delete ${name}?`)) {
-      await deleteDoc(doc(db, "USERS", id));
-      fetchUsers();
+      try {
+        await authed(`/auth/users/${id}`, { method: 'DELETE' });
+        fetchUsers();
+      } catch (e: any) {
+        // A user referenced by existing records cannot be deleted; the API says
+        // so rather than cascading, and the screen passes that on.
+        alert(e?.code === 'IN_USE' ? '⚠️ Ye user purane records se juda hai — delete ke bajaye account DISABLE karein.'
+             : e?.code === 'CANNOT_DELETE_SELF' ? '⚠️ Apna hi account delete nahi kar sakte.'
+             : '❌ Delete nahi hua: ' + (e?.message || ''));
+      }
     }
   };
 
   const toggleStatus = async (user) => {
     const newStatus = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-    await updateDoc(doc(db, "USERS", user.id), { status: newStatus });
-    fetchUsers();
+    try {
+      await authed(`/auth/users/${user.id}/status`, { method: 'POST', body: JSON.stringify({ status: newStatus }) });
+      fetchUsers();
+    } catch (e: any) {
+      alert(e?.code === 'CANNOT_DISABLE_SELF' ? '⚠️ Apna hi account disable nahi kar sakte.' : '❌ ' + (e?.message || ''));
+    }
   };
 
   const handlePermChange = (idx, field, val) => {
@@ -160,7 +193,9 @@ export default function UGER() {
 
   // 📈 FILTER LOGS LOGIC (DATE FROM & TO)
   const filteredLogs = activityLogs.filter(log => {
-    const logDate = log.timestamp?.toDate ? log.timestamp.toDate().toISOString().split('T')[0] : log.date || '';
+    // `timestamp` is an ISO string now, not a Firestore Timestamp — there is
+    // no .toDate() to call, and new Date(undefined) rendered "Invalid Date".
+    const logDate = log.timestamp ? new Date(log.timestamp).toISOString().split('T')[0] : log.date || '';
     
     // Check if the log date falls between startDate and endDate
     let dateMatch = true;
@@ -253,7 +288,7 @@ export default function UGER() {
                 ) : (
                   filteredLogs.map((log, i) => (
                     <tr key={i}>
-                      <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{log.time || new Date(log.timestamp?.toDate()).toLocaleTimeString()}</td>
+                      <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{log.time || (log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—')}</td>
                       <td style={{ fontWeight: 'bold', color: 'white' }}>{log.user_name}</td>
                       <td><span style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '3px 8px', borderRadius: '5px', fontSize: '10px' }}>{log.module}</span></td>
                       <td>{log.action_details}</td>

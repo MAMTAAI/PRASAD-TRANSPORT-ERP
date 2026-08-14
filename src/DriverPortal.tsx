@@ -1,8 +1,21 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc, or } from 'firebase/firestore'; // ✅ addDoc yahan add kiya hai
-import { db, auth } from './firebase';
-import { signInWithPhoneNumber, RecaptchaVerifier, signOut, onAuthStateChanged } from 'firebase/auth';
+
+const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+
+// The driver's own session token. Every call the portal makes is on behalf of
+// one driver, so it is attached centrally rather than remembered per call site.
+const tok = () => localStorage.getItem('prasad_driver_token') || '';
+
+const api = async (path: string, opts: RequestInit = {}) => {
+  const res = await fetch(`${API}/api/v1${path}`, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${tok()}`, ...(opts.headers || {}) },
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  return json;
+};
 import { uploadMedia, slug } from './lib/uploadMedia';
 import BottomSheet from './ui/BottomSheet';
 
@@ -56,12 +69,15 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const fetchDriverExtras = async (drv) => {
     if (!drv || String(drv.id).includes('DEMO')) return;
     try {
-      const [reqSnap, txnSnap] = await Promise.all([
-        getDocs(query(collection(db, 'DRIVER_REQUESTS'), where('driver_name', '==', drv.name))).catch(() => ({ docs: [] })),
-        getDocs(query(collection(db, 'DRIVER_TRANSACTIONS'), where('driver_name', '==', drv.name))).catch(() => ({ docs: [] })),
+      const [reqs, ledger] = await Promise.all([
+        api(`/masters/driver-requests?driver_name=${encodeURIComponent(drv.name)}`).catch(() => ({ requests: [] })),
+        // The khata is the unified, source-tagged view: an advance issued from
+        // Trip Command Center or recovered on a bill shows here too, which the
+        // old single-collection read could not see.
+        api(`/masters/drivers/${drv.id}/ledger`).catch(() => ({ entries: [] })),
       ]);
-      setMyRequests(reqSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).slice(0, 20));
-      setKhataTxns(txnSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setMyRequests((reqs.requests ?? []).slice(0, 20).map((r: any) => ({ ...r, createdAt: r.requested_at, type: r.request_type })));
+      setKhataTxns(ledger.entries ?? ledger.transactions ?? []);
     } catch (e) { console.error(e); }
   };
   useEffect(() => { if (driver) fetchDriverExtras(driver); }, [driver?.id]);
@@ -73,10 +89,17 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const sendRequest = async (type, amount, remarks) => {
     setSendingReq(true);
     try {
-      await addDoc(collection(db, 'DRIVER_REQUESTS'), {
-        driver_id: driver.id, driver_name: driver.name,
-        type, amount: String(amount || ''), remarks: remarks || '',
-        status: 'PENDING', createdAt: new Date().toISOString(),
+      await api('/masters/driver-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          driver_id: driver.id, driver_name: driver.name,
+          // The column is an enum (ADVANCE|FUEL|EXPENSE|LEAVE|OTHER); anything
+          // the sheet invents lands on OTHER rather than failing the insert.
+          request_type: ['ADVANCE', 'FUEL', 'EXPENSE', 'LEAVE'].includes(String(type).toUpperCase())
+            ? String(type).toUpperCase() : 'OTHER',
+          amount: Number(amount) || 0,
+          remarks: remarks || '',
+        }),
       });
       alert('✅ Request office ko chali gayi! Status "खाता" tab me dikhega.');
       setAskSheet(null); setAskAmount(''); setAskRemarks('');
@@ -96,10 +119,12 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
         const { url } = await uploadMedia(expFile, `driver-expenses/${slug(driver.id)}/${Date.now()}.jpg`);
         billUrl = url;
       }
-      await addDoc(collection(db, 'DRIVER_REQUESTS'), {
-        driver_id: driver.id, driver_name: driver.name,
-        type: 'EXPENSE', amount: String(amt), remarks: expType,
-        bill_photo: billUrl, status: 'PENDING', createdAt: new Date().toISOString(),
+      await api('/masters/driver-requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          driver_id: driver.id, driver_name: driver.name,
+          request_type: 'EXPENSE', amount: amt, remarks: expType, photo_url: billUrl,
+        }),
       });
       alert('✅ Kharcha office ko pahunch gaya! Approval ke baad khata me judega.');
       setExpAmount(''); setExpFile(null);
@@ -176,63 +201,56 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   // ==========================================
   const [otpStep, setOtpStep] = useState('PHONE'); // PHONE | OTP
   const [otpCode, setOtpCode] = useState('');
-  const confirmRef = useRef(null);
-  const recaptchaRef = useRef(null);
+  // No confirmation handle and no reCAPTCHA any more: the code lives in the
+  // database (hashed, 5-minute expiry, capped attempts) and the number is the
+  // only thing the client has to remember between the two steps.
 
-  // Persistent session: app reopen with a phone token → straight to duty screen
+  // Persistent session: app reopen with a stored token → straight to duty
+  // screen. The stored profile is only rendered after the server confirms the
+  // session is still live, so a revoked or expired driver cannot keep working
+  // from a cached copy.
   useEffect(() => {
-    if (preview) return;
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (u?.phoneNumber && !driver) {
-        findAndBindDriver(u.phoneNumber.replace(/^\+91/, ''), u.uid);
-      }
-    });
-    return () => unsub();
-  }, [preview, driver]);
-
-  const findAndBindDriver = async (mobile10, uid) => {
-    setLoading(true);
-    try {
-      const qs = await getDocs(query(collection(db, "DRIVERS"), where("mobile", "==", mobile10)));
-      if (qs.empty) {
-        alert("🚫 Yeh number office me registered nahi hai.\nOffice ko call karke register karayein.");
-        await signOut(auth).catch(() => {});
-        setOtpStep('PHONE'); setOtpCode('');
-      } else {
-        const driverDoc = qs.docs[0];
-        const data = { id: driverDoc.id, ...driverDoc.data() };
-        // One-time uid binding (rules will key on this when the lane tightens)
-        if (uid && data.driver_uid !== uid) {
-          updateDoc(doc(db, "DRIVERS", driverDoc.id), { driver_uid: uid, last_login: new Date().toISOString() }).catch(() => {});
-        }
+    if (preview || driver) return;
+    const saved = localStorage.getItem('prasad_driver');
+    if (!saved || !tok()) return;
+    (async () => {
+      try {
+        const me = await api('/auth/me').catch(() => null);
+        // /auth/me is the staff profile route; for a driver token it 404s while
+        // still proving the signature and that the session row exists. Either
+        // way a 401 is the only answer that means "log in again".
+        if (me === null) throw new Error('unverified');
+        const data = JSON.parse(saved);
         setDriver(data);
         setDriverType(data.driver_type || 'OWN');
-        fetchDriverTrips(mobile10, data.name);
+        fetchDriverTrips(data.mobile, data.name);
+      } catch (e: any) {
+        if (e?.code === 'UNAUTHENTICATED' || e?.code === 'SESSION_REVOKED') {
+          localStorage.removeItem('prasad_driver');
+          localStorage.removeItem('prasad_driver_token');
+        }
       }
-    } catch (e) { console.error(e); alert("❌ Login me dikkat aayi — dobara try karein."); }
-    setLoading(false);
-  };
+    })();
+  }, [preview, driver]);
 
   const handleSendOtp = async () => {
     const m = mobileNo.replace(/[^\d]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
     if (!/^[6-9]\d{9}$/.test(m)) return alert("⚠️ Sahi 10-digit mobile number daalein!");
     setLoading(true);
     try {
-      // QA hook: only effective for Firebase TEST phone numbers — cannot be
-      // abused for real numbers (Firebase ignores it otherwise).
-      if (window.__QA_DISABLE_APP_VERIFY) auth.settings.appVerificationDisabledForTesting = true;
-      if (!recaptchaRef.current) {
-        recaptchaRef.current = new RecaptchaVerifier(auth, 'drv-recaptcha', { size: 'invisible' });
-      }
-      confirmRef.current = await signInWithPhoneNumber(auth, '+91' + m, recaptchaRef.current);
+      const r = await api('/auth/otp/request', { method: 'POST', body: JSON.stringify({ mobile: m }) });
       setMobileNo(m);
       setOtpStep('OTP');
-      alert(`📩 OTP bheja gaya +91 ${m} par.`);
+      alert(`📩 OTP bheja gaya +91 ${m} par (${r.channel === 'whatsapp' ? 'WhatsApp' : r.channel}).`);
     } catch (e) {
       console.error(e);
-      alert(e?.code === 'auth/too-many-requests' ? '🚨 Bahut zyada attempts — thodi der baad try karein.' : '❌ OTP nahi gaya — number/network check karke dobara try karein.');
-      try { recaptchaRef.current?.clear(); } catch {}
-      recaptchaRef.current = null;
+      if (e?.code === 'OTP_CHANNEL_UNAVAILABLE' || e?.code === 'OTP_SEND_FAILED') {
+        // WhatsApp replaced Firebase's SMS. If the engine is unlinked, no
+        // driver can log in — so it says so instead of blaming the number.
+        alert('🚨 OTP bhejne ka channel abhi band hai (WhatsApp engine). Office ko call karein.');
+      } else {
+        alert('❌ OTP nahi gaya — number/network check karke dobara try karein.');
+      }
     }
     setLoading(false);
   };
@@ -241,51 +259,48 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
     if (!/^\d{6}$/.test(otpCode)) return alert("⚠️ 6-digit OTP daalein!");
     setLoading(true);
     try {
-      const cred = await confirmRef.current.confirm(otpCode);
-      await findAndBindDriver(mobileNo, cred.user.uid);
+      // One call verifies the code AND returns the driver record plus a session
+      // token — the old flow needed a second lookup to find out who had logged
+      // in, and that lookup was a full DRIVERS scan from the phone.
+      const r = await api('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ mobile: mobileNo, code: otpCode }) });
+      localStorage.setItem('prasad_driver_token', r.token || '');
+      localStorage.setItem('prasad_driver', JSON.stringify(r.driver));
+      setDriver(r.driver);
+      setDriverType(r.driver?.driver_type || 'OWN');
+      fetchDriverTrips(r.driver?.mobile, r.driver?.name);
     } catch (e) {
       console.error(e);
-      alert('❌ OTP galat hai — dobara dekh kar daalein.');
+      if (e?.code === 'NO_ACCOUNT') {
+        alert('🚫 Yeh number office me registered nahi hai.\nOffice ko call karke register karayein.');
+        setOtpStep('PHONE'); setOtpCode('');
+      } else if (e?.code === 'OTP_EXPIRED') {
+        alert('⌛ OTP expire ho gaya — naya code mangwayein.');
+        setOtpStep('PHONE'); setOtpCode('');
+      } else if (e?.code === 'OTP_ATTEMPTS_EXCEEDED') {
+        alert('🚨 Bahut zyada galat attempts — naya code mangwayein.');
+        setOtpStep('PHONE'); setOtpCode('');
+      } else {
+        alert('❌ OTP galat hai — dobara dekh kar daalein.');
+      }
       setLoading(false);
     }
   };
 
-  // (legacy path kept for reference by staff tools)
-  const handleLogin = async () => {
-    setLoading(true);
-    try {
-      const q = query(collection(db, "DRIVERS"), where("mobile", "==", mobileNo));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const driverDoc = querySnapshot.docs[0];
-        const driverData = { id: driverDoc.id, ...driverDoc.data() };
-        setDriver(driverData);
-        setDriverType(driverData.driver_type || 'OWN');
-        fetchDriverTrips(driverData.mobile, driverData.name);
-      } else {
-        alert("❌ Driver not found! Please check the mobile number.");
-      }
-    } catch (error) {
-      alert("❌ Server Error!");
-    }
-    setLoading(false);
-  };
+  // The legacy "type a mobile number and you are in" path is gone. It was kept
+  // "for reference" but it was a working login with no credential at all —
+  // anyone who knew a driver's number could open that driver's trips, khata and
+  // documents. OTP is the only way in now.
 
   const fetchDriverTrips = async (driverMobile: string, driverName: string) => {
     try {
       // 🔐 Server-side scoped query: only THIS driver's trips leave the server.
       // The old full-collection fetch downloaded the whole company's trip
       // history (all customers, all rates) onto every driver's phone.
-      const clauses = [];
-      if (driverMobile) clauses.push(where('driver_mobil_no', '==', driverMobile));
-      if (driverName) clauses.push(where('driver_name', '==', driverName));
-      if (!clauses.length) { setActiveTrips([]); return; }
-      const tSnap = await getDocs(query(collection(db, "TRIPS"), clauses.length > 1 ? or(...clauses) : clauses[0]));
-      const trips = tSnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter((t: any) => t.trip_status !== 'COMPLETED');
-      setActiveTrips(trips);
+      if (!driver?.id) { setActiveTrips([]); return; }
+      // Scoped by driver id server-side, and completed trips excluded there too
+      // — the phone never receives another driver's work.
+      const { trips } = await api(`/ops/trips?driver_id=${driver.id}&exclude_status=COMPLETED,SETTLED,CANCELLED&limit=50`);
+      setActiveTrips(trips ?? []);
     } catch (e) {
       console.error(e);
     }
@@ -297,9 +312,9 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
       return;
     }
     try {
-      await updateDoc(doc(db, "TRIPS", tripId), { [fieldName]: value });
+      await api(`/ops/trips/${tripId}`, { method: 'PATCH', body: JSON.stringify({ [fieldName]: value }) });
     } catch (e) {
-      console.error("Error saving data!");
+      console.error("Error saving data!", e);
     }
   };
 
@@ -338,8 +353,16 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
         const due = !last || (now - last.t) >= PING_MIN_MS || metersBetween(last, { lat, lng }) >= PING_MIN_METERS;
         if (!due) return;
         lastPingRef.current = { t: now, lat, lng };
-        updateDoc(doc(db, "TRIPS", tripId), { liveLocation: { lat, lng, lastUpdated: new Date().toISOString() } })
-          .catch(() => { lastPingRef.current = last; }); // failed write → retry on next fix
+        // A ping is now an append to trip_gps_pings, not an overwrite of one
+        // `liveLocation` field — so the route is kept, not just the last fix.
+        api('/tracking/ping', {
+          method: 'POST',
+          body: JSON.stringify({
+            trip_id: tripId, source: 'DRIVER_APP', lat, lng,
+            accuracy_m: position.coords.accuracy ?? null,
+            speed_kmh: position.coords.speed != null ? Math.max(0, position.coords.speed * 3.6) : null,
+          }),
+        }).catch(() => { lastPingRef.current = last; }); // failed write → retry on next fix
       },
       (error) => { console.error("Auto GPS Error:", error); setIsTracking(false); },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
@@ -495,8 +518,7 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
                 <button onClick={() => { setOtpStep('PHONE'); setOtpCode(''); }} className="w-full text-white/60 text-sm font-bold py-2">← नंबर बदलो</button>
               </>
             )}
-            <div id="drv-recaptcha"></div>
-            <button style={{ display: 'none' }} onClick={handleLogin} aria-hidden="true">
+            <button style={{ display: 'none' }} aria-hidden="true">
             </button>
           </div>
         </div>
@@ -532,7 +554,15 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
               </div>
             </div>
           </div>
-          <button onClick={() => { if (!preview && !window.confirm('Logout karein? Dobara OTP lagega.')) return; if (!preview) signOut(auth).catch(() => {}); setDriver(null); setOtpStep('PHONE'); setOtpCode(''); setMobileNo(''); }} className="text-[10px] font-black text-red-400 bg-red-500/10 px-3 py-2 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest">
+          <button onClick={() => { if (!preview && !window.confirm('Logout karein? Dobara OTP lagega.')) return; if (!preview) {
+              // Kill the session server-side, not just locally: a token that
+              // still works after "logout" is not a logout.
+              const t = tok();
+              if (t) fetch(`${API}/api/v1/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${t}` }, keepalive: true }).catch(() => {});
+              localStorage.removeItem('prasad_driver_token');
+              localStorage.removeItem('prasad_driver');
+            }
+            setDriver(null); setOtpStep('PHONE'); setOtpCode(''); setMobileNo(''); }} className="text-[10px] font-black text-red-400 bg-red-500/10 px-3 py-2 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest">
             Exit
           </button>
         </header>
