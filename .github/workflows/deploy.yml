@@ -1,0 +1,57 @@
+name: Deploy to AWS EC2
+
+# Every push to main ships to the EC2 box.
+on:
+  push:
+    branches: [main]
+  # Lets you re-run a deploy from the Actions tab without an empty commit.
+  workflow_dispatch:
+
+# Two pushes in quick succession must not deploy at once: the second would
+# git-pull while the first is still mid npm-install. Queue them instead.
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: SSH deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          # Optional secret. Left unset, it falls back to the standard Ubuntu
+          # AMI user, so only two secrets are actually required.
+          username: ${{ secrets.AWS_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.AWS_PRIVATE_KEY }}
+          port: 22
+          # Without this the remote script keeps running after a failed command
+          # and the job still reports success — a failed git pull would look
+          # like a clean deploy.
+          script_stop: true
+          script: |
+            set -e
+
+            # The first two paths are the ones specified. /var/www/prasad-erp is
+            # where deploy/aws/DEPLOY-AWS.md actually installs the app, so on
+            # this box it is the one that will match. Drop whichever are not
+            # real for your server.
+            cd /var/www/PRASAD-TRANSPORT-ERP || cd ~/PRASAD-TRANSPORT-ERP || cd /var/www/prasad-erp
+            echo "Deploying in: $(pwd)"
+
+            git pull origin main
+
+            npm install --production
+
+            # ⚠️ THIS BOX ALSO RUNS JAISWAL CAPITAL. `pm2 restart all` restarts
+            # the live trading engine too — during market hours that is an
+            # outage in an unrelated system. To restart only this app, swap the
+            # line below for:
+            #   pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
+            pm2 restart all
+
+            pm2 save
+            pm2 status
