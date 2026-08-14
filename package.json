@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
     "api": "node --expose-gc server/index.js",
     "api:dev": "node --expose-gc --watch server/index.js",
