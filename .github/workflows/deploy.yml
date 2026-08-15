@@ -44,14 +44,25 @@ jobs:
 
             git pull origin main
 
-            npm install --production
+            # Full install, not --production: prasad-erp-web serves the built
+            # dist/ (PM2 static server), and building it needs Vite, which is a
+            # devDependency. Without this step a deploy ships the API but the
+            # site keeps serving the previous UI forever.
+            npm install --no-audit --no-fund
 
-            # ⚠️ THIS BOX ALSO RUNS JAISWAL CAPITAL. `pm2 restart all` restarts
-            # the live trading engine too — during market hours that is an
-            # outage in an unrelated system. To restart only this app, swap the
-            # line below for:
-            #   pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
-            pm2 restart all
+            npm run build
+
+            # Schema first, then the API that expects it. The runner is
+            # forward-only, transactional per file, checksum-tracked, and stops
+            # at the first failure — set -e then aborts BEFORE the restart, so
+            # the old API (matching the old schema) keeps running.
+            DB_TARGET=aws node server/db/migrate.js
+
+            # ⚠️ THIS BOX ALSO RUNS JAISWAL CAPITAL. Never `pm2 restart all` —
+            # that restarts the live trading engine too, which during market
+            # hours is an outage in an unrelated system. Only the prasad-* apps
+            # (names from deploy/aws/ecosystem.prasad.config.cjs):
+            pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
 
             pm2 save
             pm2 status
