@@ -15,6 +15,7 @@
     "db:status": "node server/db/migrate.js --status",
     "db:bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/pg-bootstrap.ps1",
     "agents:test": "node server/agents/selftest.js",
+    "ai:selftest": "node server/ai_engine/selftest.js",
     "agents:roster": "node -e \"import('./server/agents/registry.js').then(async m=>{const s=await m.initSwarm();console.table(s.agents.map(({id,codename,state,domain})=>({id,codename,state,domain})));process.exit(0)})\"",
     "db:load": "node server/db/seed/from-firestore.js",
     "db:load:dry": "node server/db/seed/from-firestore.js --dry-run",

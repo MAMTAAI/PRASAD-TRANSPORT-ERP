@@ -231,7 +231,31 @@ export async function initSwarm({ strict = true } = {}) {
   }
 
   await assessReadiness();
-  setDispatcher(dispatch);
+
+  // ── Dispatcher selection ──────────────────────────────────────────────────
+  // Default: the CEO-governed StateGraph (server/ai_engine) — every event
+  // passes BAGALAMUKHI's shield and KAMALA's routing before any worker runs.
+  // AI_ENGINE=loops falls back to the flat legacy dispatch below (kept as the
+  // rollback path, not deleted). Dynamic import: no module cycle.
+  const engine = (process.env.AI_ENGINE ?? 'graph').toLowerCase();
+  if (engine === 'graph') {
+    const { createTransportApp } = await import('../ai_engine/transport_graph.js');
+    const transportApp = createTransportApp({
+      agents: AGENTS,
+      subscribersFor: (t) => subscribers.get(t) ?? [],
+      readinessFor: (id) => readiness.get(id),
+      activeHalt,
+      recordRun,
+      agentEmit,
+      markDone,
+      markFailed,
+    });
+    setDispatcher(transportApp.dispatch);
+    console.log('[registry] dispatcher = ai_engine transport graph (shield → CEO → workers)');
+  } else {
+    setDispatcher(dispatch);
+    console.log('[registry] dispatcher = legacy flat dispatch (AI_ENGINE=loops)');
+  }
 
   const active = [...readiness.values()].filter((r) => r.state === READY.ACTIVE).length;
   console.log(
