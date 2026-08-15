@@ -85,7 +85,9 @@ export default function App() {
   const [isPartnerMode, setIsPartnerMode] = useState(false);
 
   const [activeModule, setActiveModule] = useState('OPERATION'); 
-  const [activeComponent, setActiveComponent] = useState('DASHBOARD');
+  // Landing page = Master Control v5.0 (God 2026-08-15). Logging in drops the
+  // user straight into the control centre instead of the legacy dashboard.
+  const [activeComponent, setActiveComponent] = useState('MASTER_CONTROL_V5');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false); 
@@ -162,7 +164,9 @@ export default function App() {
 
   const handleModuleChange = (mod: string) => {
     setActiveModule(mod);
-    handleComponentChange('DASHBOARD');
+    // Switching module lands on the control centre, which itself opens the tab
+    // matching that module (ACCOUNTS -> Finance, CRM -> CRM, else Operations).
+    handleComponentChange('MASTER_CONTROL_V5');
   };
 
   const handleLogout = () => {
@@ -321,7 +325,7 @@ export default function App() {
       case 'SUPER_APP':
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#080c14', overflowY: 'auto' }}>
-            <button onClick={() => handleComponentChange('DASHBOARD')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(30,41,59,0.9)', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
+            <button onClick={() => handleComponentChange('MASTER_CONTROL_V5')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(30,41,59,0.9)', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
             <MobileSuiteApp />
           </div>
         );
@@ -348,7 +352,7 @@ export default function App() {
       case 'DRIVER_PORTAL_PREVIEW': 
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
-            <DriverPortal preview onBack={() => handleComponentChange('DASHBOARD')} />
+            <DriverPortal preview onBack={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
 
@@ -394,7 +398,10 @@ export default function App() {
       case 'INBOX': return <CompanyInbox />;
       case 'VEHICLE_DRIVER_LINK': return <VehicleDriverLink />;
       // 🔥 MAIN FIX IS HERE TOO
-      default: return <Dashboard activeModule={activeModule} currentUser={user} />;
+      // Unknown / stale saved nav state lands on the control centre, not the
+      // legacy dashboard.
+      default:
+        return <MasterControlV5 initialTab={activeModule === 'ACCOUNTS' ? 'finance' : activeModule === 'CRM' ? 'crm' : 'ops'} />;
     }
   };
 

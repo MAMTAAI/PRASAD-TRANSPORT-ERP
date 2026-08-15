@@ -114,9 +114,15 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
   const getMenuItems = () => {
     if (activeModule === 'OPERATION') {
       return [
-        { id: 'DASHBOARD', label: 'Dashboard', icon: '🖥️' },
+        // Master Control v5.0 is the primary control centre and the landing
+        // page (God 2026-08-15), so it sits at the top of every module.
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'SUPER_APP', label: 'Super App (5-Role Mobile)', icon: '📱' },
+        // The duplicate DASHBOARD entries in ACCOUNTS ("Finance Hub") and CRM
+        // ("CRM Dashboard") are gone — they were the same screen under three
+        // names. This ONE copy stays because it is the only view wired to the
+        // real PostgreSQL books; v5.0 is still on demo numbers.
+        { id: 'DASHBOARD', label: 'Live Books (PostgreSQL)', icon: '🖥️' },
         { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
         { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
         { id: 'FINANCE_2026', label: 'Finance Hub 2026', icon: '💠' },
@@ -139,7 +145,6 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       ];
     } else if (activeModule === 'ACCOUNTS') {
       return [
-        { id: 'DASHBOARD', label: 'Finance Hub', icon: '💰' },
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
@@ -162,7 +167,6 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     } else { 
       // 🤝 CRM MODULE (WITH ADMIN SETUP AT BOTTOM)
       return [
-        { id: 'DASHBOARD', label: 'CRM Dashboard', icon: '📈' },
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'WHATSAPP', label: 'WhatsApp CRM', icon: '💬' },
         { id: 'INBOX', label: 'Super CRM/Inbox', icon: '📧' },
