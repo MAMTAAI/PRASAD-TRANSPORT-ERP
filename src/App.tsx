@@ -54,6 +54,7 @@ const KycApprovals = lazy(() => import('./KycApprovals'));
 const PendingExpenses = lazy(() => import('./PendingExpenses'));
 const CustomerLedger = lazy(() => import('./CustomerLedger'));
 const OwnerStatement = lazy(() => import('./OwnerStatement'));
+const FuelReviewQueue = lazy(() => import('./FuelReviewQueue'));
 const ProfitAndLoss = lazy(() => import('./ProfitAndLoss'));
 const TdsMgmt = lazy(() => import('./TdsMgmt'));
 const UGER = lazy(() => import('./UGER'));
@@ -298,7 +299,7 @@ function AppShell() {
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
       if (itemId === 'BILLING' || itemId === 'AI_SCANNER' || itemId === 'AUTO_BILLING' || itemId === 'RATE_MASTER') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
-      if (itemId === 'CUST_LEDGER' || itemId === 'OWNER_STATEMENT') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
+      if (itemId === 'CUST_LEDGER' || itemId === 'OWNER_STATEMENT' || itemId === 'FUEL_REVIEW') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
       if (itemId === 'CA_PNL') return checkView('Finance Hub');
       if (itemId === 'FLEET_CARD') return checkView('Ledger & Cash Book') || checkView('Fuel & Maintenance');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
@@ -470,6 +471,7 @@ function AppShell() {
       case 'EXPENSE_APPROVALS': return <PendingExpenses />;
       case 'CUST_LEDGER': return <CustomerLedger />;
       case 'OWNER_STATEMENT': return <OwnerStatement />;
+      case 'FUEL_REVIEW': return <FuelReviewQueue />;
       case 'CA_PNL': return <ProfitAndLoss />;
       case 'ONBOARDING': return <KycApprovals />;
       case 'LOCATION_RTKM': return <LocationRtkmMaster />;
