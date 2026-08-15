@@ -261,4 +261,76 @@ export function registerOwnerRoutes(app) {
        ORDER BY company_result DESC NULLS LAST`, [companyId, from, to]);
     return { count: rows.length, rows };
   });
+
+  // ── Filter options for the 3-tier bar ─────────────────────────────────────
+  // One call so the bar can render fully populated instead of cascading three
+  // round trips. Branches come back keyed by company, which is what makes the
+  // second dropdown filter itself when the first changes.
+  //
+  // ONLY the three transport entities appear here, because only they exist in
+  // this database. Jaiswal Capital Pvt Ltd is a separate trading company and is
+  // deliberately not part of these books — nothing in this ERP should ever
+  // offer it as a choice.
+  app.get('/filters/options', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const companies = await query(
+      `SELECT id, btrim(company_name) AS company_name FROM companies ORDER BY 2`);
+    const branches = await query(`
+      SELECT b.id, b.company_id, b.branch_name, b.branch_code, b.city
+        FROM branches b WHERE b.status = 'ACTIVE' ORDER BY b.branch_name`);
+    const owners = await query(`
+      SELECT COALESCE(l.ledger_name, v.owner_name) AS owner,
+             count(*)::int AS trucks,
+             count(*) FILTER (WHERE NOT v.is_company_owned)::int AS attached_trucks
+        FROM vehicles v
+        LEFT JOIN ledgers l ON l.id = v.vehicle_owner_ledger_id
+       WHERE COALESCE(l.ledger_name, v.owner_name) IS NOT NULL
+       GROUP BY 1 ORDER BY trucks DESC, owner`);
+    return {
+      companies: companies.rows,
+      branches: branches.rows,
+      owners: owners.rows,
+      fleet_types: [{ id: 'OWNED', label: 'Company Fleet' }, { id: 'ATTACHED', label: 'Attached Fleet' }],
+    };
+  });
+
+  // ── Vehicle Owner Fleet Matrix ────────────────────────────────────────────
+  // One row per owner: how big their fleet is, what it earned, what we deducted
+  // and what is left to pay them. Honours the same 3-tier filter as the rest of
+  // the dashboard so the matrix and the KPI cards can never disagree.
+  app.get('/owners/matrix', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const companyId = req.query?.company_id || null;
+    const branchId = req.query?.branch_id || null;
+    const { from, to } = windowOf(req.query);
+    const { rows } = await query(`
+      SELECT ${OWNER_KEY} AS owner,
+             count(DISTINCT v.id)::int                 AS trucks,
+             count(DISTINCT v.id) FILTER (WHERE NOT v.is_company_owned)::int AS attached_trucks,
+             count(t.id)::int                          AS trips,
+             count(t.id) FILTER (WHERE t.status = 'IN_TRANSIT')::int AS active_trips,
+             count(t.id) FILTER (WHERE ${GROSS} = 0)::int AS unbilled_trips,
+             COALESCE(sum(${GROSS}),0)::numeric(16,2)      AS gross_freight,
+             COALESCE(sum(${COMMISSION}),0)::numeric(16,2) AS commission,
+             COALESCE(sum(fu.fuel),0)::numeric(16,2)       AS fuel,
+             COALESCE(sum(tl.toll),0)::numeric(16,2)       AS toll,
+             COALESCE(sum(${ADVANCES}),0)::numeric(16,2)   AS advances,
+             COALESCE(sum(COALESCE(t.shortage_penalty,0)),0)::numeric(16,2) AS shortage,
+             COALESCE(sum(fu.fuel) + sum(tl.toll) + sum(${ADVANCES})
+                      + sum(COALESCE(t.shortage_penalty,0)),0)::numeric(16,2) AS deductions,
+             COALESCE(sum(${GROSS}) - sum(${COMMISSION}) - sum(fu.fuel) - sum(tl.toll)
+                      - sum(${ADVANCES}) - sum(COALESCE(t.shortage_penalty,0)),0)::numeric(16,2) AS net_payable
+        FROM vehicles v
+        LEFT JOIN ledgers l ON l.id = v.vehicle_owner_ledger_id
+        LEFT JOIN trips t ON t.vehicle_id = v.id
+             AND ($1::uuid IS NULL OR t.company_id = $1::uuid)
+             AND ($2::uuid IS NULL OR t.branch_id  = $2::uuid)
+             AND ($3::date IS NULL OR t.loading_date >= $3::date)
+             AND ($4::date IS NULL OR t.loading_date <= $4::date)
+        ${TRIP_COSTS}
+       WHERE COALESCE(l.ledger_name, v.owner_name) IS NOT NULL
+       GROUP BY 1
+       ORDER BY net_payable DESC`, [companyId, branchId, from, to]);
+    return { count: rows.length, rows };
+  });
 }

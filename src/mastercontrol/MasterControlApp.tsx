@@ -13,6 +13,8 @@ import OperationsDashboard from './OperationsDashboard';
 import FinanceDashboard from './FinanceDashboard';
 import MasterControlDashboard from './MasterControlDashboard';
 import useDashboardData from './useDashboardData';
+import useFilters from './useFilters';
+import FilterBar from './FilterBar';
 
 const MODULES = [
   { id: 'ops', label: 'Operations', icon: Truck, accent: 'text-cyan-300', bar: 'from-cyan-500 to-blue-500' },
@@ -38,7 +40,12 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   // the module button looked dead. Re-sync whenever the prop actually changes.
   useEffect(() => { setActiveTab(valid(initialTab)); }, [initialTab]);
 
-  const live = useDashboardData();
+  // ONE filter for all three tabs. Held by the shell so switching Operations ->
+  // Finance -> CRM keeps the scope; if each tab owned its own, the scope would
+  // reset silently on every switch and you would read group numbers believing
+  // they were one company's.
+  const filter = useFilters();
+  const live = useDashboardData(filter.qs());
 
   useEffect(() => {
     // TODO: Fetch from AWS PostgreSQL — global alert count + session context
@@ -172,9 +179,13 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
         {/* ══════════════ ACTIVE MODULE ══════════════ */}
         {/* One fetch feeds all three tabs; switching tabs never re-queries. */}
         <main key={activeTab} className="relative z-10 p-3 sm:p-5 mc-fade-in">
-          {activeTab === 'ops' && <OperationsDashboard live={live} />}
-          {activeTab === 'finance' && <FinanceDashboard live={live} />}
-          {activeTab === 'crm' && <MasterControlDashboard live={live} />}
+          {/* Sticky above every tab: the scope has to stay visible while you
+              scroll, or the numbers below it lose their meaning. */}
+          <FilterBar filters={filter.filters} set={filter.set} clear={filter.clear} active={filter.active} />
+
+          {activeTab === 'ops' && <OperationsDashboard live={live} filter={filter} />}
+          {activeTab === 'finance' && <FinanceDashboard live={live} filter={filter} />}
+          {activeTab === 'crm' && <MasterControlDashboard live={live} filter={filter} />}
         </main>
       </div>
     </div>

@@ -19,6 +19,7 @@ import {
   chartTooltipStyle, axisStyle,
 } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
+import OwnerFleetMatrix from './OwnerFleetMatrix';
 
 // Shown wherever the ERP genuinely holds no rows yet — never faked with a
 // plausible-looking number.
@@ -78,7 +79,7 @@ const chatThread = [
 ];
 
 // ---------------------------------------------------------------------------
-export default function OperationsDashboard({ live }) {
+export default function OperationsDashboard({ live, filter }) {
   const [message, setMessage] = useState('');
 
   // LIVE from GET /api/v1/dashboard/v5 (server/modules/dashboard.routes.js).
@@ -383,6 +384,20 @@ export default function OperationsDashboard({ live }) {
           </div>
         </GlassPanel>
       </div>
+      {/* Owner fleet sits with the fleet. Clicking a row scopes the whole dashboard,
+          so this table and the KPI cards above always agree. */}
+      <OwnerFleetMatrix
+        filters={filter?.filters}
+        set={filter?.set}
+        onOpenStatement={(owner) => {
+          // The statement lives in the Accounts module. Hand the owner over
+          // through sessionStorage so it opens already scoped instead of
+          // making the user pick the same name a second time.
+          try { sessionStorage.setItem('pt_owner_statement_owner', owner); } catch {}
+          window.dispatchEvent(new CustomEvent('pt:open-owner-statement', { detail: owner }));
+        }}
+      />
+
     </div>
   );
 }

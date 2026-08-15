@@ -14,7 +14,7 @@ import { API_BASE } from '../lib/apiBase';
 
 const REFRESH_MS = 60000;
 
-export default function useDashboardData() {
+export default function useDashboardData(qs = '') {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export default function useDashboardData() {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 20000);
-      const res = await fetch(`${API_BASE}/api/v1/dashboard/v5`, {
+      const res = await fetch(`${API_BASE}/api/v1/dashboard/v5${qs}`, {
         signal: ctl.signal,
         headers: { Authorization: `Bearer ${localStorage.getItem('prasad_token') || ''}` },
       });
@@ -42,10 +42,13 @@ export default function useDashboardData() {
     } finally {
       if (alive.current) setLoading(false);
     }
-  }, []);
+  }, [qs]);
 
   useEffect(() => {
     alive.current = true;
+    // A changed filter must re-query, not re-render stale numbers under a new
+    // label — that would show the group's figures captioned as one company's.
+    setLoading(true);
     load();
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') load();

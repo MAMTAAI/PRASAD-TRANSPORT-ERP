@@ -174,6 +174,18 @@ export default function App() {
     };
   }, []);
 
+  // The Owner Fleet Matrix's KHATA button lives inside Master Control, but the
+  // statement is a separate Accounts screen. A window event carries the jump so
+  // the matrix does not need to know how the shell routes.
+  useEffect(() => {
+    const open = () => {
+      setActiveModule('ACCOUNTS');
+      setActiveComponent('OWNER_STATEMENT');
+    };
+    window.addEventListener('pt:open-owner-statement', open);
+    return () => window.removeEventListener('pt:open-owner-statement', open);
+  }, []);
+
   const handleComponentChange = (comp: string) => {
     setIsTransitioning(true);
     setTimeout(() => { 

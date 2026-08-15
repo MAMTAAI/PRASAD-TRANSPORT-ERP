@@ -30,6 +30,37 @@ async function safe(errors, label, fn, fallback) {
   }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Parse the 3-tier filter off the query string. Anything unrecognised becomes
+ *  NULL rather than an error: a stale bookmark carrying a deleted company id
+ *  should show the unfiltered dashboard, not a 400. */
+function filtersOf(q) {
+  const id = (v) => (UUID_RE.test(String(v ?? '')) ? String(v) : null);
+  const fleet = String(q?.fleet ?? '').toUpperCase();
+  return {
+    companyId: id(q?.company_id),
+    branchId: id(q?.branch_id),
+    owner: String(q?.owner ?? '').trim() || null,
+    fleet: fleet === 'OWNED' || fleet === 'ATTACHED' ? fleet : null,
+  };
+}
+
+// Predicate over `trips t` JOIN `vehicles v`. Positional params are fixed at
+// $1..$4 so every query in the handler can share one parameter array — mixing
+// the order is how a "filter by owner" quietly becomes "filter by branch".
+const TRIP_F = `
+  AND ($1::uuid IS NULL OR t.company_id = $1::uuid)
+  AND ($2::uuid IS NULL OR t.branch_id  = $2::uuid)
+  AND ($3::text IS NULL OR v.owner_name = $3::text)
+  AND ($4::text IS NULL OR (CASE WHEN v.is_company_owned THEN 'OWNED' ELSE 'ATTACHED' END) = $4::text)`;
+
+// Same, for a bare `vehicles v` (fleet size). Company is handled by the caller
+// via an EXISTS over trips, because a vehicle has no single company.
+const VEHICLE_F = `
+  AND ($3::text IS NULL OR v.owner_name = $3::text)
+  AND ($4::text IS NULL OR (CASE WHEN v.is_company_owned THEN 'OWNED' ELSE 'ATTACHED' END) = $4::text)`;
+
 export function registerDashboardRoutes(app) {
   app.get('/dashboard/v5', async (req, reply) => {
     if (isDegraded()) {
@@ -38,15 +69,33 @@ export function registerDashboardRoutes(app) {
     const errors = [];
     const t0 = Date.now();
 
+    // ── THE 3-TIER FILTER ───────────────────────────────────────────────────
+    // Company -> Branch -> Fleet/Owner. Every value is optional and NULL means
+    // "all", so one parameter list serves the unfiltered dashboard and every
+    // narrowing of it without a second set of queries.
+    //
+    // A VEHICLE IS NOT FILTERED BY vehicles.company_id. That column exists but
+    // is NULL on all 49 rows, and more importantly a truck genuinely works for
+    // several firms — 15 of them do. So "fleet under Prasad Transport" means
+    // vehicles that actually RAN a trip for Prasad Transport, which is the only
+    // definition the data supports.
+    const F = filtersOf(req.query);
+    const P = [F.companyId, F.branchId, F.owner, F.fleet];
+
     // ── OPERATIONS ──────────────────────────────────────────────────────────
     const fleet = await safe(errors, 'fleet_counts', async () => {
       const { rows } = await query(`
         SELECT
-          (SELECT count(*) FROM vehicles WHERE status = 'ACTIVE')                    AS fleet_size,
-          (SELECT count(*) FROM trips    WHERE status = 'IN_TRANSIT')                AS active_trips,
-          (SELECT count(*) FROM trips    WHERE status = 'IN_TRANSIT'
-                                           AND unloading_date IS NULL)               AS pending_unloading,
-          (SELECT count(*) FROM drivers  WHERE status = 'ACTIVE')                    AS drivers_active`);
+          (SELECT count(*) FROM vehicles v
+            WHERE v.status = 'ACTIVE' ${VEHICLE_F}
+              AND ($1::uuid IS NULL OR EXISTS (
+                    SELECT 1 FROM trips t WHERE t.vehicle_id = v.id AND t.company_id = $1::uuid)))
+                                                                                     AS fleet_size,
+          (SELECT count(*) FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+            WHERE t.status = 'IN_TRANSIT' ${TRIP_F})                                 AS active_trips,
+          (SELECT count(*) FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+            WHERE t.status = 'IN_TRANSIT' AND t.unloading_date IS NULL ${TRIP_F})     AS pending_unloading,
+          (SELECT count(*) FROM drivers WHERE status = 'ACTIVE')                     AS drivers_active`, P);
       return {
         fleet_size: num(rows[0].fleet_size),
         active_trips: num(rows[0].active_trips),
@@ -91,20 +140,22 @@ export function registerDashboardRoutes(app) {
       const { rows } = await query(`
         SELECT to_char(d.day,'Dy') AS label, COALESCE(t.n,0) AS trips
         FROM generate_series(CURRENT_DATE - 6, CURRENT_DATE, '1 day') AS d(day)
-        LEFT JOIN (SELECT loading_date::date AS day, count(*) AS n FROM trips
-                   WHERE loading_date >= CURRENT_DATE - 6 GROUP BY 1) t ON t.day = d.day
-        ORDER BY d.day`);
+        LEFT JOIN (SELECT t.loading_date::date AS day, count(*) AS n
+                     FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+                    WHERE t.loading_date >= CURRENT_DATE - 6 ${TRIP_F}
+                    GROUP BY 1) t ON t.day = d.day
+        ORDER BY d.day`, P);
       return rows.map((r) => ({ day: String(r.label).trim(), trips: num(r.trips) }));
     }, []);
 
     const live_fleet = await safe(errors, 'live_fleet', async () => {
       const { rows } = await query(`
-        SELECT vehicle_no, loading_point, unloading_location, status, product_type,
-               driver_name, loading_date
-        FROM trips
-        WHERE status = 'IN_TRANSIT'
-        ORDER BY loading_date DESC NULLS LAST
-        LIMIT 8`);
+        SELECT t.vehicle_no, t.loading_point, t.unloading_location, t.status, t.product_type,
+               t.driver_name, t.loading_date, t.unloading_date
+        FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+        WHERE t.status = 'IN_TRANSIT' ${TRIP_F}
+        ORDER BY t.loading_date DESC NULLS LAST
+        LIMIT 8`, P);
       return rows.map((r) => ({
         vehicle: r.vehicle_no || '-',
         route: `${r.loading_point || '?'} -> ${r.unloading_location || '?'}`,
@@ -118,12 +169,13 @@ export function registerDashboardRoutes(app) {
     const money = await safe(errors, 'money', async () => {
       const { rows } = await query(`
         SELECT
-          COALESCE(SUM(freight_amount) FILTER (WHERE COALESCE(billed_amount,0) = 0), 0) AS unbilled_freight,
-          COALESCE(SUM(billed_amount), 0)                                              AS freight_income,
-          COALESCE(SUM(received_amount), 0)                                            AS received,
-          COALESCE(SUM(total_expense), 0)                                              AS total_expense,
-          COALESCE(SUM(tds_amount), 0)                                                 AS tds
-        FROM trips`);
+          COALESCE(SUM(t.freight_amount) FILTER (WHERE COALESCE(t.billed_amount,0) = 0), 0) AS unbilled_freight,
+          COALESCE(SUM(t.billed_amount), 0)                                            AS freight_income,
+          COALESCE(SUM(t.received_amount), 0)                                          AS received,
+          COALESCE(SUM(t.total_expense), 0)                                            AS total_expense,
+          COALESCE(SUM(t.tds_amount), 0)                                               AS tds
+        FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+        WHERE 1=1 ${TRIP_F}`, P);
       const r = rows[0];
       return {
         unbilled_freight: num(r.unbilled_freight), freight_income: num(r.freight_income),
@@ -426,6 +478,9 @@ export function registerDashboardRoutes(app) {
       ok: true,
       generated_at: new Date().toISOString(),
       took_ms: Date.now() - t0,
+      // Echoed back so the UI can label the page with what it actually applied,
+      // rather than with what the user believes they selected.
+      filter: F,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally },
       crm: { staff, activity, whatsapp, geo },

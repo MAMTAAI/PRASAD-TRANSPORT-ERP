@@ -56,7 +56,16 @@ export default function OwnerStatement() {
         ]);
         setOwners(o.owners ?? []);
         setCompanies(c.companies ?? c.rows ?? []);
-        if (o.owners?.length) setOwner(o.owners[0].owner);
+        // Arriving from the dashboard's Owner Fleet Matrix: open on the owner
+        // that was clicked instead of making them pick the same name again.
+        let handed = null;
+        try {
+          handed = sessionStorage.getItem('pt_owner_statement_owner');
+          if (handed) sessionStorage.removeItem('pt_owner_statement_owner');
+        } catch { /* private mode */ }
+        const known = (o.owners ?? []).some((x) => x.owner === handed);
+        if (handed && known) setOwner(handed);
+        else if (o.owners?.length) setOwner(o.owners[0].owner);
       } catch (e) { setErr(e.message); }
     })();
   }, []);
