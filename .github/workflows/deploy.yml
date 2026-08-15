@@ -47,8 +47,9 @@ jobs:
             # Full install, not --production: prasad-erp-web serves the built
             # dist/ (PM2 static server), and building it needs Vite, which is a
             # devDependency. Without this step a deploy ships the API but the
-            # site keeps serving the previous UI forever.
-            npm install --no-audit --no-fund
+            # site keeps serving the previous UI forever. Playwright's browser
+            # download is skipped — nothing on the box runs UI tests.
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund
 
             npm run build
 
@@ -56,7 +57,9 @@ jobs:
             # forward-only, transactional per file, checksum-tracked, and stops
             # at the first failure — set -e then aborts BEFORE the restart, so
             # the old API (matching the old schema) keeps running.
-            DB_TARGET=aws node server/db/migrate.js
+            # PG credentials live in .env.api on the box (not .env), so load it
+            # explicitly — dotenv inside migrate.js only reads .env.
+            node --env-file=.env.api server/db/migrate.js
 
             # ⚠️ THIS BOX ALSO RUNS JAISWAL CAPITAL. Never `pm2 restart all` —
             # that restarts the live trading engine too, which during market
