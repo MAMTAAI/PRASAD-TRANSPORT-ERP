@@ -165,6 +165,7 @@ class Row:
     qty: float | None = None
     rate: float | None = None
     amount: float | None = None
+    lub: float | None = None
     cash: float | None = None
     total: float | None = None
     flags: list[str] = field(default_factory=list)
@@ -300,7 +301,10 @@ LAYOUTS = {
     # S.no Date Slip Vehicle Item Qty Rate Amount
     "B N filling":  dict(cols=["qty", "rate", "amount"]),
     # Date Memo Vehicle Qty Rate Amount LUB Cash Total
-    "Nirmala":      dict(cols=["qty", "rate", "amount", "cash", "total"]),
+    # Date Memo Vehicle | Qty Rate Amount LUB CashAdv Total — the LUB column
+    # sits between the diesel amount and the cash advance, so reading it as the
+    # cash lost every advance on the bill (16,000 on one July bill alone).
+    "Nirmala":      dict(cols=["qty", "rate", "amount", "lub", "cash", "total"]),
     # SL Date LORRY PRODUCT Qty Rate Amount Cash Total   (vehicle truncated)
     "Alam":         dict(cols=["qty", "rate", "amount", "cash", "total"]),
     # SI Date Vehicle HSD MS Challan Qty Rate Amount     (noisy)
@@ -347,20 +351,69 @@ TOTAL_RE = re.compile(r"(?:GRAND\s+TOTAL|NET\s+AMOUNT|TOTAL)(.{0,80})", re.IGNOR
 
 
 def printed_total(text: str) -> float | None:
-    """The bill's own TOTAL, if it prints one.
+    """The total for THIS bill's own period — not the running account balance.
 
-    This is the only independent check available on a scanned bill: the pump
-    added the column up by hand, so if our rows do not reach the same figure,
-    something was misread — and on these bills that is common, not exotic.
+    Nirmala prints both, three lines apart:
+
+        TOTAL 800.00 80624.00 16000 96624.00     <- this bill
+        PREV. BILL OUTSTANDING     149436.00
+        TOTAL                      246060.00     <- bill + previous dues
+
+    Taking max() picked the cumulative figure and made a correctly-read bill
+    look 55% short. The items total is distinguishable: it sits on the row that
+    carries the whole line of figures (litres, amount, cash, total), while the
+    account total stands alone. So a candidate with SEVERAL numbers wins over
+    one with a single number, and within it the LAST number is the row's grand.
     """
-    best = None
+    rich, plain = [], []
     for m in TOTAL_RE.finditer(text):
         nums = [money(x) for x in re.findall(r"[\d,]+\.?\d*", m.group(1))]
-        nums = [n for n in nums if n and n > 100]        # a total, not a litre count
-        if nums:
-            cand = max(nums)
-            best = cand if best is None else max(best, cand)
-    return best
+        nums = [n for n in nums if n and n > 100]
+        if len(nums) >= 2:
+            rich.append(nums[-1])          # the grand at the end of the items row
+        elif nums:
+            plain.append(nums[0])
+    # The second value says WHERE the figure came from. An items-row total is
+    # already this bill only, so nothing may be subtracted from it; a standalone
+    # total is an account balance and the carry must come off.
+    if rich:
+        return max(rich), True
+    return (max(plain), False) if plain else (None, False)
+
+
+CARRY_RE = re.compile(
+    r"(?:DUE\s+AMOUNT|B/?F\s+AMOUNT|PREV\.?\s*BILL\s+OUTSTANDING|OPENING\s+BALANCE)(.{0,40})",
+    re.IGNORECASE)
+
+
+def carried_forward(text: str) -> float:
+    """Money owed BEFORE this bill's own fuel lines.
+
+    Alam and Nirmala print a running account, not a period invoice:
+
+        16-04-2026 B/F AMOUNT      299145.00
+        24-04-2026 PAYMENT         200000.00
+        24-04-2026 DUE AMOUNT       99145.00
+        ... three fuel lines worth 74,341 ...
+        TOTAL AMOUNT              1,73,486.00     <- 99,145 + 74,341
+
+    Measuring three correctly-read fuel rows against 1,73,486 invents a
+    shortfall of exactly the previous balance. The carry is subtracted so the
+    comparison is bill-against-bill.
+    """
+    due, other = [], []
+    for m in CARRY_RE.finditer(text):
+        nums = [money(x) for x in re.findall(r"[\d,]+\.?\d*", m.group(1))]
+        nums = [n for n in nums if n and n > 100]
+        if not nums:
+            continue
+        # DUE AMOUNT is the balance AFTER any payment on this bill, so it is the
+        # figure the printed total is actually built on. B/F is the balance
+        # BEFORE payment and would over-subtract by the whole payment.
+        (due if "DUE" in m.group(0).upper() else other).append(nums[0])
+    if due:
+        return max(due)
+    return max(other) if other else 0.0
 
 
 def reconcile(rows: list, text: str) -> tuple[bool, str | None]:
@@ -371,10 +424,20 @@ def reconcile(rows: list, text: str) -> tuple[bool, str | None]:
     manual entry rather than post a partial, plausible-looking set of numbers
     onto somebody's fuel cost.
     """
-    stated = printed_total(text)
+    stated, from_items_row = printed_total(text)
     if stated is None:
         return True, None                    # nothing to check against
-    got = sum(r.amount or 0 for r in rows)
+    # Bill-against-bill. Only an ACCOUNT total carries the previous balance;
+    # an items-row total is already period-only, and subtracting from it would
+    # remove the carry twice.
+    if not from_items_row:
+        stated = stated - carried_forward(text)
+    if stated <= 0:
+        return True, None
+    # Compare like with like. Alam and Nirmala total AMOUNT + CASH — the pump
+    # hands the driver cash at the counter and bills it on the same line — so
+    # measuring the diesel alone against that total invents a shortfall.
+    got = sum((r.amount or 0) + (r.cash or 0) for r in rows)
     if got == 0:
         return False, f"bill totals {stated:,.2f} but no line amounts were read"
     drift = abs(got - stated) / stated

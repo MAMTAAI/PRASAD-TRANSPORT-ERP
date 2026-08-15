@@ -85,6 +85,7 @@ export function registerFuelImportRoutes(app) {
     const pumpNames = led.rows.map((r) => r.ledger_name);
 
     const posted = [];
+    const cashOnly = [];
     const review = [];
     const errors = [];
 
@@ -111,7 +112,35 @@ export function registerFuelImportRoutes(app) {
           WHERE vehicle_id = $1::uuid AND entry_date = $2::date
             AND abs(COALESCE(amount,0) - $3::numeric) < 1 LIMIT 1`,
         [vehicle.id, r.date, r.amount]);
-      if (dup.rows.length) { push('ALREADY_IMPORTED'); continue; }
+      if (dup.rows.length) {
+        // The diesel is in. Its cash advance may not be — post that alone
+        // rather than skipping the whole row and leaving the pump short.
+        if (commit && Number(r.cash) > 0) {
+          const pumpL = pumpLedger(r.pump, pumpNames);
+          const cashRef = `FUELCASH-${vehicle.vehicle_no_norm}-${r.date}-${Math.round(Number(r.cash))}`;
+          if (pumpL) {
+            const cd = vehicle.is_company_owned
+              ? { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' }
+              : { ledger: vehicle.owner_ledger, group: OWNER_GROUP };
+            if (cd.ledger) {
+              await postVoucher({
+                type: 'JOURNAL', source_type: 'FUEL_PUMP_CASH', ref_no: cashRef,
+                entry_date: r.date,
+                narration: `Cash to driver at pump — ${vehicle.vehicle_no} (${r.pump})`,
+                vehicle_id: vehicle.id, company_id: vehicle.company_id, branch_id: vehicle.branch_id,
+                created_by: body.created_by ?? 'fuel-import',
+                lines: [
+                  { ledger: cd.ledger, dr_cr: 'DR', amount: Number(r.cash), group: cd.group, vehicle_id: vehicle.id },
+                  { ledger: pumpL, dr_cr: 'CR', amount: Number(r.cash), group: PUMP_GROUP },
+                ],
+              }).then(() => { cashOnly.push({ vehicle: vehicle.vehicle_no, date: r.date, cash: Number(r.cash) }); })
+                .catch((e) => { if (e.code !== 'DUPLICATE_REF') errors.push({ code: e.code, detail: e.message }); });
+            }
+          }
+        }
+        push('ALREADY_IMPORTED');
+        continue;
+      }
 
       // Same truck, same day, a different amount. Could be a second fill or the
       // same fill recorded differently — a machine cannot tell, and getting it
@@ -177,6 +206,36 @@ export function registerFuelImportRoutes(app) {
           [r.date, vehicle.id, vehicle.vehicle_no, tripId, r.pump, r.memo_no ?? null,
            r.qty ?? null, r.rate ?? null, r.amount, rec.cash]);
 
+        // ── CASH HANDED TO THE DRIVER AT THE PUMP ─────────────────────
+        // Several pumps advance the driver cash at the counter and bill it on
+        // the same line as the diesel. It is NOT fuel — it is money the driver
+        // received — but the pump is owed it just the same, so leaving it out
+        // understates the payable while the diesel looks right. 2,75,000 sat
+        // unposted across Alam and Nirmala for exactly this reason.
+        //
+        // Its own voucher, with its own reference, so it can be posted for
+        // rows whose diesel is already in the books without the duplicate
+        // guard refusing the pair.
+        if (rec.cash > 0) {
+          const cashRef = `FUELCASH-${vehicle.vehicle_no_norm}-${r.date}-${Math.round(rec.cash)}`;
+          const cashDebit = vehicle.is_company_owned
+            ? { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' }
+            : { ledger: vehicle.owner_ledger, group: OWNER_GROUP };
+          await postVoucher({
+            type: 'JOURNAL', source_type: 'FUEL_PUMP_CASH', ref_no: cashRef,
+            entry_date: r.date,
+            narration: `Cash to driver at pump — ${vehicle.vehicle_no} (${r.pump})`,
+            vehicle_id: vehicle.id, company_id: vehicle.company_id, branch_id: vehicle.branch_id,
+            created_by: body.created_by ?? 'fuel-import',
+            lines: [
+              { ledger: cashDebit.ledger, dr_cr: 'DR', amount: rec.cash, group: cashDebit.group, vehicle_id: vehicle.id },
+              { ledger: pump, dr_cr: 'CR', amount: rec.cash, group: PUMP_GROUP },
+            ],
+          }).catch((e) => {
+            if (e.code !== 'DUPLICATE_REF') throw e;   // already posted: fine
+          });
+        }
+
         posted.push({ ...rec, fuel_entry_id: ins.rows[0].id, voucher_id: voucher?.voucher_id ?? null });
       } catch (e) {
         if (e.code === 'DUPLICATE_REF') { push('ALREADY_POSTED'); continue; }
@@ -216,6 +275,8 @@ export function registerFuelImportRoutes(app) {
         matched_to_trip: posted.filter((p) => p.trip_id).length,
         standalone: posted.filter((p) => !p.trip_id).length,
         fuzzy_corrected: posted.filter((p) => p.fuzzy).length,
+        cash_only_posted: cashOnly.length,
+        cash_only_value: Number(cashOnly.reduce((n, c) => n + c.cash, 0).toFixed(2)),
       },
       review_reasons: review.reduce((a, q) => {
         for (const x of (q.reasons ?? [])) a[x] = (a[x] ?? 0) + 1;
