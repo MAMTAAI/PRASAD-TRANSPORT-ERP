@@ -96,7 +96,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
       if (itemId === 'BILLING' || itemId === 'AUTO_BILLING' || itemId === 'AI_SCANNER' || itemId === 'RATE_MASTER') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
-      if (itemId === 'CUST_LEDGER') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
+      if (itemId === 'CUST_LEDGER' || itemId === 'OWNER_STATEMENT') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
       if (itemId === 'CA_PNL') return checkView('Finance Hub');
       if (itemId === 'GST' || itemId === 'TDS' || itemId === 'TOLL') return checkView('Tax (GST/TDS) & Toll');
       if (itemId === 'VENDOR') return checkView('Vendor Master');
@@ -153,6 +153,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
         { id: 'CUST_LEDGER', label: 'Customer Khata (Live)', icon: '🧾' },
+        { id: 'OWNER_STATEMENT', label: 'Owner Khata & Statement', icon: '🚛' },
         { id: 'PNL', label: 'Balance Sheet/P&L', icon: '📊' },
         { id: 'CA_PNL', label: 'Company P&L (Live)', icon: '📈' },
         { id: 'BILLING', label: 'Bill Management', icon: '🧾' },

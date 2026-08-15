@@ -38,6 +38,7 @@ import { registerDashboardRoutes } from './modules/dashboard.routes.js';
 import { registerPortalRoutes } from './modules/portal.routes.js';
 import { registerAuditLogger } from './lib/auditLogger.js';
 import { registerMapsRoutes } from './modules/maps.routes.js';
+import { registerOwnerRoutes } from './modules/owners.routes.js';
 import { initRealtime } from './lib/realtime.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
@@ -160,6 +161,9 @@ await app.register(registerPortalRoutes,   { prefix: '/api/v1' });
 // Shared cache in front of Google's BILLED endpoints (Directions/Geocode/
 // Distance Matrix). Map loads and marker movement are not billed per request.
 await app.register(registerMapsRoutes,     { prefix: '/api/v1' });
+// Vehicle-owner statements and the vehicle-wise profitability matrix. Split by
+// operating entity, because one owner's trucks earn inside several books.
+await app.register(registerOwnerRoutes,    { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 
 
