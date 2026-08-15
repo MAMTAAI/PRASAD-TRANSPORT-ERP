@@ -40,6 +40,7 @@ import { registerAuditLogger } from './lib/auditLogger.js';
 import { registerMapsRoutes } from './modules/maps.routes.js';
 import { registerOwnerRoutes } from './modules/owners.routes.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
+import { registerTripImportRoutes } from './modules/tripImport.routes.js';
 import { initRealtime } from './lib/realtime.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
@@ -168,6 +169,9 @@ await app.register(registerOwnerRoutes,    { prefix: '/api/v1' });
 // Costs the company pays on an owner's behalf. Debits the owner khata only —
 // never a company P&L expense group (TARA refuses that for attached vehicles).
 await app.register(registerOwnerExpenseRoutes, { prefix: '/api/v1' });
+// Bulk trip entry (validates by default, writes only on commit:true) and the
+// freight posting that picks owned-vs-attached entry shape from the vehicle.
+await app.register(registerTripImportRoutes,  { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 
 
