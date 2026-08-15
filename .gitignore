@@ -58,6 +58,11 @@ tools/iocl_recon/gmail_token.json
 tools/iocl_recon/__pycache__/
 uploads/iocl_bills/
 reports/iocl_recon/
+# Parsed fuel-pump rows: real litres, rates and vehicle numbers from 11 pumps'
+# bills. Business data, same rule as uploads/ and the PG dumps — the PARSER is
+# tracked, its output is not.
+reports/fuel_rows.json
+reports/fuel_recon/
 
 # 📄 Scanned business documents (IOCL advices, bills, scans) — real commercial
 # paperwork, 400+ files. Only iocl_bills/ was excluded before, which let the
