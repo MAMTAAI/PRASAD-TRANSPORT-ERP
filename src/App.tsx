@@ -12,6 +12,8 @@ import Login from './Login';
 import ProfileMenu from './ui/ProfileMenu';
 import PortalSwitcher from './ui/PortalSwitcher';
 import AccountHoldScreen from './ui/AccountHoldScreen';
+import GlobalHeaderNav from './components/GlobalHeaderNav';
+import { FilterProvider, useGlobalFilter, navFromUrl } from './lib/filterStore';
 
 // 📦 ALL ERP MODULES — lazy-loaded (Phase B): each module downloads only when
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
@@ -76,7 +78,19 @@ const ModuleLoader = () => (
   </div>
 );
 
+// The filter provider wraps the entire shell, not just Master Control, so every
+// screen — P&L, Cash Book, Owner Statement — reads the same Company/Branch/Owner
+// scope. Previously it lived inside MasterControlApp and evaporated the moment
+// you opened anything else.
 export default function App() {
+  return (
+    <FilterProvider>
+      <AppShell />
+    </FilterProvider>
+  );
+}
+
+function AppShell() {
   const [showPublicWebsite, setShowPublicWebsite] = useState(false); 
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -94,10 +108,14 @@ export default function App() {
   // so the hold screen can name the person it is holding.
   const [accountHold, setAccountHold] = useState(null);
 
-  const [activeModule, setActiveModule] = useState('OPERATION');
+  // Boot from the URL when it carries a context, so a refresh or a pasted link
+  // lands on the same screen instead of bouncing back to the default home.
+  const boot = navFromUrl();
+  const [activeModule, setActiveModule] = useState(
+    ['OPERATION', 'ACCOUNTS', 'CRM'].includes(boot.module) ? boot.module : 'OPERATION');
   // Landing page = Master Control v5.0 (God 2026-08-15). Logging in drops the
   // user straight into the control centre instead of the legacy dashboard.
-  const [activeComponent, setActiveComponent] = useState('MASTER_CONTROL_V5');
+  const [activeComponent, setActiveComponent] = useState(boot.screen || 'MASTER_CONTROL_V5');
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false); 
@@ -185,6 +203,13 @@ export default function App() {
     window.addEventListener('pt:open-owner-statement', open);
     return () => window.removeEventListener('pt:open-owner-statement', open);
   }, []);
+
+  // Keep module + screen in the URL alongside the filter, so refreshing or
+  // sharing the link reproduces the exact context. Written by the filter store
+  // with replaceState — a filter change is not navigation and must not stack
+  // history entries that make Back walk through every dropdown twiddle.
+  const gf = useGlobalFilter();
+  useEffect(() => { gf.setNav(activeModule, activeComponent); }, [activeModule, activeComponent]);
 
   const handleComponentChange = (comp: string) => {
     setIsTransitioning(true);
@@ -514,9 +539,10 @@ export default function App() {
             // 💻 DESKTOP TOP BAR
             <>
               <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={() => handleModuleChange('OPERATION')} className="nav-btn" style={{ background: activeModule === 'OPERATION' ? 'linear-gradient(135deg, #3b82f6, #6366f1)' : '#1e293b', color: activeModule === 'OPERATION' ? '#fff' : '#94a3b8', boxShadow: activeModule === 'OPERATION' ? '0 4px 15px rgba(59,130,246,0.4)' : 'none' }}>🚛 OPERATIONS</button>
-                <button onClick={() => handleModuleChange('ACCOUNTS')} className="nav-btn" style={{ background: activeModule === 'ACCOUNTS' ? 'linear-gradient(135deg, #10b981, #059669)' : '#1e293b', color: activeModule === 'ACCOUNTS' ? '#fff' : '#94a3b8', boxShadow: activeModule === 'ACCOUNTS' ? '0 4px 15px rgba(16,185,129,0.4)' : 'none' }}>💰 ACCOUNTS & ADMIN</button>
-                <button onClick={() => handleModuleChange('CRM')} className="nav-btn" style={{ background: activeModule === 'CRM' ? 'linear-gradient(135deg, #f59e0b, #d97706)' : '#1e293b', color: activeModule === 'CRM' ? '#fff' : '#94a3b8', boxShadow: activeModule === 'CRM' ? '0 4px 15px rgba(245,158,11,0.4)' : 'none' }}>🤝 CRM (MAMTA AI)</button>
+                {/* Persistent on every screen — the shell header renders on all of
+                    them. Switching module never touches the global filter, so the
+                    Company/Branch/Owner scope carries straight across. */}
+                <GlobalHeaderNav activeModule={activeModule} onChange={handleModuleChange} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '10px', paddingLeft: '15px', borderLeft: '1px solid #334155' }}>
                   <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WHATSAPP'); }} title="WhatsApp Master Dashboard" style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #128C7E, #25D366)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>

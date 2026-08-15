@@ -13,7 +13,7 @@ import OperationsDashboard from './OperationsDashboard';
 import FinanceDashboard from './FinanceDashboard';
 import MasterControlDashboard from './MasterControlDashboard';
 import useDashboardData from './useDashboardData';
-import useFilters from './useFilters';
+import { useGlobalFilter } from '../lib/filterStore';
 import FilterBar from './FilterBar';
 
 const MODULES = [
@@ -40,11 +40,11 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   // the module button looked dead. Re-sync whenever the prop actually changes.
   useEffect(() => { setActiveTab(valid(initialTab)); }, [initialTab]);
 
-  // ONE filter for all three tabs. Held by the shell so switching Operations ->
-  // Finance -> CRM keeps the scope; if each tab owned its own, the scope would
-  // reset silently on every switch and you would read group numbers believing
-  // they were one company's.
-  const filter = useFilters();
+  // The filter now lives at APP level (lib/filterStore), not here. Holding it in
+  // this component made it die whenever Master Control unmounted — open the P&L
+  // or the Owner Statement and the scope was silently gone. Same object, wider
+  // lifetime; this screen is now just another consumer.
+  const filter = useGlobalFilter();
   const live = useDashboardData(filter.qs());
 
   useEffect(() => {
