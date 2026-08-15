@@ -10,6 +10,9 @@
 // user request.
 // ─────────────────────────────────────────────────────────────────────────────
 import 'dotenv/config';
+// Storage isolation MUST run before any module that captures UPLOAD_DIR /
+// OCR_UPLOAD_DIR / LOG_DIR at load time (storage.js, ocrAutoFiler.js).
+import './config/init_drives.js';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { healthCheck, initDb, closePool, isDegraded, DB_TARGET } from './db/pool.js';

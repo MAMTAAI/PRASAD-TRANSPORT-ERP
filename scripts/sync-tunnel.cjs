@@ -23,7 +23,7 @@ const OTP_LOCAL_PORT = Number(process.env.OTP_TUNNEL_LOCAL_PORT ?? 5001);   // W
 const OTP_REMOTE_PORT = Number(process.env.OTP_TUNNEL_REMOTE_PORT ?? 5601); // where the box sees it
 const REMOTE = process.env.SYNC_TUNNEL_HOST ?? 'ubuntu@api.jaiswalcapital.com';
 const KEY = process.env.SYNC_TUNNEL_KEY ?? join(os.homedir(), '.ssh', 'jaiswal_claude_ed25519');
-const LOG_DIR = join(__dirname, '..', 'logs');
+const LOG_DIR = process.env.LOG_DIR || join(__dirname, '..', 'logs'); // F: isolation when set
 const LOG = join(LOG_DIR, 'sync-tunnel.log');
 
 mkdirSync(LOG_DIR, { recursive: true });

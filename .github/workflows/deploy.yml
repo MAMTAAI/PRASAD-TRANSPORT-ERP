@@ -1,5 +1,12 @@
 name: Deploy to AWS EC2
 
+# ⚠️ STATUS 2026-08-15: this runner lane has NEVER worked — all runs fail in
+# ~2s before any SSH contact, which means the repo secrets (AWS_HOST,
+# AWS_PRIVATE_KEY) are missing or malformed. Deployment does NOT depend on it:
+# the box pulls origin/main itself every 3 minutes and runs the same
+# deploy/aws/ci-deploy.sh (cron, installed 2026-08-15). Add the secrets in
+# repo Settings → Secrets and this lane starts working as a second trigger.
+
 # Every push to main ships to the EC2 box.
 on:
   push:
@@ -30,48 +37,8 @@ jobs:
           username: ${{ secrets.AWS_USERNAME || 'ubuntu' }}
           key: ${{ secrets.AWS_PRIVATE_KEY }}
           port: 22
-          # Without this the remote script keeps running after a failed command
-          # and the job still reports success — a failed git pull would look
-          # like a clean deploy.
-          script_stop: true
+          # One versioned procedure, shared with the box's own cron auto-puller.
+          # bash explicitly: the script uses bash features and must not depend
+          # on whatever shell the action hands it.
           script: |
-            set -e
-            # Every deploy leaves a full transcript on the box — when a run
-            # dies and the Actions log is out of reach, read this instead.
-            exec > >(tee /tmp/ci-deploy.log) 2>&1
-            echo "CI deploy started: $(date -u)"
-
-            # The first two paths are the ones specified. /var/www/prasad-erp is
-            # where deploy/aws/DEPLOY-AWS.md actually installs the app, so on
-            # this box it is the one that will match. Drop whichever are not
-            # real for your server.
-            cd /var/www/PRASAD-TRANSPORT-ERP || cd ~/PRASAD-TRANSPORT-ERP || cd /var/www/prasad-erp
-            echo "Deploying in: $(pwd)"
-
-            git pull origin main
-
-            # Full install, not --production: prasad-erp-web serves the built
-            # dist/ (PM2 static server), and building it needs Vite, which is a
-            # devDependency. Without this step a deploy ships the API but the
-            # site keeps serving the previous UI forever. Playwright's browser
-            # download is skipped — nothing on the box runs UI tests.
-            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install --no-audit --no-fund
-
-            npm run build
-
-            # Schema first, then the API that expects it. The runner is
-            # forward-only, transactional per file, checksum-tracked, and stops
-            # at the first failure — set -e then aborts BEFORE the restart, so
-            # the old API (matching the old schema) keeps running.
-            # PG credentials live in .env.api on the box (not .env), so load it
-            # explicitly — dotenv inside migrate.js only reads .env.
-            node --env-file=.env.api server/db/migrate.js
-
-            # ⚠️ THIS BOX ALSO RUNS JAISWAL CAPITAL. Never `pm2 restart all` —
-            # that restarts the live trading engine too, which during market
-            # hours is an outage in an unrelated system. Only the prasad-* apps
-            # (names from deploy/aws/ecosystem.prasad.config.cjs):
-            pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
-
-            pm2 save
-            pm2 status
+            bash /var/www/prasad-erp/deploy/aws/ci-deploy.sh
