@@ -359,14 +359,37 @@ export async function postVoucher(v) {
       push(v.account, 'CR', amount);
     }
 
+    // ── ATTACHED-FLEET ISOLATION, ON THIS PATH TOO ────────────────────────
+    // postJournal has enforced this since it was written; the cash path never
+    // did. So a fee paid for an attached lorry — a fitness renewal, an
+    // insurance premium, anything entered as a PAYMENT with a vehicle_id —
+    // could be debited straight to a company expense head with nothing to stop
+    // it, which is the precise mistake the rule exists to prevent. The comment
+    // in fleetAccounting.js says the check lives "at the door into
+    // ledger_entries because that is the only place it cannot be routed
+    // around"; there were two doors, and this one was unlocked.
+    await assertAttachedCostIsolation(
+      (sql, params) => tx.query(sql, params),
+      v.vehicle_id ?? null,
+      lines.map((l) => ({ ledger: l.ledger, dr_cr: l.dr_cr, group: null })),
+    );
+
     const { rows: [{ voucher_id: voucherId }] } = await tx.query('SELECT gen_random_uuid() AS voucher_id');
     const entryDate = v.entry_date ?? new Date().toISOString().slice(0, 10);
     const narration = v.narration ?? `${v.type} voucher`;
     for (const l of lines) {
       await tx.query(
-        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, branch)
-         VALUES ($1,$2,$3,$4,$5,$6,'VOUCHER',$7,$8,$9)`,
-        [l.ledger, voucherId, entryDate, narration, l.dr_cr, l.amt, v.ref_no ?? null, v.company ?? null, v.branch ?? null]);
+        // source_type was hardcoded 'VOUCHER', so a caller's source_type was
+        // accepted and silently dropped — vehicle compliance fees, and anything
+        // else posted as a cash voucher, landed in the ledger indistinguishable
+        // from a hand-typed entry and could not be traced back or reconciled.
+        // Defaulted rather than replaced, so every existing caller keeps the
+        // 'VOUCHER' it has always written.
+        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, branch, vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid)`,
+        [l.ledger, voucherId, entryDate, narration, l.dr_cr, l.amt,
+         v.source_type ?? 'VOUCHER', v.ref_no ?? null, v.company ?? null, v.branch ?? null,
+         v.vehicle_id ?? null]);
     }
 
     await busEmit('ledger.posted', {

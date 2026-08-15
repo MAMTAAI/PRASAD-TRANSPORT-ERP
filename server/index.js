@@ -31,6 +31,7 @@ import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
+import { registerComplianceRoutes } from './modules/compliance.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
@@ -158,6 +159,9 @@ await app.register(registerTollImportRoutes, { prefix: '/api/v1/toll' });
 // the same reason as the toll importer — this is the only path that recognises
 // a loan in the ledger, and it must not be reachable by accident.
 await app.register(registerLoanImportRoutes, { prefix: '/api/v1/loans' });
+// Expiry alerts across lorries and drivers, and the backfill for compliance
+// fees that were filed without an accounting entry.
+await app.register(registerComplianceRoutes, { prefix: '/api/v1/compliance' });
 // Loans/EMI, tyres, batteries and the service log.
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 // Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.

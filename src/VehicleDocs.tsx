@@ -127,6 +127,10 @@ export default function VehicleDocs() {
   const [payAccount, setPayAccount] = useState('');
   const [docsByType, setDocsByType] = useState<any>({});
   const [err, setErr] = useState('');
+  // Expiries across the whole fleet AND its drivers, judged server-side against
+  // one threshold. Not derived here: a licence that lapsed stops a lorry just
+  // as surely as a lapsed fitness certificate, and only the database sees both.
+  const [alerts, setAlerts] = useState<any | null>(null);
 
   const fetchVehicles = async () => {
     setLoading(true);
@@ -142,6 +146,12 @@ export default function VehicleDocs() {
       setVehicles(v.vehicles ?? []);
       setCompanies(m.companies ?? []);
       setAccounts(acc.accounts ?? []);
+
+      // Separately fault-tolerant: the alert strip is a warning, and failing to
+      // draw it must not take the document screen down with it.
+      fetchJson(`${API}/api/v1/compliance/alerts`)
+        .then(setAlerts)
+        .catch(() => setAlerts(null));
     } catch (e: any) {
       setVehicles([]);
       setErr(`Fleet could not load from ${API} — ${e.message}`);
@@ -451,6 +461,70 @@ export default function VehicleDocs() {
           .vault-header { flex-direction: column; align-items: flex-start !important; gap: 12px; }
         }
       `}</style>
+
+      {/* ── COMPLIANCE & EXPIRY ALERTS ─────────────────────────────────────
+          Anything expired or inside the alert window, lorries and drivers
+          alike. Hidden entirely when nothing is due, so it means something
+          when it does appear. */}
+      {alerts && alerts.alerts?.length > 0 && (() => {
+        const expired = alerts.alerts.filter((a: any) => a.status === 'EXPIRED');
+        const soon = alerts.alerts.filter((a: any) => a.status === 'EXPIRING');
+        return (
+          <div style={{ marginBottom: '22px', background: 'rgba(239,68,68,0.07)', border: '1px solid #ef4444',
+                        borderRadius: '15px', padding: '18px 22px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '14px' }}>
+              <span style={{ fontSize: '18px', fontWeight: 900, color: '#fff' }}>⚠️ Compliance &amp; Expiry Alerts</span>
+              <span style={{ background: '#ef4444', color: '#fff', borderRadius: '20px', padding: '3px 12px', fontSize: '12px', fontWeight: 'bold' }}>
+                {expired.length} EXPIRED
+              </span>
+              <span style={{ background: '#f59e0b', color: '#111', borderRadius: '20px', padding: '3px 12px', fontSize: '12px', fontWeight: 'bold' }}>
+                {soon.length} within {alerts.alert_window_days} days
+              </span>
+              <span style={{ color: '#94a3b8', fontSize: '11px' }}>as at {alerts.as_of}</span>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ color: '#94a3b8', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '6px 10px' }}>Vehicle / Driver</th>
+                    <th style={{ padding: '6px 10px' }}>Document</th>
+                    <th style={{ padding: '6px 10px' }}>Expiry Date</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>Days Left</th>
+                    <th style={{ padding: '6px 10px' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {alerts.alerts.slice(0, 25).map((a: any, i: number) => {
+                    const red = a.status === 'EXPIRED';
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                        <td style={{ padding: '8px 10px', color: '#fff', fontWeight: 'bold' }}>
+                          {a.subject}
+                          <span style={{ color: '#64748b', fontSize: '10px', marginLeft: '8px' }}>
+                            {a.subject_kind === 'DRIVER' ? 'driver' : 'vehicle'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{String(a.doc_type).replace(/_/g, ' ')}</td>
+                        <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{a.expires_on}</td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 900,
+                                     color: red ? '#ef4444' : '#f59e0b' }}>
+                          {a.days_left < 0 ? `${Math.abs(a.days_left)} overdue` : a.days_left}
+                        </td>
+                        <td style={{ padding: '8px 10px' }}>
+                          <span style={{ background: red ? '#ef4444' : '#f59e0b', color: red ? '#fff' : '#111',
+                                         borderRadius: '6px', padding: '2px 10px', fontSize: '11px', fontWeight: 'bold' }}>
+                            {a.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
         <div>

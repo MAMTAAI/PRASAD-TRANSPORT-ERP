@@ -189,6 +189,10 @@ export async function registerMastersRoutes(app) {
   // types, matching the account_groups entry that already exists.
   const COMPLIANCE_LEDGER = 'Vehicle Compliance & Docs';
   const COMPLIANCE_GROUP = 'Direct Expenses (Vehicle Compliance & Docs)';
+  // Where an attached vehicle's costs go instead — the same head the fuel and
+  // toll importers debit, so one owner's diesel, toll and paperwork all land in
+  // one khata rather than three.
+  const OWNER_GROUP = 'Sundry Creditors (Vehicle Owners)';
 
   app.get(
     '/vehicle-documents',
@@ -249,7 +253,11 @@ export async function registerMastersRoutes(app) {
       if (isDegraded()) return dbGate(reply);
       const b = req.body;
       const { rows: [v] } = await query(
-        'SELECT id, vehicle_no, branch FROM vehicles WHERE id = $1::uuid', [b.vehicle_id]);
+        `SELECT v.id, v.vehicle_no, v.branch, v.is_company_owned,
+                l.ledger_name AS owner_ledger
+           FROM vehicles v
+           LEFT JOIN ledgers l ON l.id = v.vehicle_owner_ledger_id
+          WHERE v.id = $1::uuid`, [b.vehicle_id]);
       if (!v) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such vehicle' });
 
       const amount = Number(b.amount ?? 0);
@@ -266,6 +274,26 @@ export async function registerMastersRoutes(app) {
       // This replaces the Firestore `expense_posted_key` self-check.
       const ref = `VEHDOC-${b.vehicle_id}-${b.doc_type}-${amount.toFixed(2)}-${b.receipt_no ?? b.application_no ?? 'noref'}`;
 
+      // ── WHOSE COST IS THIS? ─────────────────────────────────────────────
+      // A fitness fee on a company lorry is a company expense. The same fee on
+      // an attached lorry is money spent on somebody else's asset and is
+      // recoverable from him — it belongs in his khata, and putting it in the
+      // P&L would inflate company costs by the whole of another operator's
+      // compliance bill. TARA's assertAttachedCostIsolation is the backstop, so
+      // getting this wrong now fails loudly instead of quietly.
+      const attached = !v.is_company_owned;
+      if (wantsPosting && attached && !v.owner_ledger) {
+        return reply.code(422).send({
+          error: 'ATTACHED_WITHOUT_OWNER_LEDGER',
+          detail: `${v.vehicle_no} is an attached vehicle with no owner ledger, so this fee has `
+                + `nowhere to go but company P&L, where it does not belong. Link the owner first, `
+                + `or send post_to_ledger=false to file the document without an accounting entry`,
+        });
+      }
+      const debit = attached
+        ? { ledger: v.owner_ledger, group: OWNER_GROUP }
+        : { ledger: COMPLIANCE_LEDGER, group: COMPLIANCE_GROUP };
+
       let voucher = null;
       let ledgerNote = null;
       if (wantsPosting) {
@@ -273,14 +301,18 @@ export async function registerMastersRoutes(app) {
           voucher = await postVoucher({
             type: 'PAYMENT',
             account: b.account,
-            party_ledger: COMPLIANCE_LEDGER,
-            party_group: COMPLIANCE_GROUP,
+            party_ledger: debit.ledger,
+            party_group: debit.group,
             amount,
             ref_no: ref,
             entry_date: b.inspected_on ?? new Date().toISOString().slice(0, 10),
             narration: `${b.doc_name ?? b.doc_type} for ${v.vehicle_no}`
-              + `${b.receipt_no ? ` — receipt ${b.receipt_no}` : ''}`,
+              + `${b.receipt_no ? ` — receipt ${b.receipt_no}` : ''}`
+              + `${attached ? ' (attached — owner khata)' : ''}`,
             source_type: 'VEHICLE_COMPLIANCE',
+            // Carried so TARA can tell whose lorry this is. Without it the
+            // isolation check has nothing to check and returns immediately.
+            vehicle_id: v.id,
             branch: v.branch,
             created_by: b.created_by ?? null,
           });
