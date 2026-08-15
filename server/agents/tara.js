@@ -3,6 +3,7 @@
 import { defineAgent, ok, skipped, blocked, failed } from './base.js';
 import { query, queryOne } from '../db/pool.js';
 import { withAggregateLock, LOCK_NS } from './kamala.js';
+import { assertAttachedCostIsolation } from '../lib/fleetAccounting.js';
 
 /**
  * Posting rules, ported from `src/lib/accounting/posting.ts`, which already
@@ -416,7 +417,8 @@ async function postJournal(v) {
       throw Object.assign(new Error(`line ${i + 1}: ledger required`), { code: 'BAD_LINES' });
     const p = Math.round(amt * 100);
     if (l.dr_cr === 'DR') drP += p; else crP += p;
-    return { ledger: String(l.ledger), dr_cr: l.dr_cr, amt: (p / 100).toFixed(2), group: l.group ?? null };
+    return { ledger: String(l.ledger), dr_cr: l.dr_cr, amt: (p / 100).toFixed(2), group: l.group ?? null,
+             vehicle_id: l.vehicle_id ?? null };
   });
 
   if (drP !== crP) {
@@ -438,15 +440,36 @@ async function postJournal(v) {
 
     for (const l of clean) await getOrCreateLedger(tx, l.ledger, l.group ?? 'Suspense A/c');
 
+    // ── ATTACHED-FLEET ISOLATION ──────────────────────────────────────────
+    // An attached vehicle's diesel, toll and advances are recoverable from its
+    // owner — they are balance-sheet movements in that owner's khata, never
+    // company expenses. Booking them to a P&L expense group inflates company
+    // costs by the whole value of somebody else's operation.
+    //
+    // The check lives HERE, after ledgers are resolved and before anything is
+    // written, because this is the only door into ledger_entries. Putting it in
+    // the trip-posting helper alone would leave every other caller — an ad-hoc
+    // voucher, an importer, a future script — free to make the mistake.
+    await assertAttachedCostIsolation(
+      (sql, params) => tx.query(sql, params),
+      v.vehicle_id ?? null,
+      clean.map((l) => ({ ledger: l.ledger, dr_cr: l.dr_cr, group: l.group })),
+    );
+
     const { rows: [{ voucher_id: voucherId }] } = await tx.query('SELECT gen_random_uuid() AS voucher_id');
     const entryDate = v.entry_date ?? new Date().toISOString().slice(0, 10);
     const narration = v.narration ?? 'Journal entry';
     for (const l of clean) {
       await tx.query(
-        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, branch)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount,
+                                     source_type, source_ref, company, branch,
+                                     company_id, branch_id, vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$12::uuid,$13::uuid)`,
         [l.ledger, voucherId, entryDate, narration, l.dr_cr, l.amt,
-         v.source_type ?? 'JOURNAL', v.ref_no ?? null, v.company ?? null, v.branch ?? null]);
+         v.source_type ?? 'JOURNAL', v.ref_no ?? null, v.company ?? null, v.branch ?? null,
+         // The dimensions the 3-tier filter reads. Per-line vehicle wins over
+         // the voucher's, so one journal can carry legs for different trucks.
+         v.company_id ?? null, v.branch_id ?? null, l.vehicle_id ?? v.vehicle_id ?? null]);
     }
 
     await busEmit('ledger.posted', {
