@@ -15,6 +15,7 @@
 // identical on a screen, and only one of them is true.
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
+import { tallyAlive } from '../lib/tallyAdapter.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
@@ -261,6 +262,46 @@ export function registerDashboardRoutes(app) {
     }, { spent_total: 0, txns: 0, claimed: 0, unclaimed: 0, this_month: 0,
          credited: 0, credit_count: 0, providers: [], balance_available: false });
 
+    // Tally Prime connector. The card used to claim "Sync Active - 25,000 txs
+    // - 100%". None of that existed: tally_sync has never held a row and the
+    // connector has never reached Tally. What is reported here is the live
+    // probe plus the real push ledger, so an accounting integration that has
+    // never run cannot look healthy.
+    const tally = await safe(errors, 'tally', async () => {
+      // Connection refused returns immediately; the adapter's own 3s timeout
+      // only bites if something is listening but mute.
+      const alive = await tallyAlive().catch((e) => ({ up: false, detail: e.message }));
+
+      const { rows: counts } = await query(
+        `SELECT status, count(*)::int AS n FROM tally_sync GROUP BY status`);
+      const byStatus = Object.fromEntries(counts.map((r) => [r.status, num(r.n)]));
+      const pushed = counts.reduce((s, r) => s + num(r.n), 0);
+
+      const { rows: last } = await query(
+        `SELECT max(tally_synced_at) AS last_ok, max(updated_at) AS last_attempt
+         FROM tally_sync`);
+
+      // Everything in the books that Tally has never been told about.
+      const { rows: pend } = await query(
+        `SELECT count(DISTINCT voucher_id)::int AS n FROM ledger_entries
+          WHERE voucher_id IS NOT NULL
+            AND voucher_id::text NOT IN (SELECT source FROM tally_sync)`);
+
+      return {
+        up: !!alive.up,
+        detail: alive.detail ?? null,
+        url: process.env.TALLY_URL ?? 'http://localhost:9000',
+        pushed,
+        by_status: byStatus,
+        failed: num(byStatus.FAILED ?? 0),
+        pending_vouchers: num(pend[0].n),
+        last_ok: last[0].last_ok,
+        last_attempt: last[0].last_attempt,
+        ever_synced: pushed > 0,
+      };
+    }, { up: false, detail: 'probe failed', url: '', pushed: 0, by_status: {},
+         failed: 0, pending_vouchers: 0, last_ok: null, last_attempt: null, ever_synced: false });
+
     const health = await safe(errors, 'accounting_health', async () => {
       const { rows } = await query('SELECT * FROM v_accounting_health');
       return rows[0] ?? null;
@@ -292,7 +333,7 @@ export function registerDashboardRoutes(app) {
       generated_at: new Date().toISOString(),
       took_ms: Date.now() - t0,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
-      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll },
+      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally },
       crm: { staff, activity },
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,

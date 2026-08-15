@@ -71,6 +71,7 @@ export default function FinanceDashboard({ live }) {
   const bankRows = fin?.banks ?? [];
   const emi = fin?.emi ?? null;
   const toll = fin?.toll ?? null;
+  const tally = fin?.tally ?? null;
   const monthlyLive = fin?.monthly?.length ? fin.monthly : monthlyRevenue;
   const custLive = fin?.customers?.length
     ? (() => {
@@ -285,28 +286,48 @@ export default function FinanceDashboard({ live }) {
           <PanelHeader
             icon={RefreshCcw}
             title="Tally Prime Sync Status"
-            accent="text-emerald-400"
-            right={<span className="text-[10px] font-black italic text-slate-300">Tally · Port #9000</span>}
+            accent={tally?.up ? 'text-emerald-400' : 'text-red-400'}
+            right={<span className="text-[10px] font-black italic text-slate-400">{tally?.url?.replace(/^https?:\/\//, '') || 'localhost:9000'}</span>}
           />
           <div className="px-4 pb-4">
             <div className="flex items-center gap-2.5 mb-3">
-              <Dot color="bg-emerald-400" pulse size="w-3 h-3" />
-              <span className="text-xl font-black text-emerald-300">Sync Active</span>
+              <Dot color={tally?.up ? 'bg-emerald-400' : 'bg-red-400'} pulse={!!tally?.up} size="w-3 h-3" />
+              <span className={`text-xl font-black ${tally?.up ? 'text-emerald-300' : 'text-red-300'}`}>
+                {!tally ? '--' : tally.up ? 'Connected' : 'Not Connected'}
+              </span>
             </div>
+
             <div className="grid grid-cols-3 gap-2">
               <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2.5 text-center">
-                <p className="text-sm font-black text-white">25,000</p>
-                <p className="text-[8px] text-slate-500 uppercase">txs last sync</p>
+                <p className="text-sm font-black text-white">{tally ? tally.pushed.toLocaleString('en-IN') : '--'}</p>
+                <p className="text-[8px] text-slate-500 uppercase">pushed</p>
               </div>
               <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2.5 text-center">
-                <p className="text-sm font-black text-white">25,000</p>
-                <p className="text-[8px] text-slate-500 uppercase">txs synced</p>
+                <p className="text-sm font-black text-amber-300">{tally ? tally.pending_vouchers.toLocaleString('en-IN') : '--'}</p>
+                <p className="text-[8px] text-slate-500 uppercase">pending</p>
               </div>
-              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/40 px-2 py-2.5 text-center">
-                <p className="text-sm font-black text-emerald-300">100%</p>
-                <p className="text-[8px] text-emerald-500/80 uppercase">Transactions</p>
+              <div className={`rounded-xl px-2 py-2.5 text-center border ${
+                tally?.failed ? 'bg-red-500/10 border-red-500/40' : 'bg-white/5 border-slate-700/50'}`}>
+                <p className={`text-sm font-black ${tally?.failed ? 'text-red-300' : 'text-slate-300'}`}>
+                  {tally ? tally.failed : '--'}
+                </p>
+                <p className="text-[8px] text-slate-500 uppercase">failed</p>
               </div>
             </div>
+
+            {/* The plain truth, in the place a green "100%" used to sit. */}
+            {tally && !tally.ever_synced && (
+              <p className="mt-3 text-[10px] text-amber-300/90 leading-relaxed">
+                No voucher has ever reached Tally. All {tally.pending_vouchers.toLocaleString('en-IN')} vouchers
+                in the books are waiting.
+                {!tally.up && ' Open Tally Prime and enable its HTTP server on port 9000, then push from Bill Management.'}
+              </p>
+            )}
+            {tally?.ever_synced && (
+              <p className="mt-3 text-[10px] text-slate-500 leading-relaxed">
+                Last successful push {tally.last_ok ? new Date(tally.last_ok).toLocaleString('en-IN') : 'unknown'}.
+              </p>
+            )}
           </div>
         </GlassPanel>
 
