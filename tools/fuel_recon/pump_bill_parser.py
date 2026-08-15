@@ -168,12 +168,16 @@ class Row:
     cash: float | None = None
     total: float | None = None
     flags: list[str] = field(default_factory=list)
+    reconcile_note: str | None = None
 
     @property
     def confidence(self) -> str:
         if "NO_VEHICLE" in self.flags or "TRUNCATED_VEHICLE" in self.flags:
             return "REVIEW"
         if "AMOUNT_MISMATCH" in self.flags or "DATE_OUT_OF_PERIOD" in self.flags:
+            return "REVIEW"
+        # The bill disagrees with its own lines — trust neither.
+        if "TOTAL_MISMATCH" in self.flags:
             return "REVIEW"
         return "OK" if (self.date and self.vehicle_norm and self.amount) else "REVIEW"
 
@@ -300,7 +304,6 @@ LAYOUTS = {
     # SL Date LORRY PRODUCT Qty Rate Amount Cash Total   (vehicle truncated)
     "Alam":         dict(cols=["qty", "rate", "amount", "cash", "total"]),
     # SI Date Vehicle HSD MS Challan Qty Rate Amount     (noisy)
-    "Hey krishna":  dict(cols=["qty", "rate", "amount"]),
 }
 
 
@@ -337,6 +340,49 @@ def parse_by_coordinates(text_unused, mk, page):
     return out
 
 
+
+# Matches "TOTAL", "Grand Total:-", "Net Amount:-", "Invoice Total" — every
+# spelling these six pumps use for the figure they added up themselves.
+TOTAL_RE = re.compile(r"(?:GRAND\s+TOTAL|NET\s+AMOUNT|TOTAL)(.{0,80})", re.IGNORECASE)
+
+
+def printed_total(text: str) -> float | None:
+    """The bill's own TOTAL, if it prints one.
+
+    This is the only independent check available on a scanned bill: the pump
+    added the column up by hand, so if our rows do not reach the same figure,
+    something was misread — and on these bills that is common, not exotic.
+    """
+    best = None
+    for m in TOTAL_RE.finditer(text):
+        nums = [money(x) for x in re.findall(r"[\d,]+\.?\d*", m.group(1))]
+        nums = [n for n in nums if n and n > 100]        # a total, not a litre count
+        if nums:
+            cand = max(nums)
+            best = cand if best is None else max(best, cand)
+    return best
+
+
+def reconcile(rows: list, text: str) -> tuple[bool, str | None]:
+    """Compare what we read against what the bill says it totals.
+
+    Returns (trustworthy, note). A file whose rows miss its own total by more
+    than 2% is NOT trustworthy: the safe outcome is to send the whole file to
+    manual entry rather than post a partial, plausible-looking set of numbers
+    onto somebody's fuel cost.
+    """
+    stated = printed_total(text)
+    if stated is None:
+        return True, None                    # nothing to check against
+    got = sum(r.amount or 0 for r in rows)
+    if got == 0:
+        return False, f"bill totals {stated:,.2f} but no line amounts were read"
+    drift = abs(got - stated) / stated
+    if drift > 0.02:
+        return False, f"rows total {got:,.2f} against the bill's own {stated:,.2f} ({drift * 100:.0f}% out)"
+    return True, None
+
+
 def parse_pdf(path: str, pump: str, group: str) -> list[Row]:
     company = GROUPS.get(group, "")
     mk = lambda: Row(pump=pump, group=group, company_hint=company,
@@ -368,10 +414,26 @@ def parse_pdf(path: str, pump: str, group: str) -> list[Row]:
                 for r in got:
                     r.flags.append("UNVERIFIED_LAYOUT")
                 out += got
+
+            # THE FILE-LEVEL CHECK. Individually plausible rows can still add up
+            # to the wrong bill when the source is a poor scan, so the last word
+            # belongs to the total the pump printed itself.
+            page_rows = [r for r in out if r.source_file == os.path.basename(path)]
+            trusted, note = reconcile(page_rows, text)
+            if not trusted:
+                for r in page_rows:
+                    if "TOTAL_MISMATCH" not in r.flags:
+                        r.flags.append("TOTAL_MISMATCH")
+                        r.reconcile_note = note
     return out
 
 
-UNREADABLE = {"Shivam", "Jon N Well", "Pawan", "Hatsingimari"}
+# Not machine-readable. Hey krishna joined this list after measurement, not
+# assumption: of its 8 bills, 1 is usable, 6 return OCR noise where the
+# registrations and dates should be ("9088 1344 8o", "TOTAL |8SA2C Bo") and 1
+# has no text at all. A layout handler for that is code that reads noise as
+# money, and the money lands on a real truck's fuel cost.
+UNREADABLE = {"Shivam", "Jon N Well", "Pawan", "Hatsingimari", "Hey krishna"}
 
 
 def scan():
