@@ -150,6 +150,7 @@ export default function MasterControlDashboard({ live }) {
     : staff;
   // Ledger movements are the one activity feed that is real today; the WhatsApp
   // and tender panels below are still design placeholders.
+  const wa = crm?.whatsapp ?? null;
   const tickerLive = crm?.activity?.length
     ? crm.activity.map((a) => `${a.at}  ${a.text}`)
     : activityLog;
@@ -242,54 +243,66 @@ export default function MasterControlDashboard({ live }) {
         <div className="lg:col-span-4 flex flex-col gap-4">
 
           {/* Super WhatsApp CRM Inbox */}
-          <GlassPanel className="border-emerald-500/30">
+          <GlassPanel className={wa?.engine?.connected ? 'border-emerald-500/30' : 'border-red-500/30'}>
             <PanelHeader
               icon={MessageCircle}
               title="Super WhatsApp CRM Inbox"
-              accent="text-emerald-400"
-              right={<StatusPill tone="green">● New</StatusPill>}
+              accent={wa?.engine?.connected ? 'text-emerald-400' : 'text-red-400'}
+              sub={wa ? `${wa.contacts} contacts · ${wa.total} messages` : ''}
+              right={
+                <StatusPill tone={wa?.engine?.connected ? 'green' : 'red'} pulse={!!wa?.engine?.connected}>
+                  {wa?.engine?.status || '--'}
+                </StatusPill>
+              }
             />
-            <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Chats</p>
-                {waChats.map((c, i) => (
-                  <div
-                    key={i}
-                    className={`flex items-center gap-2 rounded-xl px-2 py-1.5 cursor-pointer border transition-colors
-                      ${c.active ? 'bg-emerald-500/10 border-emerald-500/40' : 'border-transparent hover:bg-white/5'}`}
-                  >
-                    <Avatar name={c.name} size="w-7 h-7" textSize="text-[9px]" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold text-slate-200 truncate">{c.name}</p>
-                      <p className="text-[9px] text-slate-500 truncate">{c.tag}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-0.5 shrink-0">
-                      <span className="text-[8px] text-slate-600">{c.time}</span>
-                      {c.unread > 0 && (
-                        <span className="grid place-items-center min-w-[15px] h-[15px] px-1 rounded-full bg-emerald-500 text-[8px] font-black text-white">{c.unread} New</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Chat · Messages</p>
-                {waThread.map((m, i) => (
-                  <div key={i} className={`flex ${m.from === 'us' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[90%] rounded-xl px-2.5 py-1.5 border text-[10px] leading-snug text-slate-100
-                      ${m.from === 'us' ? 'bg-emerald-600/25 border-emerald-500/40' : 'bg-slate-800/80 border-slate-700/60'}`}>
-                      {m.text}
-                      <span className="block text-right text-[8px] text-slate-500 mt-0.5">{m.time}</span>
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-auto flex items-center gap-1.5">
-                  <input placeholder="Chat message…" className="flex-1 min-w-0 rounded-lg bg-slate-950/70 border border-slate-700/50 px-2 py-1.5 text-[10px] text-slate-200 placeholder-slate-600 outline-none focus:border-emerald-500/60" />
-                  <button className="grid place-items-center w-7 h-7 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0">
-                    <ChevronRight size={13} />
-                  </button>
+            <div className="px-4 pb-4">
+              {/* Engine state and message ledger are separate facts: the phone
+                  can be linked while nothing has been said yet. */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
+                  <p className="text-sm font-black text-white">{wa ? wa.inbound : '--'}</p>
+                  <p className="text-[8px] text-slate-500 uppercase">received</p>
+                </div>
+                <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
+                  <p className="text-sm font-black text-white">{wa ? wa.outbound : '--'}</p>
+                  <p className="text-[8px] text-slate-500 uppercase">sent</p>
+                </div>
+                <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
+                  <p className="text-sm font-black text-cyan-300">{wa ? wa.last_24h : '--'}</p>
+                  <p className="text-[8px] text-slate-500 uppercase">last 24h</p>
                 </div>
               </div>
+
+              {(!wa || wa.chats.length === 0) ? (
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  {wa?.engine?.connected
+                    ? 'WhatsApp is linked, but no message has been sent or received through the ERP yet. Conversations appear here the moment the first one flows.'
+                    : 'WhatsApp engine is not reachable — link the phone from the Prasad engine, then messages start recording here.'}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-600">Recent conversations</p>
+                  {wa.chats.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-xl px-2 py-1.5 border border-transparent hover:bg-white/5 transition-colors">
+                      <Avatar name={c.phone} size="w-7 h-7" textSize="text-[9px]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold text-slate-200 truncate">
+                          {c.phone}{c.role ? <span className="text-slate-500 font-normal"> · {c.role}</span> : null}
+                        </p>
+                        <p className="text-[9px] text-slate-500 truncate">
+                          {c.direction === 'OUT' ? '↗ ' : '↘ '}{c.last}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        <span className="text-[8px] text-slate-600">
+                          {c.at ? new Date(c.at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+                        </span>
+                        <span className="text-[8px] text-slate-500">{c.msgs} msg</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </GlassPanel>
 

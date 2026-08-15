@@ -307,6 +307,59 @@ export function registerDashboardRoutes(app) {
       return rows[0] ?? null;
     }, null);
 
+    // WhatsApp inbox. The engine POSTs every message to /api/v1/crm, which is
+    // the ONLY writer of wa_chats and dedupes on wa_msg_id — so this table is
+    // the honest record of what actually went in and out, not the engine's own
+    // in-memory view which resets on every reconnect.
+    const whatsapp = await safe(errors, 'whatsapp', async () => {
+      // Short probe: the engine is loopback locally and comes through the
+      // reverse tunnel on AWS. Kept tight so a dead tunnel cannot stall the
+      // whole dashboard.
+      let engine = { connected: false, status: 'UNREACHABLE' };
+      try {
+        const base = process.env.WA_ENGINE_URL || 'http://127.0.0.1:5001';
+        const res = await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(1500) });
+        if (res.ok) {
+          const j = await res.json();
+          engine = { connected: !!j.connected, status: j.status || (j.connected ? 'ONLINE' : 'UNKNOWN') };
+        }
+      } catch { /* engine down is a state, not an error */ }
+
+      const { rows: tot } = await query(`
+        SELECT count(*)::int                                                        AS total,
+               count(*) FILTER (WHERE direction = 'IN')::int                        AS inbound,
+               count(*) FILTER (WHERE direction = 'OUT')::int                       AS outbound,
+               count(*) FILTER (WHERE ts >= now() - interval '24 hours')::int       AS last_24h,
+               count(DISTINCT phone)::int                                           AS contacts,
+               max(ts)                                                              AS last_msg_at
+        FROM wa_chats`);
+
+      // One row per conversation, newest first.
+      const { rows: chats } = await query(`
+        SELECT DISTINCT ON (phone)
+               phone, text, direction, ts, role,
+               (SELECT count(*)::int FROM wa_chats c2 WHERE c2.phone = c1.phone) AS msgs
+        FROM wa_chats c1
+        ORDER BY phone, ts DESC`);
+      chats.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+      const { rows: notif } = await query(`
+        SELECT status, count(*)::int AS n FROM notifications GROUP BY status`);
+
+      const t = tot[0];
+      return {
+        engine,
+        total: num(t.total), inbound: num(t.inbound), outbound: num(t.outbound),
+        last_24h: num(t.last_24h), contacts: num(t.contacts), last_msg_at: t.last_msg_at,
+        chats: chats.slice(0, 6).map((c) => ({
+          phone: c.phone, last: c.text, direction: c.direction,
+          at: c.ts, msgs: num(c.msgs), role: c.role,
+        })),
+        notifications: Object.fromEntries(notif.map((r) => [r.status, num(r.n)])),
+      };
+    }, { engine: { connected: false, status: 'UNREACHABLE' }, total: 0, inbound: 0,
+         outbound: 0, last_24h: 0, contacts: 0, last_msg_at: null, chats: [], notifications: {} });
+
     // ── CRM ─────────────────────────────────────────────────────────────────
     const staff = await safe(errors, 'staff', async () => {
       const { rows } = await query(`
@@ -334,7 +387,7 @@ export function registerDashboardRoutes(app) {
       took_ms: Date.now() - t0,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally },
-      crm: { staff, activity },
+      crm: { staff, activity, whatsapp },
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,
     };
