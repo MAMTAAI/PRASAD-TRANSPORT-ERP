@@ -194,6 +194,73 @@ export function registerDashboardRoutes(app) {
       return { debit: num(r.dr), credit: num(r.cr), vouchers: num(r.vouchers), entries: num(r.entries) };
     }, { debit: 0, credit: 0, vouchers: 0, entries: 0 });
 
+    // EMI / bank liabilities — real loans, not a hand-drawn ladder.
+    const emi = await safe(errors, 'emi', async () => {
+      const { rows } = await query(`
+        SELECT bank_name,
+               count(*)                                        AS loans,
+               COALESCE(SUM(remaining_principal),0)             AS outstanding,
+               COALESCE(SUM(emi_amount),0)                      AS monthly_emi,
+               COALESCE(SUM(principal_amt),0)                   AS sanctioned,
+               COALESCE(SUM(emis_completed),0)                  AS emis_done,
+               COALESCE(SUM(tenure_months),0)                   AS emis_total
+        FROM loan_master
+        WHERE bank_name IS NOT NULL
+        GROUP BY bank_name
+        ORDER BY SUM(remaining_principal) DESC NULLS LAST`);
+      const banks = rows.map((r) => ({
+        bank: r.bank_name,
+        loans: num(r.loans),
+        outstanding: num(r.outstanding),
+        monthly_emi: num(r.monthly_emi),
+        sanctioned: num(r.sanctioned),
+        // Repayment progress = EMIs paid / EMIs in the tenure.
+        pct: num(r.emis_total) > 0 ? Math.round((num(r.emis_done) / num(r.emis_total)) * 100) : 0,
+      }));
+      const { rows: nxt } = await query(`
+        SELECT count(*) AS due_loans, COALESCE(SUM(emi_amount),0) AS due_amount
+        FROM loan_master WHERE payment_status IS DISTINCT FROM 'CLOSED'`);
+      return {
+        banks,
+        total_outstanding: banks.reduce((s, b) => s + b.outstanding, 0),
+        total_monthly: banks.reduce((s, b) => s + b.monthly_emi, 0),
+        active_loans: num(nxt[0].due_loans),
+      };
+    }, { banks: [], total_outstanding: 0, total_monthly: 0, active_loans: 0 });
+
+    // FASTag / toll. NOTE: fastag_accounts is empty, so there is no live tag
+    // balance to show — what IS real is the spend, the credits loaded, and how
+    // much of that spend has NOT yet been claimed back from the customer.
+    const toll = await safe(errors, 'toll', async () => {
+      const { rows: t } = await query(`
+        SELECT COALESCE(SUM(amount),0)                                              AS spent_total,
+               count(*)                                                             AS txns,
+               COALESCE(SUM(amount) FILTER (WHERE claim_status = 'CLAIMED'),0)      AS claimed,
+               COALESCE(SUM(amount) FILTER (WHERE claim_status <> 'CLAIMED'
+                                              OR claim_status IS NULL),0)           AS unclaimed,
+               COALESCE(SUM(amount) FILTER (WHERE txn_date >= date_trunc('month', CURRENT_DATE)),0) AS this_month,
+               min(txn_date) AS since, max(txn_date) AS latest
+        FROM toll_transactions`);
+      const { rows: c } = await query(
+        `SELECT COALESCE(SUM(amount),0) AS credited, count(*) AS n FROM fastag_credits`);
+      const { rows: p } = await query(`
+        SELECT COALESCE(provider,'Unassigned') AS provider,
+               count(*) AS txns, COALESCE(SUM(amount),0) AS amount
+        FROM toll_transactions GROUP BY 1 ORDER BY 3 DESC LIMIT 5`);
+      const r = t[0];
+      return {
+        spent_total: num(r.spent_total), txns: num(r.txns),
+        claimed: num(r.claimed), unclaimed: num(r.unclaimed),
+        this_month: num(r.this_month), since: r.since, latest: r.latest,
+        credited: num(c[0].credited), credit_count: num(c[0].n),
+        providers: p.map((x) => ({ provider: x.provider, txns: num(x.txns), amount: num(x.amount) })),
+        // There is no fastag_accounts row anywhere, so a "balance" figure would
+        // be invented. Declared, not guessed.
+        balance_available: false,
+      };
+    }, { spent_total: 0, txns: 0, claimed: 0, unclaimed: 0, this_month: 0,
+         credited: 0, credit_count: 0, providers: [], balance_available: false });
+
     const health = await safe(errors, 'accounting_health', async () => {
       const { rows } = await query('SELECT * FROM v_accounting_health');
       return rows[0] ?? null;
@@ -225,7 +292,7 @@ export function registerDashboardRoutes(app) {
       generated_at: new Date().toISOString(),
       took_ms: Date.now() - t0,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
-      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health },
+      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll },
       crm: { staff, activity },
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,

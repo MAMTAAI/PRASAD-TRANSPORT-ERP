@@ -28,6 +28,13 @@ const fleetCards = [
   { brand: 'IOCL', balance: '₹35L', tone: 'from-orange-500/20 to-red-500/5', border: 'border-orange-500/40', text: 'text-orange-300' },
 ];
 
+const EMI_GRADIENTS = [
+  'from-fuchsia-500 to-amber-400',
+  'from-sky-500 to-cyan-400',
+  'from-rose-500 to-orange-400',
+  'from-emerald-500 to-teal-400',
+];
+
 const emiBanks = [
   { bank: 'Axis Bank', amount: '₹1.25 Cr', note: 'Next payment in 30–60 days', pct: 62, gradient: 'from-fuchsia-500 to-amber-400' },
   { bank: 'SBI', amount: '₹85 Lakhs', note: 'EMI progress on schedule', pct: 48, gradient: 'from-sky-500 to-cyan-400' },
@@ -62,6 +69,8 @@ export default function FinanceDashboard({ live }) {
 
   const bookRows = fin?.ledger_book ?? [];
   const bankRows = fin?.banks ?? [];
+  const emi = fin?.emi ?? null;
+  const toll = fin?.toll ?? null;
   const monthlyLive = fin?.monthly?.length ? fin.monthly : monthlyRevenue;
   const custLive = fin?.customers?.length
     ? (() => {
@@ -177,42 +186,97 @@ export default function FinanceDashboard({ live }) {
 
         {/* Finance & EMI Command */}
         <GlassPanel className="xl:col-span-1 border-cyan-500/30">
-          <PanelHeader icon={Landmark} title="Finance & EMI Command" accent="text-cyan-400" sub="Bank Liabilities" />
+          <PanelHeader
+            icon={Landmark} title="Finance & EMI Command" accent="text-cyan-400"
+            sub={emi ? `${emi.active_loans} active loans · ₹${inrFull(emi.total_monthly)}/month` : 'Bank Liabilities'}
+          />
           <div className="px-4 pb-4 flex flex-col gap-3.5">
-            {emiBanks.map((b) => (
-              <div key={b.bank}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-                    <Dot color="bg-cyan-400" size="w-1.5 h-1.5" /> {b.bank}
-                  </span>
-                  <span className="text-[13px] font-black text-white">{b.amount}</span>
+            {(!emi || emi.banks.length === 0) ? (
+              <p className="text-[11px] text-slate-500 py-3">
+                {offline ? 'Live data unavailable.' : 'No loans recorded in loan_master.'}
+              </p>
+            ) : (
+              <>
+                {emi.banks.map((b, i) => (
+                  <div key={b.bank}>
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5 min-w-0">
+                        <Dot color="bg-cyan-400" size="w-1.5 h-1.5" />
+                        <span className="truncate">{b.bank}</span>
+                        <span className="text-slate-600 shrink-0">({b.loans})</span>
+                      </span>
+                      <span className="text-[13px] font-black text-white shrink-0">₹{inr(b.outstanding)}</span>
+                    </div>
+                    <ProgressBar pct={b.pct} gradient={EMI_GRADIENTS[i % EMI_GRADIENTS.length]} />
+                    <p className="mt-1 text-[9px] text-slate-500">
+                      EMI ₹{inrFull(b.monthly_emi)}/month · {b.pct}% of tenure repaid
+                    </p>
+                  </div>
+                ))}
+                <div className="mt-1 pt-2 border-t border-slate-700/50 flex items-center justify-between">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total outstanding</span>
+                  <span className="text-[13px] font-black text-cyan-300">₹{inrFull(emi.total_outstanding)}</span>
                 </div>
-                <ProgressBar pct={b.pct} gradient={b.gradient} />
-                <p className="mt-1 text-[9px] text-slate-500">{b.note}</p>
-              </div>
-            ))}
+              </>
+            )}
           </div>
         </GlassPanel>
 
         {/* FASTag & Toll Central */}
         <GlassPanel className="border-emerald-500/30">
-          <PanelHeader icon={CarFront} title="FASTag & Toll Central" accent="text-emerald-400" />
+          <PanelHeader
+            icon={CarFront} title="FASTag & Toll Central" accent="text-emerald-400"
+            sub={toll && toll.txns ? `${toll.txns.toLocaleString('en-IN')} toll crossings` : ''}
+          />
           <div className="px-4 pb-4 flex flex-col gap-3">
-            <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase">FASTag Balance</p>
-              <p className="text-2xl font-black text-emerald-300">₹22.8 Lakhs</p>
-              <div className="mt-1.5"><ProgressBar pct={76} gradient="from-emerald-500 to-teal-300" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2">
-                <p className="text-[9px] font-semibold text-slate-500 uppercase">Monthly Toll Paid</p>
-                <p className="text-base font-black text-slate-100">₹15.5 Lakhs</p>
-              </div>
-              <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2">
-                <p className="text-[9px] font-semibold text-slate-500 uppercase">Toll Recovery</p>
-                <p className="text-base font-black text-cyan-300">₹14.8 Lakhs</p>
-              </div>
-            </div>
+            {(!toll || !toll.txns) ? (
+              <p className="text-[11px] text-slate-500 py-3">
+                {offline ? 'Live data unavailable.' : 'No toll transactions recorded.'}
+              </p>
+            ) : (
+              <>
+                <div>
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase">Toll Spent (all recorded)</p>
+                  <p className="text-2xl font-black text-emerald-300">₹{inrFull(toll.spent_total)}</p>
+                  {/* The mock showed a tag balance; fastag_accounts holds no
+                      rows, so that number does not exist to show. Say so. */}
+                  {!toll.balance_available && (
+                    <p className="mt-1 text-[9px] text-slate-500 leading-relaxed">
+                      Live tag balance not available — no FASTag account rows are synced yet.
+                      These are the crossings actually charged.
+                    </p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2">
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase">This Month</p>
+                    <p className="text-base font-black text-slate-100">₹{inrFull(toll.this_month)}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2">
+                    <p className="text-[9px] font-semibold text-slate-500 uppercase">Credits Loaded</p>
+                    <p className="text-base font-black text-cyan-300">₹{inrFull(toll.credited)}</p>
+                  </div>
+                </div>
+                {/* Unclaimed toll is money already spent that has not been
+                    billed back to a customer — the number worth acting on. */}
+                <div className={`rounded-xl px-3 py-2.5 border ${
+                  toll.unclaimed > 0 ? 'bg-amber-500/10 border-amber-500/40' : 'bg-white/5 border-slate-700/50'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-300">Unclaimed Toll</span>
+                    <span className="text-base font-black text-amber-300">₹{inrFull(toll.unclaimed)}</span>
+                  </div>
+                  <ProgressBar
+                    pct={toll.spent_total ? (toll.claimed / toll.spent_total) * 100 : 0}
+                    gradient="from-emerald-500 to-teal-300"
+                  />
+                  <p className="mt-1 text-[9px] text-slate-500">
+                    ₹{inrFull(toll.claimed)} claimed of ₹{inrFull(toll.spent_total)}
+                    {toll.spent_total ? ` (${((toll.claimed / toll.spent_total) * 100).toFixed(1)}% recovered)` : ''}
+                    {' '}— the rest is not yet billed to any customer.
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </GlassPanel>
 
