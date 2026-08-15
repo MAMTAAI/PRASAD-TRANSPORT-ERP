@@ -142,11 +142,17 @@ function IndiaTrackingMap() {
 }
 
 // ---------------------------------------------------------------------------
-export default function MasterControlDashboard() {
-  useEffect(() => {
-    // TODO: Fetch from AWS PostgreSQL — GET /api/v1/agents/status,
-    // /api/v1/crm/inbox, /api/v1/crm/tenders, /api/v1/activity/feed
-  }, []);
+export default function MasterControlDashboard({ live }) {
+  // LIVE from GET /api/v1/dashboard/v5
+  const crm = live?.data?.crm ?? null;
+  const staffLive = crm?.staff?.length
+    ? crm.staff.map((s) => ({ name: s.name, role: s.role, active: !!s.last_login }))
+    : staff;
+  // Ledger movements are the one activity feed that is real today; the WhatsApp
+  // and tender panels below are still design placeholders.
+  const tickerLive = crm?.activity?.length
+    ? crm.activity.map((a) => `${a.at}  ${a.text}`)
+    : activityLog;
 
   return (
     <div className="flex flex-col gap-4">
@@ -191,7 +197,7 @@ export default function MasterControlDashboard() {
             <PanelHeader icon={Users} title="Staff Profiles & Powers" accent="text-violet-400" sub="Access module" />
             <div className="px-4 pb-4 grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1 lg:col-span-2 grid grid-cols-2 gap-2">
-                {staff.map((s) => (
+                {staffLive.map((s) => (
                   <div
                     key={s.name + s.role}
                     className={`flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center
@@ -369,7 +375,7 @@ export default function MasterControlDashboard() {
           </div>
           <div className="relative flex-1 overflow-hidden py-2.5">
             <div className="mc-ticker flex items-center gap-8 whitespace-nowrap will-change-transform">
-              {[...activityLog, ...activityLog].map((line, i) => (
+              {[...tickerLive, ...tickerLive].map((line, i) => (
                 <span key={i} className="flex items-center gap-2 text-[10px] font-semibold text-slate-400">
                   <Dot color="bg-emerald-400" size="w-1.5 h-1.5" />
                   <span className="text-slate-300">{line}</span>

@@ -18,6 +18,13 @@ import {
   GlassPanel, PanelHeader, KpiCard, StatusPill, Dot, Avatar,
   chartTooltipStyle, axisStyle,
 } from './shared';
+import { expiryTone, expiryLabel } from './useDashboardData';
+
+// Shown wherever the ERP genuinely holds no rows yet — never faked with a
+// plausible-looking number.
+function EmptyNote({ children }) {
+  return <p className="px-1 py-3 text-[11px] text-slate-500 leading-relaxed">{children}</p>;
+}
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design numbers exactly
@@ -71,13 +78,23 @@ const chatThread = [
 ];
 
 // ---------------------------------------------------------------------------
-export default function OperationsDashboard() {
+export default function OperationsDashboard({ live }) {
   const [message, setMessage] = useState('');
 
-  useEffect(() => {
-    // TODO: Fetch from AWS PostgreSQL — GET /api/v1/ops/command-center
-    // (fleet KPIs, document vault expiries, driver validities, live trips)
-  }, []);
+  // LIVE from GET /api/v1/dashboard/v5 (server/modules/dashboard.routes.js).
+  const ops = live?.data?.ops ?? null;
+  const offline = !!live?.error;
+
+  const kpiLive = ops ? [
+    { label: 'Fleet Size', value: String(ops.fleet_size), sub: 'Active vehicles', icon: Truck, accent: 'cyan' },
+    { label: 'Active Trips', value: String(ops.active_trips), sub: 'In transit now', icon: Route, accent: 'emerald' },
+    { label: 'Pending Unloading', value: String(ops.pending_unloading), sub: 'Awaiting unload', icon: PackageOpen, accent: 'amber' },
+  ] : kpis;
+
+  const chartData = ops?.trips_by_day?.length ? ops.trips_by_day : bestVehicleTrips;
+  const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
+  const driverRows = ops?.drivers?.length ? ops.drivers : [];
+  const vault = ops?.doc_vault ?? [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -87,7 +104,7 @@ export default function OperationsDashboard() {
 
         {/* KPI cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
-          {kpis.map((k) => (
+          {kpiLive.map((k) => (
             <KpiCard key={k.label} icon={k.icon} label={k.label} value={k.value} sub={k.sub} accent={k.accent} />
           ))}
         </div>
@@ -101,24 +118,28 @@ export default function OperationsDashboard() {
             right={<StatusPill tone="red" pulse>Compliance Alerts</StatusPill>}
           />
           <div className="px-4 pb-4 flex flex-col gap-2">
-            {documentVault.map((d) => (
-              <div
-                key={d.doc}
-                className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 bg-white/5
-                  ${d.tone === 'red'
-                    ? 'border-red-500/50 shadow-[0_0_18px_rgba(248,113,113,0.18)]'
-                    : 'border-amber-500/40 shadow-[0_0_14px_rgba(251,191,36,0.10)]'}`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <d.icon size={15} className={d.tone === 'red' ? 'text-red-400' : 'text-amber-400'} />
-                  <span className="text-[11px] font-bold text-slate-200 truncate">{d.doc}</span>
+            {vault.length === 0 ? (
+              <EmptyNote>
+                No vehicle document expiry dates are recorded in the ERP yet — all
+                {' '}{ops ? ops.fleet_size : 0} active vehicles have insurance, fitness,
+                permit, PUC and tax dates blank. Fill them in <span className="text-slate-300 font-semibold">Vehicle Documents</span>
+                {' '}and this vault starts warning you before anything expires.
+              </EmptyNote>
+            ) : vault.map((d) => {
+              const tone = expiryTone(d.days);
+              return (
+                <div key={d.doc}
+                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 bg-white/5
+                    ${tone === 'red' ? 'border-red-500/50 shadow-[0_0_18px_rgba(248,113,113,0.18)]'
+                      : tone === 'amber' ? 'border-amber-500/40' : 'border-slate-700/50'}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileWarning size={15} className={tone === 'red' ? 'text-red-400' : tone === 'amber' ? 'text-amber-400' : 'text-slate-400'} />
+                    <span className="text-[11px] font-bold text-slate-200 truncate">{d.doc}</span>
+                  </div>
+                  <StatusPill tone={tone} pulse={tone === 'red'}>{expiryLabel(d.days)}</StatusPill>
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <StatusPill tone={d.tone} pulse={d.pulse}>{d.state}</StatusPill>
-                  <StatusPill tone={d.tone}>{d.days}</StatusPill>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </GlassPanel>
 
@@ -126,15 +147,17 @@ export default function OperationsDashboard() {
         <GlassPanel>
           <PanelHeader icon={Users} title="Driver Command Center" accent="text-cyan-400" />
           <div className="px-4 pb-4 flex flex-col gap-2">
-            {drivers.map((d) => (
+            {driverRows.length === 0 ? (
+              <EmptyNote>No driver licence / hazardous-cert expiry dates recorded yet.</EmptyNote>
+            ) : driverRows.map((d) => (
               <div key={d.name} className="flex items-center justify-between gap-2 rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5">
                 <div className="flex items-center gap-2.5 min-w-0">
                   <Avatar name={d.name} />
                   <span className="text-[12px] font-semibold text-slate-200 truncate">{d.name}</span>
                 </div>
                 <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
-                  <StatusPill tone={d.dl.tone}>{d.dl.label}</StatusPill>
-                  <StatusPill tone={d.hzd.tone}>{d.hzd.label}</StatusPill>
+                  <StatusPill tone={expiryTone(d.dl_days)}>DL: {expiryLabel(d.dl_days)}</StatusPill>
+                  <StatusPill tone={expiryTone(d.hzd_days)}>HZD: {expiryLabel(d.hzd_days)}</StatusPill>
                 </div>
               </div>
             ))}
@@ -161,7 +184,7 @@ export default function OperationsDashboard() {
           />
           <div className="px-2 pb-3 h-44">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={bestVehicleTrips} margin={{ top: 8, right: 16, left: -18, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 8, right: 16, left: -18, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} />
                 <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
@@ -237,12 +260,16 @@ export default function OperationsDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {liveFleet.map((v) => (
-                  <tr key={v.vehicle} className="border-b border-slate-800/60 last:border-0 hover:bg-white/5 transition-colors">
+                {fleetRows.length === 0 ? (
+                  <tr><td colSpan={4} className="py-4 text-[11px] text-slate-500">
+                    {offline ? 'Live data unavailable — API not reachable.' : 'No trips are in transit right now.'}
+                  </td></tr>
+                ) : fleetRows.map((v, i) => (
+                  <tr key={`${v.vehicle}-${i}`} className="border-b border-slate-800/60 last:border-0 hover:bg-white/5 transition-colors">
                     <td className="py-2.5 pr-3 text-[12px] font-black text-slate-100 whitespace-nowrap">{v.vehicle}</td>
                     <td className="py-2.5 pr-3 text-[11px] text-slate-400 whitespace-nowrap">{v.route}</td>
-                    <td className="py-2.5 pr-3"><StatusPill tone={v.tone}>{v.status}</StatusPill></td>
-                    <td className="py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{v.location}</td>
+                    <td className="py-2.5 pr-3"><StatusPill tone="green">{v.status}</StatusPill></td>
+                    <td className="py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{v.driver || v.product || '-'}</td>
                   </tr>
                 ))}
               </tbody>

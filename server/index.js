@@ -34,6 +34,7 @@ import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
 import { registerAuthRoutes } from './modules/auth.routes.js';
 import { registerQueueRoutes } from './modules/queues.routes.js';
+import { registerDashboardRoutes } from './modules/dashboard.routes.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -142,6 +143,7 @@ await app.register(registerAuthRoutes,     { prefix: '/api/v1/auth' });
 // Review queues — retroactive expenses, the bill-parser mailboxes and what it
 // extracted, plus the sidebar's pending counts.
 await app.register(registerQueueRoutes,    { prefix: '/api/v1/queues' });
+await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 
 
 // ── Boot ───────────────────────────────────────────────────────────────────

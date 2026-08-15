@@ -17,6 +17,7 @@ import {
 import {
   GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle,
 } from './shared';
+import { inr, inrFull } from './useDashboardData';
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design numbers exactly
@@ -54,12 +55,23 @@ const ledgerRows = [
 ];
 
 // ---------------------------------------------------------------------------
-export default function FinanceDashboard() {
-  useEffect(() => {
-    // TODO: Fetch from AWS PostgreSQL — GET /api/v1/finance/executive-summary
-    // (unbilled freight, freight income, pending expenses, wallet balances,
-    //  EMI schedule, FASTag balance, ledger book totals)
-  }, []);
+export default function FinanceDashboard({ live }) {
+  // LIVE from GET /api/v1/dashboard/v5
+  const fin = live?.data?.finance ?? null;
+  const offline = !!live?.error;
+
+  const bookRows = fin?.ledger_book ?? [];
+  const bankRows = fin?.banks ?? [];
+  const monthlyLive = fin?.monthly?.length ? fin.monthly : monthlyRevenue;
+  const custLive = fin?.customers?.length
+    ? (() => {
+        const palette = ['#22d3ee', '#34d399', '#fbbf24', '#a78bfa', '#f472b6'];
+        const total = fin.customers.reduce((s, c) => s + Number(c.value || 0), 0) || 1;
+        return fin.customers.map((c, i) => ({
+          name: c.name, value: Math.round((Number(c.value) / total) * 100), color: palette[i % palette.length],
+        }));
+      })()
+    : customerSales;
 
   return (
     <div className="flex flex-col gap-4">
@@ -72,16 +84,22 @@ export default function FinanceDashboard() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unbilled Freight</p>
-              <p className="mt-1 text-3xl font-black text-cyan-300">₹ 1.34 Cr</p>
+              <p className="mt-1 text-3xl font-black text-cyan-300">{fin ? `₹ ${inr(fin.unbilled_freight)}` : '--'}</p>
             </div>
             <span className="grid place-items-center w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300"><Fuel size={20} /></span>
           </div>
-          <div className="mt-3"><ProgressBar pct={71} gradient="from-cyan-500 to-cyan-300" /></div>
+          <div className="mt-3">
+            <ProgressBar pct={fin && fin.freight_income ? Math.min(100, (fin.unbilled_freight / fin.freight_income) * 100) : 0} gradient="from-cyan-500 to-cyan-300" />
+          </div>
           <div className="mt-2 flex justify-between text-[10px] text-slate-500">
-            <span>Unbilled Freight</span><span className="text-cyan-400 font-bold">₹1.34 Cr</span>
+            <span>Raised but unbilled</span>
+            <span className="text-cyan-400 font-bold">₹{fin ? inrFull(fin.unbilled_freight) : '--'}</span>
           </div>
           <div className="flex justify-between text-[10px] text-slate-500">
-            <span>Unbilled Freight (Month)</span><span className="text-cyan-400 font-bold">₹1.88 Cr</span>
+            <span>Share of total freight</span>
+            <span className="text-cyan-400 font-bold">
+              {fin && fin.freight_income ? `${((fin.unbilled_freight / fin.freight_income) * 100).toFixed(2)}%` : '--'}
+            </span>
           </div>
         </GlassPanel>
 
@@ -90,16 +108,19 @@ export default function FinanceDashboard() {
           <div className="flex items-start justify-between">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Freight Income</p>
-              <p className="mt-1 text-3xl font-black text-emerald-300">₹ 1.88 Cr</p>
+              <p className="mt-1 text-3xl font-black text-emerald-300">{fin ? `₹ ${inr(fin.freight_income)}` : '--'}</p>
             </div>
             <span className="grid place-items-center w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-300"><Banknote size={20} /></span>
           </div>
-          <div className="mt-3"><ProgressBar pct={84} gradient="from-emerald-500 to-emerald-300" /></div>
+          <div className="mt-3">
+            <ProgressBar pct={fin && fin.freight_income ? Math.min(100, (fin.received / fin.freight_income) * 100) : 0} gradient="from-emerald-500 to-emerald-300" />
+          </div>
           <div className="mt-2 flex justify-between text-[10px] text-slate-500">
-            <span>Month-to-Date</span><span className="text-emerald-400 font-bold">₹1.88 Cr</span>
+            <span>Received</span><span className="text-emerald-400 font-bold">₹{fin ? inrFull(fin.received) : '--'}</span>
           </div>
           <div className="flex justify-between text-[10px] text-slate-500">
-            <span>Prev. Month</span><span className="text-slate-400 font-bold">₹10 Cr</span>
+            <span>Outstanding</span>
+            <span className="text-amber-400 font-bold">₹{fin ? inrFull(fin.freight_income - fin.received) : '--'}</span>
           </div>
         </GlassPanel>
 
@@ -107,17 +128,22 @@ export default function FinanceDashboard() {
         <GlassPanel className="p-4 border-slate-500/30">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Pending Expenses</p>
-              <p className="mt-1 text-3xl font-black text-slate-100">₹ 45.2 Lakhs</p>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Trip Expenses</p>
+              <p className="mt-1 text-3xl font-black text-slate-100">{fin ? `₹ ${inr(fin.total_expense)}` : '--'}</p>
             </div>
             <span className="grid place-items-center w-10 h-10 rounded-xl bg-white/5 border border-slate-600/40 text-slate-300"><ReceiptText size={20} /></span>
           </div>
-          <div className="mt-3"><ProgressBar pct={45} gradient="from-slate-400 to-slate-200" /></div>
+          <div className="mt-3">
+            <ProgressBar pct={fin && fin.freight_income ? Math.min(100, (fin.total_expense / fin.freight_income) * 100) : 0} gradient="from-slate-400 to-slate-200" />
+          </div>
           <div className="mt-2 flex justify-between text-[10px] text-slate-500">
-            <span>Vendors</span><span className="text-slate-300 font-bold">₹45.2 Lakhs</span>
+            <span>TDS deducted</span><span className="text-slate-300 font-bold">₹{fin ? inrFull(fin.tds) : '--'}</span>
           </div>
           <div className="flex justify-between text-[10px] text-slate-500">
-            <span>Internal</span><span className="text-slate-300 font-bold">₹45.2 Lakhs</span>
+            <span>Expense vs freight</span>
+            <span className="text-slate-300 font-bold">
+              {fin && fin.freight_income ? `${((fin.total_expense / fin.freight_income) * 100).toFixed(1)}%` : '--'}
+            </span>
           </div>
         </GlassPanel>
 
@@ -125,17 +151,24 @@ export default function FinanceDashboard() {
         <GlassPanel className="p-4 border-amber-500/40 shadow-[0_0_25px_rgba(251,191,36,0.10)]">
           <div className="flex items-center gap-2 mb-3">
             <span className="grid place-items-center w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-300"><Wallet size={14} /></span>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Fleet Card Wallet Balance</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Bank, Cash &amp; Wallets</p>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            {fleetCards.map((c) => (
-              <div key={c.brand} className={`rounded-xl border ${c.border} bg-gradient-to-b ${c.tone} px-2 py-2.5 text-center`}>
-                <p className={`text-[10px] font-black ${c.text}`}>{c.brand}</p>
-                <p className="mt-1 text-sm font-black text-white">{c.balance}</p>
-                <p className="mt-0.5 text-[8px] text-slate-500 uppercase tracking-wide">Current Balance</p>
-              </div>
-            ))}
-          </div>
+          {bankRows.length === 0 ? (
+            <p className="text-[11px] text-slate-500 py-3">
+              {offline ? 'Live data unavailable.' : 'No bank / cash ledgers found.'}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5 max-h-32 overflow-y-auto pr-1">
+              {bankRows.map((b) => (
+                <div key={b.name} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 border border-slate-700/50 px-2.5 py-1.5">
+                  <span className="text-[10px] font-bold text-slate-300 truncate">{b.name}</span>
+                  <span className={`text-[11px] font-black shrink-0 ${b.balance < 0 ? 'text-red-300' : 'text-emerald-300'}`}>
+                    ₹{inrFull(b.balance)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </GlassPanel>
       </div>
 
@@ -221,17 +254,17 @@ export default function FinanceDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={customerSales} dataKey="value" nameKey="name"
+                    data={custLive} dataKey="value" nameKey="name"
                     innerRadius="55%" outerRadius="85%" paddingAngle={3} stroke="none"
                   >
-                    {customerSales.map((s) => <Cell key={s.name} fill={s.color} />)}
+                    {custLive.map((s) => <Cell key={s.name} fill={s.color} />)}
                   </Pie>
                   <Tooltip {...chartTooltipStyle} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
             <div className="w-1/2 flex flex-col gap-2 pr-3">
-              {customerSales.map((s) => (
+              {custLive.map((s) => (
                 <div key={s.name} className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-[10px] text-slate-400 min-w-0">
                     <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} />
@@ -253,7 +286,7 @@ export default function FinanceDashboard() {
           <PanelHeader icon={BarChart3} title="Monthly Revenue Breakdown" accent="text-amber-400" sub="₹ in Lakhs" />
           <div className="px-2 pb-3 h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyRevenue} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+              <BarChart data={monthlyLive} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" tick={axisStyle} axisLine={false} tickLine={false} />
                 <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
@@ -292,15 +325,25 @@ export default function FinanceDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {ledgerRows.map((r) => (
+                {bookRows.length === 0 ? (
+                  <tr><td colSpan={8} className="py-4 text-[11px] text-slate-500">
+                    {offline ? 'Live data unavailable — API not reachable.' : 'No ledger entries found.'}
+                  </td></tr>
+                ) : bookRows.map((r) => (
                   <tr key={r.name} className="border-b border-slate-800/60 hover:bg-white/5 transition-colors">
                     <td className="py-2.5 pr-3 text-[12px] font-bold text-slate-100 whitespace-nowrap">{r.name}</td>
-                    <td className="py-2.5 pr-3 text-[11px] text-slate-500 whitespace-nowrap">{r.date}</td>
-                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 whitespace-nowrap">{r.type}</td>
-                    <td className="py-2.5 pr-3 text-[12px] font-bold text-slate-200 text-right whitespace-nowrap">{r.debit}</td>
-                    <td className="py-2.5 pr-3 text-[12px] font-bold text-slate-200 text-right whitespace-nowrap">{r.credit}</td>
-                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 text-right whitespace-nowrap">{r.receipts}</td>
-                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 text-right whitespace-nowrap">{r.payments}</td>
+                    <td className="py-2.5 pr-3 text-[11px] text-slate-500 whitespace-nowrap">
+                      {r.last_entry ? new Date(r.last_entry).toLocaleDateString('en-IN') : '-'}
+                    </td>
+                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 whitespace-nowrap">{r.type || '-'}</td>
+                    <td className="py-2.5 pr-3 text-[12px] font-bold text-slate-200 text-right whitespace-nowrap">₹{inrFull(r.debit)}</td>
+                    <td className="py-2.5 pr-3 text-[12px] font-bold text-slate-200 text-right whitespace-nowrap">₹{inrFull(r.credit)}</td>
+                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 text-right whitespace-nowrap">
+                      {inr(Math.abs(Number(r.debit) - Number(r.credit)))}
+                    </td>
+                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 text-right whitespace-nowrap">
+                      {Number(r.debit) >= Number(r.credit) ? 'Dr' : 'Cr'}
+                    </td>
                     <td className="py-2.5 text-right">
                       <button className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[9px] font-black text-cyan-300 hover:bg-cyan-500/20 transition-colors whitespace-nowrap">
                         View Details <ArrowUpRight size={10} />
@@ -312,14 +355,28 @@ export default function FinanceDashboard() {
             </table>
           </div>
           {/* Book totals — exact figures from the design */}
+          {/* Book totals come from the ledger itself; the balanced/unbalanced
+              badge is v_accounting_health, the same view the house treats as
+              the single source of truth for "do the books add up". */}
           <div className="mx-4 mb-4 mt-1 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 rounded-xl bg-emerald-500/5 border border-emerald-500/30 px-4 py-2.5">
-            <span className="text-[11px] font-black text-slate-300">Total Debit: <span className="text-emerald-300">₹2.96 Cr</span></span>
+            <span className="text-[11px] font-black text-slate-300">
+              Total Debit: <span className="text-emerald-300">₹{fin ? inrFull(fin.book_totals.debit) : '--'}</span>
+            </span>
             <span className="hidden sm:inline text-slate-700">|</span>
-            <span className="text-[11px] font-black text-slate-300">Total Credit: <span className="text-emerald-300">₹2.95 Cr</span></span>
+            <span className="text-[11px] font-black text-slate-300">
+              Total Credit: <span className="text-emerald-300">₹{fin ? inrFull(fin.book_totals.credit) : '--'}</span>
+            </span>
             <span className="hidden sm:inline text-slate-700">|</span>
-            <span className="text-[11px] font-bold text-slate-500">Total Receipts</span>
-            <span className="hidden sm:inline text-slate-700">|</span>
-            <span className="text-[11px] font-bold text-slate-500">Total Payments</span>
+            <span className="text-[11px] font-bold text-slate-500">
+              {fin ? `${fin.book_totals.vouchers} vouchers · ${fin.book_totals.entries} entries` : ''}
+            </span>
+            {fin?.health && (
+              <StatusPill tone={Number(fin.health.total_imbalance) === 0 ? 'green' : 'red'}>
+                {Number(fin.health.total_imbalance) === 0
+                  ? 'BALANCED'
+                  : `IMBALANCE ₹${inrFull(fin.health.total_imbalance)}`}
+              </StatusPill>
+            )}
           </div>
         </GlassPanel>
       </div>

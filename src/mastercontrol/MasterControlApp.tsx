@@ -12,6 +12,7 @@ import {
 import OperationsDashboard from './OperationsDashboard';
 import FinanceDashboard from './FinanceDashboard';
 import MasterControlDashboard from './MasterControlDashboard';
+import useDashboardData from './useDashboardData';
 
 const MODULES = [
   { id: 'ops', label: 'Operations', icon: Truck, accent: 'text-cyan-300', bar: 'from-cyan-500 to-blue-500' },
@@ -26,9 +27,18 @@ const MODULE_TITLES = {
 };
 
 export default function MasterControlApp({ initialTab = 'ops' }) {
-  const [activeTab, setActiveTab] = useState(MODULES.some((m) => m.id === initialTab) ? initialTab : 'ops');
+  const valid = (t) => (MODULES.some((m) => m.id === t) ? t : 'ops');
+  const [activeTab, setActiveTab] = useState(() => valid(initialTab));
   const [menuOpen, setMenuOpen] = useState(false);
   const [now, setNow] = useState(new Date());
+
+  // FOLLOW THE MODULE BUTTONS. useState reads `initialTab` only on the first
+  // mount, so switching OPERATIONS -> ACCOUNTS -> CRM in the top bar changed
+  // the prop while this component stayed on whichever tab it opened with —
+  // the module button looked dead. Re-sync whenever the prop actually changes.
+  useEffect(() => { setActiveTab(valid(initialTab)); }, [initialTab]);
+
+  const live = useDashboardData();
 
   useEffect(() => {
     // TODO: Fetch from AWS PostgreSQL — global alert count + session context
@@ -108,6 +118,15 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
               <Search size={13} className="text-slate-500" />
               <input placeholder="Search…" className="w-28 xl:w-40 bg-transparent text-[11px] text-slate-300 placeholder-slate-600 outline-none" />
             </div>
+            {/* Live/offline is stated plainly — a stale dashboard that looks
+                live is how someone acts on a number that is hours old. */}
+            <span className={`hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[10px] font-black border ${
+              live.error ? 'bg-red-500/10 text-red-300 border-red-500/40'
+                : live.loading ? 'bg-slate-500/10 text-slate-300 border-slate-600/40'
+                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/40'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${live.error ? 'bg-red-400' : live.loading ? 'bg-slate-400' : 'bg-emerald-400'}`} />
+              {live.error ? 'DATA OFFLINE' : live.loading ? 'LOADING' : 'LIVE DATA'}
+            </span>
             <span className="hidden sm:block text-[10px] font-bold text-slate-500 whitespace-nowrap">{dateStr} · {timeStr} IST</span>
             <button className="relative grid place-items-center w-8 h-8 rounded-xl bg-slate-900/70 border border-slate-700/50 text-slate-400 hover:text-cyan-300 transition-colors">
               <Bell size={14} />
@@ -151,10 +170,11 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
         </div>
 
         {/* ══════════════ ACTIVE MODULE ══════════════ */}
+        {/* One fetch feeds all three tabs; switching tabs never re-queries. */}
         <main key={activeTab} className="relative z-10 p-3 sm:p-5 mc-fade-in">
-          {activeTab === 'ops' && <OperationsDashboard />}
-          {activeTab === 'finance' && <FinanceDashboard />}
-          {activeTab === 'crm' && <MasterControlDashboard />}
+          {activeTab === 'ops' && <OperationsDashboard live={live} />}
+          {activeTab === 'finance' && <FinanceDashboard live={live} />}
+          {activeTab === 'crm' && <MasterControlDashboard live={live} />}
         </main>
       </div>
     </div>
