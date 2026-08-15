@@ -500,8 +500,8 @@ app.post('/api/chat', requireToken, async (req, res) => {
 // ROUTE 6: 🕸️ MAMTA KG — GraphRAG / knowledge graph (kg/graph.cjs)
 // SQLite-backed (better-sqlite3, WAL) — NO graph-DB server, RAM-safe
 // next to the trading engine. Domain isolation: transport | trading |
-// shared, picked from the client's token (0=Prasad, 1=Jaiswal) and
-// overridable via X-KG-Domain header / kg_domain body field.
+// shared, fixed by the client's token (0=Prasad, 1=Jaiswal); the
+// X-KG-Domain header / kg_domain body field can only pick 'shared'.
 // =======================================================
 const kg = require('./kg/graph.cjs');
 try { kg.ensureSeed(`${__dirname}/kg/seed-trading.json`, 'trading'); } catch (e) { console.warn('KG seed skipped:', e.message); }
@@ -509,8 +509,12 @@ try { kg.ensureSeed(`${__dirname}/kg/seed-trading.json`, 'trading'); } catch (e)
 function kgDomainForReq(req) {
   const d = req.get('X-KG-Domain') || (req.body && req.body.kg_domain);
   if (req.body && req.body.kg_domain !== undefined) delete req.body.kg_domain; // Ollama ko forward nahi karna
-  if (['transport', 'trading', 'shared'].includes(d)) return d;
-  return req.ptClient === 1 ? 'trading' : 'transport';
+  // STRICT TENANT ISOLATION (2026-07-28): domain is fixed by the authenticated
+  // token — a cross-tenant X-KG-Domain is DENIED (transport token can never read
+  // 'trading' financial facts, and vice-versa). 'shared' remains common ground.
+  const allowed = req.ptClient === 1 ? 'trading' : 'transport';
+  if (d === allowed || d === 'shared') return d;
+  return allowed;
 }
 
 // Mutates body.messages: appends verified graph facts to the system prompt.
