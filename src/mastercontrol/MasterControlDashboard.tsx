@@ -64,20 +64,23 @@ const activityLog = [
 // ---------------------------------------------------------------------------
 // Neon India tracking network — decorative SVG placeholder (no external map)
 // ---------------------------------------------------------------------------
-function IndiaTrackingMap() {
-  const nodes = [
-    { x: 30, y: 22, label: 'Delhi', c: '#22d3ee' },
-    { x: 66, y: 38, label: 'Kolkata', c: '#fbbf24' },
-    { x: 18, y: 48, label: 'Mumbai', c: '#a78bfa' },
-    { x: 38, y: 72, label: 'Bengaluru', c: '#34d399' },
-    { x: 74, y: 24, label: 'Guwahati', c: '#f472b6' },
-    { x: 70, y: 46, label: 'Haldia', c: '#22d3ee' },
-    { x: 44, y: 40, label: 'Nagpur', c: '#34d399' },
-    { x: 50, y: 86, label: 'Chennai', c: '#fbbf24' },
-  ];
-  const links = [
-    [0, 4], [0, 6], [4, 1], [1, 5], [6, 1], [2, 6], [2, 3], [3, 7], [6, 3], [5, 7],
-  ];
+function IndiaTrackingMap({ geo }) {
+  // REAL toll-plaza footprint. trip_gps_pings is empty, so there is no live
+  // vehicle position to plot; these are the plazas the fleet actually paid at,
+  // which is a true record of the routes run. Labelled as such — a map that
+  // implies live GPS when none exists is the worst kind of dashboard.
+  const plazas = geo?.plazas ?? [];
+
+  // Equirectangular projection over a fixed India bounding box, so a plaza
+  // always lands in the same place regardless of which subset is loaded.
+  const LAT_N = 35.5, LAT_S = 6.5, LNG_W = 68.0, LNG_E = 97.5;
+  const px = (lat, lng) => ({
+    x: ((lng - LNG_W) / (LNG_E - LNG_W)) * 100,
+    y: ((LAT_N - lat) / (LAT_N - LAT_S)) * 100,
+  });
+
+  const maxCross = plazas.reduce((m, p) => Math.max(m, p.crossings), 1);
+  const nodes = plazas.map((p) => ({ ...p, ...px(p.lat, p.lng) }));
   return (
     <div className="relative w-full h-full min-h-[340px] rounded-xl overflow-hidden border border-cyan-500/20 bg-[radial-gradient(ellipse_at_center,rgba(8,20,35,1)_0%,rgba(4,8,16,1)_75%)]">
       {/* starfield speckle */}
@@ -97,46 +100,52 @@ function IndiaTrackingMap() {
             </feMerge>
           </filter>
         </defs>
-        {/* glowing route arteries */}
-        {links.map(([a, b], i) => (
-          <line
-            key={i}
-            x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y}
-            stroke={nodes[a].c} strokeWidth="0.45" strokeLinecap="round"
-            filter="url(#mcGlow)" opacity="0.75"
-            strokeDasharray="2.5 1.5"
-            className="mc-dash-flow"
-          />
-        ))}
-        {/* nodes */}
-        {nodes.map((n) => (
-          <g key={n.label} filter="url(#mcGlow)">
-            <circle cx={n.x} cy={n.y} r="1.6" fill={n.c} className="mc-node-pulse" />
-            <circle cx={n.x} cy={n.y} r="0.7" fill="#fff" />
-          </g>
-        ))}
+        {/* Each plaza sized by how often the fleet crossed it. Radius is on a
+            sqrt scale so a 111-crossing plaza does not swamp a 5-crossing one. */}
+        {nodes.map((n, i) => {
+          const r = 0.7 + 1.9 * Math.sqrt(n.crossings / maxCross);
+          return (
+            <g key={`${n.name}-${i}`} filter="url(#mcGlow)">
+              <circle cx={n.x} cy={n.y} r={r * 2.1} fill="rgba(34,211,238,0.10)" />
+              <circle cx={n.x} cy={n.y} r={r} fill="#22d3ee" opacity="0.85" />
+            </g>
+          );
+        })}
       </svg>
-      {/* city labels rendered in HTML so they never distort */}
-      {nodes.map((n) => (
+
+      {/* Name only the busiest few — 149 labels would be a smear. */}
+      {nodes.slice(0, 6).map((n, i) => (
         <span
-          key={n.label}
-          className="absolute -translate-x-1/2 text-[9px] font-bold text-slate-300/90 drop-shadow-[0_0_6px_rgba(34,211,238,0.6)] pointer-events-none"
-          style={{ left: `${n.x}%`, top: `calc(${n.y}% + 10px)` }}
+          key={`lbl-${i}`}
+          className="absolute -translate-x-1/2 text-[8px] font-bold text-slate-300/90 drop-shadow-[0_0_6px_rgba(34,211,238,0.6)] pointer-events-none whitespace-nowrap"
+          style={{ left: `${n.x}%`, top: `calc(${n.y}% + 9px)` }}
         >
-          {n.label}
+          {n.name.replace(/\s*(TOLL PLAZA|FEE PLAZA|PLAZA)$/i, '')}
         </span>
       ))}
-      {/* legend */}
+
       <div className="absolute top-3 right-3 flex items-center gap-2 rounded-full bg-slate-950/70 backdrop-blur-sm border border-slate-700/50 px-3 py-1.5">
-        <span className="flex items-center gap-1 text-[9px] font-bold text-slate-300"><Dot color="bg-cyan-400" size="w-1.5 h-1.5" /> Driver App</span>
-        <span className="flex items-center gap-1 text-[9px] font-bold text-slate-300"><Dot color="bg-emerald-400" size="w-1.5 h-1.5" /> GPRS</span>
-        <span className="flex items-center gap-1 text-[9px] font-bold text-slate-300"><Dot color="bg-amber-400" size="w-1.5 h-1.5" /> FASTag</span>
+        <span className="flex items-center gap-1 text-[9px] font-bold text-slate-300">
+          <Dot color="bg-cyan-400" size="w-1.5 h-1.5" /> Toll plaza · size = crossings
+        </span>
       </div>
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[9px] tracking-[0.35em] font-bold text-cyan-500/50 uppercase whitespace-nowrap">
-        Live GPS Mesh · 266 Trips Streaming
+
+      {/* The honest caption. This is a paid-toll footprint, not live tracking. */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-center px-3">
+        {plazas.length === 0 ? (
+          <p className="text-[10px] text-slate-500">No plaza coordinates available.</p>
+        ) : (
+          <>
+            <p className="text-[9px] tracking-[0.25em] font-bold text-cyan-500/60 uppercase whitespace-nowrap">
+              {plazas.length} toll plazas · {geo.geo_txns?.toLocaleString('en-IN')} crossings
+            </p>
+            <p className="mt-0.5 text-[8px] text-slate-500 leading-snug">
+              Where the fleet actually paid toll.
+              {!geo.live_gps_available && ' Live GPS is not available — no vehicle has ever reported a position.'}
+            </p>
+          </>
+        )}
       </div>
-      {/* TODO: Fetch from AWS PostgreSQL — replace with the real triangulated
-          GPS layer (TripTrackingMap) once wired to /api/v1/tracking/live */}
     </div>
   );
 }
@@ -151,6 +160,7 @@ export default function MasterControlDashboard({ live }) {
   // Ledger movements are the one activity feed that is real today; the WhatsApp
   // and tender panels below are still design placeholders.
   const wa = crm?.whatsapp ?? null;
+  const geo = crm?.geo ?? null;
   const tickerLive = crm?.activity?.length
     ? crm.activity.map((a) => `${a.at}  ${a.text}`)
     : activityLog;
@@ -229,12 +239,12 @@ export default function MasterControlDashboard({ live }) {
           <GlassPanel className="h-full flex flex-col">
             <PanelHeader
               icon={Satellite}
-              title="High Resolution Live Tracking in India"
+              title={geo?.live_gps_available ? "Live Tracking in India" : "Fleet Route Footprint - India"}
               accent="text-cyan-400"
-              right={<StatusPill tone="green" pulse><MapPin size={9} /> LIVE</StatusPill>}
+              right={<StatusPill tone={geo?.live_gps_available ? "green" : "cyan"} pulse={!!geo?.live_gps_available}><MapPin size={9} /> {geo?.live_gps_available ? "LIVE GPS" : "TOLL DATA"}</StatusPill>}
             />
             <div className="flex-1 px-4 pb-4">
-              <IndiaTrackingMap />
+              <IndiaTrackingMap geo={geo} />
             </div>
           </GlassPanel>
         </div>

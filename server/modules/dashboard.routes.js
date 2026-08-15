@@ -360,6 +360,46 @@ export function registerDashboardRoutes(app) {
     }, { engine: { connected: false, status: 'UNREACHABLE' }, total: 0, inbound: 0,
          outbound: 0, last_24h: 0, contacts: 0, last_msg_at: null, chats: [], notifications: {} });
 
+    // Map layer. trip_gps_pings is EMPTY — no vehicle has ever reported a
+    // position — so there is no live GPS trail to draw. What IS real is where
+    // the fleet actually paid toll: 2,788 of 2,870 crossings carry plaza
+    // coordinates. That is a genuine footprint of the routes run, so the map
+    // plots those instead of inventing a live mesh.
+    const geo = await safe(errors, 'geo', async () => {
+      const { rows: pings } = await query('SELECT count(*)::int AS n FROM trip_gps_pings');
+
+      const { rows: plazas } = await query(`
+        SELECT plaza_name,
+               avg(lat)::double precision  AS lat,
+               avg(lng)::double precision  AS lng,
+               count(*)::int               AS crossings,
+               COALESCE(SUM(amount),0)     AS amount,
+               max(txn_date)               AS last_seen
+        FROM toll_transactions
+        WHERE lat IS NOT NULL AND lng IS NOT NULL
+          AND lat BETWEEN 6 AND 37 AND lng BETWEEN 68 AND 98   -- inside India
+        GROUP BY plaza_name
+        ORDER BY count(*) DESC
+        LIMIT 120`);
+
+      const { rows: span } = await query(`
+        SELECT min(lat)::double precision AS min_lat, max(lat)::double precision AS max_lat,
+               min(lng)::double precision AS min_lng, max(lng)::double precision AS max_lng,
+               count(*)::int AS geo_txns, count(DISTINCT plaza_name)::int AS plaza_count
+        FROM toll_transactions WHERE lat IS NOT NULL AND lng IS NOT NULL`);
+
+      return {
+        source: 'toll_plaza',           // NOT gps — declared so the UI cannot mislabel it
+        gps_pings: num(pings[0].n),
+        live_gps_available: num(pings[0].n) > 0,
+        plazas: plazas.map((p) => ({
+          name: p.plaza_name, lat: p.lat, lng: p.lng,
+          crossings: num(p.crossings), amount: num(p.amount), last_seen: p.last_seen,
+        })),
+        ...span[0],
+      };
+    }, { source: 'toll_plaza', gps_pings: 0, live_gps_available: false, plazas: [] });
+
     // ── CRM ─────────────────────────────────────────────────────────────────
     const staff = await safe(errors, 'staff', async () => {
       const { rows } = await query(`
@@ -387,7 +427,7 @@ export function registerDashboardRoutes(app) {
       took_ms: Date.now() - t0,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally },
-      crm: { staff, activity, whatsapp },
+      crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,
     };
