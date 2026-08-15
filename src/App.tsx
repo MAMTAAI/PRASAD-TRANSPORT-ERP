@@ -12,6 +12,7 @@ import Login from './Login';
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
 // visitors on the public site / login no longer pay for the whole back office.
 const Dashboard = lazy(() => import('./Dashboard'));
+const MasterControlV5 = lazy(() => import('./mastercontrol/MasterControlApp'));
 const AgentFleetCommand = lazy(() => import('./AgentFleetCommand'));
 const SmartScanner = lazy(() => import('./SmartScanner'));
 const FinanceHub2026 = lazy(() => import('./FinanceHub2026'));
@@ -211,7 +212,7 @@ export default function App() {
     // (this silently locked newly added modules for everyone).
     if (user.role === 'ADMIN' || user.role === 'Super Admin') return true;
 
-    if (['DASHBOARD', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true; 
+    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
 
     if (module === 'OPERATION') {
       if (itemId === 'BAZAAR_ADMIN') return checkView('Load Bazaar Admin'); 
@@ -311,6 +312,9 @@ export default function App() {
     switch (activeComponent) {
       // 🔥 MAIN FIX IS HERE: PASSING currentUser={user} TO DASHBOARD
       case 'DASHBOARD': return <Dashboard activeModule={activeModule} currentUser={user} />;
+      // 🚀 v5.0 Master Control — opens on the tab matching the current ERP module
+      case 'MASTER_CONTROL_V5':
+        return <MasterControlV5 initialTab={activeModule === 'ACCOUNTS' ? 'finance' : activeModule === 'CRM' ? 'crm' : 'ops'} />;
       case 'AGENT_FLEET': return <AgentFleetCommand />;
       case 'SMART_SCANNER': return <SmartScanner />;
       case 'FINANCE_2026': return <FinanceHub2026 />;

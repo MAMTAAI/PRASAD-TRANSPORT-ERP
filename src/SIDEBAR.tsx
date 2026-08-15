@@ -72,7 +72,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     }
     
     // 🔓 DEFAULT OPEN FOR ALL STAFF
-    if (['DASHBOARD', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
+    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
 
     const perms = user.permissions || [];
     const checkView = (name: string) => perms.find((x: any) => x.name === name)?.view;
@@ -114,6 +114,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (activeModule === 'OPERATION') {
       return [
         { id: 'DASHBOARD', label: 'Dashboard', icon: '🖥️' },
+        { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
         { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
         { id: 'FINANCE_2026', label: 'Finance Hub 2026', icon: '💠' },
@@ -137,6 +138,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     } else if (activeModule === 'ACCOUNTS') {
       return [
         { id: 'DASHBOARD', label: 'Finance Hub', icon: '💰' },
+        { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },
         { id: 'CUST_LEDGER', label: 'Customer Khata (Live)', icon: '🧾' },
@@ -159,6 +161,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       // 🤝 CRM MODULE (WITH ADMIN SETUP AT BOTTOM)
       return [
         { id: 'DASHBOARD', label: 'CRM Dashboard', icon: '📈' },
+        { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'WHATSAPP', label: 'WhatsApp CRM', icon: '💬' },
         { id: 'INBOX', label: 'Super CRM/Inbox', icon: '📧' },
         { id: 'AI_SETTINGS', label: 'AI Brain Control', icon: '🧠' },
