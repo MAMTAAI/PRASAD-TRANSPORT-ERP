@@ -29,6 +29,7 @@ import { registerOpsRoutes } from './modules/ops.routes.js';
 import { registerMastersRoutes } from './modules/masters.routes.js';
 import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
+import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
@@ -146,6 +147,11 @@ await app.register(registerMastersRoutes,  { prefix: '/api/v1/masters' });
 await app.register(registerFileRoutes,     { prefix: '/api/v1' });
 // Cluster 3 — tolls, claims, wallet recharges, fleet cards, GST/TDS registers.
 await app.register(registerTollRoutes,     { prefix: '/api/v1/toll' });
+// Bank FASTag statements. Separate from the routes above because it must not be
+// possible to reach the ledger through the plain /transactions endpoints — this
+// is the only path that de-duplicates against what the GTROPY API already
+// fetched before anything is posted.
+await app.register(registerTollImportRoutes, { prefix: '/api/v1/toll' });
 // Loans/EMI, tyres, batteries and the service log.
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 // Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.

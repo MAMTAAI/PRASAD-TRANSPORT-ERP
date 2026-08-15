@@ -74,6 +74,10 @@ reports/ocr_bands/
 reports/ocr_bills/
 reports/ocr_rows.json
 reports/fleet_norms.json
+# Toll read off the banks' FASTag statements: every plaza crossing with the
+# lorry number, the minute and the rupee. A movement log of the whole fleet.
+reports/toll_rows.json
+reports/toll_stage.csv
 
 # 📄 Scanned business documents (IOCL advices, bills, scans) — real commercial
 # paperwork, 400+ files. Only iocl_bills/ was excluded before, which let the
