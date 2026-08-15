@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css'; 
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const CRM = `${API}/api/v1/crm`;
 const MASTERS = `${API}/api/v1/masters`;
 

@@ -21,7 +21,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import SecurityRadar from './SecurityRadar';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const REFRESH_MS = 60_000;
 
 interface DashboardProps {

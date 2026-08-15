@@ -10,7 +10,8 @@
 //                  print/PDF via the browser.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
 const C = {

@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 
 // The driver's own session token. Every call the portal makes is on behalf of
 // one driver, so it is attached centrally rather than remembered per call site.

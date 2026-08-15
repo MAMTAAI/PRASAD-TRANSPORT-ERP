@@ -8,7 +8,7 @@
 // No auto-ledger: TARA opens the party account on the first real posting, so an
 // approval no longer leaves two empty ledgers behind (migration 026).
 import React, { useState, useEffect } from 'react';
-const API_BASE = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
 const MASTERS_API = API_BASE + '/api/v1/masters';
 const BAZAAR_API = API_BASE + '/api/v1/bazaar';
 const mastersFetch = async (path: string, opts?: RequestInit) => {

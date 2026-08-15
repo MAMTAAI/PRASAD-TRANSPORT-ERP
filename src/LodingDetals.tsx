@@ -28,7 +28,8 @@ import { sendWhatsApp, waResultText } from './lib/waSend';
 import LoadingAdvice from './LoadingAdvice';
 import { speak } from './lib/voice/tts';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const OPS = `${API}/api/v1/ops`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

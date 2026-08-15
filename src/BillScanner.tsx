@@ -6,7 +6,8 @@
 // anything is written — the AI proposes, the user files.
 import React, { useState, useRef, useEffect } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 
 const apiJson = async (path: string, opts: RequestInit = {}) => {
   const res = await fetch(`${API}/api/v1${path}`, {

@@ -20,7 +20,8 @@
 // plus a new entry — the same rule the cash book, bill settlement and EMI
 // screens follow. Callers that relied on overwrite-to-correct will now see
 // `already: true` and no change; that is the honest outcome, not a regression.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

@@ -4,6 +4,7 @@ const cors = require('cors');
 const multer = require('multer');
 const { google } = require('googleapis');
 const fs = require('fs');
+const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios'); 
 
@@ -113,7 +114,16 @@ function requireToken(req, res, next) {
   return res.status(401).json({ success: false, error: 'Unauthorized: bad or missing X-PT-Token.' });
 }
 
-const upload = multer({ dest: 'uploads/' });
+// Uploads land on the data volume, never the OS drive (God rule 2026-08-15:
+// C: is off-limits for application data). UPLOAD_DIR comes from .env
+// (F:/Prasad_Transport_Data/uploads on the office PC). The old relative
+// 'uploads/' only stayed off C: by accident — it depended on the process cwd
+// AND on the repo's uploads/ junction still existing.
+const UPLOAD_DEST = process.env.UPLOAD_DIR
+  ? path.join(process.env.UPLOAD_DIR, 'bridge')
+  : path.join(__dirname, 'uploads', 'bridge');
+fs.mkdirSync(UPLOAD_DEST, { recursive: true });
+const upload = multer({ dest: UPLOAD_DEST });
 
 // --- 1. GOOGLE DRIVE SETUP ---
 const KEYFILEPATH = './google-key.json';

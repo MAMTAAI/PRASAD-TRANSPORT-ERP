@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { uploadMedia, slug } from './lib/uploadMedia';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

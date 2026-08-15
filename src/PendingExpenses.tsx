@@ -7,7 +7,8 @@
 // re-finalized (all idempotent, closed accounts never double-post).
 import React, { useState, useEffect, useMemo } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 import { currentUser } from './lib/rbac';
 import { extractJsonFromImage } from './lib/aiScanner';
 import {

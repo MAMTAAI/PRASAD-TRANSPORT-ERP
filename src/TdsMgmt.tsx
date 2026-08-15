@@ -9,7 +9,8 @@ import { extractJsonFromImage } from './lib/aiScanner';
 // — TARA books TDS Receivable 194C on every RECEIPT that carries a tds amount
 // (that is how the IOCL pipeline posts it), so this screen posts nothing. Two
 // places writing the same withheld rupee is exactly the drift being unwound.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const TOLL = `${API}/api/v1/toll`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

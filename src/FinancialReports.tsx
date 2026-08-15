@@ -19,7 +19,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
 const fetchJson = async (url: string) => {

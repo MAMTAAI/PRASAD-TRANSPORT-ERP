@@ -12,7 +12,8 @@ import { extractJsonFromImage } from './lib/aiScanner';
 //
 // Transport freight is largely reverse charge (the customer discharges it),
 // which the register now records per row instead of leaving it implied.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const TOLL = `${API}/api/v1/toll`;
 const MASTERS = `${API}/api/v1/masters`;
 

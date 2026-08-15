@@ -10,7 +10,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './lib/maps';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const C = {
   bg: '#0f172a', card: 'rgba(30,41,59,0.72)', line: '#334155', dim: '#94a3b8',
   text: '#e2e8f0', ok: '#10b981', warn: '#f59e0b', bad: '#ef4444', purple: '#c084fc', blue: '#38bdf8',

@@ -16,7 +16,8 @@ import {
   type TollTxn, type TollMap, type ParsedStatement, type ClaimData,
 } from './tollParse';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './apiBase';
+const API = API_BASE;
 const TOLL = `${API}/api/v1/toll`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

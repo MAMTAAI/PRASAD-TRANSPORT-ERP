@@ -4,7 +4,7 @@
 //
 // WHY. Heavy document traffic (vehicle docs, credit bills, IOCL PDFs, OCR
 // scans) must not fill the OS drive. When LOCAL_STORAGE_PATH points at a
-// dedicated volume (F:/Prasad_Transport_Storage on the office PC), this module
+// dedicated volume (F:/Prasad_Transport_Data on the office PC), this module
 // verifies the volume actually exists, lays out the directory tree, and fills
 // in every downstream storage env var that the operator has not set explicitly.
 //

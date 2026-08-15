@@ -20,7 +20,8 @@
 //    available for a correction that must not touch the GL.
 import React, { useState, useEffect } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;
 

@@ -16,7 +16,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toISODate, round2, isDateInRange, getField } from './lib/accounting/tripMath';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const j = async (url: string) => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

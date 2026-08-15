@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 
 // 🧭 SHELL (needed for first paint — stays in the entry chunk)
 import SIDEBAR from './SIDEBAR';

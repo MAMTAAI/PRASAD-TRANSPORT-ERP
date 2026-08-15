@@ -1,7 +1,8 @@
 // 🛠️ Agent tools. Phase 8 starts READ-ONLY (no Firestore writes).
 // Each tool declares its JSON-schema definition + an executor + owning agent.
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {
   const res = await fetch(url, opts);

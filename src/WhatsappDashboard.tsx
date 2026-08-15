@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
-const ERP_API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const ERP_API = API_BASE;
 
 const erp = async (path: string, opts: RequestInit = {}) => {
   const res = await fetch(`${ERP_API}/api/v1${path}`, {

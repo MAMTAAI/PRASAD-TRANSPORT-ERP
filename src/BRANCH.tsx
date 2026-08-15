@@ -12,7 +12,8 @@ import React, { useState, useEffect } from 'react';
 // the ERP a branch may use) plus its contact details. That is configuration,
 // not an entity, so it lives in app_settings under 'branch_modules', keyed by
 // branch name. The list of branches to configure comes from the ledgers.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 const CRM = `${API}/api/v1/crm`;
 const SETTINGS_KEY = 'branch_modules';

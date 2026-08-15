@@ -16,7 +16,8 @@
 // ~40 identifiers through freightEngine.ts and every screen that reads a
 // FreightMeta. Delete this file when that rename happens.
 // ─────────────────────────────────────────────────────────────────────────────
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 
 const fetchJson = async (url: string) => {

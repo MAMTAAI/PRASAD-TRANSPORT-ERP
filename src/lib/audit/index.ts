@@ -2,7 +2,8 @@
 // or deletes; its own activity_logs table (separate from operational data).
 import { currentUser } from '../rbac';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 const CRM = `${API}/api/v1/crm`;
 
 export interface AuditEntry {

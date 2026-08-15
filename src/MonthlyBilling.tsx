@@ -43,7 +43,8 @@ import { resolveTripBilling, computeFreight, effectiveBillingType, BILLING_TYPES
 import { fetchLanes, fetchRates } from './lib/masters/rateApi';
 import { useIsMobile } from './hooks/useIsMobile';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const BILLING = `${API}/api/v1/billing`;
 const OPS = `${API}/api/v1/ops`;
 const MASTERS = `${API}/api/v1/masters`;

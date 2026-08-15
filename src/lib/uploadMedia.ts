@@ -17,7 +17,8 @@
 //    images, which is fine for KYC/bill archives).
 //  • The compressed result is used ONLY when it is actually smaller than
 //    the original — compression can never make an upload worse.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './apiBase';
+const API = API_BASE;
 
 const TARGET_BYTES = 140 * 1024;          // sweet spot of the 100–150 KB mandate
 const IMG_EDGES = [1600, 1280, 1024];     // never below 1024px — docs must stay readable

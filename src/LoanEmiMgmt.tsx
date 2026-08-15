@@ -20,7 +20,8 @@ import React, { useState, useEffect } from 'react';
 //    (The counters stay STORED, not derived — the 17 loans carry years of EMIs
 //    paid before this system existed, so deriving would report debt already
 //    repaid. Migration 035 sets out the reasoning.)
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const ASSETS = `${API}/api/v1/assets`;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;

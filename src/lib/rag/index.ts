@@ -10,7 +10,8 @@ import { embed, embedBatch } from './embeddings';
 import { buildDoc } from './documents';
 import { putVectors, searchVectors, countVectors, clearVectors, type SearchHit } from './store';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 
 // Collections worth retrieving over (core entities first). The names are kept
 // in their Firestore spelling because they are stored on every indexed vector

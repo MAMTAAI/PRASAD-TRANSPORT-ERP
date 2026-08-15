@@ -18,7 +18,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { sendWhatsApp, waResultText } from './lib/waSend';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const OPS = `${API}/api/v1/ops`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {

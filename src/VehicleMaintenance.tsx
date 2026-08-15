@@ -8,7 +8,8 @@ import React, { useState, useEffect } from 'react';
 // from now posts a PAYMENT voucher through TARA in the same request, so the
 // workshop spend actually appears in the P&L. Leaving the account blank keeps
 // the log and says plainly that it was not posted.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const ASSETS = `${API}/api/v1/assets`;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;

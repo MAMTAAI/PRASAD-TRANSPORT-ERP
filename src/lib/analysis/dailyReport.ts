@@ -2,7 +2,8 @@
 // the day's operational + financial signals, then Gemma 4 writes a concise
 // report (summary + anomalies + suggestions). Never changes operational data.
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../apiBase';
+const API = API_BASE;
 
 // A failed source degrades the summary rather than throwing it away — the
 // briefing is advisory, and half a briefing beats an error screen.

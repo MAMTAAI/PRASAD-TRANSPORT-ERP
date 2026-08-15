@@ -18,7 +18,8 @@
 // writes the transaction — not by this screen afterwards, where a failed
 // journal used to leave the money recorded and the books untouched.
 import React, { useState, useEffect, useMemo } from 'react';
-const API_ROOT = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API_ROOT = API_BASE;
 const TOLL_API = `${API_ROOT}/api/v1/toll`;
 const MASTERS_API = `${API_ROOT}/api/v1/masters`;
 const apiFetch = async (url: string, opts?: RequestInit) => {

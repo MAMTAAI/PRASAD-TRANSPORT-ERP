@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 
 import { logAudit } from './lib/audit';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 
 // User administration is admin-only server-side, so every call carries the
 // signed-in admin's token. There is no secondary app instance to juggle any

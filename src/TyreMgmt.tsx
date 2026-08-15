@@ -20,7 +20,8 @@ import { extractJsonFromImage } from './lib/aiScanner';
 // so the cost reaches the P&L exactly once, on the day the tyre is actually
 // gone. A tyre sent for retreading is NOT consumed and posts nothing — it is
 // still ours. None of this is written from the browser any more.
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const ASSETS = `${API}/api/v1/assets`;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;

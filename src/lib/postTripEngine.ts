@@ -12,7 +12,8 @@
 // the same cost twice.
 import { getField, round2 } from './accounting/tripMath';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './apiBase';
+const API = API_BASE;
 const QUEUES = `${API}/api/v1/queues`;
 
 const queuesFetch = async (path: string, opts?: RequestInit) => {

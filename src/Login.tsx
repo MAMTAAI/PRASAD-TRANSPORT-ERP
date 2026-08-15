@@ -1,7 +1,8 @@
 // @ts-nocheck
 import React, { useState } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const AUTH = `${API}/api/v1/auth`;
 
 const authFetch = async (path: string, body: any) => {

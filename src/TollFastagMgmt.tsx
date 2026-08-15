@@ -16,7 +16,8 @@
 //   • A toll cannot be claimed twice — the claim row and the toll stamps are
 //     one transaction behind a foreign key, and a repeat returns 409.
 import React, { useState, useEffect } from 'react';
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 const TOLL_API = `${API}/api/v1/toll`;
 const MASTERS_API = `${API}/api/v1/masters`;
 const OPS_API = `${API}/api/v1/ops`;

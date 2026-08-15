@@ -14,7 +14,8 @@
 // ============================================================================
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from '../../../lib/apiBase';
+const API = API_BASE;
 const TOKEN_KEY = 'pt_mobile_token';
 const USER_KEY = 'pt_mobile_user';
 

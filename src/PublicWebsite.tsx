@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-const API = (import.meta as any).env?.VITE_AGENT_API_URL || 'http://127.0.0.1:3300';
+import { API_BASE } from './lib/apiBase';
+const API = API_BASE;
 
 export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => void }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
