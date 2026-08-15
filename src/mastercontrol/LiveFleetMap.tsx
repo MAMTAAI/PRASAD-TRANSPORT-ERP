@@ -26,8 +26,14 @@ import { Satellite, AlertTriangle, MapPin, Navigation, Wifi } from 'lucide-react
 import { GlassPanel, PanelHeader, StatusPill } from './shared';
 import { loadGoogleMaps } from '../lib/maps';
 import { API_BASE } from '../lib/apiBase';
+import { getRoute } from '../lib/mapsCache';
+import { connectFleetSocket, disconnectFleetSocket } from '../lib/fleetSocket';
 
-const REFRESH_MS = 15000;
+// Sockets carry the moment-to-moment movement. This poll is the floor beneath
+// them: it reconciles the trip LIST (new trips, settled trips) and guarantees a
+// silently dead socket shows up as stale-but-moving rather than a map frozen on
+// yesterday. Slower than the old 15s because it is no longer the primary path.
+const REFRESH_MS = 60000;
 // Assam / lower NH-27, where the fleet actually runs.
 const HOME = { lat: 26.35, lng: 91.15 };
 
@@ -62,6 +68,8 @@ export default function LiveFleetMap() {
   const [status, setStatus] = useState('loading');  // loading | ready | nokey | error
   const [detail, setDetail] = useState('');
   const [board, setBoard] = useState({ withFix: [], noFix: [], total: 0 });
+  const [socketState, setSocketState] = useState('connecting'); // connecting | live | down
+  const routesRef = useRef(new Map());   // trip_id -> google.maps.Polyline
 
   // ── data ──────────────────────────────────────────────────────────────────
   const fetchBoard = useCallback(async () => {
@@ -83,6 +91,42 @@ export default function LiveFleetMap() {
     const id = setInterval(() => { if (document.visibilityState === 'visible') fetchBoard(); }, REFRESH_MS);
     return () => clearInterval(id);
   }, [fetchBoard]);
+
+  // ── live push ─────────────────────────────────────────────────────────────
+  // A fix arriving on the socket updates that one truck in place. No refetch,
+  // no reload: the marker animation effect below sees the changed coordinate
+  // and glides the marker to it.
+  useEffect(() => {
+    const s = connectFleetSocket();
+    if (!s) return;
+    const onFix = (fix) => {
+      setSocketState('live');
+      setBoard((b) => {
+        const apply = (t) => (t.id === fix.trip_id
+          ? { ...t, lat: fix.lat, lng: fix.lng, source: fix.source, recorded_at: fix.recorded_at }
+          : t);
+        // A truck reporting for the first time moves from noFix to withFix —
+        // that transition is the whole point of the "awaiting first fix" count.
+        const promoted = b.noFix.find((t) => t.id === fix.trip_id);
+        if (promoted) {
+          return {
+            ...b,
+            withFix: [...b.withFix.map(apply), apply(promoted)],
+            noFix: b.noFix.filter((t) => t.id !== fix.trip_id),
+          };
+        }
+        return { ...b, withFix: b.withFix.map(apply) };
+      });
+    };
+    s.on('gps:fix', onFix);
+    s.on('connect', () => setSocketState('live'));
+    s.on('disconnect', () => setSocketState('down'));
+    s.on('connect_error', () => setSocketState('down'));
+    return () => {
+      s.off('gps:fix', onFix);
+      disconnectFleetSocket();
+    };
+  }, []);
 
   // ── map ───────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -185,14 +229,53 @@ export default function LiveFleetMap() {
     }
   }, [board, status]);
 
-  // Tear every marker down on unmount; Maps holds its own references and a
-  // detached marker keeps the whole map alive otherwise.
+  // ── route polylines ───────────────────────────────────────────────────────
+  // One lane per reporting truck, resolved through the shared cache so the
+  // same corridor is billed to Google once for the whole company rather than
+  // once per viewer per reload. A route that cannot be resolved draws nothing;
+  // a straight line between two place names would imply a road that is not
+  // there, on a screen used to judge whether a truck is off-route.
+  useEffect(() => {
+    if (status !== 'ready' || !mapRef.current) return;
+    let cancelled = false;
+    const g = window.google;
+    const map = mapRef.current;
+    const lines = routesRef.current;
+
+    (async () => {
+      const seen = new Set();
+      for (const t of board.withFix) {
+        seen.add(t.id);
+        if (lines.has(t.id)) continue;
+        const r = await getRoute(t.loading_point, t.destination);
+        if (cancelled || !r?.polyline) continue;
+        const path = g.maps.geometry?.encoding?.decodePath?.(r.polyline);
+        if (!path?.length) continue;
+        lines.set(t.id, new g.maps.Polyline({
+          map, path,
+          strokeColor: '#38bdf8', strokeOpacity: 0.35, strokeWeight: 3, zIndex: 5,
+        }));
+      }
+      for (const [id, line] of lines) {
+        if (seen.has(id)) continue;
+        line.setMap(null);
+        lines.delete(id);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [board, status]);
+
+  // Tear every marker and line down on unmount; Maps holds its own references
+  // and a detached overlay keeps the whole map alive otherwise.
   useEffect(() => () => {
     for (const [, entry] of markersRef.current) {
       if (entry.raf) cancelAnimationFrame(entry.raf);
       entry.marker.setMap(null);
     }
     markersRef.current.clear();
+    for (const [, line] of routesRef.current) line.setMap(null);
+    routesRef.current.clear();
   }, []);
 
   const plotted = board.withFix.length;
@@ -205,9 +288,17 @@ export default function LiveFleetMap() {
         accent="text-cyan-400"
         sub="Google Maps · live traffic"
         right={
-          <StatusPill tone={plotted > 0 ? 'emerald' : 'amber'} pulse={plotted > 0}>
-            {plotted} / {board.total} on map
-          </StatusPill>
+          <span className="flex items-center gap-1.5">
+            {/* Whether the live push is actually connected. Without this, a
+                dead socket and a quiet fleet look identical. */}
+            <StatusPill tone={socketState === 'live' ? 'emerald' : socketState === 'down' ? 'amber' : 'slate'}
+                        pulse={socketState === 'live'}>
+              <Wifi size={9} /> {socketState === 'live' ? 'live push' : socketState === 'down' ? 'polling' : '…'}
+            </StatusPill>
+            <StatusPill tone={plotted > 0 ? 'emerald' : 'amber'}>
+              {plotted} / {board.total} on map
+            </StatusPill>
+          </span>
         }
       />
 

@@ -1,0 +1,22 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 049_account_status_type.sql — a status type that belongs to accounts alone
+--
+-- WHY NOT REUSE users.status. It already exists and already gates login, but
+-- its type is `record_status` (ACTIVE, INACTIVE, BLACKLISTED, ARCHIVED) and
+-- that type is shared by EIGHT columns: companies, customers, drivers,
+-- ledgers, users, vehicles, vendors and the fleet view. Adding 'PENDING' and
+-- 'SUSPENDED' there would mean a vehicle can be PENDING and a ledger can be
+-- SUSPENDED — states with no meaning for those tables, which someone will
+-- eventually set and something will eventually branch on.
+--
+-- So the approval workflow gets its own type, used by exactly one column.
+--
+-- Split-brain is handled in 050, not by hoping: two columns that both answer
+-- "may this account be used" WILL drift, and the drift shows up as an account
+-- approved in the new UI that still cannot log in through the old check.
+--
+-- Alone and without BEGIN/COMMIT: 050 assigns these values, and Postgres
+-- refuses to use a new enum value in the transaction that created it.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+CREATE TYPE account_status AS ENUM ('PENDING', 'ACTIVE', 'SUSPENDED');

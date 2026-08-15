@@ -19,7 +19,11 @@ export function loadGoogleMaps(): Promise<void> {
     if (existing) { existing.addEventListener('load', () => resolve()); return; }
     const s = document.createElement('script');
     s.id = 'gmaps-sdk';
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}`;
+    // `geometry` is required for encoding.decodePath — the dispatch map draws
+    // route polylines from cached encoded strings, and without this library
+    // decodePath is simply undefined and every lane silently fails to render.
+    // Loading a library costs nothing extra: Maps JS is billed per map load.
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry`;
     s.async = true;
     s.defer = true;
     s.onload = () => resolve();

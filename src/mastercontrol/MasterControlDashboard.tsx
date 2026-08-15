@@ -14,6 +14,7 @@ import {
 import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar } from './shared';
 import LiveStaffTracker from './LiveStaffTracker';
 import LiveFleetMap from './LiveFleetMap';
+import UserApprovals from './UserApprovals';
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design exactly
@@ -401,6 +402,10 @@ export default function MasterControlDashboard({ live }) {
       </div>
 
       {/* ══════════════ BOTTOM HUD — ACTIVITY TICKER ══════════════ */}
+      {/* Access control first: an account waiting for approval is a person
+          unable to work, so the queue sits above the monitoring panels. */}
+      <UserApprovals />
+
       {/* Boss monitoring — real sessions and the real audit trail, as opposed
           to the ticker below it, which is a scrolling summary of ledger
           movements. */}

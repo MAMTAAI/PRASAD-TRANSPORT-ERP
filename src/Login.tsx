@@ -16,13 +16,15 @@ const authFetch = async (path: string, body: any) => {
 
 interface LoginProps {
   onLoginSuccess: (userData: any) => void;
+  /** Raised when the credential was right but the account is PENDING/SUSPENDED. */
+  onAccountHold?: (hold: { status: 'PENDING' | 'SUSPENDED'; user: any }) => void;
   onCustomerClick: () => void;
   onPartnerClick: () => void;
   onDriverClick: () => void;
   onBackToWeb: () => void;
 }
 
-export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick, onDriverClick, onBackToWeb }: LoginProps) {
+export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick, onDriverClick, onBackToWeb, onAccountHold }: LoginProps) {
   // 🧭 STATES FOR ROUTING & UI
   const [loginMode, setLoginMode] = useState<'SELECT' | 'CUSTOMER' | 'PARTNER' | 'ADMIN'>('SELECT');
   
@@ -62,7 +64,16 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
       onLoginSuccess({ ...user, uid: user.id });
     } catch (error: any) {
       console.error("Login error:", error?.code);
-      if (error?.code === 'PASSWORD_RESET_REQUIRED') {
+      if (error?.code === 'ACCOUNT_PENDING_APPROVAL' || error?.code === 'ACCOUNT_SUSPENDED') {
+        // The approval gate. Not an alert: this is a state the person stays in
+        // until the office acts, so it gets the full hold screen rather than a
+        // dialog they dismiss and then stare at a login form they cannot pass.
+        // The credential WAS correct — the account simply is not usable yet.
+        onAccountHold?.({
+          status: error.code === 'ACCOUNT_SUSPENDED' ? 'SUSPENDED' : 'PENDING',
+          user: { full_name: email.trim(), email: email.trim().toLowerCase() },
+        });
+      } else if (error?.code === 'PASSWORD_RESET_REQUIRED') {
         // The cutover case, and the reason the API gives it a distinct code:
         // these accounts never had a password in PostgreSQL, Firebase held it.
         alert("🔑 Is account ka password abhi set nahi hai.\n\nFirebase se passwords transfer nahi ho sakte the — admin se naya password set karwayein.");

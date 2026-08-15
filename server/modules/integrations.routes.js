@@ -6,6 +6,7 @@
 import { query, queryOne, isDegraded } from '../db/pool.js';
 import { pushVoucher, pushTripInvoice, tallyAlive, masterCheck } from '../lib/tallyAdapter.js';
 import { emit } from '../agents/bus.js';
+import { broadcastFix } from '../lib/realtime.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -108,6 +109,20 @@ export async function registerIntegrationRoutes(app) {
         aggregate: 'trip', aggregateId: b.trip_id,
         payload: { source: b.source, lat: b.lat, lng: b.lng, ping_id: row.id },
       }).catch(() => { /* telemetry must not fail on outbox hiccups */ });
+
+      // Push to every open dispatch board. This is what makes the map move
+      // without a reload and without each board polling on a timer — the fix
+      // travels once, at the moment it lands, instead of being discovered up
+      // to 15 seconds later by everyone independently.
+      broadcastFix({
+        trip_id: b.trip_id,
+        lat: b.lat,
+        lng: b.lng,
+        speed_kmh: b.speed_kmh ?? null,
+        source: b.source,
+        recorded_at: b.recorded_at ?? new Date().toISOString(),
+      });
+
       reply.code(201);
       return { ok: true, ping_id: row.id };
     }

@@ -11,6 +11,7 @@ import PublicWebsite from './PublicWebsite';
 import Login from './Login';
 import ProfileMenu from './ui/ProfileMenu';
 import PortalSwitcher from './ui/PortalSwitcher';
+import AccountHoldScreen from './ui/AccountHoldScreen';
 
 // 📦 ALL ERP MODULES — lazy-loaded (Phase B): each module downloads only when
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
@@ -87,7 +88,12 @@ export default function App() {
   const [isCustomerMode, setIsCustomerMode] = useState(false); 
   const [isPartnerMode, setIsPartnerMode] = useState(false);
 
-  const [activeModule, setActiveModule] = useState('OPERATION'); 
+  // Set when the server says this account may not be used yet (403
+  // ACCOUNT_PENDING_APPROVAL / ACCOUNT_SUSPENDED). Held separately from `user`
+  // so the hold screen can name the person it is holding.
+  const [accountHold, setAccountHold] = useState(null);
+
+  const [activeModule, setActiveModule] = useState('OPERATION');
   // Landing page = Master Control v5.0 (God 2026-08-15). Logging in drops the
   // user straight into the control centre instead of the legacy dashboard.
   const [activeComponent, setActiveComponent] = useState('MASTER_CONTROL_V5');
@@ -128,6 +134,16 @@ export default function App() {
               // A 503 means the database is down, not that the session is bad —
               // logging everyone out over an outage would be the wrong call.
               if (res.status === 503) ok = true;
+              // 403 is the approval gate, not a bad session. Clearing the login
+              // here would bounce a PENDING user to the password screen, where
+              // a correct password looks like it failed. Hold them instead.
+              if (res.status === 403) {
+                const body = await res.json().catch(() => ({}));
+                if (body.error === 'ACCOUNT_PENDING_APPROVAL' || body.error === 'ACCOUNT_SUSPENDED') {
+                  setAccountHold({ status: body.error === 'ACCOUNT_SUSPENDED' ? 'SUSPENDED' : 'PENDING', user: saved });
+                  ok = true;
+                }
+              }
             } catch { ok = true; }   // network blip: keep the session, do not evict
           }
           if (!ok) {
@@ -296,6 +312,25 @@ export default function App() {
   // ==========================================
   // 🌐 APP ROUTING
   // ==========================================
+  // 🔒 APPROVAL GATE. Ahead of every other route: a held account must not reach
+  // a portal, a preview or the shell. The server refuses its requests anyway —
+  // this is what turns that refusal into an explanation.
+  if (accountHold) {
+    return (
+      <AccountHoldScreen
+        status={accountHold.status}
+        user={accountHold.user}
+        onLogout={() => {
+          localStorage.clear();
+          sessionStorage.clear();
+          setAccountHold(null);
+          setUser(null);
+          setShowPublicWebsite(false);
+        }}
+      />
+    );
+  }
+
   if (showPublicWebsite && !user) return <PublicWebsite onLoginClick={() => setShowPublicWebsite(false)} />;
   if (isCustomerMode) return <Suspense fallback={<ModuleLoader />}><CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
   if (isPartnerMode) return <Suspense fallback={<ModuleLoader />}><FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
@@ -303,9 +338,10 @@ export default function App() {
   
   if (!user && !showPublicWebsite && !isDriverMode && !isCustomerMode && !isPartnerMode) {
     return (
-      <Login 
-        onLoginSuccess={handleLoginSuccess} 
-        onCustomerClick={() => setIsCustomerMode(true)} 
+      <Login
+        onLoginSuccess={handleLoginSuccess}
+        onAccountHold={setAccountHold}
+        onCustomerClick={() => setIsCustomerMode(true)}
         onPartnerClick={() => setIsPartnerMode(true)} 
         onDriverClick={() => setIsDriverMode(true)} 
         onBackToWeb={() => setShowPublicWebsite(true)} 

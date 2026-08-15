@@ -37,6 +37,8 @@ import { registerQueueRoutes } from './modules/queues.routes.js';
 import { registerDashboardRoutes } from './modules/dashboard.routes.js';
 import { registerPortalRoutes } from './modules/portal.routes.js';
 import { registerAuditLogger } from './lib/auditLogger.js';
+import { registerMapsRoutes } from './modules/maps.routes.js';
+import { initRealtime } from './lib/realtime.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -155,6 +157,9 @@ await app.register(registerQueueRoutes,    { prefix: '/api/v1/queues' });
 // Customer and vendor portals. External parties, scoped server-side to their
 // own party row — the only routes here an outsider can reach.
 await app.register(registerPortalRoutes,   { prefix: '/api/v1' });
+// Shared cache in front of Google's BILLED endpoints (Directions/Geocode/
+// Distance Matrix). Map loads and marker movement are not billed per request.
+await app.register(registerMapsRoutes,     { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 
 
@@ -173,6 +178,9 @@ try {
   if (process.env.AGENT_LOOPS !== '0') startLoops();
 
   await app.listen({ port: PORT, host: HOST });
+  // Socket.io shares Fastify's HTTP server, so it needs no second port and no
+  // second firewall rule. Attached AFTER listen(), when app.server exists.
+  initRealtime(app.server, app.log);
   app.log.info(
     `prasad-erp-api listening on http://${HOST}:${PORT} · db=${conn.degraded ? 'DEGRADED' : conn.target}`
   );

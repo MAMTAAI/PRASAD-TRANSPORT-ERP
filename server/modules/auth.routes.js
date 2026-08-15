@@ -37,7 +37,7 @@ const LOCK_AFTER = 5;          // failed password attempts
 const LOCK_MINUTES = 15;
 
 // Never let a password field leave the process, whatever the caller asked for.
-const SAFE = 'id, legacy_id, full_name, email, mobile, role, permissions, scope, branch, city, state, status, must_change_password, last_login_at, created_at, customer_id, vendor_id';
+const SAFE = 'id, legacy_id, full_name, email, mobile, role, permissions, scope, branch, city, state, status, account_status, approved_at, must_change_password, last_login_at, created_at, customer_id, vendor_id';
 
 // The hash written for accounts that came across from Firebase without a
 // credential. It is a sentinel, not a hash — nothing can ever verify against
@@ -60,10 +60,43 @@ const permsIn = (v) => JSON.stringify(Array.isArray(v) ? { grants: v } : (v && t
 export async function requireAuth(req, reply) {
   const claims = verifyToken(bearer(req));
   if (!claims) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+  // One query answers both questions: is the session still valid, and is the
+  // ACCOUNT still allowed to use it. Checking the account only at login would
+  // mean a suspension does not take effect until the existing token expires —
+  // up to a full session, during which "revoke access" quietly does nothing.
+  // The account is re-read on every request so a toggle in the approvals panel
+  // bites immediately.
   const { rows } = await query(
-    'SELECT s.jti FROM auth_sessions s WHERE s.jti = $1::uuid AND s.expires_at > now()', [claims.jti]);
+    `SELECT u.account_status::text AS account_status
+       FROM auth_sessions s
+       LEFT JOIN users u ON u.id = s.user_id
+      WHERE s.jti = $1::uuid AND s.expires_at > now()`, [claims.jti]);
   if (!rows.length) return reply.code(401).send({ error: 'SESSION_REVOKED' });
+
+  // account_status is NULL for a driver session (drivers are not `users` rows,
+  // see migration 046) — they are governed by the drivers master, not by the
+  // staff approval workflow.
+  const st = rows[0].account_status;
+  if (st && st !== 'ACTIVE') return replyForStatus(reply, st);
+
   req.user = claims;
+}
+
+/** One place that turns an account state into a response, so the login path and
+ *  the per-request guard can never disagree about what PENDING means. The codes
+ *  are distinguishable because the SPA renders a different screen for each:
+ *  "awaiting approval" is a wait, "suspended" is a refusal. */
+function replyForStatus(reply, status) {
+  if (status === 'PENDING') {
+    return reply.code(403).send({
+      error: 'ACCOUNT_PENDING_APPROVAL',
+      detail: 'Account Under Verification. Please contact Prasad Transport Office for approval.',
+    });
+  }
+  return reply.code(403).send({
+    error: 'ACCOUNT_SUSPENDED',
+    detail: 'This account has been suspended. Please contact Prasad Transport Office.',
+  });
 }
 
 /** Owner-level guard, reusable outside this module.
@@ -114,14 +147,17 @@ export async function registerAuthRoutes(app) {
     // `email` is citext but citext here behaves case-SENSITIVELY (see the
     // accounting-architecture note), so it is lowered on both sides.
     const { rows } = await query(
-      `SELECT id, full_name, email, role, status, password_hash, password_salt,
+      `SELECT id, full_name, email, role, status, account_status::text AS account_status,
+              password_hash, password_salt,
               must_change_password, failed_logins, locked_until
          FROM users WHERE lower(email::text) = $1`, [email]);
     const u = rows[0];
 
     const deny = () => reply.code(401).send({ error: 'INVALID_CREDENTIALS' });
     if (!u) return deny();
-    if (u.status !== 'ACTIVE') return reply.code(403).send({ error: 'ACCOUNT_INACTIVE' });
+    // The approval gate, before the password is even checked. Telling a PENDING
+    // user "wrong password" would send them to reset a password that is fine.
+    if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
     if (u.locked_until && new Date(u.locked_until) > new Date()) {
       return reply.code(429).send({ error: 'ACCOUNT_LOCKED', detail: `try again after ${new Date(u.locked_until).toLocaleTimeString()}` });
     }
@@ -236,8 +272,17 @@ export async function registerAuthRoutes(app) {
       'UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL', [rec.id]);
     if (!rowCount) return reply.code(401).send({ error: 'OTP_ALREADY_USED' });
 
+    // Match the account regardless of state, then answer with WHY it is
+    // refused. Filtering on ACTIVE here instead would drop a PENDING staff
+    // member through to the driver lookup below and tell them 'NO_ACCOUNT' —
+    // sending someone who is simply waiting for approval to go and create an
+    // account they already have.
     const { rows: staff } = await query(
-      `SELECT id, full_name, role FROM users WHERE mobile = $1 AND status = 'ACTIVE' LIMIT 1`, [mobile]);
+      `SELECT id, full_name, role, account_status::text AS account_status
+         FROM users WHERE mobile = $1 LIMIT 1`, [mobile]);
+    if (staff.length && staff[0].account_status !== 'ACTIVE') {
+      return replyForStatus(reply, staff[0].account_status);
+    }
     if (staff.length) {
       const session = await openSession(staff[0], req);
       await query('UPDATE users SET last_login_at = now() WHERE id = $1::uuid', [staff[0].id]);
@@ -297,6 +342,81 @@ export async function registerAuthRoutes(app) {
   app.get('/users', { preHandler: requireAdmin }, async () => {
     const { rows } = await query(`SELECT ${SAFE} FROM users ORDER BY created_at DESC`);
     return { users: rows.map(permsOut) };
+  });
+
+  // ── Approval workflow ────────────────────────────────────────────────────
+  // The approvals panel's list. PENDING first: the queue is the point of the
+  // screen, and an account waiting on a human should not be below 40 rows of
+  // already-approved ones.
+  app.get('/approvals', { preHandler: requireAdmin }, async () => {
+    const { rows } = await query(`
+      SELECT u.id, u.full_name, u.email::text AS email, u.mobile, u.role::text AS role,
+             u.branch, u.account_status::text AS account_status,
+             u.created_at, u.last_login_at, u.approved_at,
+             a.full_name AS approved_by_name,
+             (SELECT count(*) FROM auth_sessions s
+               WHERE s.user_id = u.id AND s.expires_at > now()
+                 AND s.last_seen_at > now() - interval '5 minutes') > 0 AS online
+        FROM users u
+        LEFT JOIN users a ON a.id = u.approved_by
+       ORDER BY (u.account_status = 'PENDING') DESC, u.created_at DESC`);
+    const counts = await query(`
+      SELECT account_status::text AS s, count(*)::int AS n FROM users GROUP BY 1`);
+    return {
+      users: rows,
+      totals: Object.fromEntries(counts.rows.map((r) => [r.s, r.n])),
+    };
+  });
+
+  // The toggle. ACTIVE <-> SUSPENDED, or PENDING -> ACTIVE on approval.
+  app.post('/users/:id/account-status', { preHandler: requireAdmin }, async (req, reply) => {
+    const id = String(req.params.id ?? '');
+    if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
+    const next = String(req.body?.account_status ?? '').toUpperCase();
+    if (!['PENDING', 'ACTIVE', 'SUSPENDED'].includes(next)) {
+      return reply.code(400).send({ error: 'BAD_STATUS', detail: 'PENDING | ACTIVE | SUSPENDED' });
+    }
+    // An admin suspending themselves locks the office out of its own approvals
+    // screen — and the only way back is a shell on the box. Refuse it here.
+    if (id === req.user.sub && next !== 'ACTIVE') {
+      return reply.code(409).send({
+        error: 'CANNOT_SUSPEND_SELF',
+        detail: 'You cannot suspend or unapprove your own account.',
+      });
+    }
+    // Likewise the last usable owner: revoking it leaves nobody who can grant
+    // access back.
+    if (next !== 'ACTIVE') {
+      const { rows: [{ n }] } = await query(`
+        SELECT count(*)::int AS n FROM users
+         WHERE account_status = 'ACTIVE' AND role IN ('SUPER_ADMIN','ADMIN') AND id <> $1::uuid`, [id]);
+      if (n === 0) {
+        return reply.code(409).send({
+          error: 'LAST_ADMIN',
+          detail: 'This is the last active admin — approving nobody else would be possible.',
+        });
+      }
+    }
+
+    const { rows } = await query(`
+      UPDATE users
+         SET account_status = $2::account_status,
+             approved_at = CASE WHEN $2 = 'ACTIVE' THEN now() ELSE approved_at END,
+             approved_by = CASE WHEN $2 = 'ACTIVE' THEN $3::uuid ELSE approved_by END,
+             updated_at = now()
+       WHERE id = $1::uuid
+       RETURNING id, full_name, account_status::text AS account_status`,
+      [id, next, req.user.sub]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+    // Revoking access must end the sessions that already exist, or the account
+    // keeps working until its token expires. requireAuth also re-checks the
+    // account on every request, so this is belt and braces — but the belt is
+    // what makes "revoke" mean revoke right now.
+    if (next !== 'ACTIVE') {
+      await query('DELETE FROM auth_sessions WHERE user_id = $1::uuid', [id]);
+    }
+    return { ok: true, user: rows[0] };
   });
 
   app.post('/users', { preHandler: requireAdmin }, async (req, reply) => {
