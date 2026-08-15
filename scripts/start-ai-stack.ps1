@@ -65,7 +65,39 @@ if (Test-PortUp 3000) {
   else { Write-Warning "Bridge did not open 3000 within 20s - check logs\bridge.err.log" }
 }
 
-# -- 3. CLOUDFLARED named tunnel (optional) -----------------------------------
+# -- 3. WHATSAPP ENGINE (:5001) -----------------------------------------------
+# OTP delivery for staff/driver/portal logins runs through this engine (see
+# server/lib/otpChannel.js on the API side). If it is down, nobody can OTP-login
+# anywhere - so it belongs in the boot stack, not in human memory.
+if (Test-PortUp 5001) {
+  Write-Host "[skip] WhatsApp engine already listening on 5001." -ForegroundColor DarkGray
+} else {
+  Write-Host "[start] node server.js (whatsapp-server) ..." -ForegroundColor Green
+  Start-Process -FilePath 'node' -ArgumentList 'server.js' `
+    -WorkingDirectory (Join-Path $Root 'whatsapp-server') -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $LogDir 'whatsapp-engine.out.log') `
+    -RedirectStandardError  (Join-Path $LogDir 'whatsapp-engine.err.log') | Out-Null
+  if (Wait-PortUp 5001 30) { Write-Host "        WhatsApp engine is up on 5001." -ForegroundColor Green }
+  else { Write-Warning "WhatsApp engine did not open 5001 within 30s - check logs\whatsapp-engine.err.log" }
+}
+
+# -- 4. SYNC TUNNEL (PG :15432 forward + OTP :5601 reverse) -------------------
+# Carries two lanes: local :15432 -> AWS PG (BAGALAMUKHI sync), and AWS
+# 127.0.0.1:5601 -> local :5001 so the cloud API can deliver WhatsApp OTPs
+# through the engine above. Supervised with backoff by sync-tunnel.cjs.
+if (Test-PortUp 15432) {
+  Write-Host "[skip] sync tunnel already up (15432 listening)." -ForegroundColor DarkGray
+} else {
+  Write-Host "[start] node scripts/sync-tunnel.cjs ..." -ForegroundColor Green
+  Start-Process -FilePath 'node' -ArgumentList 'scripts/sync-tunnel.cjs' `
+    -WorkingDirectory $Root -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $LogDir 'sync-tunnel.out.log') `
+    -RedirectStandardError  (Join-Path $LogDir 'sync-tunnel.err.log') | Out-Null
+  if (Wait-PortUp 15432 20) { Write-Host "        Sync tunnel is up." -ForegroundColor Green }
+  else { Write-Warning "Sync tunnel did not open 15432 within 20s - check logs\sync-tunnel.out.log" }
+}
+
+# -- 5. CLOUDFLARED named tunnel (optional) -----------------------------------
 # Runs the locally-configured named tunnel via config.yml (tunnel id + creds),
 # so it needs NO cert.pem. Idempotent: skips if cloudflared is already running.
 if ($WithCloudflared) {

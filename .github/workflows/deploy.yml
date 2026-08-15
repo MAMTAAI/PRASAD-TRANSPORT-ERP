@@ -20,7 +20,9 @@ jobs:
 
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@master
+        # Pinned: @master silently changed script_stop semantics once already —
+        # the 2026-08-15 run died 43s in with no trace. v1 is the stable line.
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.AWS_HOST }}
           # Optional secret. Left unset, it falls back to the standard Ubuntu
@@ -34,6 +36,10 @@ jobs:
           script_stop: true
           script: |
             set -e
+            # Every deploy leaves a full transcript on the box — when a run
+            # dies and the Actions log is out of reach, read this instead.
+            exec > >(tee /tmp/ci-deploy.log) 2>&1
+            echo "CI deploy started: $(date -u)"
 
             # The first two paths are the ones specified. /var/www/prasad-erp is
             # where deploy/aws/DEPLOY-AWS.md actually installs the app, so on

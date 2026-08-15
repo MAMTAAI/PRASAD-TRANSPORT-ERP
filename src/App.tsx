@@ -13,6 +13,7 @@ import Login from './Login';
 // visitors on the public site / login no longer pay for the whole back office.
 const Dashboard = lazy(() => import('./Dashboard'));
 const MasterControlV5 = lazy(() => import('./mastercontrol/MasterControlApp'));
+const MobileSuiteApp = lazy(() => import('./modules/mobile/MobileSuiteApp'));
 const AgentFleetCommand = lazy(() => import('./AgentFleetCommand'));
 const SmartScanner = lazy(() => import('./SmartScanner'));
 const FinanceHub2026 = lazy(() => import('./FinanceHub2026'));
@@ -212,7 +213,7 @@ export default function App() {
     // (this silently locked newly added modules for everyone).
     if (user.role === 'ADMIN' || user.role === 'Super Admin') return true;
 
-    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
+    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
 
     if (module === 'OPERATION') {
       if (itemId === 'BAZAAR_ADMIN') return checkView('Load Bazaar Admin'); 
@@ -315,6 +316,14 @@ export default function App() {
       // 🚀 v5.0 Master Control — opens on the tab matching the current ERP module
       case 'MASTER_CONTROL_V5':
         return <MasterControlV5 initialTab={activeModule === 'ACCOUNTS' ? 'finance' : activeModule === 'CRM' ? 'crm' : 'ops'} />;
+      // 📱 1-App/5-Role Super App (Ola/Uber-style live fleet) — full-screen like the portals
+      case 'SUPER_APP':
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#080c14', overflowY: 'auto' }}>
+            <button onClick={() => handleComponentChange('DASHBOARD')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(30,41,59,0.9)', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
+            <MobileSuiteApp />
+          </div>
+        );
       case 'AGENT_FLEET': return <AgentFleetCommand />;
       case 'SMART_SCANNER': return <SmartScanner />;
       case 'FINANCE_2026': return <FinanceHub2026 />;

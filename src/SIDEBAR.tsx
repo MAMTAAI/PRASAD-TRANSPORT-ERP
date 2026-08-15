@@ -72,7 +72,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     }
     
     // 🔓 DEFAULT OPEN FOR ALL STAFF
-    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
+    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
 
     const perms = user.permissions || [];
     const checkView = (name: string) => perms.find((x: any) => x.name === name)?.view;
@@ -115,6 +115,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       return [
         { id: 'DASHBOARD', label: 'Dashboard', icon: '🖥️' },
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
+        { id: 'SUPER_APP', label: 'Super App (5-Role Mobile)', icon: '📱' },
         { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
         { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
         { id: 'FINANCE_2026', label: 'Finance Hub 2026', icon: '💠' },

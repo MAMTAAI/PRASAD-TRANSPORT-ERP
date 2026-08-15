@@ -19,6 +19,8 @@ const os = require('node:os');
 const net = require('node:net');
 
 const LOCAL_PORT = Number(process.env.SYNC_TUNNEL_PORT ?? 15432);
+const OTP_LOCAL_PORT = Number(process.env.OTP_TUNNEL_LOCAL_PORT ?? 5001);   // WhatsApp engine here
+const OTP_REMOTE_PORT = Number(process.env.OTP_TUNNEL_REMOTE_PORT ?? 5601); // where the box sees it
 const REMOTE = process.env.SYNC_TUNNEL_HOST ?? 'ubuntu@api.jaiswalcapital.com';
 const KEY = process.env.SYNC_TUNNEL_KEY ?? join(os.homedir(), '.ssh', 'jaiswal_claude_ed25519');
 const LOG_DIR = join(__dirname, '..', 'logs');
@@ -60,6 +62,11 @@ function launch() {
     '-o', 'ExitOnForwardFailure=yes', // …and refuse to sit on a broken forward
     '-N',
     '-L', `127.0.0.1:${LOCAL_PORT}:127.0.0.1:5432`,
+    // Reverse lane: the AWS API's WhatsApp OTP channel reaches THIS PC's
+    // engine (:5001) at 127.0.0.1:5601 on the box (5001 there is taken by a
+    // python service). Loopback→loopback over SSH — the engine is never
+    // exposed publicly. WA_ENGINE_URL on the box points at :5601.
+    '-R', `127.0.0.1:${OTP_REMOTE_PORT}:127.0.0.1:${OTP_LOCAL_PORT}`,
     REMOTE,
   ];
   log(`tunnel starting → ${REMOTE} (local :${LOCAL_PORT})`);
