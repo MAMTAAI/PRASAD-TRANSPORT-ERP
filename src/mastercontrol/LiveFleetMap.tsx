@@ -29,11 +29,18 @@ import { API_BASE } from '../lib/apiBase';
 import { getRoute } from '../lib/mapsCache';
 import { connectFleetSocket, disconnectFleetSocket } from '../lib/fleetSocket';
 
-// Sockets carry the moment-to-moment movement. This poll is the floor beneath
-// them: it reconciles the trip LIST (new trips, settled trips) and guarantees a
-// silently dead socket shows up as stale-but-moving rather than a map frozen on
-// yesterday. Slower than the old 15s because it is no longer the primary path.
-const REFRESH_MS = 60000;
+// The poll rate follows whether the live push is actually working.
+//
+// When the socket is up it only has to reconcile the trip LIST (new trips,
+// settled trips) because movement arrives instantly — 60s is plenty. When the
+// socket is down the poll IS the tracking, so it goes back to 15s.
+//
+// This is not hypothetical: the production nginx has no /socket.io route, so
+// the handshake there returns the SPA's index.html and the socket never
+// connects. Hard-coding the slower interval would have quietly halved the
+// dispatch board's refresh rate in production while looking correct locally.
+const REFRESH_LIVE_MS = 60000;
+const REFRESH_FALLBACK_MS = 15000;
 // Assam / lower NH-27, where the fleet actually runs.
 const HOME = { lat: 26.35, lng: 91.15 };
 
@@ -88,9 +95,10 @@ export default function LiveFleetMap() {
 
   useEffect(() => {
     fetchBoard();
-    const id = setInterval(() => { if (document.visibilityState === 'visible') fetchBoard(); }, REFRESH_MS);
+    const every = socketState === 'live' ? REFRESH_LIVE_MS : REFRESH_FALLBACK_MS;
+    const id = setInterval(() => { if (document.visibilityState === 'visible') fetchBoard(); }, every);
     return () => clearInterval(id);
-  }, [fetchBoard]);
+  }, [fetchBoard, socketState]);
 
   // ── live push ─────────────────────────────────────────────────────────────
   // A fix arriving on the socket updates that one truck in place. No refetch,
