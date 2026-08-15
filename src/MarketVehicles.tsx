@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import { isAdmin } from './lib/rbac';
 const API = API_BASE;
 const BAZAAR = `${API}/api/v1/bazaar`;
 const MASTERS = `${API}/api/v1/masters`;
@@ -86,8 +87,9 @@ export default function MarketVehicles() {
   useEffect(() => { 
     const user = JSON.parse(localStorage.getItem('prasad_user') || '{}');
     setCurrentUser(user);
-    const hasPower = user.role === 'ADMIN' || user.role === 'Super Admin' || user.role === 'MANAGER' || 
-                     user.permissions?.find(p => p.id === 'MARKET_VEHICLE')?.approve === true;
+    const hasPower = isAdmin(user) || user.role === 'MANAGER' ||
+                     (Array.isArray(user.permissions) ? user.permissions : [])
+                       .find(p => p.id === 'MARKET_VEHICLE')?.approve === true;
     setCanApprove(hasPower);
 
     fetchVehicles(); 

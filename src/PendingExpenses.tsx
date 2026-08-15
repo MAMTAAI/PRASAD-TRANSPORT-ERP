@@ -9,7 +9,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
-import { currentUser } from './lib/rbac';
+import { currentUser, isAdmin as isAdminRole } from './lib/rbac';
 import { extractJsonFromImage } from './lib/aiScanner';
 import {
   submitRetroExpense, approveRetroExpense, rejectRetroExpense,
@@ -32,7 +32,7 @@ const emptyForm = {
 
 export default function PendingExpenses() {
   const user = currentUser();
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'Super Admin';
+  const isAdmin = isAdminRole(user);
   const userName = user?.full_name || user?.name || user?.email || 'staff';
 
   const [rows, setRows] = useState([]);

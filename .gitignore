@@ -72,3 +72,17 @@ uploads/
 
 # 📊 Generated slide deck (rebuild with: node scripts/render-slides.cjs)
 Prasad_Transport_Presentation_2026.pdf
+
+# 🔑 Android release signing. The upload key is what Google Play uses to prove
+# an update really came from us — in git it is a published private key. The
+# keystore lives in F:\Prasad_Transport_Data\keystore\ with its own credentials
+# note; this file only carries the path and passwords.
+android/keystore.properties
+*.jks
+*.keystore
+
+# 📦 Android build output (the .aab is exported to F:\Prasad_Transport_Data\builds)
+android/app/build/
+android/build/
+android/.gradle/
+android/app/src/main/assets/public/

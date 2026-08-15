@@ -2,6 +2,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import { isAdmin } from './lib/rbac';
 const API = API_BASE;
 
 // 🧭 SHELL (needed for first paint — stays in the entry chunk)
@@ -201,8 +202,14 @@ export default function App() {
   // ==========================================
   const checkView = (permName: string) => {
     if (!user) return false;
-    if (user.role === 'ADMIN' || user.role === 'Super Admin') return true;
-    const p = user.permissions?.find((x: any) => x.name === permName);
+    if (isAdmin(user)) return true;
+    // `permissions` arrives from /auth/login already unwrapped to an array
+    // (permsOut flattens the {grants:[…]} jsonb). Guard anyway: a stale
+    // localStorage profile written before that unwrap is still an object, and
+    // .find on an object throws rather than returning false.
+    const p = Array.isArray(user.permissions)
+      ? user.permissions.find((x: any) => x.name === permName)
+      : null;
     return p ? p.view : false;
   };
 
@@ -210,13 +217,13 @@ export default function App() {
     if (!user) return false;
 
     if (itemId === 'UGER' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS' || itemId === 'EMAIL_PARSER') {
-      return user.role === 'ADMIN' || user.role === 'Super Admin';
+      return isAdmin(user);
     }
 
     // Admins see everything — without this, any module id missing from the
     // mapping below fell through to `return false` even for Super Admin
     // (this silently locked newly added modules for everyone).
-    if (user.role === 'ADMIN' || user.role === 'Super Admin') return true;
+    if (isAdmin(user)) return true;
 
     if (['DASHBOARD', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
 
@@ -459,7 +466,7 @@ export default function App() {
                     <span style={{color:'white', fontWeight:'bold', fontSize:'12px'}}>CRM PANEL</span>
                   </button>
                   
-                  {(user?.role === 'ADMIN' || user?.role === 'Super Admin') && (
+                  {isAdmin(user) && (
                     <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WEB_SETTINGS'); }} style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
                       <span style={{color:'white', fontWeight:'bold', fontSize:'12px'}}>🌐 EDIT WEBSITE</span>
                     </button>

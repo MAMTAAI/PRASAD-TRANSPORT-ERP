@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+// Release signing. Credentials come from android/keystore.properties, which is
+// git-ignored and points at a keystore stored outside the repo. When that file
+// is absent (a fresh clone, or CI without the secret) the release build falls
+// back to UNSIGNED rather than silently signing with the debug key — a debug-
+// signed bundle is rejected by Play, and finding that out at upload time is
+// worse than finding it out here.
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 android {
     namespace = "com.prasadtransport.erp"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,8 +28,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (keystorePropsFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig keystorePropsFile.exists() ? signingConfigs.release : null
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>PRASAD TRANSPORT - PRO</title>
+
+    <!-- PWA. theme-color matches the splash background (#020617) so the status
+         bar does not flash white on launch.
+         NOTE: the manifest link is deliberately NOT declared here —
+         vite-plugin-pwa injects it at build time (see vite.config.ts).
+         Declaring one by hand ships two. -->
+    <meta name="theme-color" content="#020617" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- iOS / WebKit. Safari ignores the web manifest for home-screen installs,
+         so the apple-* tags below are what make "Add to Home Screen" open
+         chrome-less. `black-translucent` pairs with the viewport-fit=cover
+         above: the app paints under the notch and the layout already reserves
+         it with env(safe-area-inset-*). -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Prasad ERP" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>

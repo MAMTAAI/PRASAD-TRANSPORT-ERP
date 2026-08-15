@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import { isAdmin } from './lib/rbac';
 const API = API_BASE;
 
 interface SidebarProps {
@@ -65,7 +66,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (!user) return false;
     
     // 👑 ADMIN BYPASS: मालिक को सब कुछ दिखेगा
-    if (user.role === 'ADMIN' || user.role === 'Super Admin') return true; 
+    if (isAdmin(user)) return true;
     
     // 🔒 SECURITY: आम स्टाफ को Master Setup नहीं दिखेगा
     if (['COMPANY', 'BRANCH', 'UGER', 'WEB_SETTINGS', 'EMAIL_PARSER'].includes(itemId)) {
@@ -119,13 +120,16 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'SUPER_APP', label: 'Super App (5-Role Mobile)', icon: '📱' },
         // The duplicate DASHBOARD entries in ACCOUNTS ("Finance Hub") and CRM
-        // ("CRM Dashboard") are gone — they were the same screen under three
-        // names. This ONE copy stays because it is the only view wired to the
-        // real PostgreSQL books; v5.0 is still on demo numbers.
-        { id: 'DASHBOARD', label: 'Live Books (PostgreSQL)', icon: '🖥️' },
+        // ("CRM Dashboard") went first — they were one screen under three
+        // names. The last copy ("Live Books") is gone too: it only survived
+        // because v5.0 was on demo numbers, and v5.0 now reads the real
+        // PostgreSQL books through /api/v1/dashboard/v5. One home, not two.
         { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
         { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
-        { id: 'FINANCE_2026', label: 'Finance Hub 2026', icon: '💠' },
+        // NOT a dashboard — this is the voucher entry desk (RECEIPT / PAYMENT
+        // / CONTRA through TARA) and the only posting path in the UI. Renamed
+        // from "Finance Hub 2026" so it stops reading as a rival home screen.
+        { id: 'FINANCE_2026', label: 'Voucher Entry (TARA)', icon: '💠' },
         { id: 'LIVE_TRACKING', label: 'Live Tracking (GPS)', icon: '🛰' },
         { id: 'BAZAAR_ADMIN', label: 'Bazaar Admin (KYC/Bids)', icon: '🌍' }, 
         { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
@@ -204,7 +208,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }} className="hide-scrollbar">
-        {getMenuItems().filter(item => item.isDivider ? (user?.role === 'ADMIN' || user?.role === 'Super Admin') : hasPermission(item.id, activeModule)).map(item => {
+        {getMenuItems().filter(item => item.isDivider ? isAdmin(user) : hasPermission(item.id, activeModule)).map(item => {
           
           // 🔥 RENDER MASTER ADMIN HEADING
           if (item.isDivider) {

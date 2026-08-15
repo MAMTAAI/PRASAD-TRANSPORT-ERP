@@ -34,6 +34,21 @@ const MATRIX: Record<string, RoleCaps> = {
 };
 const capsFor = (user: AppUser): RoleCaps => MATRIX[norm(user?.role)] || MATRIX['operator'];
 
+/** Is this user an owner-level account?
+ *
+ *  The role string is spelled three different ways across the system: the
+ *  `users` table stores `SUPER_ADMIN`, the legacy Firestore profiles said
+ *  `Super Admin`, and the mobile suite normalises both to `ADMIN`. The shell
+ *  used to compare against the literal `'Super Admin'`, which matches NONE of
+ *  the rows actually in PostgreSQL — so the owner's own account silently lost
+ *  the admin bypass and with it Company / Branch / UGER / Website / Email
+ *  Parser. Compare on the normalised form so the spelling stops mattering.
+ */
+export function isAdmin(user: AppUser | { role?: string } | null | undefined): boolean {
+  const r = norm((user as any)?.role);
+  return r === 'admin' || r === 'superadmin';
+}
+
 export function canAccessModule(user: AppUser, moduleId: string): boolean {
   const caps = capsFor(user);
   return caps.modules === '*' || caps.modules.includes(moduleId);

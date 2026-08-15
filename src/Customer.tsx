@@ -19,6 +19,7 @@ import React, { useState, useEffect } from 'react';
 import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks } from './lib/validators';
 
 import { API_BASE } from './lib/apiBase';
+import { isAdmin } from './lib/rbac';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 
@@ -134,8 +135,9 @@ export default function Customer() {
   useEffect(() => { 
     const user = JSON.parse(localStorage.getItem('prasad_user') || '{}');
     setCurrentUser(user);
-    const hasPower = user.role === 'ADMIN' || user.role === 'Super Admin' || user.role === 'MANAGER' || 
-                     user.permissions?.find(p => p.id === 'CUSTOMER')?.approve === true;
+    const hasPower = isAdmin(user) || user.role === 'MANAGER' ||
+                     (Array.isArray(user.permissions) ? user.permissions : [])
+                       .find(p => p.id === 'CUSTOMER')?.approve === true;
     setCanApprove(hasPower);
 
     fetchCustomers(); 
