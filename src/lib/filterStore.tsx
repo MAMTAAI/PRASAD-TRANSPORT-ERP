@@ -25,11 +25,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 const KEY = 'pt_dash_filter_v1';
-export const EMPTY = { companyId: '', branchId: '', owner: '', fleet: '' };
+export const EMPTY = { companyId: '', branchId: '', owner: '', fleet: '', from: '', to: '' };
 
 // Query-param names are snake_case to match the API they end up in, so a link
 // can be read and understood without a translation table.
-const PARAM = { companyId: 'company_id', branchId: 'branch_id', owner: 'owner', fleet: 'fleet' };
+const PARAM = {
+  companyId: 'company_id', branchId: 'branch_id', owner: 'owner', fleet: 'fleet',
+  // The date window is part of the scope too — a P&L for "Gautam Prasad" means
+  // nothing without the period it covers, and losing it on navigation is the
+  // same bug as losing the company.
+  from: 'from', to: 'to',
+};
 
 function fromUrl() {
   try {
@@ -94,7 +100,7 @@ export function FilterProvider({ children }) {
     writeUrl(filters, navRef.current);
   }, [filters, writeUrl]);
 
-  const active = !!(filters.companyId || filters.branchId || filters.owner || filters.fleet);
+  const active = !!(filters.companyId || filters.branchId || filters.owner || filters.fleet || filters.from || filters.to);
 
   const qs = useCallback(() => {
     const p = new URLSearchParams();

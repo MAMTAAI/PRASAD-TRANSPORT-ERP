@@ -19,6 +19,7 @@ import {
 } from './shared';
 import { inr, inrFull } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
+import { LivePnl, UnbilledFreight } from './OpsWidgets';
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design numbers exactly
@@ -466,6 +467,12 @@ export default function FinanceDashboard({ live, filter }) {
           </div>
         </GlassPanel>
       </div>
+      {/* The statement and the loads that have not reached it yet. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <LivePnl live={live} />
+        <UnbilledFreight live={live} />
+      </div>
+
       {/* Owner payables sit with the money. Clicking a row scopes the whole dashboard,
           so this table and the KPI cards above always agree. */}
       <OwnerFleetMatrix

@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar } from './shared';
 import LiveStaffTracker from './LiveStaffTracker';
-import LiveFleetMap from './LiveFleetMap';
 import UserApprovals from './UserApprovals';
 
 // ---------------------------------------------------------------------------
@@ -239,13 +238,11 @@ export default function MasterControlDashboard({ live }) {
 
         {/* ══════════════ CENTER PANEL — LIVE TRACKING ══════════════ */}
         <div className="lg:col-span-5 flex flex-col gap-4">
-          {/* Real Google Maps with the live traffic layer. The SVG footprint
-              that used to sit here (IndiaTrackingMap, still below) drew the
-              toll-plaza network — useful as a coverage picture, but it is not
-              vehicle tracking and was titled as though it might be. The map
-              plots trucks that are actually reporting GPS and says plainly how
-              many are not. */}
-          <LiveFleetMap />
+          {/* The live Google map moved to the OPERATIONS tab, where dispatch
+              actually watches it. It is deliberately NOT rendered here as well:
+              Maps JS is billed per MAP LOAD, so the same map on two tabs would
+              double the bill for one fleet. The toll-plaza footprint below is a
+              static SVG and costs nothing. */}
 
           <GlassPanel className="flex flex-col">
             <PanelHeader

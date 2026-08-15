@@ -20,6 +20,8 @@ import {
 } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
+import LiveFleetMap from './LiveFleetMap';
+import { UnloadingQueue } from './OpsWidgets';
 
 // Shown wherever the ERP genuinely holds no rows yet — never faked with a
 // plausible-looking number.
@@ -384,6 +386,13 @@ export default function OperationsDashboard({ live, filter }) {
           </div>
         </GlassPanel>
       </div>
+      {/* The dispatch map belongs with Operations, not CRM — it is what
+          dispatch watches all day. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <LiveFleetMap />
+        <UnloadingQueue live={live} />
+      </div>
+
       {/* Owner fleet sits with the fleet. Clicking a row scopes the whole dashboard,
           so this table and the KPI cards above always agree. */}
       <OwnerFleetMatrix

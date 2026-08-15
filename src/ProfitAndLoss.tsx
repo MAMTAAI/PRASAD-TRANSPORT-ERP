@@ -24,6 +24,7 @@ const j = async (url: string) => {
   return res.json();
 };
 import { companyMatches, normCompany } from './lib/company';
+import { useGlobalFilter } from './lib/filterStore';
 
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -37,9 +38,40 @@ export default function ProfitAndLoss() {
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [company, setCompany] = useState('ALL');
-  const [fromDate, setFromDate] = useState(() => { const d = new Date(); return `${d.toISOString().slice(0, 7)}-01`; });
-  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+  // ── SCOPE COMES FROM THE GLOBAL FILTER ──────────────────────────────────
+  // This screen used to own a private company dropdown and its own dates, so
+  // narrowing the dashboard to one firm and clicking through to the P&L showed
+  // the whole group again — two controls answering the same question, neither
+  // aware of the other. The dropdown below is still here, but it now READS AND
+  // WRITES the app-wide filter, so the two can no longer disagree.
+  //
+  // The books are matched by company NAME (normCompany tolerates the three
+  // spellings of Jaiswal Enterprise) while the global filter carries the id, so
+  // the id is resolved to a name here.
+  const gf = useGlobalFilter();
+  const [companyRows, setCompanyRows] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/v1/finance/companies`).then(r => r.json())
+      .then(j => { if (alive) setCompanyRows(j.companies ?? []); })
+      .catch(() => { /* fall back to the names derived from the data below */ });
+    return () => { alive = false; };
+  }, []);
+
+  const company = useMemo(() => {
+    if (!gf.filters.companyId) return 'ALL';
+    const hit = companyRows.find(c => c.id === gf.filters.companyId);
+    return hit ? String(hit.company_name).trim() : 'ALL';
+  }, [gf.filters.companyId, companyRows]);
+
+  const setCompanyById = (id) => gf.set({ companyId: id });
+
+  // Default to this month when no global window is set, but never overwrite one
+  // the user chose elsewhere.
+  const fromDate = gf.filters.from || `${new Date().toISOString().slice(0, 7)}-01`;
+  const toDate = gf.filters.to || new Date().toISOString().slice(0, 10);
+  const setFromDate = (v) => gf.set({ from: v });
+  const setToDate = (v) => gf.set({ to: v });
 
   useEffect(() => {
     (async () => {
@@ -185,10 +217,16 @@ export default function ProfitAndLoss() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '12px' }}>
           <div>
             <label className="pt-label" style={{ color: '#f59e0b' }}>🏢 Operating Company</label>
-            <select className="pt-input" style={{ borderColor: '#f59e0b' }} value={company} onChange={e => setCompany(e.target.value)}>
-              <option value="ALL">— All Companies (Group) —</option>
-              {companies.map(c => <option key={c} value={c}>{c}</option>)}
+            <select className="pt-input" style={{ borderColor: '#f59e0b' }}
+                    value={gf.filters.companyId} onChange={e => setCompanyById(e.target.value)}>
+              <option value="">— All Companies (Group) —</option>
+              {companyRows.map(c => (
+                <option key={c.id} value={c.id}>{String(c.company_name).trim()}</option>
+              ))}
             </select>
+            <p style={{ margin: '5px 0 0', fontSize: 10, color: '#64748b' }}>
+              Shared with the dashboard — changing it here changes it everywhere.
+            </p>
           </div>
           <div><label className="pt-label">From Date</label><input type="date" className="pt-input" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
           <div><label className="pt-label">To Date</label><input type="date" className="pt-input" value={toDate} onChange={e => setToDate(e.target.value)} /></div>

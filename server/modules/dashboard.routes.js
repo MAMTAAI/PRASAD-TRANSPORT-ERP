@@ -165,6 +165,29 @@ export function registerDashboardRoutes(app) {
       }));
     }, []);
 
+    // The queue behind the "pending unloading" number. A count tells you there
+    // is a problem; the list tells you which trucks, which is what dispatch
+    // actually acts on.
+    const unloading_queue = await safe(errors, 'unloading_queue', async () => {
+      const { rows } = await query(`
+        SELECT t.trip_code, t.vehicle_no, t.driver_name, t.product_type,
+               t.loading_date, t.loading_point,
+               COALESCE(t.unloading_location, t.consignee_name) AS destination,
+               t.loaded_qty,
+               CASE WHEN t.loading_date > DATE '2000-01-01'
+                    THEN (CURRENT_DATE - t.loading_date)::int END AS days_out
+          FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+         WHERE t.status = 'IN_TRANSIT' AND t.unloading_date IS NULL ${TRIP_F}
+         ORDER BY t.loading_date ASC NULLS LAST
+         LIMIT 25`, P);
+      return rows.map((r) => ({
+        trip_code: r.trip_code, vehicle: r.vehicle_no, driver: r.driver_name,
+        product: r.product_type, since: r.loading_date,
+        route: `${r.loading_point ?? '?'} -> ${r.destination ?? '?'}`,
+        qty: r.loaded_qty, days_out: r.days_out == null ? null : num(r.days_out),
+      }));
+    }, []);
+
     // ── FINANCE ─────────────────────────────────────────────────────────────
     const money = await safe(errors, 'money', async () => {
       const { rows } = await query(`
@@ -182,6 +205,88 @@ export function registerDashboardRoutes(app) {
         received: num(r.received), total_expense: num(r.total_expense), tds: num(r.tds),
       };
     }, { unbilled_freight: 0, freight_income: 0, received: 0, total_expense: 0, tds: 0 });
+
+    // Which loads are sitting unbilled. The KPI gives a rupee total; this says
+    // whose invoice has not gone out, which is the only form of that number
+    // anybody can act on.
+    const unbilled_list = await safe(errors, 'unbilled_list', async () => {
+      const { rows } = await query(`
+        SELECT t.trip_code, t.vehicle_no, t.customer_name, t.loading_date,
+               COALESCE(NULLIF(t.freight_amount,0), 0)::numeric(14,2) AS amount,
+               CASE WHEN t.loading_date > DATE '2000-01-01'
+                    THEN (CURRENT_DATE - t.loading_date)::int END AS age_days
+          FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+         WHERE COALESCE(t.billed_amount,0) = 0
+           AND t.status IN ('COMPLETED','UNLOADING','IN_TRANSIT')
+           ${TRIP_F}
+         ORDER BY t.loading_date ASC NULLS LAST
+         LIMIT 25`, P);
+      return rows.map((r) => ({
+        trip_code: r.trip_code, vehicle: r.vehicle_no, customer: r.customer_name,
+        date: r.loading_date, amount: num(r.amount),
+        age_days: r.age_days == null ? null : num(r.age_days),
+      }));
+    }, []);
+
+    // Real-time P&L for the selected scope, straight off the posted books.
+    // v_profit_and_loss is company-agnostic, so the company filter is applied
+    // here against ledger_entries.company_id — the dimension migration 053
+    // backfilled — rather than by re-deriving the statement.
+    const pnl = await safe(errors, 'pnl', async () => {
+      const { rows } = await query(`
+        SELECT g.group_head, g.account_type,
+               COALESCE(SUM(CASE WHEN g.account_type = 'INCOME'
+                                 THEN CASE WHEN e.dr_cr = 'CR' THEN e.amount ELSE -e.amount END
+                                 ELSE CASE WHEN e.dr_cr = 'DR' THEN e.amount ELSE -e.amount END
+                            END), 0)::numeric(16,2) AS amount
+          FROM account_groups g
+          LEFT JOIN ledger_entries e ON e.ledger_name IN (
+                 SELECT ledger_name FROM ledgers WHERE group_head = g.group_head)
+               AND ($1::uuid IS NULL OR e.company_id = $1::uuid)
+         WHERE g.statement = 'PROFIT_AND_LOSS'
+         GROUP BY g.group_head, g.account_type, g.sort_order
+         ORDER BY g.sort_order`, [F.companyId]);
+      // HOW MUCH OF THE BOOKS THIS SCOPE CAN ACTUALLY SEE.
+      //
+      // ledger_entries.company_id was backfilled from a free-text column that
+      // was NULL on 848 of 1720 rows — and the Freight Income postings are
+      // among the untagged. So filtering the P&L by company silently drops
+      // nearly all income and every company reads as a heavy loss while the
+      // group reads as a profit. That is not a loss; it is an unattributable
+      // entry, and the difference matters enormously to whoever reads it.
+      //
+      // Rather than hide the filter or fake an attribution, the coverage is
+      // measured and returned so the screen can refuse to be believed.
+      const cov = await query(`
+        SELECT count(*)::int AS total,
+               count(company_id)::int AS tagged,
+               COALESCE(SUM(amount) FILTER (WHERE company_id IS NULL), 0)::numeric(16,2) AS untagged_amount
+          FROM ledger_entries
+         WHERE ledger_name IN (SELECT ledger_name FROM ledgers
+                                WHERE group_head IN (SELECT group_head FROM account_groups
+                                                      WHERE statement = 'PROFIT_AND_LOSS'))`);
+      const c0 = cov.rows[0];
+      const coverage = {
+        total: num(c0.total),
+        tagged: num(c0.tagged),
+        untagged: num(c0.total) - num(c0.tagged),
+        untagged_amount: num(c0.untagged_amount),
+        pct: num(c0.total) ? Math.round((num(c0.tagged) / num(c0.total)) * 100) : 100,
+      };
+
+      const income = rows.filter((r) => r.account_type === 'INCOME');
+      const expense = rows.filter((r) => r.account_type === 'EXPENSE');
+      const sum = (a) => a.reduce((n, r) => n + num(r.amount), 0);
+      const ti = sum(income), te = sum(expense);
+      return {
+        income: income.filter((r) => num(r.amount) !== 0).map((r) => ({ group: r.group_head, amount: num(r.amount) })),
+        expense: expense.filter((r) => num(r.amount) !== 0).map((r) => ({ group: r.group_head, amount: num(r.amount) })),
+        total_income: ti, total_expense: te, net: ti - te,
+        // Present only when a company is selected: unfiltered totals are
+        // complete by definition, so the warning would be noise there.
+        coverage: F.companyId ? coverage : null,
+      };
+    }, { income: [], expense: [], total_income: 0, total_expense: 0, net: 0 });
 
     const banks = await safe(errors, 'banks', async () => {
       const { rows } = await query(`
@@ -481,8 +586,8 @@ export function registerDashboardRoutes(app) {
       // Echoed back so the UI can label the page with what it actually applied,
       // rather than with what the user believes they selected.
       filter: F,
-      ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet },
-      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally },
+      ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue },
+      finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,

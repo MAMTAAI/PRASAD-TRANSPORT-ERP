@@ -97,6 +97,17 @@ export default function FilterBar({ filters, set, clear, active }) {
             }))}
           />
 
+          <label title="Period start" className="flex items-center gap-1.5 rounded-lg border border-slate-700/70 bg-slate-900/70 px-2 py-1.5">
+            <span className="text-[9px] font-bold text-slate-600">FROM</span>
+            <input type="date" value={filters.from || ''} onChange={(e) => set({ from: e.target.value })}
+              className="bg-transparent text-[11px] font-semibold text-slate-200 outline-none" />
+          </label>
+          <label title="Period end" className="flex items-center gap-1.5 rounded-lg border border-slate-700/70 bg-slate-900/70 px-2 py-1.5">
+            <span className="text-[9px] font-bold text-slate-600">TO</span>
+            <input type="date" value={filters.to || ''} onChange={(e) => set({ to: e.target.value })}
+              className="bg-transparent text-[11px] font-semibold text-slate-200 outline-none" />
+          </label>
+
           {active && (
             <button
               onClick={clear}
@@ -120,6 +131,7 @@ export default function FilterBar({ filters, set, clear, active }) {
                 branches.find((b) => b.id === filters.branchId)?.branch_name ?? 'all branches',
                 filters.fleet ? (filters.fleet === 'OWNED' ? 'company fleet' : 'attached fleet') : 'all fleet',
                 filters.owner || null,
+                (filters.from || filters.to) ? `${filters.from || 'start'} → ${filters.to || 'today'}` : null,
               ].filter(Boolean).join(' · ')}
           </span>
           {err && <span className="text-amber-400">· filter list unavailable ({err})</span>}
