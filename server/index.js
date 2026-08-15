@@ -30,6 +30,7 @@ import { registerMastersRoutes } from './modules/masters.routes.js';
 import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
+import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
@@ -152,6 +153,11 @@ await app.register(registerTollRoutes,     { prefix: '/api/v1/toll' });
 // is the only path that de-duplicates against what the GTROPY API already
 // fetched before anything is posted.
 await app.register(registerTollImportRoutes, { prefix: '/api/v1/toll' });
+// Vehicle loans: contract import, the opening liability at a cut-off, and EMIs
+// split into principal and interest. Kept apart from the loan CRUD screens for
+// the same reason as the toll importer — this is the only path that recognises
+// a loan in the ledger, and it must not be reachable by accident.
+await app.register(registerLoanImportRoutes, { prefix: '/api/v1/loans' });
 // Loans/EMI, tyres, batteries and the service log.
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 // Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.

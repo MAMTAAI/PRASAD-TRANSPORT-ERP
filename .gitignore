@@ -78,6 +78,12 @@ reports/fleet_norms.json
 # lorry number, the minute and the rupee. A movement log of the whole fleet.
 reports/toll_rows.json
 reports/toll_stage.csv
+# Loan contracts read off the financiers' statements: account numbers, chassis
+# numbers, borrower and guarantor names, and the amount owed on every truck.
+reports/loan_contracts.json
+reports/loan_bills/
+reports/loan_bands/
+reports/_loan_probe.json
 
 # 📄 Scanned business documents (IOCL advices, bills, scans) — real commercial
 # paperwork, 400+ files. Only iocl_bills/ was excluded before, which let the

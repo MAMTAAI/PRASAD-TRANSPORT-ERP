@@ -25,6 +25,7 @@ const API = API_BASE;
 const ASSETS = `${API}/api/v1/assets`;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;
+const LOANS_API = `${API}/api/v1/loans`;
 
 const fetchJson = async (url: string, opts?: RequestInit) => {
   const res = await fetch(url, opts);
@@ -115,7 +116,14 @@ const parseNum = (val: any) => {
 };
 
 export default function LoanEmiMgmt() {
-  const [activeTab, setActiveTab] = useState('LOANS'); 
+  const [activeTab, setActiveTab] = useState('LOANS');
+  // The tracker is computed on the server, per instalment, against the stored
+  // repayment schedule. It is deliberately NOT derived here from loan counters:
+  // an instalment that fell due before the opening balance was struck is not
+  // outstanding — it is the reason the opening balance is what it is — and only
+  // the server knows that cut-off date per loan.
+  const [tracker, setTracker] = useState<any | null>(null);
+  const [trackerErr, setTrackerErr] = useState<string | null>(null);
   const [loans, setLoans] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -190,6 +198,13 @@ export default function LoanEmiMgmt() {
       // other payment screen uses, so an EMI cannot be paid from an account the
       // ledger has never heard of.
       setBankAccounts((accRes.accounts ?? []).map((a: any) => a.ledger_name));
+
+      // Separate call, and separately fault-tolerant: the tracker is a reporting
+      // view, and a failure to build it must not blank out the loan master and
+      // the payment screens beside it.
+      fetchJson(`${LOANS_API}/emi-tracker?months_ahead=6`)
+        .then((t) => { setTracker(t); setTrackerErr(null); })
+        .catch((e) => { setTracker(null); setTrackerErr(e.message || 'tracker unavailable'); });
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -973,6 +988,7 @@ export default function LoanEmiMgmt() {
           <button className={`tab-btn ${activeTab === 'LOANS' ? 'active' : ''}`} onClick={() => setActiveTab('LOANS')}>🏦 VEHICLE LOAN MASTER</button>
           <button className={`tab-btn ${activeTab === 'EMIS' ? 'active' : ''}`} onClick={() => setActiveTab('EMIS')}>💸 EMI PAYMENT HISTORY</button>
           <button className={`tab-btn ${activeTab === 'REPORT' ? 'active' : ''}`} onClick={() => setActiveTab('REPORT')}>📊 EMI DUE REPORT</button>
+          <button className={`tab-btn ${activeTab === 'TRACKER' ? 'active' : ''}`} onClick={() => setActiveTab('TRACKER')}>🗓️ EMI TRACKER</button>
         </div>
       </div>
 
@@ -1123,6 +1139,78 @@ export default function LoanEmiMgmt() {
       )}
 
       {/* 📊 TAB 3: EMI DUE REPORT */}
+      {activeTab === 'TRACKER' && (
+        <>
+          {trackerErr && (
+            <div className="glass-card" style={{ padding: '18px', marginBottom: '18px', border: '1px solid #ef4444' }}>
+              <b style={{ color: '#ef4444' }}>EMI tracker unavailable</b>
+              <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '6px' }}>{trackerErr}</div>
+            </div>
+          )}
+          {tracker && (() => {
+            const rup = (n: number) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+            const tile = (label: string, value: string, colour: string, note?: string) => (
+              <div style={{ background: `${colour}1a`, padding: '14px 22px', border: `1px solid ${colour}`, borderRadius: '12px', minWidth: '170px' }}>
+                <div style={{ color: colour, fontSize: '11px', fontWeight: 'bold', letterSpacing: '.4px' }}>{label}</div>
+                <div style={{ fontSize: '24px', fontWeight: 900, color: '#fff', marginTop: '4px' }}>{value}</div>
+                {note && <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '2px' }}>{note}</div>}
+              </div>
+            );
+            return (
+              <>
+                <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
+                  {tile('✅ PAID', String(tracker.totals.PAID), '#10b981', rup(tracker.money.paid))}
+                  {tile('⚠️ OVERDUE', String(tracker.totals.OVERDUE), '#ef4444', rup(tracker.money.overdue))}
+                  {tile('🗓️ UPCOMING', String(tracker.totals.UPCOMING), '#38bdf8', `next 6 months ${rup(tracker.money.upcoming)}`)}
+                  {tile('📘 IN OPENING BAL.', String(tracker.totals.SETTLED_IN_OPENING), '#a78bfa', 'settled before cut-off')}
+                </div>
+                <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '14px' }}>
+                  Status is judged per instalment as at {tracker.as_of}. Instalments that fell due before a
+                  loan's opening balance date are shown as settled in the opening balance, not as arrears —
+                  they are already inside the figure carried into the books.
+                </div>
+                <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Loan / Vehicle</th><th>Financier</th><th>Type</th>
+                        <th style={{ color: '#10b981' }}>Paid</th>
+                        <th style={{ color: '#ef4444' }}>Overdue</th>
+                        <th style={{ color: '#ef4444' }}>Overdue ₹</th>
+                        <th>Next Due</th><th>Opening Principal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tracker.tracker.map((t: any) => (
+                        <tr key={t.loan_no}>
+                          <td><b style={{ color: '#fff', fontSize: '13px' }}>{t.vehicle || '—'}</b><br/>
+                              <span style={{ color: '#94a3b8', fontSize: '10px' }}>{t.loan_no}</span></td>
+                          <td style={{ fontSize: '11px' }}>{t.financier}</td>
+                          <td style={{ fontSize: '11px' }}>{t.loan_type}</td>
+                          <td style={{ color: '#10b981', fontWeight: 'bold' }}>{t.paid_count}</td>
+                          <td style={{ color: t.overdue_count ? '#ef4444' : '#64748b', fontWeight: 'bold' }}>{t.overdue_count}</td>
+                          <td style={{ color: t.overdue_amount ? '#ef4444' : '#64748b', fontWeight: 'bold' }}>{rup(t.overdue_amount)}</td>
+                          <td style={{ fontSize: '11px' }}>
+                            {t.next_due
+                              ? <><b style={{ color: '#38bdf8' }}>{t.next_due.due_date}</b><br/>{rup(t.next_due.emi)}</>
+                              : <span style={{ color: '#94a3b8' }}>no forward schedule</span>}
+                          </td>
+                          <td style={{ fontSize: '11px' }}>
+                            {t.opening_principal == null ? '—'
+                              : <><b style={{ color: '#fff' }}>{rup(t.opening_principal)}</b><br/>
+                                 <span style={{ color: '#94a3b8', fontSize: '10px' }}>as at {t.opening_as_of}</span></>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+        </>
+      )}
+
       {activeTab === 'REPORT' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
