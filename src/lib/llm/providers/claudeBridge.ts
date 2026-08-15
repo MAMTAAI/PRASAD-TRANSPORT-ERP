@@ -10,7 +10,19 @@ import { LLMOfflineError, LLMError } from '../types';
 export class ClaudeBridgeProvider implements LLMProvider {
   readonly name = 'claude-bridge';
 
-  constructor(private baseUrl: string, private timeoutMs = 180000, private authToken = '') {}
+  // Written out rather than as constructor parameter properties: those emit
+  // real assignments, so they are not type-only syntax and `erasableSyntaxOnly`
+  // (set in tsconfig.app.json so Vite can strip types without a TS transform)
+  // rejects them.
+  private readonly baseUrl: string;
+  private readonly timeoutMs: number;
+  private readonly authToken: string;
+
+  constructor(baseUrl: string, timeoutMs = 180000, authToken = '') {
+    this.baseUrl = baseUrl;
+    this.timeoutMs = timeoutMs;
+    this.authToken = authToken;
+  }
 
   /** Token header only when configured (tunnel path). Empty = local dev, gate off. */
   private headers(json = false): Record<string, string> {

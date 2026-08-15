@@ -9,7 +9,7 @@
 // different databases — a toll present in only one gets billed twice or never.
 // Both now go through the same table, and the dedup key is enforced BY the
 // database (`toll_txn_ext_uniq`) rather than by each writer checking first.
-import { getField, toISODate, round2 } from './accounting/tripMath';
+import { getField, toISODate } from './accounting/tripMath';
 import { logAudit } from './audit';
 import {
   parseIciciText, rowsToTxns, parseCsvText,

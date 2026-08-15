@@ -8,7 +8,7 @@
 //
 // PDFs are rasterised CLIENT-SIDE (pdfjs-dist, already in the bundle for the
 // bill scanner) so the server pipeline only ever sees clean page images.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -107,7 +107,8 @@ async function pdfToCanvases(file: File): Promise<HTMLCanvasElement[]> {
     const viewport = page.getViewport({ scale: 2 });
     const canvas = document.createElement('canvas');
     canvas.width = viewport.width; canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+    // pdf.js v5 requires `canvas` alongside `canvasContext` in RenderParameters.
+    await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
     out.push(canvas);
   }
   return out;

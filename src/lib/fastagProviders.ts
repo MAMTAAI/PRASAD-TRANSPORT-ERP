@@ -44,8 +44,6 @@ export interface FastagProvider {
   last_sync_error?: string;
 }
 
-const SECRET_FIELDS: (keyof FastagProvider)[] = ['auth_token', 'password'];
-
 /** List providers. Secrets arrive already masked from the API. */
 export async function listProviders(): Promise<FastagProvider[]> {
   const j = await fetchJson(`${TOLL}/providers`);

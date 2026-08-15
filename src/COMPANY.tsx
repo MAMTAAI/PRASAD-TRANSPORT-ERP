@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { uploadMedia, slug } from './lib/uploadMedia';
 
 import { API_BASE } from './lib/apiBase';
@@ -14,9 +14,16 @@ const fetchJson = async (url: string, opts?: RequestInit) => {
 
 export default function CompanyMgmt() {
   const [companies, setCompanies] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The value is set on every load but never rendered — there is no spinner on
+  // this screen. Kept as a setter-only slot rather than deleted, because the
+  // fetch genuinely has a loading phase that the UI should show.
+  const [, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  // ⚠️ The filter below reads searchTerm, but nothing ever writes it: the search
+  // INPUT was never built, so the filter permanently matches everything. Left
+  // as-is (behaviour is unchanged) rather than quietly deleted, because the
+  // missing piece is the input, not the state.
+  const [searchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   
   // फॉर्म के अंदर टैब्स (Basic, Tax/Bank, Documents)

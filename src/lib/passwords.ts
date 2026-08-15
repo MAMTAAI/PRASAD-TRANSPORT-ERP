@@ -10,7 +10,12 @@ function toHex(buf: ArrayBuffer): string {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function hexToBytes(hex: string): Uint8Array {
+// Returns Uint8Array<ArrayBuffer>, not the default Uint8Array<ArrayBufferLike>.
+// Since TS 5.7 the array is generic over its backing buffer, and ArrayBufferLike
+// includes SharedArrayBuffer — which BufferSource does not accept, so crypto
+// .subtle.deriveBits rejected this salt. `new Uint8Array(n)` always allocates a
+// real ArrayBuffer; the annotation just says so.
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
   return out;

@@ -116,7 +116,11 @@ export async function compressPdf(file: File): Promise<Compressed> {
       p.drawImage(img, { x: 0, y: 0, width: vp1.width, height: vp1.height });
     }
     const bytes = await out.save();
-    const blob = new Blob([bytes], { type: 'application/pdf' });
+    // pdf-lib types save() as Uint8Array<ArrayBufferLike>, and since TS 5.7
+    // ArrayBufferLike includes SharedArrayBuffer, which BlobPart rejects. The
+    // buffer here is always a plain ArrayBuffer, so narrow it rather than
+    // copying the whole PDF just to satisfy the checker.
+    const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
     return blob.size < file.size ? { blob, mime: 'application/pdf', ext: '.pdf' } : original;
   } catch (e) {
     console.warn('PDF compression failed — uploading original:', e);

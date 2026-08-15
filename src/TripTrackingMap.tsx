@@ -7,7 +7,7 @@
 // Triangulation: per-source latest fix from /api/v1/tracking/:tripId; the
 // elected best fix carries the "Tracking via: …" badge (GPRS > Driver App >
 // FASTag inside a 5-minute freshness window, else freshest wins).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './lib/maps';
 
 import { API_BASE } from './lib/apiBase';

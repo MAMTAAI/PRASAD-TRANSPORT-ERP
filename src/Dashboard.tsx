@@ -76,7 +76,10 @@ const card: React.CSSProperties = {
   background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18,
 };
 
-export default function Dashboard({ activeModule, currentUser }: DashboardProps) {
+// activeModule is still part of DashboardProps (App.tsx passes it) but this
+// screen renders the same books whichever module is selected, so it is not
+// destructured here.
+export default function Dashboard({ currentUser }: DashboardProps) {
   const [data, setData] = useState<Snapshot | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
