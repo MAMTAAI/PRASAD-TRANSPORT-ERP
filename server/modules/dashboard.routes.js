@@ -16,6 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
 import { tallyAlive } from '../lib/tallyAdapter.js';
+import { requireAdminRole } from './auth.routes.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
@@ -431,5 +432,92 @@ export function registerDashboardRoutes(app) {
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,
     };
+  });
+
+  // ── GET /api/v1/monitoring/live ─────────────────────────────────────────
+  // The Boss view: who is signed in right now, and what they have actually
+  // been doing. Separate from /dashboard/v5 on purpose — it polls faster than
+  // the books need to, and it is admin-only, so folding it into the shared
+  // dashboard payload would either leak it to every role or slow that payload
+  // down for everyone.
+  //
+  // "Recent actions" reads audit_logs, not activity_logs: activity_logs is a
+  // free-text note the SPA writes about itself and can simply forget to write,
+  // while audit_logs is stamped server-side by a hook that every mutating route
+  // passes through. Only writes that LANDED are shown (status < 400) — a
+  // rejected request is an attempt, not an action, and mixing the two makes the
+  // trail read like people changed things they did not.
+  app.get('/monitoring/live', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) {
+      return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+    }
+    const errors = [];
+    const minutes = Math.min(Math.max(Number.parseInt(req.query?.minutes ?? '60', 10) || 60, 5), 1440);
+
+    const sessions = await safe(errors, 'sessions', async () => {
+      const { rows } = await query(`
+        SELECT actor_name, actor_role, branch, email, ip, user_agent,
+               issued_at, last_seen_at, is_online,
+               EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS idle_seconds
+          FROM user_sessions
+         ORDER BY is_online DESC, last_seen_at DESC
+         LIMIT 50`);
+      return rows.map((r) => ({
+        name: r.actor_name,
+        role: r.actor_role,
+        branch: r.branch,
+        email: r.email,
+        ip: r.ip,
+        // The full UA string is noise on a dashboard; the device class is not.
+        device: /Android|iPhone|iPad|Mobile/i.test(r.user_agent ?? '') ? 'mobile' : 'desktop',
+        since: r.issued_at,
+        last_seen: r.last_seen_at,
+        online: r.is_online,
+        idle_seconds: r.idle_seconds,
+      }));
+    }, []);
+
+    const actions = await safe(errors, 'actions', async () => {
+      const { rows } = await query(`
+        SELECT at, actor_name, actor_role, method, action, entity, entity_id,
+               path, status_code, duration_ms,
+               (before IS NOT NULL AND after IS NOT NULL) AS has_diff
+          FROM audit_logs
+         WHERE at > now() - ($1 || ' minutes')::interval
+           AND status_code < 400
+         ORDER BY at DESC
+         LIMIT 60`, [String(minutes)]);
+      return rows.map((r) => ({
+        at: r.at,
+        who: r.actor_name,
+        role: r.actor_role,
+        what: r.entity
+          ? `${r.method} ${r.entity}${r.entity_id ? ` ${String(r.entity_id).slice(0, 8)}` : ''}`
+          : `${r.method} ${r.path}`,
+        status: r.status_code,
+        ms: r.duration_ms,
+        has_diff: r.has_diff,
+      }));
+    }, []);
+
+    const totals = await safe(errors, 'totals', async () => {
+      const { rows } = await query(`
+        SELECT
+          (SELECT count(*) FROM user_sessions WHERE is_online)                       AS online_now,
+          (SELECT count(*) FROM user_sessions)                                       AS sessions_open,
+          (SELECT count(*) FROM audit_logs
+            WHERE at > now() - ($1 || ' minutes')::interval AND status_code < 400)   AS writes_window,
+          (SELECT count(*) FROM audit_logs
+            WHERE at > now() - ($1 || ' minutes')::interval AND status_code >= 400)  AS rejected_window`,
+        [String(minutes)]);
+      return {
+        online_now: num(rows[0].online_now),
+        sessions_open: num(rows[0].sessions_open),
+        writes_window: num(rows[0].writes_window),
+        rejected_window: num(rows[0].rejected_window),
+      };
+    }, { online_now: 0, sessions_open: 0, writes_window: 0, rejected_window: 0 });
+
+    return { ok: true, generated_at: new Date().toISOString(), window_minutes: minutes, totals, sessions, actions, errors };
   });
 }

@@ -12,6 +12,8 @@ import {
   Activity, Signal, MapPin, Zap, ChevronRight, Inbox, Tags, AlarmClock,
 } from 'lucide-react';
 import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar } from './shared';
+import LiveStaffTracker from './LiveStaffTracker';
+import LiveFleetMap from './LiveFleetMap';
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design exactly
@@ -235,13 +237,22 @@ export default function MasterControlDashboard({ live }) {
         </div>
 
         {/* ══════════════ CENTER PANEL — LIVE TRACKING ══════════════ */}
-        <div className="lg:col-span-5">
-          <GlassPanel className="h-full flex flex-col">
+        <div className="lg:col-span-5 flex flex-col gap-4">
+          {/* Real Google Maps with the live traffic layer. The SVG footprint
+              that used to sit here (IndiaTrackingMap, still below) drew the
+              toll-plaza network — useful as a coverage picture, but it is not
+              vehicle tracking and was titled as though it might be. The map
+              plots trucks that are actually reporting GPS and says plainly how
+              many are not. */}
+          <LiveFleetMap />
+
+          <GlassPanel className="flex flex-col">
             <PanelHeader
               icon={Satellite}
-              title={geo?.live_gps_available ? "Live Tracking in India" : "Fleet Route Footprint - India"}
-              accent="text-cyan-400"
-              right={<StatusPill tone={geo?.live_gps_available ? "green" : "cyan"} pulse={!!geo?.live_gps_available}><MapPin size={9} /> {geo?.live_gps_available ? "LIVE GPS" : "TOLL DATA"}</StatusPill>}
+              title="Fleet Route Footprint — India"
+              accent="text-slate-400"
+              sub="Toll-plaza network, not live positions"
+              right={<StatusPill tone="cyan"><MapPin size={9} /> TOLL DATA</StatusPill>}
             />
             <div className="flex-1 px-4 pb-4">
               <IndiaTrackingMap geo={geo} />
@@ -390,6 +401,11 @@ export default function MasterControlDashboard({ live }) {
       </div>
 
       {/* ══════════════ BOTTOM HUD — ACTIVITY TICKER ══════════════ */}
+      {/* Boss monitoring — real sessions and the real audit trail, as opposed
+          to the ticker below it, which is a scrolling summary of ledger
+          movements. */}
+      <LiveStaffTracker />
+
       <GlassPanel className="overflow-hidden border-cyan-500/25">
         <div className="flex items-center">
           <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 bg-cyan-500/10 border-r border-cyan-500/30">

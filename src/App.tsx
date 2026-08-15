@@ -9,6 +9,8 @@ const API = API_BASE;
 import SIDEBAR from './SIDEBAR';
 import PublicWebsite from './PublicWebsite';
 import Login from './Login';
+import ProfileMenu from './ui/ProfileMenu';
+import PortalSwitcher from './ui/PortalSwitcher';
 
 // 📦 ALL ERP MODULES — lazy-loaded (Phase B): each module downloads only when
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
@@ -412,7 +414,9 @@ export default function App() {
     }
   };
 
-  const profileAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.full_name || user?.name || 'User')}&background=38bdf8&color=fff&bold=true&size=100`;
+  // The avatar used to be fetched from ui-avatars.com — an external request, on
+  // every page load, carrying a staff member's real name in the query string to
+  // a third party. ProfileMenu draws initials locally instead.
 
   return (
     <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', overflow: 'hidden', background: '#020617', fontFamily: "'Inter', sans-serif" }}>
@@ -451,7 +455,10 @@ export default function App() {
                 <button onClick={() => setMobileMenuOpen(true)} style={{ background: 'transparent', border: 'none', color: '#38bdf8', fontSize: '26px', cursor: 'pointer', padding: 0 }}>☰</button>
                 <span style={{ color: '#fff', fontSize: '16px', fontWeight: '900', letterSpacing: '1px' }}>PRASAD TRANSPORT</span>
               </div>
-              <button onClick={handleLogout} style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)', color: 'white', border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.4)' }}>🚪</button>
+              {/* Same menu as desktop. The bare 🚪 that used to live here was a
+                  one-tap logout with no confirmation target and no way to see
+                  which account you were signed in as. */}
+              <ProfileMenu user={user} onLogout={handleLogout} compact />
             </div>
           ) : (
             // 💻 DESKTOP TOP BAR
@@ -474,20 +481,15 @@ export default function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <div style={{ display: 'flex', gap: '10px', marginRight: '15px', paddingRight: '15px', borderRight: '1px solid #334155', flexWrap: 'wrap' }}>
-                  <button onClick={() => handleComponentChange('PARTNER_PORTAL_PREVIEW')} style={{ background: 'linear-gradient(135deg, #f97316, #ea580c)', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}><span>👁️</span> VENDOR</button>
-                  <button onClick={() => handleComponentChange('CUSTOMER_PORTAL_PREVIEW')} style={{ background: 'linear-gradient(135deg, #ec4899, #be185d)', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}><span>👁️</span> CUSTOMER</button>
-                  <button onClick={() => handleComponentChange('DRIVER_PORTAL_PREVIEW')} style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}><span>👁️</span> DRIVER APP</button>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(30, 41, 59, 0.8)', padding: '5px 15px 5px 5px', borderRadius: '50px' }}>
-                  <img src={profileAvatar} alt="User" style={{ width: '36px', height: '36px', borderRadius: '50%', border: '2px solid #38bdf8' }} />
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold', lineHeight: '1.2' }}>{user?.full_name || user?.name || 'Staff'}</span>
-                    <span style={{ color: '#38bdf8', fontSize: '10px', fontWeight: '900' }}>{user?.role || 'STAFF'}</span>
-                  </div>
-                </div>
-                <button onClick={handleLogout} style={{ background: 'linear-gradient(135deg, #ef4444, #b91c1c)', color: 'white', border: 'none', padding: '12px 20px', borderRadius: '10px', fontWeight: '900', cursor: 'pointer' }}>LOGOUT</button>
+              {/* Right cluster: the three portal previews collapse into one
+                  "View As" menu, and the name/role/LOGOUT block collapses into
+                  a single avatar. That is ~260px of header handed back to the
+                  module tabs, which used to wrap onto a second row on a
+                  laptop. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'flex-end', flexShrink: 0 }}>
+                <PortalSwitcher onOpen={handleComponentChange} activeComponent={activeComponent} />
+                <div style={{ width: 1, height: 26, background: '#334155', flexShrink: 0 }} />
+                <ProfileMenu user={user} onLogout={handleLogout} />
               </div>
             </>
           )}

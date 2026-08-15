@@ -1,0 +1,29 @@
+# Normalise line endings in the repository.
+#
+# This tree is developed on Windows with core.autocrlf=true, which rewrites
+# checked-out files to CRLF. For most files that is invisible. For two kinds
+# here it is not:
+#
+#   *.sql  — the migration runner checksums each file to detect "applied then
+#            edited" drift. A CRLF checkout changes every checksum and the
+#            runner refuses to apply anything, reporting all 46 applied
+#            migrations as tampered. (The runner now normalises before hashing
+#            too; this keeps the bytes themselves stable.)
+#   *.sh   — a shell script with CRLF fails on the AWS box with the classic
+#            "bad interpreter: /usr/bin/env bash^M". deploy/aws/ci-deploy.sh is
+#            the production deploy path.
+#
+# PowerShell scripts stay CRLF: they run on Windows, and the scheduled tasks
+# that call them are ASCII/CRLF-sensitive (see CLAUDE.md).
+* text=auto
+
+*.sql  text eol=lf
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.jks  binary
+*.keystore binary
+*.aab  binary

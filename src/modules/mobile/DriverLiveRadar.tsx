@@ -12,6 +12,7 @@ import {
 import { GlassPanel, StatusPill, Dot } from '../../mastercontrol/shared';
 import useGeoPolling from './hooks/useGeoPolling';
 import useLiveTracking from './hooks/useLiveTracking';
+import { emitGpsFix } from '../../lib/gpsEmitter';
 import { useAuth } from './auth/AuthProvider';
 
 const ASSIGNED_TRIP = {
@@ -26,7 +27,18 @@ const ASSIGNED_TRIP = {
 export default function DriverLiveRadar() {
   const { user, logout } = useAuth();
   const tracking = useLiveTracking({ tripId: ASSIGNED_TRIP.id, route: ASSIGNED_TRIP.route });
-  const geo = useGeoPolling({ onFix: (fix) => tracking.sendPosition(fix) });
+  // Every fix goes two places now: the in-memory bus that drives this screen,
+  // and trip_gps_pings via POST /tracking/ping so the dispatch board can see
+  // the truck at all. Only genuine device fixes are persisted — emitGpsFix
+  // drops the simulated fallback rather than writing invented coordinates into
+  // the table dispatch trusts.
+  const [lastPing, setLastPing] = useState(null);
+  const geo = useGeoPolling({
+    onFix: (fix) => {
+      tracking.sendPosition(fix);
+      emitGpsFix(ASSIGNED_TRIP.id, fix).then(setLastPing);
+    },
+  });
   const [online, setOnline] = useState(false);
 
   const toggle = () => {
@@ -70,6 +82,21 @@ export default function DriverLiveRadar() {
         <p className="text-[10px] text-slate-500">
           {online ? `Broadcasting location every ${geo.pollMs / 1000}s · bus: ${tracking.status}` : 'Go online to receive dispatches'}
         </p>
+        {/* Whether the fix actually reached trip_gps_pings. The distinction
+            matters to the driver: a device that refuses location still animates
+            this screen off the simulator, and without this line "ON DUTY —
+            LIVE" would look identical whether or not dispatch can see them. */}
+        {online && lastPing && (
+          <p className={`mt-1 text-[10px] font-bold ${lastPing.posted ? 'text-emerald-400' : 'text-amber-400/90'}`}>
+            {lastPing.posted
+              ? '● GPS recorded — dispatch can see this truck'
+              : lastPing.reason === 'simulated'
+                ? '● Device location off — position NOT sent to dispatch'
+                : lastPing.reason === 'throttled'
+                  ? '● GPS recorded — dispatch can see this truck'
+                  : `● Not recorded (${lastPing.reason}${lastPing.detail ? `: ${lastPing.detail}` : ''})`}
+          </p>
+        )}
       </GlassPanel>
 
       {/* live telemetry */}

@@ -37,7 +37,12 @@ const LOCK_AFTER = 5;          // failed password attempts
 const LOCK_MINUTES = 15;
 
 // Never let a password field leave the process, whatever the caller asked for.
-const SAFE = 'id, legacy_id, full_name, email, mobile, role, permissions, scope, branch, city, state, status, must_change_password, last_login_at, created_at';
+const SAFE = 'id, legacy_id, full_name, email, mobile, role, permissions, scope, branch, city, state, status, must_change_password, last_login_at, created_at, customer_id, vendor_id';
+
+// The hash written for accounts that came across from Firebase without a
+// credential. It is a sentinel, not a hash — nothing can ever verify against
+// it, which is the point.
+const MIGRATION_PLACEHOLDER = 'MIGRATION-RESET-REQUIRED';
 
 // ── permissions shape ───────────────────────────────────────────────────────
 // The column is jsonb with a CHECK that it is an OBJECT (users_permissions_is_object)
@@ -61,6 +66,19 @@ export async function requireAuth(req, reply) {
   req.user = claims;
 }
 
+/** Owner-level guard, reusable outside this module.
+ *
+ *  Compares against the role the DATABASE stores. The SPA had the same check
+ *  written as `role === 'Super Admin'`, which matches no row in `users` — that
+ *  spelling drift is exactly what this shared export exists to prevent. */
+export async function requireAdminRole(req, reply) {
+  const done = await requireAuth(req, reply);
+  if (done !== undefined) return done;
+  if (!['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
+    return reply.code(403).send({ error: 'FORBIDDEN', detail: 'admin role required' });
+  }
+}
+
 export async function registerAuthRoutes(app) {
   // ── Health ───────────────────────────────────────────────────────────────
   // Deploy-time question: "can anyone log in?" Answers without a credential.
@@ -69,8 +87,15 @@ export async function registerAuthRoutes(app) {
     let secretOk = true;
     try { issueToken({ sub: 'probe', jti: '00000000-0000-0000-0000-000000000000' }); }
     catch { secretOk = false; }
+    // "Can anyone log in?" means accounts with NO usable credential, which is
+    // the placeholder hash — not must_change_password, which now also marks
+    // provisioned accounts that have a real password and are merely required to
+    // rotate it. Counting the flag here reported healthy portal logins as
+    // locked-out staff.
     const pending = isDegraded() ? null
-      : (await query('SELECT count(*)::int AS n FROM users WHERE must_change_password')).rows[0].n;
+      : (await query(
+          `SELECT count(*)::int AS n FROM users
+            WHERE password_hash = $1 OR password_salt IS NULL`, [MIGRATION_PLACEHOLDER])).rows[0].n;
     return {
       ok: secretOk && !isDegraded(),
       jwt_secret: secretOk ? 'set' : 'MISSING — logins will fail',
@@ -101,7 +126,16 @@ export async function registerAuthRoutes(app) {
       return reply.code(429).send({ error: 'ACCOUNT_LOCKED', detail: `try again after ${new Date(u.locked_until).toLocaleTimeString()}` });
     }
     // The cutover signal. Distinguishable on purpose — see the header.
-    if (u.must_change_password) {
+    //
+    // Gate on "there is no password to check", NOT on must_change_password.
+    // Those were the same thing during the Firebase cutover and are not the
+    // same thing any more: an account provisioned with a real one-time password
+    // (portal logins, scripts/provision-portal-user.mjs) is flagged
+    // must_change_password so it is forced to rotate AFTER logging in. Gating
+    // on the flag locked those accounts out of the login they were just given —
+    // the rotation flag became a permanent refusal.
+    const hasNoPassword = u.password_hash === MIGRATION_PLACEHOLDER || !u.password_salt;
+    if (hasNoPassword) {
       return reply.code(409).send({
         error: 'PASSWORD_RESET_REQUIRED',
         detail: 'This account has no password yet — passwords were not carried over from Firebase. An admin must set one.',
@@ -240,7 +274,15 @@ export async function registerAuthRoutes(app) {
   app.get('/me', { preHandler: requireAuth }, async (req, reply) => {
     const { rows } = await query(`SELECT ${SAFE} FROM users WHERE id = $1::uuid`, [req.user.sub]);
     if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
-    return { user: permsOut(rows[0]) };
+    // The profile dropdown shows the address this session was opened from, so
+    // someone signed in on a machine they do not recognise can see it. It comes
+    // from auth_sessions (where the session was ESTABLISHED) rather than req.ip
+    // (where this one request came from) — behind a proxy those differ, and the
+    // useful question is "where is my session logged in from".
+    const { rows: sess } = await query(
+      `SELECT ip, user_agent, issued_at, last_seen_at, expires_at
+         FROM auth_sessions WHERE jti = $1::uuid`, [req.user.jti]);
+    return { user: permsOut(rows[0]), session: sess[0] ?? null };
   });
 
   // ── User administration ──────────────────────────────────────────────────
@@ -269,11 +311,12 @@ export async function registerAuthRoutes(app) {
         INSERT INTO users (full_name, email, mobile, role, permissions, scope, branch, city, state,
                            status, password_hash, password_salt, must_change_password)
         VALUES ($1,$2,$3,COALESCE($4,'VIEWER')::user_role,$5::jsonb,$6,$7,$8,$9,
-                'ACTIVE','MIGRATION-RESET-REQUIRED',NULL,true)
+                'ACTIVE',$10,NULL,true)
         RETURNING ${SAFE}`,
         [b.full_name, String(b.email).trim().toLowerCase(), b.mobile ? last10(b.mobile) : null,
          b.role ?? null, permsIn(b.permissions),
-         b.scope ?? null, b.branch ?? null, b.city ?? null, b.state ?? null]);
+         b.scope ?? null, b.branch ?? null, b.city ?? null, b.state ?? null,
+         MIGRATION_PLACEHOLDER]);
       return reply.code(201).send({ user: permsOut(rows[0]) });
     } catch (e) {
       if (e.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: 'that email already exists' });

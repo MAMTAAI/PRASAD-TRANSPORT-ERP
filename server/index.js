@@ -35,6 +35,8 @@ import { registerCrmRoutes } from './modules/crm.routes.js';
 import { registerAuthRoutes } from './modules/auth.routes.js';
 import { registerQueueRoutes } from './modules/queues.routes.js';
 import { registerDashboardRoutes } from './modules/dashboard.routes.js';
+import { registerPortalRoutes } from './modules/portal.routes.js';
+import { registerAuditLogger } from './lib/auditLogger.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
@@ -111,6 +113,13 @@ app.setErrorHandler((err, req, reply) => {
   });
 });
 
+// ── Audit trail ────────────────────────────────────────────────────────────
+// MUST be registered before the route modules below: a Fastify hook applies to
+// the routes registered after it in the same context, so moving this line down
+// silently stops auditing everything above it — the failure mode being an audit
+// log that looks healthy while covering none of the ERP.
+registerAuditLogger(app);
+
 // ── Modules ────────────────────────────────────────────────────────────────
 await app.register(registerVehicleRoutes, { prefix: '/api/vehicles' });
 await app.register(registerAgentRoutes,   { prefix: '/api/agents' });
@@ -143,6 +152,9 @@ await app.register(registerAuthRoutes,     { prefix: '/api/v1/auth' });
 // Review queues — retroactive expenses, the bill-parser mailboxes and what it
 // extracted, plus the sidebar's pending counts.
 await app.register(registerQueueRoutes,    { prefix: '/api/v1/queues' });
+// Customer and vendor portals. External parties, scoped server-side to their
+// own party row — the only routes here an outsider can reach.
+await app.register(registerPortalRoutes,   { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 
 

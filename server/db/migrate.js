@@ -20,6 +20,20 @@ import { initDb, getPool, query, closePool, DB_TARGET } from './pool.js';
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 const sha256 = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
 
+/** Line endings are not part of a migration's meaning.
+ *
+ *  This repo is checked out on Windows with core.autocrlf=true, so every .sql
+ *  file arrives CRLF while the checksums were recorded from LF content. That
+ *  made the drift check report ALL 46 applied migrations as "edited after the
+ *  fact" and refuse to run anything — a false alarm that is indistinguishable,
+ *  at the console, from the real corruption this check exists to catch.
+ *
+ *  Normalising before hashing reproduces every previously stored checksum
+ *  exactly (verified against all 46), so this needs no re-baselining, and it
+ *  makes the result independent of how the tree was checked out. .gitattributes
+ *  pins these files to LF as well; this is the belt to that's braces. */
+const normalize = (s) => s.replace(/\r\n/g, '\n');
+
 async function ensureLedgerTable() {
   await query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -36,7 +50,7 @@ function discover() {
     .filter((f) => f.endsWith('.sql'))
     .sort()
     .map((filename) => {
-      const sql = readFileSync(join(MIGRATIONS_DIR, filename), 'utf8');
+      const sql = normalize(readFileSync(join(MIGRATIONS_DIR, filename), 'utf8'));
       return { filename, sql, checksum: sha256(sql) };
     });
 }
