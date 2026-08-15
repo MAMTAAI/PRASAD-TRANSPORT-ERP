@@ -38,4 +38,28 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Driver location. The duty screen calls navigator.geolocation, and
+         Capacitor's WebView can only satisfy that if the permission is declared
+         here AND granted at runtime. Without these two lines the call is denied
+         silently, useGeoPolling falls back to its simulated NH-27 drift, and
+         gpsEmitter correctly refuses to persist a simulated fix — so a Play
+         Store build reports NO position at all while looking like it is
+         tracking. Foreground only: the app tracks while the driver is on duty
+         with the screen open, so ACCESS_BACKGROUND_LOCATION is deliberately NOT
+         requested (it also triggers a separate Play review that this use does
+         not need). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- GPS is how a truck is tracked, but a phone without it should still be
+         able to run the office screens, so neither is required to install. -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
+    <!-- NOT declared on purpose: CAMERA. Bill Scanner uses
+         <input type="file" capture="environment">, which hands off to the
+         system camera/picker app — the permission belongs to that app, not
+         ours. Declaring it anyway would ask drivers for access we never use and
+         add a permission Play asks us to justify. -->
 </manifest>
