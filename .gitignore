@@ -56,6 +56,7 @@ data/
 tools/iocl_recon/gmail_credentials.json
 tools/iocl_recon/gmail_token.json
 tools/iocl_recon/__pycache__/
+tools/fuel_recon/__pycache__/
 uploads/iocl_bills/
 reports/iocl_recon/
 # Parsed fuel-pump rows: real litres, rates and vehicle numbers from 11 pumps'
@@ -63,11 +64,25 @@ reports/iocl_recon/
 # tracked, its output is not.
 reports/fuel_rows.json
 reports/fuel_recon/
+reports/fuel_rows_recovery.json
+# Hand-read scanned pump bills. ocr_bands/ is page images of the bills
+# themselves — the commercial paperwork, same rule as uploads/. ocr_bills/ and
+# ocr_rows.json are what a reader made of them: every litre, rate, registration
+# and rupee off 30 real invoices. fleet_norms.json is the truck list they were
+# matched against. All business data; the TOOLS that produce it are tracked.
+reports/ocr_bands/
+reports/ocr_bills/
+reports/ocr_rows.json
+reports/fleet_norms.json
 
 # 📄 Scanned business documents (IOCL advices, bills, scans) — real commercial
 # paperwork, 400+ files. Only iocl_bills/ was excluded before, which let the
 # advices and scans through. Whole directory stays local.
 uploads/
+# ...and any copy of it. A backup of an ignored directory is the same documents
+# under a name the rule above does not match, which is exactly how they get
+# committed by an `add -A`.
+uploads.*.bak/
 
 # 🗄️ PostgreSQL dumps — a dump is the company's entire book of account. Once in
 # git history it cannot be removed without rewriting it, so backups live outside
