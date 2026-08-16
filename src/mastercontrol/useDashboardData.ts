@@ -12,7 +12,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
 
-const REFRESH_MS = 60000;
+// Poll cadence for every Master Control hub. 8s rather than the old 30s:
+// these dashboards are watched while somebody else is entering trips, and a
+// half-minute of staleness reads as 'the entry did not save'. Overridable
+// with VITE_DASHBOARD_REFRESH_MS.
+//
+// Still gated on document.visibilityState below -- a hidden tab polling every
+// eight seconds is just load with nobody looking at it.
+const REFRESH_MS = Number((import.meta as any).env?.VITE_DASHBOARD_REFRESH_MS) || 8000;
 
 export default function useDashboardData(qs = '') {
   const [data, setData] = useState(null);
@@ -53,7 +60,24 @@ export default function useDashboardData(qs = '') {
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') load();
     }, REFRESH_MS);
-    return () => { alive.current = false; clearInterval(id); };
+    // Coming back to a tab should show current numbers at once, not whatever
+    // was true when you wandered off plus up to REFRESH_MS.
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVis);
+    // Any screen that writes can announce it and the hubs refresh immediately
+    // instead of waiting out the poll:
+    //     window.dispatchEvent(new Event('erp:data-changed'))
+    // Cheaper and far less to go wrong than a socket, and it covers the case
+    // that actually bites -- saving a trip in one tab and watching the dashboard
+    // in another still needs the poll, but saving and looking is instant.
+    const onChanged = () => load();
+    window.addEventListener('erp:data-changed', onChanged);
+    return () => {
+      alive.current = false;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('erp:data-changed', onChanged);
+    };
   }, [load]);
 
   return { data, error, loading, fetchedAt, reload: load };
