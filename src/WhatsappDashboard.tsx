@@ -46,11 +46,13 @@ const WhatsappDashboard = () => {
   // 👤 USER SESSION — defaults to the real logged-in ERP user (audit trail)
   const erpUser = getErpUser();
   const [activeUser, setActiveUser] = useState(erpUser.name);
+  const [tripQ, setTripQ] = useState('');   // 52 active trips is too many to scroll blind
   const [waApi, setWaApi] = useState(WA_CLOUD); // switches to WA_LOCAL when reachable
   const [tab, setTab] = useState('TRIP CHAT'); 
   const [isWa, setIsWa] = useState(false);
   const [qr, setQr] = useState('');
   const [engStatus, setEngStatus] = useState('WAITING');
+  const [engError, setEngError] = useState(null);   // WHY it is down, not just that it is
   
   // 📡 FIREBASE DATA STATES
   const [waContacts, setWaContacts] = useState([]);
@@ -166,9 +168,16 @@ const WhatsappDashboard = () => {
         setIsWa(data.connected);
         setQr(data.qr);
         setEngStatus(data.status || (data.connected ? 'ONLINE' : 'OFFLINE'));
+        setEngError(data.connected ? null : (data.lastError || null));
       } catch (e) {
+        // The engine process is not answering at all. Until 16-08 that was the
+        // normal state: an unhandled puppeteer rejection killed the Node
+        // process seconds after boot, so this poll hit a closed port forever
+        // while the screen sat on "server connecting...". It now stays up and
+        // reports, so reaching this branch means genuinely not running.
         setIsWa(false);
         setEngStatus('OFFLINE');
+        setEngError('Engine not reachable on :5001 — start it with: npm start (in whatsapp-server)');
       }
     };
     checkServer();
@@ -331,6 +340,12 @@ const WhatsappDashboard = () => {
           )}
 
           {/* ======================= TAB 2: CONNECT ======================= */}
+          {tab === 'CONNECT' && engError && (
+            <div style={{marginBottom:'16px', padding:'14px 16px', borderRadius:'12px', background:'rgba(244,63,94,0.08)', border:'1px solid rgba(244,63,94,0.45)'}}>
+              <div style={{fontSize:'12px', fontWeight:'bold', color:'#F43F5E'}}>Engine not connected — {engStatus}</div>
+              <div style={{fontSize:'11px', color:'#FDA4AF', marginTop:'5px', wordBreak:'break-word'}}>{engError}</div>
+            </div>
+          )}
           {tab === 'CONNECT' && (
             <div style={{ textAlign:'center', paddingTop:'40px' }}>
               <h2 style={{fontSize:'28px', marginBottom:'10px'}}>Personal WhatsApp Link</h2>
@@ -347,17 +362,48 @@ const WhatsappDashboard = () => {
                <div style={{width: isMobile ? '100%' : '350px', maxHeight: isMobile ? '38vh' : 'none', background:theme.bg, borderRadius:'20px', border:`1px solid ${theme.border}`, display:'flex', flexDirection:'column', overflow:'hidden', flexShrink: 0}}>
                   <div style={{padding:'20px', borderBottom:`1px solid ${theme.border}`, background:theme.inputBg}}>
                       <h3 style={{margin:0, color:theme.wa}}>🚚 Active ERP Trips</h3>
-                      <p style={{fontSize:'12px', color:theme.sub, marginTop:'5px'}}>Auto-Synced from Trip Management</p>
+                      <p style={{fontSize:'12px', color:theme.sub, marginTop:'5px'}}>
+                        {liveTrips.length} live · auto-synced from Trip Management
+                      </p>
+                      <input
+                        value={tripQ}
+                        onChange={(e) => setTripQ(e.target.value)}
+                        placeholder="Trip code, vehicle, driver, customer..."
+                        style={{width:'100%', marginTop:'10px', background:theme.bg, border:`1px solid ${theme.border}`, color:'white', padding:'9px 12px', borderRadius:'10px', outline:'none', fontSize:'12px'}}
+                      />
                   </div>
                   <div style={{flex:1, overflowY:'auto', padding:'10px'}}>
                       {liveTrips.length === 0 && <div style={{textAlign:'center', color:theme.sub, marginTop:'30px', fontSize:'13px'}}>No Active Trips in ERP. <br/><br/>Start a trip from "Trip Command Center" to see it here!</div>}
-                      {liveTrips.map(t => (
+                      {(() => {
+                        // THE TRIP CODE WAS RENDERING BLANK. This read t.trip_id,
+                        // which does not exist on the payload -- the field is
+                        // trip_code. Every card showed an empty heading above the
+                        // vehicle number, so the one identifier an operator would
+                        // quote on the phone was the one thing missing.
+                        const q = tripQ.trim().toLowerCase();
+                        const shown = q
+                          ? liveTrips.filter(t => [t.trip_code, t.vehicle_no, t.driver_name, t.consignee_name, t.customer_name]
+                              .some(v => String(v ?? '').toLowerCase().includes(q)))
+                          : liveTrips;
+                        if (shown.length === 0 && liveTrips.length > 0) {
+                          return <div style={{textAlign:'center', color:theme.sub, marginTop:'30px', fontSize:'13px'}}>No trip matches “{tripQ}”.</div>;
+                        }
+                        const TONE = { IN_TRANSIT:'#38BDF8', LOADED:'#FACC15', LOADING:'#FACC15', UNLOADING:'#A78BFA', DISPUTED:'#F43F5E' };
+                        return shown.map(t => (
                           <div key={t.id} onClick={() => setActiveTrip(t)} style={{padding:'15px', background:activeTrip?.id === t.id ? 'rgba(56,189,248,0.1)' : 'transparent', borderRadius:'12px', cursor:'pointer', borderBottom:`1px solid ${theme.border}`, transition:'0.2s', borderLeft: activeTrip?.id === t.id ? `4px solid ${theme.accent}` : '4px solid transparent'}}>
-                             <div style={{fontWeight:'bold', fontSize:'15px', color:theme.accent}}>{t.trip_id}</div>
+                             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'8px'}}>
+                               <span style={{fontWeight:'bold', fontSize:'15px', color:theme.accent}}>{t.trip_code || '(no code)'}</span>
+                               {t.status && (
+                                 <span style={{fontSize:'9px', fontWeight:'bold', letterSpacing:'0.04em', padding:'2px 7px', borderRadius:'999px', color: TONE[t.status] || theme.sub, border:`1px solid ${TONE[t.status] || theme.border}`, whiteSpace:'nowrap'}}>
+                                   {String(t.status).replace(/_/g, ' ')}
+                                 </span>
+                               )}
+                             </div>
                              <div style={{fontSize:'12px', color:'white', marginTop:'5px'}}>🚛 Vehicle: {t.vehicle_no}</div>
                              <div style={{fontSize:'11px', color:theme.sub, marginTop:'3px'}}>Driver: {t.driver_name} <br/>Cust: {t.consignee_name}</div>
                           </div>
-                      ))}
+                        ));
+                      })()}
                   </div>
                </div>
 
@@ -366,7 +412,7 @@ const WhatsappDashboard = () => {
                        <>
                           <div style={{padding:'20px', background:theme.inputBg, borderBottom:`1px solid ${theme.border}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                               <div>
-                                  <h3 style={{margin:0, color:theme.accent}}>Trip: {activeTrip.trip_id}</h3>
+                                  <h3 style={{margin:0, color:theme.accent}}>Trip: {activeTrip.trip_code || '(no code)'}</h3>
                                   <div style={{fontSize:'12px', color:theme.sub, marginTop:'3px'}}>{activeTrip.loading_point} ➔ {activeTrip.consignee_name}</div>
                               </div>
                               <div style={{display:'flex', gap:'10px', background:theme.bg, padding:'5px', borderRadius:'10px'}}>

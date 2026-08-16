@@ -151,9 +151,22 @@ let engineStatus = 'STARTING';        // STARTING | WAITING_FOR_SCAN | ONLINE | 
 let lastHeartbeat = null;
 let reconnectAttempts = 0;
 let reinitInFlight = false;
+let lastError = null;              // what actually went wrong, for /api/status
 
 const client = new Client({
-    authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth') }),
+    // NAMED SESSION, not the default one.
+    //
+    // LocalAuth without a clientId writes to .wwebjs_auth/session. That profile
+    // went bad on 15-08 and crashed puppeteer during inject on every single
+    // boot — "Execution context was destroyed" — which is what took the engine
+    // down. Windows still holds open handles inside it, so it cannot be deleted
+    // while anything has it mapped; a clientId simply moves us to a clean
+    // profile (.wwebjs_auth/session-prasad-pro) and leaves the bad one sitting
+    // there, recoverable, harming nothing.
+    authStrategy: new LocalAuth({
+        dataPath: path.join(__dirname, '.wwebjs_auth'),
+        clientId: process.env.WA_CLIENT_ID || 'prasad-pro',
+    }),
     puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-extensions', '--disable-gpu'] }
 });
 
@@ -166,7 +179,17 @@ function scheduleReinit(reason) {
     console.log(`🔁 Reconnect #${reconnectAttempts} in ${delay / 1000}s (${reason})`);
     setTimeout(async () => {
         try { await client.destroy().catch(() => {}); } catch (e) {}
-        try { client.initialize(); } catch (e) { console.error('Re-init error:', e.message); }
+        // initialize() is async: a try/catch around the call catches nothing,
+        // because the failure arrives as a rejected promise long after it
+        // returns. That is how a browser crash used to kill the whole engine.
+        try {
+            await client.initialize();
+        } catch (e) {
+            lastError = e.message;
+            console.error('Re-init failed:', e.message);
+            reinitInFlight = false;
+            return scheduleReinit('re-init failed');
+        }
         reinitInFlight = false;
     }, delay);
 }
@@ -245,7 +268,32 @@ client.on('message', async (msg) => {
     } catch (err) { console.error('Auto-reply Error:', err); }
 });
 
-client.initialize();
+// BOOT. Puppeteer fails here more often than anywhere else — a half-written
+// session directory, a Chrome that vanished mid-launch, a page that navigated
+// while whatsapp-web.js was injecting into it. Every one of those arrives as a
+// rejected promise, and an unhandled rejection terminates Node. The HTTP server
+// on :5001 died with it, which is why the CRM sat on "server connecting..."
+// forever: it was polling a process that no longer existed.
+client.initialize().catch((e) => {
+    lastError = e.message;
+    console.error('Initial launch failed:', e.message);
+    scheduleReinit('initial launch failed');
+});
+
+// LAST RESORT. Anything that escapes the handlers above must not take the API
+// down with it. A dead engine that can still answer /api/status with OFFLINE is
+// recoverable from the UI; a dead process is not.
+process.on('unhandledRejection', (err) => {
+    const msg = err && err.message ? err.message : String(err);
+    lastError = msg;
+    console.error('⚠  Unhandled rejection (engine stays up):', msg);
+    if (engineStatus !== 'WAITING_FOR_SCAN') { isConnected = false; scheduleReinit('unhandled rejection'); }
+});
+process.on('uncaughtException', (err) => {
+    lastError = err.message;
+    console.error('⚠  Uncaught exception (engine stays up):', err.message);
+    if (engineStatus !== 'WAITING_FOR_SCAN') { isConnected = false; scheduleReinit('uncaught exception'); }
+});
 
 // ==========================================
 // 🌐 API ROUTES
@@ -257,6 +305,9 @@ const statusPayload = () => ({
     lastHeartbeat,
     reconnectAttempts,
     server: 'local-pc',
+    // "Offline" on its own tells an operator nothing they can act on.
+    lastError,
+    uptimeSec: Math.round(process.uptime()),
 });
 app.get('/api/status', (req, res) => res.json(statusPayload()));
 app.get('/api/status/:userId', (req, res) => res.json(statusPayload())); // frontend contract
