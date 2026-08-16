@@ -27,6 +27,24 @@ PostgreSQL (`prasad_erp`), and a 10-agent swarm in `server/agents/`.
   SQL or a decimal library — never in JS floats.
 - **PowerShell scripts must be ASCII.** Non-ASCII breaks the scheduled tasks.
 
+- **Pushing `main` is deploying.** `deploy/aws/ci-deploy.sh` runs on the AWS box
+  from cron every 3 minutes: it fetches `origin/main`, fast-forwards, and
+  `pm2 restart`s the API, the web app and the AI bridge. There is no approval
+  step and no confirmation — the push *is* the release, with a three-minute
+  fuse. On 16-08-2026 six commits reached production this way during what
+  everyone involved believed was ordinary committing.
+
+  **Work goes to `upgrade-2026`. `main` is the approval gate.**
+
+  ```bash
+  git push origin upgrade-2026                          # normal
+  PRASAD_DEPLOY_APPROVED=1 git push origin main         # deliberate release
+  ```
+
+  Enforced by `.githooks/pre-push` (`core.hooksPath=.githooks`), which refuses a
+  `main` push without that variable. A fresh clone must run
+  `git config core.hooksPath .githooks` once — hooks are not cloned.
+
 ---
 
 # OPERATIONAL SKILL: IOCL Bill Automation

@@ -1,0 +1,50 @@
+#!/bin/sh
+# .githooks/pre-push
+# ---------------------------------------------------------------------------
+# PUSHING main IS DEPLOYING. Refuse it unless somebody says so out loud.
+#
+# deploy/aws/ci-deploy.sh runs on the AWS box from cron every 3 minutes:
+#     git fetch origin main
+#     [ "$LOCAL" = "$REMOTE" ] || git merge --ff-only origin/main
+#     pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
+#
+# So `git push origin main` is not a source-control operation on this repo, it
+# is a production release with a three-minute fuse and no confirmation step.
+# On 16 Aug 2026 six commits reached production that way during what everyone
+# involved believed was ordinary committing. Nothing broke, but nothing was
+# meant to ship either.
+#
+# Work goes to upgrade-2026. main is the approval gate.
+#
+# To deploy deliberately:
+#     PRASAD_DEPLOY_APPROVED=1 git push origin main
+#
+# The variable is the whole point -- it cannot be typed by accident, and it
+# makes "I am releasing to production" a sentence somebody had to write.
+# ---------------------------------------------------------------------------
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      if [ "$PRASAD_DEPLOY_APPROVED" = "1" ]; then
+        echo "pre-push: PRASAD_DEPLOY_APPROVED=1 -- releasing $remote_ref to production."
+      else
+        echo ""
+        echo "  BLOCKED: pushing $remote_ref deploys to AWS within 3 minutes."
+        echo ""
+        echo "  The box pulls origin/main on a cron and pm2-restarts the API,"
+        echo "  the web app and the AI bridge. This is a production release."
+        echo ""
+        echo "  Push your work to upgrade-2026 instead:"
+        echo "      git push origin upgrade-2026"
+        echo ""
+        echo "  If you really do mean to release, say so explicitly:"
+        echo "      PRASAD_DEPLOY_APPROVED=1 git push origin main"
+        echo ""
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+exit 0
