@@ -2,26 +2,24 @@
 // ============================================================================
 // MODULE 1 — OPERATIONS FLEET COMMAND (Ops View)
 // Left: KPIs · Document Vault · Driver Command Center
-// Center: Best Vehicle Trips chart · Fleet Maintenance Hub · Live Fleet table
+// Center: Vehicle RTKM productivity · Driver shortage recovery ·
+//         Fleet Maintenance Hub · Live Fleet table
 // Right: Live Dispatch Chat (Driver Vijay Singh — PT00409)
 // ============================================================================
 import React, { useEffect, useState } from 'react';
 import {
   Truck, Route, PackageOpen, FileWarning, ShieldAlert, FileCheck2,
-  Users, TrendingUp, Wrench, Radio, MessageSquareText, Send, Mic,
+  Users, Wrench, Radio, MessageSquareText, Send, Mic,
   FileText, ScanLine, Phone, Video, AlertTriangle, Gauge,
 } from 'lucide-react';
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
-} from 'recharts';
-import {
   GlassPanel, PanelHeader, KpiCard, StatusPill, Dot, Avatar,
-  chartTooltipStyle, axisStyle,
 } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import LiveFleetMap from './LiveFleetMap';
 import { UnloadingQueue } from './OpsWidgets';
+import { VehicleRtkmPanel, ShortageRecoveryPanel } from './FleetProductivity';
 
 // Shown wherever the ERP genuinely holds no rows yet — never faked with a
 // plausible-looking number.
@@ -48,12 +46,6 @@ const drivers = [
   { name: 'Sanjiv Yadav', dl: { label: 'DL: Valid', tone: 'green' }, hzd: { label: 'HZD: Valid', tone: 'green' } },
   { name: 'Nazrul Islam', dl: { label: 'DL: <10 Days', tone: 'amber' }, hzd: { label: 'HZD: Valid', tone: 'green' } },
   { name: 'Ajay Kumar', dl: { label: 'DL: <30 Days', tone: 'amber' }, hzd: { label: 'HZD: <5 Days', tone: 'amber' } },
-];
-
-const bestVehicleTrips = [
-  { day: 'Mon', trips: 31 }, { day: 'Tue', trips: 38 }, { day: 'Wed', trips: 34 },
-  { day: 'Thu', trips: 42 }, { day: 'Fri', trips: 37 }, { day: 'Sat', trips: 45 },
-  { day: 'Sun', trips: 39 },
 ];
 
 const liveFleet = [
@@ -94,7 +86,6 @@ export default function OperationsDashboard({ live, filter }) {
     { label: 'Pending Unloading', value: String(ops.pending_unloading), sub: 'Awaiting unload', icon: PackageOpen, accent: 'amber' },
   ] : kpis;
 
-  const chartData = ops?.trips_by_day?.length ? ops.trips_by_day : bestVehicleTrips;
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
   const driverRows = ops?.drivers?.length ? ops.drivers : [];
   const vault = ops?.doc_vault ?? [];
@@ -171,36 +162,15 @@ export default function OperationsDashboard({ live, filter }) {
       {/* ══════════════ CENTER PANEL ══════════════ */}
       <div className="lg:col-span-6 min-w-0 flex flex-col gap-4">
 
-        {/* Best Vehicle Trips */}
-        <GlassPanel>
-          <PanelHeader
-            icon={TrendingUp}
-            title="Best Vehicle Trips"
-            accent="text-cyan-400"
-            right={
-              <div className="hidden sm:flex items-center gap-1 text-[10px] text-slate-500 font-semibold">
-                <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">7 Days</span>
-                <span className="px-2 py-0.5">15 Days</span>
-                <span className="px-2 py-0.5">1 Month</span>
-              </div>
-            }
-          />
-          <div className="px-2 pb-3 h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 16, left: -18, bottom: 0 }}>
-                <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="day" tick={axisStyle} axisLine={false} tickLine={false} />
-                <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
-                <Tooltip {...chartTooltipStyle} />
-                <Line
-                  type="monotone" dataKey="trips" stroke="#22d3ee" strokeWidth={2.5}
-                  dot={{ r: 3, fill: '#22d3ee', strokeWidth: 0 }}
-                  activeDot={{ r: 5, fill: '#67e8f9' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </GlassPanel>
+        {/* Vehicle productivity replaces the old "Best Vehicle Trips" line
+            chart. That chart plotted trips per weekday: a shape with no vehicle
+            in it, so nothing followed from reading it. This names the trucks
+            and puts what they earned and lost on the same row. */}
+        <VehicleRtkmPanel live={live} />
+
+        {/* Shortage recovery sits with operations because collecting it is an
+            operations job, not an accounts one. */}
+        <ShortageRecoveryPanel live={live} />
 
         {/* Fleet Maintenance Hub */}
         <GlassPanel>

@@ -188,6 +188,111 @@ export function registerDashboardRoutes(app) {
       }));
     }, []);
 
+    // Vehicle productivity by RTKM — the whole ranked list, once.
+    //
+    // FREIGHT IS `billed_amount`, NOT `freight_amount`. Only 21 trips carry
+    // freight_amount; 489 carry billed_amount, totalling 1,42,54,037.90, which
+    // is what the books and the owner matrix read. Defining freight any other
+    // way here would put two different revenue figures on the same screen —
+    // exactly the disagreement the matrix comment warns about — so this reuses
+    // the same COALESCE the owners route uses.
+    //
+    // Every figure is summed IN SQL and handed over as a numeric string. Money
+    // never touches a JS float on the way to the screen.
+    const vehicle_rtkm = await safe(errors, 'vehicle_rtkm', async () => {
+      const { rows } = await query(`
+        SELECT t.vehicle_no,
+               count(*)::int                                   AS trips,
+               round(sum(t.rtkm), 1)                           AS total_rtkm,
+               COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0)
+                                                               AS freight,
+               COALESCE(sum(t.shortage_penalty), 0)            AS shortage,
+               count(*) FILTER (WHERE COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0) = 0)::int
+                                                               AS unbilled_trips
+          FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+         WHERE t.vehicle_no IS NOT NULL AND t.rtkm > 0 ${TRIP_F}
+         GROUP BY t.vehicle_no
+         ORDER BY sum(t.rtkm) DESC`, P);
+      const all = rows.map((r) => ({
+        vehicle: r.vehicle_no,
+        trips: num(r.trips),
+        rtkm: r.total_rtkm,          // numeric -> string, formatted client-side
+        freight: r.freight,
+        shortage: r.shortage,
+        unbilled_trips: num(r.unbilled_trips),
+      }));
+      // Bottom 5 is the tail of the SAME ordering rather than a second query
+      // with ORDER BY ASC — one sort cannot disagree with itself, and with
+      // fewer than 10 vehicles in scope the two lists would otherwise overlap
+      // silently. `overlap` says so out loud instead.
+      const top = all.slice(0, 5);
+      const bottom = all.slice(-5).reverse();
+      return {
+        top,
+        bottom,
+        all,
+        vehicles: all.length,
+        overlap: all.length > 0 && all.length < 10,
+      };
+    }, { top: [], bottom: [], all: [], vehicles: 0, overlap: false });
+
+    // Driver shortage recovery.
+    //
+    // PENDING MEANS NOT YET RECOVERED, not "has a penalty". Every recovery is a
+    // driver_transactions row of type SHORTAGE_RECOVERY carrying the trip_id, so
+    // outstanding is penalty minus what has already been taken back. As of now
+    // all ten penalties are fully recovered and this list is empty — which is
+    // the correct answer, and the reason the recovered set is returned
+    // alongside rather than folded in. Showing a settled penalty as actionable
+    // is how a driver gets docked for the same shortage twice.
+    const shortage_recovery = await safe(errors, 'shortage_recovery', async () => {
+      const { rows } = await query(`
+        WITH per_trip AS (
+          SELECT t.id, t.trip_code, t.driver_name, t.vehicle_no, t.loading_date,
+                 COALESCE(t.shortage_qty, 0)                AS qty,
+                 COALESCE(t.shortage_penalty, 0)            AS penalty,
+                 COALESCE(rec.recovered, 0)                 AS recovered
+            FROM trips t
+            JOIN vehicles v ON v.id = t.vehicle_id
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(sum(dt.amount), 0) AS recovered
+                FROM driver_transactions dt
+               WHERE dt.trip_id = t.id AND dt.txn_type = 'SHORTAGE_RECOVERY'
+            ) rec ON true
+           WHERE COALESCE(t.shortage_penalty, 0) > 0 ${TRIP_F}
+        )
+        SELECT COALESCE(driver_name, 'driver not recorded') AS driver_name,
+               vehicle_no,
+               count(*)::int         AS trips,
+               sum(qty)              AS qty,
+               sum(penalty)          AS penalty,
+               sum(recovered)        AS recovered,
+               sum(penalty) - sum(recovered) AS pending,
+               max(loading_date)     AS latest,
+               string_agg(trip_code, ', ' ORDER BY penalty DESC) AS trip_codes
+          FROM per_trip
+         GROUP BY 1, 2
+         ORDER BY (sum(penalty) - sum(recovered)) DESC, sum(penalty) DESC`, P);
+      const map = (r) => ({
+        driver: r.driver_name,
+        vehicle: r.vehicle_no,
+        trips: num(r.trips),
+        qty: r.qty,
+        penalty: r.penalty,
+        recovered: r.recovered,
+        pending: r.pending,
+        latest: r.latest,
+        trip_codes: r.trip_codes,
+      });
+      // Compare as numbers only for the pending/settled SPLIT — never to
+      // produce a figure. Every rupee shown is the SQL-summed string.
+      const rowsOut = rows.map(map);
+      return {
+        pending: rowsOut.filter((r) => Number(r.pending) > 0.005),
+        settled: rowsOut.filter((r) => Number(r.pending) <= 0.005),
+      };
+    }, { pending: [], settled: [] });
+
     // ── FINANCE ─────────────────────────────────────────────────────────────
     const money = await safe(errors, 'money', async () => {
       const { rows } = await query(`
@@ -586,7 +691,8 @@ export function registerDashboardRoutes(app) {
       // Echoed back so the UI can label the page with what it actually applied,
       // rather than with what the user believes they selected.
       filter: F,
-      ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue },
+      ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
+             vehicle_rtkm, shortage_recovery },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.

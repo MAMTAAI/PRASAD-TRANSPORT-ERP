@@ -55,6 +55,11 @@ data/
 # IOCL bill automation — credentials and working data (never commit)
 tools/iocl_recon/gmail_credentials.json
 tools/iocl_recon/gmail_token.json
+# Per-mailbox tokens (jaiswal_token.json, ...). Glob, not one line per file:
+# these are live credentials and a new profile must not be committable just
+# because nobody remembered to add a line here for it.
+tools/iocl_recon/*_token.json
+tools/iocl_recon/*_credentials.json
 tools/iocl_recon/__pycache__/
 tools/fuel_recon/__pycache__/
 uploads/iocl_bills/

@@ -56,8 +56,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HERE = Path(__file__).resolve().parent
 CREDS = HERE / "gmail_credentials.json"
-TOKEN = HERE / "gmail_token.json"
+TOKEN = HERE / "gmail_token.json"          # the IOCL/Prasad mailbox, the default
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+
+def token_path(name: str | None) -> Path:
+    """Where this run's token lives.
+
+    ONE MAILBOX PER FILE. The pipeline started with a single hard-coded
+    gmail_token.json, which meant authorising a second mailbox necessarily
+    destroyed the first: same path, last writer wins, and the only symptom is
+    the IOCL fetch quietly reading someone else's inbox. A name selects the
+    file instead, so Prasad and Jaiswal coexist and neither can clobber the
+    other by accident.
+
+    Accepts a bare profile name ("jaiswal"), a filename ("jaiswal_token.json")
+    or a full path. Bare names and filenames resolve next to this script,
+    alongside the credentials they were issued against.
+    """
+    if not name:
+        return TOKEN
+    p = Path(name)
+    if p.is_absolute() or len(p.parts) > 1:
+        return p
+    if not p.name.endswith(".json"):
+        p = Path(f"{p.name}_token.json")
+    return HERE / p.name
 
 # The window the pipeline reconciles, used here only to show what Gmail holds.
 DEFAULT_FROM = date(2026, 4, 1)
@@ -99,36 +123,37 @@ def inspect_credentials() -> dict:
     return {"ok": False, "reason": "unrecognised client secret (no 'installed' or 'web' key)"}
 
 
-def load_token():
+def load_token(tok: Path):
     from google.oauth2.credentials import Credentials
-    if not TOKEN.exists():
+    if not tok.exists():
         return None
     try:
-        return Credentials.from_authorized_user_file(str(TOKEN), SCOPES)
+        return Credentials.from_authorized_user_file(str(tok), SCOPES)
     except Exception:
         return None
 
 
-def save_token(creds) -> None:
-    TOKEN.write_text(creds.to_json(), encoding="utf-8")
+def save_token(creds, tok: Path) -> None:
+    tok.write_text(creds.to_json(), encoding="utf-8")
     try:
-        os.chmod(TOKEN, 0o600)
+        os.chmod(tok, 0o600)
     except OSError:
         pass
 
 
-def authorise(force: bool = False, account: str | None = None):
+def authorise(tok: Path, force: bool = False, account: str | None = None,
+              open_browser: bool = True):
     from google.auth.transport.requests import Request
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    creds = None if force else load_token()
+    creds = None if force else load_token(tok)
     if creds and creds.valid:
-        step("2", "existing token is valid - no browser needed")
+        step("2", f"existing token is valid ({tok.name}) - no browser needed")
         return creds
     if creds and creds.expired and creds.refresh_token:
-        step("2", "token expired - refreshing silently")
+        step("2", f"token expired ({tok.name}) - refreshing silently")
         creds.refresh(Request())
-        save_token(creds)
+        save_token(creds, tok)
         return creds
 
     step("2", "opening your browser for consent (approve, then come back here)")
@@ -144,13 +169,51 @@ def authorise(force: bool = False, account: str | None = None):
     kwargs = {"prompt": "select_account consent"}
     if account:
         kwargs["login_hint"] = account
-    creds = flow.run_local_server(port=0, **kwargs)
-    save_token(creds)
-    step("2", f"token saved -> {TOKEN.name} (chmod 600, gitignored)")
+    # access_type=offline is what gets a refresh_token back. Without it the
+    # token dies in an hour and the pipeline needs a human every run.
+    kwargs["access_type"] = "offline"
+
+    # --no-browser prints the URL and waits instead of launching a browser.
+    # The loopback listener is up either way -- that is what receives Google's
+    # redirect -- so the URL has to be opened ON THIS MACHINE, not on a phone.
+    rule = "-" * 70
+    prompt = "\n".join([
+        "",
+        rule,
+        "  OPEN THIS URL IN A BROWSER ON THIS MACHINE AND APPROVE:",
+        "",
+        "  {url}",
+        "",
+        "  (this console is now waiting for Google's redirect to come back)",
+        rule,
+    ])
+    creds = flow.run_local_server(
+        port=0,
+        open_browser=open_browser,
+        authorization_prompt_message=prompt,
+        success_message="Authorised. You can close this tab and return to the console.",
+        **kwargs)
+    save_token(creds, tok)
+    step("2", f"token saved -> {tok.name} (chmod 600, gitignored)")
     return creds
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+def whoami(creds) -> str:
+    """Which mailbox this token actually opens.
+
+    Worth printing on every path. A token is just a file, and the failure that
+    actually happens is a perfectly valid one pointed at the wrong account —
+    it looks identical to success from every other angle.
+    """
+    from googleapiclient.discovery import build
+    prof = build("gmail", "v1", credentials=creds,
+                 cache_discovery=False).users().getProfile(userId="me").execute()
+    addr = prof.get("emailAddress", "")
+    step("3", f"authorised mailbox: {addr} ({prof.get('messagesTotal', 0):,} messages)")
+    return addr
+
+
 def survey(creds, w_from: date, w_to: date) -> int:
     """Prove the connection works AND show what is actually reachable.
 
@@ -245,20 +308,50 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--account", default=None,
                     help="the mailbox that receives the bills. Pre-selects it in the consent "
                          "screen and REJECTS the token if a different account is approved.")
+    ap.add_argument("--token", default=None, metavar="NAME",
+                    help="which token file to read/write: a profile name ('jaiswal'), a "
+                         "filename ('jaiswal_token.json') or a path. Default gmail_token.json "
+                         "(the Prasad/IOCL mailbox). A SECOND MAILBOX MUST PASS THIS or it "
+                         "overwrites the first.")
+    ap.add_argument("--no-browser", action="store_true",
+                    help="print the authorisation URL and wait, instead of opening a browser. "
+                         "The URL still has to be opened on THIS machine -- the redirect comes "
+                         "back to a loopback port only this process is listening on.")
+    ap.add_argument("--no-survey", action="store_true",
+                    help="skip the IOCL bill survey. On a mailbox that receives no IOCL "
+                         "bills it correctly finds nothing, which is not a reason to call "
+                         "the setup failed.")
+    ap.add_argument("--survey", action="store_true",
+                    help="run the IOCL bill survey even on a named profile. Worth it whenever "
+                         "the second mailbox is ALSO an IOCL vendor account -- Jaiswal "
+                         "Enterprise (vendor 0011043022) receives its own b2bprd bills, so the "
+                         "survey is a real check there, not a formality.")
     ap.add_argument("--window-from", default=str(DEFAULT_FROM))
     ap.add_argument("--window-to", default=str(DEFAULT_TO))
     args = ap.parse_args(argv)
 
+    tok = token_path(args.token)
+    # Default the survey ON for the default mailbox and OFF for a named profile,
+    # because a profile that receives no IOCL bills finding none is the expected
+    # result rather than a failure — but let --survey force it back on. That
+    # escape hatch is not hypothetical: jaiswalenterprise2016@gmail.com is a
+    # SECOND IOCL vendor account (JAISWAL ENTERPRISE, vendor 0011043022) and gets
+    # its own b2bprd bills, so on that profile the survey is the real check that
+    # the token opens the mailbox we think it does.
+    do_survey = args.survey or (args.token is None)
+    if args.no_survey:
+        do_survey = False
+
     out("=" * 70)
-    out(" GMAIL SETUP · IOCL bill automation")
+    out(f" GMAIL SETUP · token file: {tok.name}")
     out("=" * 70)
 
     if args.revoke:
-        if TOKEN.exists():
-            TOKEN.unlink()
-            out("  token deleted. Re-run without --revoke to authorise again.")
+        if tok.exists():
+            tok.unlink()
+            out(f"  {tok.name} deleted. Re-run without --revoke to authorise again.")
         else:
-            out("  no token to delete.")
+            out(f"  no token at {tok.name} to delete.")
         return 0
 
     try:
@@ -290,19 +383,23 @@ def main(argv: list[str] | None = None) -> int:
               + (f", project {info['project']}" if info.get("project") else ""))
 
     if args.check:
-        creds = load_token()
+        creds = load_token(tok)
         if creds and creds.valid:
-            step("2", "token present and valid")
-            survey(creds, date.fromisoformat(args.window_from), date.fromisoformat(args.window_to))
+            step("2", f"token present and valid ({tok.name})")
+            whoami(creds)
+            if do_survey:
+                survey(creds, date.fromisoformat(args.window_from),
+                       date.fromisoformat(args.window_to))
             out("\n  READY. Run the pipeline:")
             out("    python tools/iocl_recon/iocl_bill_automation.py --live \\")
             out(f"      --window-from {args.window_from} --window-to {args.window_to}")
             return 0
-        step("2", "no valid token yet - re-run without --check to authorise")
+        step("2", f"no valid token at {tok.name} yet - re-run without --check to authorise")
         return 1
 
     try:
-        creds = authorise(force=args.force, account=args.account)
+        creds = authorise(tok, force=args.force, account=args.account,
+                          open_browser=not args.no_browser)
     except Exception as exc:
         msg = str(exc)
         out(f"\n  AUTHORISATION FAILED: {msg[:300]}")
@@ -321,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
     actual = build("gmail", "v1", credentials=creds, cache_discovery=False) \
         .users().getProfile(userId="me").execute().get("emailAddress", "")
     if args.account and actual.lower() != args.account.lower():
-        TOKEN.unlink(missing_ok=True)
+        tok.unlink(missing_ok=True)
         out(f"\n  WRONG MAILBOX - token discarded.")
         out(f"    expected : {args.account}")
         out(f"    got      : {actual}")
@@ -334,6 +431,24 @@ def main(argv: list[str] | None = None) -> int:
         out("         there is refused, and it is easy to fall back to the wrong one.")
         out("\n  Then re-run the same command.")
         return 2
+
+    if not do_survey:
+        # A named profile is not the IOCL mailbox, so there is nothing here to
+        # survey for. Report what was actually authorised and stop — the point
+        # of this run is the token, and the token exists.
+        out("\n" + "=" * 70)
+        out(f" SETUP COMPLETE · {actual}")
+        out("=" * 70)
+        out(f"  token   : {tok}")
+        out(f"  scope   : {', '.join(SCOPES)}")
+        out( "            read-only — this token cannot send, modify or delete mail")
+        out(f"  refresh : {'yes' if creds.refresh_token else 'NO — it will expire within the hour'}")
+        out("")
+        out("  Tokens on this machine (each one mailbox, none overwritten):")
+        for other in sorted(HERE.glob("*token*.json")):
+            mark = "   <- written by this run" if other.resolve() == tok.resolve() else ""
+            out(f"    {other.name}{mark}")
+        return 0
 
     try:
         found = survey(creds, date.fromisoformat(args.window_from), date.fromisoformat(args.window_to))
