@@ -346,7 +346,16 @@ export function VehicleRtkmPanel({ live, filter }) {
     // this you come back to figures from whenever you wandered off.
     const onVis = () => { if (document.visibilityState === 'visible') load(true); };
     document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+    // A save anywhere in the ERP refreshes this panel at once. The wrapper in
+    // lib/dataChangeBus fires this after any successful write to /api/v1, so
+    // the poll below is only the floor for changes made on ANOTHER machine.
+    const onChanged = () => load(true);
+    window.addEventListener('erp:data-changed', onChanged);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('erp:data-changed', onChanged);
+    };
   }, [load]);
 
   const top = data?.top ?? [];
@@ -359,7 +368,7 @@ export function VehicleRtkmPanel({ live, filter }) {
     : null;
 
   const TABS = [
-    { k: 'FORTNIGHT', label: '15 Day' },
+    { k: 'FORTNIGHT', label: 'Fortnight' },
     { k: 'MONTH', label: 'Month' },
     { k: 'YEAR', label: 'Year' },
     { k: 'ALL', label: 'All' },
@@ -418,7 +427,10 @@ export function VehicleRtkmPanel({ live, filter }) {
         </div>
 
         {/* the period's own totals — distance, money, and rupees per km */}
-        {tot && (
+        {/* Suppressed when the period is empty: three tiles reading 0 km and
+            Rs.0 look like a measured result, and this panel's whole failure mode
+            is a zero that gets believed. The empty state below says why instead. */}
+        {tot && !(state === 'ok' && all.length === 0) && (
           <div className="mb-2.5 grid grid-cols-3 gap-1.5">
             <Tile label="Total RTKM" value={km(tot.rtkm)} unit="km" tone="text-cyan-300"
                   delta={totalDelta} sub={data.previous ? `vs ${data.previous.label}` : null} />
@@ -441,11 +453,39 @@ export function VehicleRtkmPanel({ live, filter }) {
           <p className="py-3 text-center text-[11px] text-amber-400/80">Could not load productivity for this period.</p>
         )}
 
+        {/* THE 16th OF THE MONTH PROBLEM. A fortnight here is 1-15 and 16-end,
+            the boundaries IOCL bills on. Open this on the 16th and the current
+            fortnight is one day old and legitimately empty, while the previous
+            one holds everything. That is arithmetic, not a fault -- but a panel
+            that answers it with a bare 0 is indistinguishable from a broken one,
+            which is exactly how this got reported as a date-filter bug. So say
+            what IS there, with the figure, and make it one click away. */}
         {state === 'ok' && all.length === 0 && (
-          <p className="py-4 text-center text-[11px] leading-relaxed text-slate-500">
-            No trip with a recorded RTKM ran in {data.period?.label}.
-            {offset === 0 && ' This period may simply not have started yet — step back a period.'}
-          </p>
+          <div className="py-4 text-center">
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              No trip with a recorded RTKM ran in {data.period?.label}.
+            </p>
+            {offset === 0 && Number(tot?.prev_rtkm) > 0 && data.previous && (
+              <>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                  {data.previous.label} has{' '}
+                  <span className="font-bold text-cyan-300">{km(tot.prev_rtkm)} km</span>.
+                </p>
+                <button
+                  onClick={() => setOffset(1)}
+                  className="mt-2 rounded-lg border border-cyan-600/50 bg-cyan-500/10 px-3 py-1.5
+                             text-[10px] font-bold text-cyan-300 transition-colors hover:bg-cyan-500/20"
+                >
+                  Show {data.previous.label}
+                </button>
+              </>
+            )}
+            {offset === 0 && !(Number(tot?.prev_rtkm) > 0) && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                The period before it is empty too, so this is a gap in the data, not the calendar.
+              </p>
+            )}
+          </div>
         )}
 
         {state === 'ok' && all.length > 0 && (
@@ -767,7 +807,16 @@ export function ShortageRecoveryPanel({ live, filter }) {
     // showing nothing. Refresh on return, so what you look at is what is true.
     const onVis = () => { if (document.visibilityState === 'visible') load(true); };
     document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+    // A save anywhere in the ERP refreshes this panel at once. The wrapper in
+    // lib/dataChangeBus fires this after any successful write to /api/v1, so
+    // the poll below is only the floor for changes made on ANOTHER machine.
+    const onChanged = () => load(true);
+    window.addEventListener('erp:data-changed', onChanged);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('erp:data-changed', onChanged);
+    };
   }, [load]);
 
   const tot = data?.totals;
@@ -778,7 +827,7 @@ export function ShortageRecoveryPanel({ live, filter }) {
   const trendMax = Math.max(1, ...trend.map((x) => Number(x.charged)));
 
   const TABS = [
-    { k: 'FORTNIGHT', label: '15 Day' },
+    { k: 'FORTNIGHT', label: 'Fortnight' },
     { k: 'MONTH', label: 'Month' },
     { k: 'YEAR', label: 'Year' },
     { k: 'ALL', label: 'All' },
