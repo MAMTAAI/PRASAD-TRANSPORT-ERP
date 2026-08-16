@@ -391,33 +391,96 @@ export default function VehicleDocs() {
   };
 
   // 🌟 UNIVERSAL DRIVE LINK EXTRACTOR
+  // WHERE A DOCUMENT ACTUALLY LIVES NOW.
+  //
+  // This used to assume Google Drive and parse a file id out of `/d/` or `id=`.
+  // Drive went with Firebase; documents are stored by the API and served from
+  // GET /api/v1/files/<key>. A Drive-shaped parse of a LOCAL key finds no id,
+  // falls through to returning the raw string, and yields a Download button
+  // pointing at a relative path that resolves against the SPA route — which is
+  // why "Download" opened the dashboard instead of a PDF.
+  //
+  // Drive links still work, because documents filed before the cutover carry
+  // them. New ones take the API path, and ?download=1 is what makes the browser
+  // save the file instead of rendering it inline.
   const getDriveLinks = (rawLink: string) => {
-    if (!rawLink) return { view: '#', download: '#' };
+    if (!rawLink) return { view: '#', download: '#', kind: 'none' };
+
     let fileId = '';
     try {
-      if (rawLink.includes('/d/')) {
-         fileId = rawLink.split('/d/')[1].split('/')[0];
-      } else if (rawLink.includes('id=')) {
-         fileId = rawLink.split('id=')[1].split('&')[0];
+      if (rawLink.includes('drive.google.com')) {
+        if (rawLink.includes('/d/')) fileId = rawLink.split('/d/')[1].split('/')[0];
+        else if (rawLink.includes('id=')) fileId = rawLink.split('id=')[1].split('&')[0];
       }
-    } catch (e) { console.error("Link Parse Error", e); }
-
+    } catch (e) { console.error('Link Parse Error', e); }
     if (fileId) {
-      return { 
-        view: `https://drive.google.com/file/d/${fileId}/preview`, 
-        download: `https://drive.google.com/uc?export=download&id=${fileId}` 
+      return {
+        view: `https://drive.google.com/file/d/${fileId}/preview`,
+        download: `https://drive.google.com/uc?export=download&id=${fileId}`,
+        kind: 'drive',
       };
     }
-    return { view: rawLink, download: rawLink }; 
+
+    // Already absolute (an S3 presign, say) — used as-is.
+    if (/^https?:\/\//i.test(rawLink)) {
+      return { view: rawLink, download: rawLink, kind: 'external' };
+    }
+
+    // A stored key. Normalise so the same key works whether it was saved as
+    // "vehicle-docs/x.pdf" or "/api/v1/files/vehicle-docs/x.pdf".
+    const key = rawLink.replace(/^\/+/, '').replace(/^api\/v1\/files\//, '');
+    const base = `${API_BASE}/api/v1/files/${key}`;
+    return { view: base, download: `${base}?download=1`, kind: 'stored' };
   };
 
+  // A link that goes OUT has to be reachable from the recipient's phone.
+  // API_BASE is 127.0.0.1 in development, and a loopback URL in a WhatsApp
+  // message is a link that works for nobody. Say so rather than sending a dead
+  // link and letting the driver find out at the checkpost.
+  const shareableLink = (link: string) => {
+    const url = getDriveLinks(link).view;
+    return { url, reachable: !/^https?:\/\/(127\.0\.0\.1|localhost)/i.test(url) };
+  };
+
+  const shareBody = (docName: string, link: string, expiry: string) => {
+    const vNo = plateOf(selectedVehicle);
+    const { url, reachable } = shareableLink(link);
+    const text = [
+      `Vehicle Document: ${docName}`,
+      `Vehicle: ${vNo}`,
+      `Valid till: ${expiry || 'not recorded'}`,
+      '',
+      reachable
+        ? `View / download: ${url}`
+        : `(Link is only reachable inside the office network: ${url})`,
+      '',
+      '- Prasad Transport System',
+    ].join('\n');
+    return { vNo, url, reachable, text };
+  };
+
+  const warnIfUnreachable = (reachable: boolean, where: string) =>
+    reachable || confirm(
+      `This document link points at the office network and will not open ${where}. Send anyway?`);
+
   const shareDocument = (docName: string, link: string, expiry: string) => {
-     if(!link) return alert("No document file found to share.");
-     const vNo = plateOf(selectedVehicle);
-     const viewLink = getDriveLinks(link).view;
-     const message = `📄 *Vehicle Document Alert*\n\n🚛 Vehicle: *${vNo}*\n🔖 Document: *${docName}*\n📅 Valid Till: *${expiry || 'N/A'}*\n\n📂 View/Download Document here:\n${viewLink}\n\n- Prasad Transport System`;
-     const encodedMsg = encodeURIComponent(message);
-     window.open(`https://wa.me/?text=${encodedMsg}`, '_blank');
+    if (!link) return alert('No document file found to share.');
+    const { vNo, url, reachable } = shareBody(docName, link, expiry);
+    if (!warnIfUnreachable(reachable, 'on a phone outside it')) return;
+    const message = `📄 *Vehicle Document Alert*\n\n🚛 Vehicle: *${vNo}*\n🔖 Document: *${docName}*\n📅 Valid Till: *${expiry || 'N/A'}*\n\n📂 View/Download Document here:\n${url}\n\n- Prasad Transport System`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
+  };
+
+  const emailDocument = (docName: string, link: string, expiry: string) => {
+    if (!link) return alert('No document file found to share.');
+    const { vNo, reachable, text } = shareBody(docName, link, expiry);
+    if (!warnIfUnreachable(reachable, 'outside it')) return;
+    const subject = `${vNo} — ${docName}${expiry ? ` (valid till ${expiry})` : ''}`;
+    // mailto opens whatever mail client the operator already uses. Sending
+    // server-side would need an SMTP account this ERP does not have, and
+    // inventing one is not a UI change.
+    window.location.href =
+      `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
   };
 
   const uniqueOwners = Array.from(new Set(vehicles.filter(v => v.own_attach === 'Attached' && v.owner_name).map(v => v.owner_name)));
@@ -740,8 +803,12 @@ export default function VehicleDocs() {
                      <p style={{ margin: '0 0 10px 0', color: '#10b981', fontWeight: 'bold', fontSize: '13px' }}>✅ File Available</p>
                      <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', justifyContent: 'center' }}>
                        <a href={getDriveLinks(formData.document_file).view} target="_blank" rel="noreferrer" className="action-btn" style={{ borderColor: '#38bdf8', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)' }}>👁️ View Document</a>
-                       <a href={getDriveLinks(formData.document_file).download} target="_blank" rel="noreferrer" className="action-btn" style={{ borderColor: '#f59e0b', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>⬇️ Download</a>
-                       <button onClick={() => shareDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#22c55e', color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)' }}>💬 Share (WhatsApp)</button>
+                       {/* `download` on the anchor AND ?download=1 on the URL:
+                           the attribute is ignored cross-origin, the header is
+                           not, so between them the file saves either way. */}
+                       <a href={getDriveLinks(formData.document_file).download} download target="_blank" rel="noreferrer" className="action-btn" style={{ borderColor: '#f59e0b', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>⬇️ Download PDF</a>
+                       <button onClick={() => emailDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#a78bfa', color: '#a78bfa', background: 'rgba(167, 139, 250, 0.1)' }}>✉️ Share via Email</button>
+                       <button onClick={() => shareDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#22c55e', color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)' }}>💬 Share via WhatsApp</button>
                      </div>
                   </div>
                 )}

@@ -20,6 +20,13 @@ import { requireAdminRole } from './auth.routes.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
+/** One compliance alert, flattened for the client. */
+const mapAlert = (r) => ({
+  kind: r.subject_kind, subject: r.subject, owner: r.owner_name,
+  doc_type: r.doc_type, doc_name: r.doc_name,
+  expires_on: r.expires_on, days: num(r.days), source: r.source,
+});
+
 /** Run one aggregate; on failure record it and hand back a fallback. */
 async function safe(errors, label, fn, fallback) {
   try {
@@ -119,6 +126,35 @@ export function registerDashboardRoutes(app) {
         FROM d WHERE soonest IS NOT NULL ORDER BY soonest ASC`);
       return rows.map((r) => ({ doc: r.doc, expiry: r.soonest, days: num(r.days) }));
     }, []);
+
+    // THE 10-DAY RED ALERT. doc_vault above shows the soonest expiry per document
+    // TYPE across the fleet — useful as a summary, useless for acting, because it
+    // never names the lorry. This names every vehicle AND driver whose paper
+    // expires inside the operator's own 10-day window (compliance_alert_days(),
+    // migration 058), so the two screens cannot disagree about what "expiring"
+    // means. Already-expired items sort first: they are not a warning, they are
+    // a truck that should not be on the road.
+    const compliance_alerts = await safe(errors, 'compliance_alerts', async () => {
+      const { rows } = await query(`
+        SELECT subject_kind, subject, owner_name, doc_type,
+               COALESCE(doc_name, doc_type) AS doc_name,
+               expires_on, (expires_on - CURRENT_DATE)::int AS days, source
+          FROM v_compliance_alerts
+         WHERE expires_on - CURRENT_DATE <= compliance_alert_days()
+         ORDER BY expires_on ASC
+         LIMIT 60`);
+      // Proof the background sweep is alive. An empty list means "nothing
+      // expires soon" AND "the job died three weeks ago" — this tells them apart.
+      const { rows: run } = await query(`
+        SELECT ran_on, threshold_days, checked, expired, expiring
+          FROM compliance_alert_runs ORDER BY ran_on DESC LIMIT 1`);
+      return {
+        threshold_days: 10,
+        expired: rows.filter((r) => r.days < 0).map(mapAlert),
+        expiring: rows.filter((r) => r.days >= 0).map(mapAlert),
+        last_sweep: run[0] ?? null,
+      };
+    }, { threshold_days: 10, expired: [], expiring: [], last_sweep: null });
 
     const drivers = await safe(errors, 'drivers', async () => {
       const { rows } = await query(`
@@ -692,7 +728,7 @@ export function registerDashboardRoutes(app) {
       // rather than with what the user believes they selected.
       filter: F,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
-             vehicle_rtkm, shortage_recovery },
+             vehicle_rtkm, shortage_recovery, compliance_alerts },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.

@@ -22,6 +22,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Gauge, X, ArrowUpRight, ArrowDownRight, HandCoins, ShieldCheck, Search,
+  ShieldAlert, CalendarClock,
 } from 'lucide-react';
 import {
   GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote,
@@ -433,5 +434,130 @@ export function ShortageRecoveryPanel({ live }) {
         </p>
       )}
     </GlassPanel>
+  );
+}
+
+
+// ── COMPLIANCE EXPIRY ALERTS ────────────────────────────────────────────────
+// The Master Document Vault above shows the soonest expiry per document TYPE
+// across the fleet. That is a summary and cannot be acted on: it never names
+// the lorry or the driver. This does, for everything inside the operator's own
+// 10-day window, and it separates ALREADY EXPIRED from EXPIRING — the first is
+// not a warning, it is a vehicle that should not be on the road today.
+export function ComplianceAlertsPanel({ live }) {
+  const data = live?.data?.ops?.compliance_alerts;
+  const expired = data?.expired ?? [];
+  const expiring = data?.expiring ?? [];
+  const total = expired.length + expiring.length;
+  const sweep = data?.last_sweep ?? null;
+
+  // An empty list means "nothing expires soon" AND "the background sweep died
+  // three weeks ago". The sweep's own date is the only thing that tells them
+  // apart, so it is shown rather than assumed.
+  const sweepToday = sweep?.ran_on
+    ? String(sweep.ran_on).slice(0, 10) === new Date().toISOString().slice(0, 10)
+    : false;
+
+  return (
+    <GlassPanel className={expired.length ? 'border-red-500/50' : total ? 'border-amber-500/40' : 'border-slate-700/50'}>
+      <PanelHeader
+        icon={expired.length ? ShieldAlert : CalendarClock}
+        title="Compliance Expiry — 10 Day Watch"
+        accent={expired.length ? 'text-red-400' : total ? 'text-amber-400' : 'text-slate-400'}
+        sub={`vehicles and drivers · threshold ${data?.threshold_days ?? 10} days`}
+        right={
+          <StatusPill tone={expired.length ? 'red' : total ? 'amber' : 'emerald'} pulse={expired.length > 0}>
+            {expired.length ? `${expired.length} EXPIRED` : total ? `${total} due` : 'all current'}
+          </StatusPill>
+        }
+      />
+
+      <div className="px-3 pb-3">
+        {expired.length > 0 && (
+          <div className="mb-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 shadow-[0_0_20px_rgba(248,113,113,0.18)]">
+            <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-300">
+              <ShieldAlert size={13} /> {expired.length} document{expired.length === 1 ? '' : 's'} already expired
+            </p>
+            <p className="mt-0.5 text-[9.5px] leading-relaxed text-red-200/80">
+              These are not reminders. A lapsed licence or fitness certificate stops the vehicle at the first check.
+            </p>
+          </div>
+        )}
+
+        {total === 0 ? (
+          <p className="py-3 text-center text-[11px] text-slate-500">
+            Nothing expires within {data?.threshold_days ?? 10} days.
+          </p>
+        ) : (
+          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+            {[...expired, ...expiring].map((r, i) => (
+              <AlertRow key={`${r.kind}-${r.subject}-${r.doc_type}-${i}`} r={r} />
+            ))}
+          </div>
+        )}
+
+        <p className={`mt-2 border-t border-slate-800 pt-1.5 text-[9px] ${sweepToday ? 'text-slate-600' : 'text-amber-400/80'}`}>
+          {sweep
+            ? `Background sweep last ran ${String(sweep.ran_on).slice(0, 10)} — checked ${sweep.checked}, ${sweep.expired} expired.`
+              + (sweepToday ? '' : ' ⚠ That is not today; the check may not be running.')
+            : '⚠ The background sweep has never recorded a run — this list is live, but nothing is watching it.'}
+        </p>
+      </div>
+    </GlassPanel>
+  );
+}
+
+function AlertRow({ r }) {
+  const gone = r.days < 0;
+  const { triggerProps, overlay } = useHoverCard(() => (
+    <>
+      <HoverTitle sub={r.kind === 'DRIVER' ? 'Driver document' : 'Vehicle document'}>{r.subject}</HoverTitle>
+      <HoverKv k="Document" v={r.doc_name} mono={false} />
+      <HoverKv k="Expires on" v={String(r.expires_on).slice(0, 10)} />
+      <HoverKv strong k={gone ? 'Expired' : 'Days left'}
+               v={gone ? `${Math.abs(r.days)} day${Math.abs(r.days) === 1 ? '' : 's'} ago` : `${r.days}`}
+               tone={gone ? 'text-red-400' : r.days <= 3 ? 'text-red-300' : 'text-amber-300'} />
+      {r.owner && <HoverKv k="Owner" v={r.owner} mono={false} />}
+      <HoverNote tone={gone ? 'text-red-300/90' : 'text-amber-300/90'}>
+        {gone
+          ? 'Already lapsed. Renewing it posts the fee as a PENDING expense — it reaches the cashbook only after an admin approves it.'
+          : 'Renew before the date. The fee entered on the vault screen queues for approval rather than posting itself.'}
+      </HoverNote>
+      <HoverNote>Source: {r.source}</HoverNote>
+    </>
+  ), { placement: 'top', width: 290 });
+
+  return (
+    <>
+      <div
+        {...triggerProps}
+        tabIndex={0}
+        className={`touch-manipulation flex items-center gap-2.5 rounded-lg border px-2.5 py-2 outline-none
+                    transition-colors duration-100 focus-visible:ring-1 focus-visible:ring-cyan-400/60
+          ${gone
+            ? 'border-red-500/50 bg-red-500/10 hover:bg-red-500/15'
+            : r.days <= 3
+              ? 'border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/15'
+              : 'border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10'}`}
+      >
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider
+          ${r.kind === 'DRIVER' ? 'bg-violet-500/20 text-violet-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+          {r.kind === 'DRIVER' ? 'DRV' : 'VEH'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[11px] font-bold text-slate-100">{r.subject}</p>
+          <p className="truncate text-[9px] text-slate-500">{r.doc_name}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={`text-[11px] font-black ${gone ? 'text-red-400' : r.days <= 3 ? 'text-orange-300' : 'text-amber-300'}`}>
+            {gone ? `${Math.abs(r.days)}d ago` : `${r.days}d`}
+          </p>
+          <p className="text-[8.5px] uppercase tracking-wider text-slate-600">
+            {gone ? 'expired' : 'left'}
+          </p>
+        </div>
+      </div>
+      {overlay}
+    </>
   );
 }

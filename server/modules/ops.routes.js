@@ -497,12 +497,41 @@ export async function registerOpsRoutes(app) {
             : { amount: penalty, driver: trip.driver_name, ledger_note: err.message };
         }
       }
+      // ── ACCRUE THE FREIGHT ────────────────────────────────────────────────
+      // The truck has delivered, so the revenue is earned — whether or not the
+      // customer's invoice turns up this month. Santosh Prasad read as a 5.33
+      // lakh liability for months on exactly this gap: real trips, real costs,
+      // no revenue recognised until the IOCL bills arrived weeks later.
+      //
+      // The estimate lands on provisional_trips_ledger, NEVER on ledger_entries.
+      // It is not a posting and does not touch the P&L; it is cleared against
+      // the real figure when the invoice is reconciled.
+      //
+      // Failure here must not fail the unload. Recording that the truck emptied
+      // is the operational fact and the reason the driver is waiting; an
+      // accrual that could not be estimated is a bookkeeping gap the cycle-end
+      // sweep will pick up anyway.
+      let accrual = null;
+      if (b.complete !== false) {
+        try {
+          const { rows: acc } = await query(
+            `SELECT p.id, p.est_freight, p.est_fuel, p.est_toll, p.basis, p.status
+               FROM provisional_trips_ledger p
+              WHERE p.id = accrue_trip($1::uuid, 'UNLOAD')`, [req.params.id]);
+          accrual = acc[0] ?? null;
+        } catch (err) {
+          req.log.warn({ err: err.message, trip: req.params.id }, 'accrual skipped on unload');
+          accrual = { error: err.message };
+        }
+      }
+
       await drain().catch(() => {});
 
       return {
         unloaded: true, trip: rows[0],
         shortage_qty: shortageQty, shortage_penalty: penalty,
         driver_recovery: recovery,
+        accrual,
       };
     }
   );

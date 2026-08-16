@@ -19,7 +19,7 @@ import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import LiveFleetMap from './LiveFleetMap';
 import { UnloadingQueue } from './OpsWidgets';
-import { VehicleRtkmPanel, ShortageRecoveryPanel } from './FleetProductivity';
+import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from './FleetProductivity';
 
 // Shown wherever the ERP genuinely holds no rows yet — never faked with a
 // plausible-looking number.
@@ -136,6 +136,10 @@ export default function OperationsDashboard({ live, filter }) {
             })}
           </div>
         </GlassPanel>
+
+        {/* The 10-day red alert, directly under the vault it belongs to. The
+            vault says WHICH KIND of paper expires soonest; this says whose. */}
+        <ComplianceAlertsPanel live={live} />
 
         {/* Driver Command Center */}
         <GlassPanel>

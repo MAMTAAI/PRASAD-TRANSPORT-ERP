@@ -875,6 +875,80 @@ def post_driver_recoveries(conn, groups: list[ReconGroup], dry_run: bool = False
 # ═════════════════════════════════════════════════════════════════════════════
 # Voucher posting - through TARA, never straight into ledger_entries
 # ═════════════════════════════════════════════════════════════════════════════
+def reconcile_provisional_bundle(bill_no: str, gs: list, gross, voucher_id, args) -> dict:
+    """Clear the ACCRUAL this bill answers.
+
+    Every trip accrues an estimated freight when it unloads (accrue_trip, called
+    from POST /ops/trips/:id/unload). That estimate is a placeholder sitting on
+    provisional_trips_ledger, and it stays there, wrong and growing, until the
+    real invoice turns up. This is where it gets answered.
+
+    Three calls, deliberately separate:
+      bundles           group this bill's trips into ONE bundle for its cycle.
+                        Idempotent on bundle_code, and the PK on trip_id means
+                        a trip already bundled elsewhere is reported, not moved.
+      .../reconcile     record what the invoice actually said and compute the
+                        variance against the estimate.
+      .../clear         mark the provisional rows cleared, carrying the voucher
+                        id that put the FINAL figure in the real ledger.
+
+    reconcile and clear are split on purpose: a bundle that has been reconciled
+    but not cleared is visible as exactly that, rather than a provisional entry
+    quietly pretending to be settled money.
+
+    Never fatal. The voucher is already posted by the time this runs, and the
+    books are correct with or without it — an accrual left open is a reporting
+    inconvenience, not a wrong number. It is reported and the run continues.
+    """
+    import requests
+    base = args.api_base.rstrip("/") + "/api/v1"
+    trip_ids = [g.trip_id for g in gs if getattr(g, "trip_id", None)]
+    if not trip_ids:
+        return {"skipped": "no trip ids on the matched groups"}
+
+    # The cycle this bill's work fell in. Bills are fortnightly and so are
+    # cycles, so the latest trip date names it.
+    last = max((g.trip_date for g in gs if g.trip_date), default=None)
+    if last is None:
+        return {"skipped": "no trip dates"}
+    cycle_code = f"{last.year:04d}-{last.month:02d}-" + ("H1" if last.day <= 15 else "H2")
+
+    try:
+        r = requests.post(f"{base}/provisional/bundles", timeout=30, json={
+            "cycle_code": cycle_code,
+            "party_name": args.party_ledger,
+            "vendor_code": bill_no.split("_")[0] if "_" in bill_no else None,
+            "trip_ids": trip_ids,
+        })
+        if r.status_code not in (200, 201):
+            return {"skipped": f"bundle HTTP {r.status_code}", "body": r.text[:200]}
+        bundle = r.json()
+
+        rc = requests.post(f"{base}/provisional/bundles/{bundle['id']}/reconcile", timeout=30,
+                           json={"actual_freight": str(gross), "invoice_ref": bill_no})
+        if rc.status_code == 409:
+            return {"bundle": bundle.get("bundle_code"), "already_reconciled": True}
+        if rc.status_code != 200:
+            return {"skipped": f"reconcile HTTP {rc.status_code}", "body": rc.text[:200]}
+        rec = rc.json()
+
+        cl = requests.post(f"{base}/provisional/bundles/{bundle['id']}/clear", timeout=30,
+                           json={"final_voucher_id": voucher_id})
+        cleared = cl.json().get("cleared") if cl.status_code == 200 else None
+
+        return {
+            "bundle": bundle.get("bundle_code"),
+            "cycle": cycle_code,
+            "trips_mapped": bundle.get("newly_mapped"),
+            "estimated": str(bundle.get("est_freight")),
+            "actual": str(gross),
+            "variance": str(rec.get("bundle", {}).get("variance")),
+            "legs_cleared": cleared,
+        }
+    except Exception as exc:
+        return {"skipped": f"provisional reconcile failed: {exc}"}
+
+
 def post_vouchers(groups: list[ReconGroup], args) -> list[dict]:
     """One RECEIPT per bill, via POST /api/v1/finance/vouchers.
 
@@ -950,6 +1024,21 @@ def post_vouchers(groups: list[ReconGroup], args) -> list[dict]:
             print(f"  voucher {bill_no}: HTTP {r.status_code} "
                   f"{body.get('voucher_id') or body.get('error') or ''}"
                   + (f"  ({len(legs)} legs)" if legs else ""))
+
+            # The invoice has now been posted; answer the accrual it settles.
+            # Only on a real post — a dry run must not clear anything.
+            if r.status_code in (200, 201) and body.get("voucher_id") and not args.voucher_dry_run:
+                prov = reconcile_provisional_bundle(
+                    bill_no, gs, gross, body.get("voucher_id"), args)
+                results[-1]["provisional"] = prov
+                if prov.get("skipped"):
+                    print(f"    accrual: not cleared - {prov['skipped']}")
+                elif prov.get("already_reconciled"):
+                    print(f"    accrual: bundle {prov['bundle']} already reconciled")
+                else:
+                    print(f"    accrual: {prov['bundle']} est {prov['estimated']} "
+                          f"-> actual {prov['actual']}, variance {prov['variance']}, "
+                          f"{prov['legs_cleared']} leg(s) cleared")
         except Exception as exc:  # network / server down
             results.append({"bill_no": bill_no, "error": str(exc), "receivable": str(receivable)})
             print(f"  voucher {bill_no}: FAILED {exc}")

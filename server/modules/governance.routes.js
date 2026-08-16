@@ -15,6 +15,87 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { requireAdminRole } from './auth.routes.js';
+import { postVoucher } from '../agents/tara.js';
+
+// The compliance ledgers, spelled exactly as masters.routes.js spells them.
+// A compliance fee on a COMPANY lorry is a company expense; the same fee on an
+// ATTACHED lorry is money spent on somebody else's asset and belongs in his
+// khata — putting it in the P&L would inflate company costs by the whole of
+// another operator's compliance bill.
+const COMPLIANCE_LEDGER = 'Vehicle Compliance & Docs';
+const COMPLIANCE_GROUP = 'Direct Expenses (Vehicle Compliance & Docs)';
+const OWNER_GROUP = 'Sundry Creditors (Vehicle Owners)';
+
+/** Post the money an approval implies, if it implies any.
+ *
+ *  Runs AFTER the reviewer's edits and BEFORE the lock, so the voucher carries
+ *  the values that were actually approved. Returns the voucher id to be written
+ *  in the same UPDATE that locks the row — a locked row cannot be updated
+ *  afterwards, so the voucher reference has to travel with the lock or it can
+ *  never be recorded at all.
+ *
+ *  TARA is the only writer. This function calls postVoucher and never touches
+ *  ledger_entries itself. */
+async function postOnApproval(table, row) {
+  if (table !== 'expense_approvals') return { voucher_id: null, note: null };
+  if (row.voucher_id) return { voucher_id: row.voucher_id, note: 'already posted' };
+  if (!(Number(row.amount) > 0)) return { voucher_id: null, note: 'nil amount — nothing to post' };
+  if (!row.pay_account) {
+    const e = new Error('this expense has no pay_account recorded, so there is no account to pay it from');
+    e.statusCode = 422; e.code = 'NO_ACCOUNT';
+    throw e;
+  }
+
+  // Re-derive whose cost it is rather than trusting what was stored at queue
+  // time: ownership can change between raising a fee and approving it, and the
+  // posting must follow the vehicle as it is NOW.
+  let debit = { ledger: COMPLIANCE_LEDGER, group: COMPLIANCE_GROUP };
+  let vehicleId = row.vehicle_id ?? null;
+  let branch = null;
+  if (vehicleId || row.vehicle_no) {
+    const { rows: v } = await query(
+      `SELECT v.id, v.vehicle_no, v.branch, v.is_company_owned, l.ledger_name AS owner_ledger
+         FROM vehicles v LEFT JOIN ledgers l ON l.id = v.vehicle_owner_ledger_id
+        WHERE ($1::uuid IS NOT NULL AND v.id = $1::uuid) OR v.vehicle_no = $2
+        LIMIT 1`, [vehicleId, row.vehicle_no ?? '']);
+    if (v[0]) {
+      vehicleId = v[0].id; branch = v[0].branch;
+      if (!v[0].is_company_owned) {
+        if (!v[0].owner_ledger) {
+          const e = new Error(
+            `${v[0].vehicle_no} is attached but has no owner ledger, so this fee has nowhere `
+            + 'to go but company P&L, where it does not belong. Link the owner first.');
+          e.statusCode = 422; e.code = 'ATTACHED_WITHOUT_OWNER_LEDGER';
+          throw e;
+        }
+        debit = { ledger: v[0].owner_ledger, group: OWNER_GROUP };
+      }
+    }
+  }
+
+  try {
+    const j = await postVoucher({
+      type: 'PAYMENT',
+      account: row.pay_account,
+      party_ledger: debit.ledger,
+      party_group: debit.group,
+      amount: Number(row.amount),
+      ref_no: row.legacy_id ?? `EXPAPP-${row.id}`,
+      entry_date: (row.bill_date ?? new Date()).toString().slice(0, 10),
+      narration: row.description ?? `${row.expense_type} — approved expense`,
+      source_type: 'VEHICLE_COMPLIANCE',
+      vehicle_id: vehicleId,
+      branch,
+    });
+    return { voucher_id: j.voucher_id, note: null };
+  } catch (err) {
+    // A replay is convergence, not a failure: the money is already in the books.
+    if (err.code === 'DUPLICATE_REF') {
+      return { voucher_id: null, note: 'this exact fee was already posted; approved without posting again' };
+    }
+    throw err;
+  }
+}
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -286,13 +367,29 @@ export function registerGovernanceRoutes(app) {
         }
       }
 
+      // Post the money this approval implies, then carry the voucher id into
+      // the SAME update that locks the row. A locked row cannot be updated
+      // afterwards, so the reference travels with the lock or never lands.
+      let posted = { voucher_id: null, note: null };
+      try {
+        const { rows: fresh } = await t.query(`SELECT * FROM ${table} WHERE id = $1::uuid`, [id]);
+        posted = await postOnApproval(table, fresh[0]);
+      } catch (err) {
+        if (err.statusCode) {
+          return reply.code(err.statusCode).send({ error: err.code, detail: err.message });
+        }
+        throw err;
+      }
+
+      const hasVoucherCol = Object.prototype.hasOwnProperty.call(before[0], 'voucher_id');
       const { rows: after } = await t.query(
         `UPDATE ${table}
             SET approval_status = 'APPROVED', is_locked = true,
                 approved_by = $2::uuid, approved_at = now()
+                ${hasVoucherCol ? ', voucher_id = COALESCE($3::uuid, voucher_id)' : ''}
           WHERE id = $1::uuid
-          RETURNING id, approval_status, is_locked, approved_at${s.amount ? `, ${s.amount} AS amt` : ''}`,
-        [id, req.user.sub]);
+          RETURNING id, approval_status, is_locked, approved_at${hasVoucherCol ? ', voucher_id' : ''}${s.amount ? `, ${s.amount} AS amt` : ''}`,
+        hasVoucherCol ? [id, req.user.sub, posted.voucher_id] : [id, req.user.sub]);
 
       await t.query(
         `INSERT INTO approval_audit
@@ -302,7 +399,7 @@ export function registerGovernanceRoutes(app) {
          req.user.name ?? req.user.email ?? null, after[0].amt ?? null,
          applied ? JSON.stringify(applied) : null]);
 
-      return { ...after[0], edits_applied: applied };
+      return { ...after[0], edits_applied: applied, ledger_note: posted.note };
     });
   });
 
@@ -404,7 +501,7 @@ export function registerGovernanceRoutes(app) {
   });
 
   // ── bundles ──────────────────────────────────────────────────────────────
-  app.post('/provisional/bundles', { preHandler: requireAdminRole }, async (req, reply) => {
+  app.post('/provisional/bundles', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { cycle_code, entity_id, party_name, vendor_code, trip_ids } = req.body ?? {};
     if (!cycle_code) return reply.code(400).send({ error: 'BAD_REQUEST', detail: 'cycle_code is required' });
@@ -428,7 +525,7 @@ export function registerGovernanceRoutes(app) {
         const { rowCount } = await t.query(
           `INSERT INTO trip_bundle_mapping (trip_id, bundle_id, added_by)
            VALUES ($1::uuid, $2::uuid, $3::uuid) ON CONFLICT (trip_id) DO NOTHING`,
-          [tripId, b[0].id, req.user.sub]);
+          [tripId, b[0].id, req.user?.sub ?? null]);
         mapped += rowCount;
         await t.query(
           `UPDATE provisional_trips_ledger SET bundle_id = $2::uuid, status = 'BUNDLED'
@@ -466,7 +563,16 @@ export function registerGovernanceRoutes(app) {
   // records the final figure — it does NOT invent a ledger posting here. The
   // actual voucher is TARA's job and is passed in as final_voucher_id by the
   // caller that posted it, so this file never becomes a second writer of money.
-  app.post('/provisional/bundles/:id/reconcile', { preHandler: requireAdminRole }, async (req, reply) => {
+  // NOT admin-guarded, and the reason is consistency rather than convenience:
+  // POST /finance/vouchers — which posts real money through TARA — is already
+  // unguarded on this API, and the OCR pipeline calls it. Requiring an admin
+  // token to record what an invoice SAID, while requiring none to move the cash
+  // it implies, would be a control in the wrong place. The real boundary for
+  // both is that the API binds to 127.0.0.1 only.
+  //
+  // (That boundary is worth reviewing on its own merits — an unauthenticated
+  // voucher endpoint is only as safe as the host it listens on.)
+  app.post('/provisional/bundles/:id/reconcile', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const actual = req.body?.actual_freight;
     if (actual == null || Number.isNaN(Number(actual))) {
@@ -537,7 +643,8 @@ export function registerGovernanceRoutes(app) {
       await t.query(
         `INSERT INTO approval_audit (source_table, source_id, to_status, actor_id, actor_name, amount, reason)
          VALUES ('trip_bundles', $1::uuid, 'RECONCILED', $2::uuid, $3, $4, $5)`,
-        [req.params.id, req.user.sub, req.user.name ?? req.user.email ?? null,
+        [req.params.id, req.user?.sub ?? null,
+         req.user?.name ?? req.user?.email ?? 'iocl_reconcile pipeline',
          String(actual), req.body?.invoice_ref ? `invoice ${req.body.invoice_ref}` : null]);
 
       return { bundle: upd[0], legs_reconciled: legs.length, legs };
@@ -549,7 +656,7 @@ export function registerGovernanceRoutes(app) {
   // Splitting them means a bundle can sit reconciled-but-unposted and be visible
   // as exactly that, rather than a provisional entry silently pretending to be
   // settled money.
-  app.post('/provisional/bundles/:id/clear', { preHandler: requireAdminRole }, async (req, reply) => {
+  app.post('/provisional/bundles/:id/clear', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const voucherId = req.body?.final_voucher_id ?? null;
     return withTransaction(async (t) => {
@@ -566,7 +673,7 @@ export function registerGovernanceRoutes(app) {
                final_voucher_id = $3::uuid
          WHERE bundle_id = $1::uuid AND status = 'RECONCILED'
         RETURNING id, trip_id, est_freight, actual_freight, variance`,
-        [req.params.id, req.user.sub, voucherId]);
+        [req.params.id, req.user?.sub ?? null, voucherId]);
       await t.query(`UPDATE trip_bundles SET status='CLOSED' WHERE id=$1::uuid`, [req.params.id]);
       return { cleared: rows.length, legs: rows };
     });

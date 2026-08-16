@@ -83,6 +83,19 @@ export async function registerFileRoutes(app) {
     // Content-addressed enough in practice (paths carry record ids) and these
     // are documents that rarely change, so a long cache is safe and keeps the
     // Node process out of the way of repeat views.
+    // ?download=1 turns a view into a save. Without a Content-Disposition the
+    // browser renders a PDF inline and the "Download" button is indistinguish-
+    // able from "View" — which is what it had been.
+    //
+    // The filename is sanitised and quoted: it comes from a stored key, and a
+    // quote or newline in a Content-Disposition is a header-injection vector,
+    // not a cosmetic problem.
+    if (req.query?.download === '1' || req.query?.download === 'true') {
+      const raw = key.split('/').pop() || 'document';
+      const safe = raw.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);
+      reply.header('Content-Disposition', `attachment; filename="${safe}"`);
+    }
+
     reply.header('Content-Type', type)
       .header('Content-Length', found.bytes)
       .header('Cache-Control', 'private, max-age=86400')

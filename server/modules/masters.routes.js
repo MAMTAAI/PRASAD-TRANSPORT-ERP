@@ -254,6 +254,7 @@ export async function registerMastersRoutes(app) {
       const b = req.body;
       const { rows: [v] } = await query(
         `SELECT v.id, v.vehicle_no, v.branch, v.is_company_owned,
+                v.vehicle_owner_ledger_id, v.branch_id,
                 l.ledger_name AS owner_ledger
            FROM vehicles v
            LEFT JOIN ledgers l ON l.id = v.vehicle_owner_ledger_id
@@ -294,42 +295,54 @@ export async function registerMastersRoutes(app) {
         ? { ledger: v.owner_ledger, group: OWNER_GROUP }
         : { ledger: COMPLIANCE_LEDGER, group: COMPLIANCE_GROUP };
 
+      // ── THE FEE NO LONGER POSTS ITSELF ──────────────────────────────────
+      // This route used to call postVoucher right here, so a renewal typed on
+      // the vault screen hit the cashbook the instant Save was pressed — one
+      // person, no second pair of eyes, on money leaving a real bank account.
+      //
+      // It now raises a PENDING_APPROVAL expense. Nothing reaches
+      // ledger_entries until an admin approves it, and the approve action is
+      // what posts the voucher (governance.routes.js). The cashbook and the P&L
+      // both read ledger_entries, so an unapproved fee is invisible to both —
+      // enforced by there being no entry at all, rather than by every report
+      // remembering to filter one out.
+      //
+      // expense_approvals carries it, not owner_expenses: owner_ledger_id is NOT
+      // NULL there, so a company-owned lorry's fee could not be represented at
+      // all. Whose cost it is stays a DERIVED fact — the approver re-reads the
+      // vehicle and applies the same attached/company rule below, so the two
+      // cannot drift apart between queueing and posting.
       let voucher = null;
       let ledgerNote = null;
+      let pendingExpense = null;
       if (wantsPosting) {
-        try {
-          voucher = await postVoucher({
-            type: 'PAYMENT',
-            account: b.account,
-            party_ledger: debit.ledger,
-            party_group: debit.group,
-            amount,
-            ref_no: ref,
-            entry_date: b.inspected_on ?? new Date().toISOString().slice(0, 10),
-            narration: `${b.doc_name ?? b.doc_type} for ${v.vehicle_no}`
-              + `${b.receipt_no ? ` — receipt ${b.receipt_no}` : ''}`
-              + `${attached ? ' (attached — owner khata)' : ''}`,
-            source_type: 'VEHICLE_COMPLIANCE',
-            // Carried so TARA can tell whose lorry this is. Without it the
-            // isolation check has nothing to check and returns immediately.
-            vehicle_id: v.id,
-            branch: v.branch,
-            created_by: b.created_by ?? null,
-          });
-          await drain().catch(() => {});
-        } catch (err) {
-          if (err.code === 'DUPLICATE_REF') {
-            // The fee is already in the books. Saving the rest of the document is
-            // still correct, so this is a note rather than a failure.
-            ledgerNote = 'this exact fee is already posted — the document was saved without posting it again';
-          } else {
-            const map = { OVERDRAFT: 422, NO_ACCOUNT: 400, BAD_AMOUNT: 400 };
-            if (map[err.code]) {
-              return reply.code(map[err.code]).send({ error: err.code, detail: err.message, balance: err.balance });
-            }
-            throw err;
-          }
-        }
+        // Same deterministic reference as the old TARA guard used, so re-saving
+        // the same tab with the same fee converges on ONE queued expense instead
+        // of handing the approver a second copy to notice and reject.
+        const { rows: exp } = await query(
+          `INSERT INTO expense_approvals
+             (legacy_id, vehicle_no, vehicle_id, pay_account, expense_type, bill_no,
+              bill_date, amount, description, source, status, entered_by,
+              approval_status, submitted_by, submitted_at)
+           VALUES ($1, $2, $3::uuid, $4, 'VEHICLE_COMPLIANCE', $5, $6::date, $7, $8,
+                   'VEHICLE_DOC_RENEWAL', 'PENDING', $9::text,
+                   'PENDING_APPROVAL', $10::uuid, now())
+           ON CONFLICT (legacy_id) DO UPDATE
+             SET amount = EXCLUDED.amount, description = EXCLUDED.description,
+                 pay_account = EXCLUDED.pay_account, updated_at = now()
+           RETURNING id, approval_status, amount, voucher_id`,
+          [ref, v.vehicle_no, v.id, b.account,
+           b.receipt_no ?? b.application_no ?? null,
+           b.inspected_on ?? new Date().toISOString().slice(0, 10), amount,
+           `${b.doc_name ?? b.doc_type} for ${v.vehicle_no}`
+             + `${b.receipt_no ? ` — receipt ${b.receipt_no}` : ''}`
+             + `${attached ? ' (attached — owner khata)' : ''}`,
+           b.created_by ?? null, b.created_by ?? null]);
+        pendingExpense = exp[0];
+        ledgerNote = pendingExpense.voucher_id
+          ? 'this fee is already approved and posted — the document was saved without posting it again'
+          : `₹${amount.toFixed(2)} is queued for approval. It will not appear in the cashbook `
+            + 'or the P&L until an admin approves it.';
       }
 
       const saved = await withTransaction(async (t) => {
@@ -368,6 +381,11 @@ export async function registerMastersRoutes(app) {
       return {
         saved: true, document: saved,
         voucher_id: voucher?.voucher_id ?? null,
+        // The fee's fate, said plainly, so the screen can show "queued" rather
+        // than implying the money moved.
+        pending_expense_id: pendingExpense?.id ?? null,
+        approval_status: pendingExpense?.approval_status ?? null,
+        posts_to_cashbook_on_approval: !!pendingExpense && !pendingExpense.voucher_id,
         ledger_note: ledgerNote,
       };
     }
