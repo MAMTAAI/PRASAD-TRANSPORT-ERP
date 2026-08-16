@@ -18,6 +18,7 @@
 // second concurrent award fail rather than double-book the load.
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, withTransaction, isDegraded } from '../db/pool.js';
+import { requireAdminRole } from './auth.routes.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -61,7 +62,7 @@ export async function registerBazaarRoutes(app) {
       FROM bazaar_loads l
       LEFT JOIN bazaar_bids b ON b.load_id = l.load_id AND b.status = 'ACCEPTED'`;
 
-  app.get('/loads', async (req, reply) => {
+  app.get('/loads', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { status } = req.query ?? {};
     const { rows } = status
@@ -70,7 +71,7 @@ export async function registerBazaarRoutes(app) {
     return { loads: rows };
   });
 
-  app.post('/loads', async (req, reply) => {
+  app.post('/loads', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     if (!b.customer_name || !b.origin || !b.destination) {
@@ -104,7 +105,7 @@ export async function registerBazaarRoutes(app) {
     } catch (e) { return pgErr(reply, e); }
   });
 
-  app.patch('/loads/:id', async (req, reply) => {
+  app.patch('/loads/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('bazaar_loads')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -117,7 +118,7 @@ export async function registerBazaarRoutes(app) {
     catch (e) { return pgErr(reply, e); }
   });
 
-  app.delete('/loads/:id', async (req, reply) => {
+  app.delete('/loads/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('bazaar_loads')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -126,7 +127,7 @@ export async function registerBazaarRoutes(app) {
   });
 
   // ═══ BIDS ═════════════════════════════════════════════════════════════════
-  app.get('/bids', async (req, reply) => {
+  app.get('/bids', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { load_id, vendor_name } = req.query ?? {};
     const where = [], args = [];
@@ -137,7 +138,7 @@ export async function registerBazaarRoutes(app) {
     return { bids: rows };
   });
 
-  app.post('/bids', async (req, reply) => {
+  app.post('/bids', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     if (!b.load_id || !b.vendor_name || b.bid_amount === undefined) {
@@ -159,7 +160,7 @@ export async function registerBazaarRoutes(app) {
   });
 
   // ── Award ────────────────────────────────────────────────────────────────
-  app.post('/loads/:loadId/award', async (req, reply) => {
+  app.post('/loads/:loadId/award', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { bid_id } = req.body ?? {};
     if (!bid_id) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'bid_id is required' });
@@ -190,13 +191,13 @@ export async function registerBazaarRoutes(app) {
   });
 
   // ═══ MARKET VEHICLES ══════════════════════════════════════════════════════
-  app.get('/market-vehicles', async (req, reply) => {
+  app.get('/market-vehicles', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query('SELECT * FROM market_vehicles ORDER BY created_at DESC');
     return { vehicles: rows };
   });
 
-  app.post('/market-vehicles', async (req, reply) => {
+  app.post('/market-vehicles', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     if (!b.registration_no || !b.vendor_agency) {
@@ -219,7 +220,7 @@ export async function registerBazaarRoutes(app) {
     } catch (e) { return pgErr(reply, e); }
   });
 
-  app.patch('/market-vehicles/:id', async (req, reply) => {
+  app.patch('/market-vehicles/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('market_vehicles')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -235,7 +236,7 @@ export async function registerBazaarRoutes(app) {
   // Approval is its own endpoint, not a PATCH of system_status: the screen only
   // offers it to a user with the approve permission, and keeping it separate
   // means a plain edit can never quietly activate a truck.
-  app.post('/market-vehicles/:id/approve', async (req, reply) => {
+  app.post('/market-vehicles/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('market_vehicles')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -245,7 +246,7 @@ export async function registerBazaarRoutes(app) {
     return { vehicle: rows[0] };
   });
 
-  app.delete('/market-vehicles/:id', async (req, reply) => {
+  app.delete('/market-vehicles/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('market_vehicles')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -259,7 +260,7 @@ export async function registerBazaarRoutes(app) {
   // table stores one canonical pair (see migration 041).
   const withAliases = (r) => ({ ...r, agency_name: r.corporate_name, owner_name: r.contact_person });
 
-  app.get('/onboarding', async (req, reply) => {
+  app.get('/onboarding', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { status, type } = req.query ?? {};
     const where = [], args = [];
@@ -299,7 +300,7 @@ export async function registerBazaarRoutes(app) {
   // master_id is supplied by the caller: KycApprovals creates the customer or
   // vendor through /api/v1/masters first and passes the id it got back, so the
   // master's own validation and ledger behaviour stay in one place.
-  app.post('/onboarding/:id/approve', async (req, reply) => {
+  app.post('/onboarding/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('onboarding_applications')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -314,7 +315,7 @@ export async function registerBazaarRoutes(app) {
     return { application: withAliases(rows[0]) };
   });
 
-  app.post('/onboarding/:id/reject', async (req, reply) => {
+  app.post('/onboarding/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('onboarding_applications')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });

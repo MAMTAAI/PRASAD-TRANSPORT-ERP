@@ -70,6 +70,7 @@ const BazaarAdmin = lazy(() => import('./BazaarAdmin'));
 const MarketVehicles = lazy(() => import('./MarketVehicles'));
 const CustomerPortal = lazy(() => import('./CustomerPortal'));
 const FleetPartnerPortal = lazy(() => import('./FleetPartnerPortal'));
+const FleetPartnerApp = lazy(() => import('./portal/FleetPartnerApp'));
 const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
@@ -372,7 +373,26 @@ function AppShell() {
 
   if (showPublicWebsite && !user) return <PublicWebsite onLoginClick={() => setShowPublicWebsite(false)} />;
   if (isCustomerMode) return <Suspense fallback={<ModuleLoader />}><CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
-  if (isPartnerMode) return <Suspense fallback={<ModuleLoader />}><FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
+  // PARTNER MODE SPLITS ON WHETHER THERE IS A SESSION.
+  //
+  // A signed-in partner gets the 2026 mobile app: blind-bid load board, own
+  // fleet, earnings — all of it reading the vendor-scoped portal routes that
+  // enforce the gate and the RBAC matrix server-side.
+  //
+  // Someone who has NOT signed in still gets the old portal, because that is
+  // where onboarding lives (POST /bazaar/onboarding). Replacing it outright
+  // would have deleted the only way a new partner can apply — the new app has
+  // nothing to show a party that does not exist yet.
+  if (isPartnerMode) {
+    const partnerSignedIn = !!localStorage.getItem('prasad_token');
+    return (
+      <Suspense fallback={<ModuleLoader />}>
+        {partnerSignedIn
+          ? <FleetPartnerApp />
+          : <FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} />}
+      </Suspense>
+    );
+  }
   if (isDriverMode) return <Suspense fallback={<ModuleLoader />}><DriverPortal onBack={() => { setIsDriverMode(false); setShowPublicWebsite(true); }} /></Suspense>;
   
   if (!user && !showPublicWebsite && !isDriverMode && !isCustomerMode && !isPartnerMode) {

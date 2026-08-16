@@ -18,7 +18,14 @@ const mastersFetch = async (path: string, opts?: RequestInit) => {
   return json;
 };
 const bazaarFetch = async (path: string, opts?: RequestInit) => {
-  const res = await fetch(`${BAZAAR_API}${path}`, opts);
+  // /bazaar is admin-guarded now — those routes hand out competitors' bid
+  // amounts and the office's target rate, readable by any vendor token while
+  // they were open. This screen carries the admin session.
+  const token = localStorage.getItem('prasad_token');
+  const res = await fetch(`${BAZAAR_API}${path}`, {
+    ...opts,
+    headers: { ...(opts?.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
   return json;

@@ -32,7 +32,7 @@ const dbGate = (reply) =>
  *  cannot exist unscoped (migration 048's users_portal_scope CHECK), so a null
  *  link here means the account was tampered with or the role was changed out
  *  from under it — either way it is not a session that should read anything. */
-async function resolveParty(req, reply) {
+export async function resolveParty(req, reply) {
   const done = await requireAuth(req, reply);
   if (done !== undefined) return done;                 // requireAuth already replied
 
