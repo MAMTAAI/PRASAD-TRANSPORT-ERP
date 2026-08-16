@@ -30,9 +30,14 @@ export function loadGoogleMaps(): Promise<void> {
     //
     // Loading a library costs nothing extra: Maps JS is billed per map load.
     //
-    // loading=async is Google's own recommendation; without it the SDK logs a
-    // performance warning on every page and blocks the parser while it fetches.
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry,places&loading=async`;
+    // NO loading=async, deliberately. Google's console nags for it, but with
+    // loading=async the SDK defers the libraries and `google.maps.Map` does NOT
+    // exist when the script's onload fires — every caller here constructs a Map
+    // synchronously on that event, so the whole dispatch board died with
+    // "g.maps.Map is not a constructor". Adopting it means moving every consumer
+    // to `await google.maps.importLibrary(...)`, which is a real change and not
+    // a one-line perf tweak. The warning is the cheaper thing to live with.
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry,places`;
     s.async = true;
     s.defer = true;
     s.onload = () => resolve();
