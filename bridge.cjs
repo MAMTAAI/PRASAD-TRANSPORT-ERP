@@ -80,12 +80,36 @@ app.use((req, res, next) => {
 //   PT_BRIDGE_TOKEN=<prasad-transport-token>,<jaiswal-capital-token>
 // If the var is UNSET the gate is disabled — that keeps pure-local dev (no
 // tunnel) frictionless. SET IT before opening the Cloudflare Tunnel.
+// ONE BRIDGE, ONE TENANT (2026-08-16).
+//
+// This used to accept a comma-separated list of tokens and use the INDEX of the
+// matching token as the tenant identity: 0 = Prasad Transport, 1 = Jaiswal
+// Capital. That worked, and the isolation it enforced was real -- but it meant
+// one process, one graph file and one queue served two companies, and the whole
+// separation rested on the order of entries in an env var. Reordering
+// PT_BRIDGE_TOKEN silently swapped which company's facts each side could read.
+//
+// Now the tenant is fixed at boot by BRIDGE_TENANT, one token is accepted, and
+// the graph file is whatever KG_DB_PATH points at. Two companies means two
+// processes on two ports with two databases. Isolation you cannot misconfigure
+// by editing a list.
+const TENANTS = { transport: 'transport', trading: 'trading' };
+const BRIDGE_TENANT = TENANTS[(process.env.BRIDGE_TENANT || 'transport').toLowerCase().trim()];
+if (!BRIDGE_TENANT) {
+  console.error(`FATAL: BRIDGE_TENANT must be one of ${Object.keys(TENANTS).join(' | ')} -- got '${process.env.BRIDGE_TENANT}'`);
+  process.exit(1);
+}
 const BRIDGE_TOKENS = (process.env.PT_BRIDGE_TOKEN || '')
   .split(',').map((t) => t.trim()).filter(Boolean);
+if (BRIDGE_TOKENS.length > 1) {
+  // Refuse rather than silently serve two tenants from one process again.
+  console.error(`FATAL: PT_BRIDGE_TOKEN holds ${BRIDGE_TOKENS.length} tokens. This bridge serves ONE tenant ('${BRIDGE_TENANT}'). Run a second bridge, on its own port, with its own token and its own KG_DB_PATH.`);
+  process.exit(1);
+}
 if (!BRIDGE_TOKENS.length) {
-  console.warn('⚠️  PT_BRIDGE_TOKEN is not set — AI routes are UNAUTHENTICATED. Fine for local-only use; set it before opening the Cloudflare Tunnel.');
+  console.warn('⚠️  PT_BRIDGE_TOKEN is not set -- AI routes are UNAUTHENTICATED. Fine for local-only use; set it before opening the Cloudflare Tunnel.');
 } else {
-  console.log(`🔒 AI routes protected — ${BRIDGE_TOKENS.length} client token(s) accepted.`);
+  console.log(`🔒 AI routes protected -- tenant '${BRIDGE_TENANT}', 1 token accepted.`);
 }
 function matchedTokenIndex(supplied) {
   const s = Buffer.from(supplied, 'utf8');
@@ -514,7 +538,12 @@ app.post('/api/chat', requireToken, async (req, res) => {
 // X-KG-Domain header / kg_domain body field can only pick 'shared'.
 // =======================================================
 const kg = require('./kg/graph.cjs');
-try { kg.ensureSeed(`${__dirname}/kg/seed-trading.json`, 'trading'); } catch (e) { console.warn('KG seed skipped:', e.message); }
+// Seed only this tenant's graph. Seeding 'trading' from the Prasad repo is how
+// Jaiswal facts ended up in a file on the Prasad drive in the first place.
+try {
+  kg.ensureSeed(`${__dirname}/kg/seed-${BRIDGE_TENANT}.json`, BRIDGE_TENANT);
+} catch (e) { console.warn(`KG seed skipped for '${BRIDGE_TENANT}':`, e.message); }
+console.log(`🕸️  KG file: ${process.env.KG_DB_PATH || '(default: data/mamta-kg.db)'}`);
 
 function kgDomainForReq(req) {
   const d = req.get('X-KG-Domain') || (req.body && req.body.kg_domain);
@@ -522,8 +551,12 @@ function kgDomainForReq(req) {
   // STRICT TENANT ISOLATION (2026-07-28): domain is fixed by the authenticated
   // token — a cross-tenant X-KG-Domain is DENIED (transport token can never read
   // 'trading' financial facts, and vice-versa). 'shared' remains common ground.
-  const allowed = req.ptClient === 1 ? 'trading' : 'transport';
-  if (d === allowed || d === 'shared') return d;
+  // The tenant is this PROCESS, not the caller and not a token position. A
+  // cross-tenant X-KG-Domain is ignored, exactly as before -- but now the other
+  // tenant's facts are not merely forbidden, they are in a different file on a
+  // different drive, and this process never opens it.
+  const allowed = BRIDGE_TENANT;
+  if (d === allowed) return d;
   return allowed;
 }
 
