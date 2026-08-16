@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import RouteMap from './lib/RouteMap';
 const API = API_BASE;
 const BAZAAR = `${API}/api/v1/bazaar`;
 
@@ -48,6 +49,13 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
   const [tollPlazas, setTollPlazas] = useState('');
   const [tollAmount, setTollAmount] = useState('');
   const [showMap, setShowMap] = useState(false);
+  // The encoded route from /maps/lane-analysis, so the map draws the same
+  // road the distance figure came from.
+  const [routePolyline, setRoutePolyline] = useState<string | null>(null);
+  // What the analysis actually established, and from where. Shown to the
+  // customer so a distance they can sanity-check is distinguishable from one
+  // nobody could produce.
+  const [routeNote, setRouteNote] = useState<string>('');
 
   const materials = ['Petroleum / Oil', 'Industrial Steel', 'FMCG / General', 'Chemicals', 'Agri / Food'];
   const vehicles = ['Oil Tanker (Secured)', 'Open Truck (Flatbed)', 'Closed Container', 'Heavy Trailer'];
@@ -70,7 +78,7 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
   ];
 
   // 📍 SMART ROUTE & TOLL CALCULATOR ENGINE
-  const handleCalculateRoute = () => {
+  const handleCalculateRoute = async () => {
     if (!origin || !destination) {
       return alert("Please enter both Loading and Unloading points first!");
     }
@@ -78,31 +86,39 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
     setLoading(true);
     setShowMap(false); 
 
-    setTimeout(() => {
-      const o = origin.toLowerCase();
-      const d = destination.toLowerCase();
-      
-      let dist = Math.floor(Math.random() * (1200 - 150) + 150); 
-      let tolls = Math.floor(dist / 60); 
-      let tollAmt = tolls * 145; 
-
-      if ((o.includes('bong') && d.includes('guw')) || (d.includes('bong') && o.includes('guw'))) {
-        dist = 185; tolls = 3; tollAmt = 420;
-      } else if ((o.includes('bong') && d.includes('barpeta')) || (d.includes('bong') && o.includes('barpeta'))) {
-        dist = 130; tolls = 2; tollAmt = 265;
-      } else if ((o.includes('guw') && d.includes('jorh')) || (d.includes('guw') && o.includes('jorh'))) {
-        dist = 305; tolls = 5; tollAmt = 780;
-      } else if ((o.includes('bong') && d.includes('sili')) || (d.includes('bong') && o.includes('sili'))) {
-        dist = 390; tolls = 6; tollAmt = 950;
-      }
-
-      setDistanceKm(dist.toString());
-      setTollPlazas(tolls.toString());
-      setTollAmount(tollAmt.toString());
-      
+    // THIS USED TO INVENT THE ANSWER. Math.random() between 150 and 1200 km,
+    // with four hardcoded lanes, and a toll of distance/60 x 145 — quoted to a
+    // CUSTOMER as an analysed route. The same code was in the load bazaar; both
+    // are gone.
+    //
+    // Distance is Google Directions via the server. Toll is what the fleet
+    // actually paid on that corridor, or blank with the reason shown.
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/maps/lane-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ origin, destination }),
+      });
+      const j = await res.json();
+      if (j?.distance?.km != null) setDistanceKm(String(j.distance.km));
+      if (j?.toll?.amount != null) setTollAmount(String(j.toll.amount));
+      if (j?.toll?.plazas != null) setTollPlazas(String(j.toll.plazas));
+      setRoutePolyline(j?.distance?.polyline ?? null);
+      setRouteNote(
+        (j?.distance?.km != null
+          ? `Distance ${j.distance.km} km from Google Directions.`
+          : `Distance unavailable — ${j?.distance?.detail || "enter it by hand"}.`)
+        + " "
+        + (j?.toll?.amount != null
+          ? `Toll approx Rs ${j.toll.amount} (${j.toll.basis}).`
+          : `No toll figure: ${j?.toll?.basis ?? "unknown"}.`),
+      );
       setShowMap(true);
+    } catch (e: any) {
+      setRouteNote(`Could not analyse the route: ${e.message}`);
+    } finally {
       setLoading(false);
-    }, 800); 
+    }
   };
 
   // 🚀 POST NEW LOAD TO FIREBASE BAZAAR
@@ -563,7 +579,10 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
                       </form>
                     </div>
 
-                    {/* RIGHT: THE SMART GOOGLE MAP IFRAME */}
+                    {/* The Google embed here drew a SEARCH for "A to B" — not the
+                        route the distance box was quoting, and unthemeable. RouteMap
+                        draws the polyline the analysis actually returned, so the
+                        picture and the number cannot disagree. */}
                     <div className="hidden lg:flex flex-col gap-4">
                       <div className="bg-slate-200 rounded-3xl overflow-hidden shadow-inner border-4 border-white relative h-full min-h-[500px] flex items-center justify-center">
                          {!showMap ? (
@@ -573,15 +592,18 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
                               <p className="text-sm">"Analyze Route & Tolls" to load Map</p>
                            </div>
                          ) : (
-                           <iframe 
-                             title="Google Map Route"
-                             width="100%" 
-                             height="100%" 
-                             style={{ border: 0 }} 
-                             loading="lazy" 
-                             allowFullScreen 
-                             src={`https://maps.google.com/maps?q=${encodeURIComponent(origin)}+to+${encodeURIComponent(destination)}&t=&z=7&ie=UTF8&iwloc=&output=embed`}
-                           />
+                           <div className="w-full h-full flex flex-col">
+                             <RouteMap
+                               height={460}
+                               className="!rounded-none !border-0 w-full"
+                               polyline={routePolyline}
+                             />
+                             {routeNote && (
+                               <p className="px-4 py-2 text-[11px] leading-relaxed text-slate-600 bg-white/80">
+                                 {routeNote}
+                               </p>
+                             )}
+                           </div>
                          )}
                       </div>
                     </div>

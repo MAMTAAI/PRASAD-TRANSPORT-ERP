@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import RouteMap from './lib/RouteMap';
 const API = API_BASE;
 
 // The driver's own session token. Every call the portal makes is on behalf of
@@ -598,12 +599,23 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
                     
                     {/* 🗺️ DYNAMIC AUTO-MAP AREA */}
                     <div className="w-full h-56 relative bg-zinc-900 border-b border-white/10 overflow-hidden">
-                      {/* Map shown in NORMAL colors — the old invert filter made it unreadable in sunlight */}
-                      {isTracking && currentLoc ? (
-                        <iframe width="100%" height="100%" style={{ border: 0 }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?q=${currentLoc.lat},${currentLoc.lng}&z=15&output=embed`}></iframe>
-                      ) : (
-                        <iframe width="100%" height="100%" style={{ border: 0, opacity: 0.85 }} loading="lazy" allowFullScreen src={`https://maps.google.com/maps?saddr=${encodeURIComponent(trip.loading_point)}&daddr=${encodeURIComponent(trip.consignee_name)}&z=5&output=embed`}></iframe>
-                      )}
+                      {/* Was two iframe embeds: one pinned to the phone's own GPS,
+                          one drawing a search result for "A to B". Neither could be
+                          styled, both re-queried Google on every render, and the
+                          truck marker was really just the map centre — so a driver
+                          with no fix still saw a map that looked authoritative.
+                          One component now, with the truck drawn ONLY when there is
+                          a real position. */}
+                      <RouteMap
+                        height={224}
+                        className="!rounded-none !border-0"
+                        origin={trip.loading_lat ? { lat: trip.loading_lat, lng: trip.loading_lng, label: trip.loading_point } : null}
+                        destination={trip.unloading_lat ? { lat: trip.unloading_lat, lng: trip.unloading_lng, label: trip.consignee_name } : null}
+                        truck={isTracking && currentLoc
+                          ? { lat: currentLoc.lat, lng: currentLoc.lng, heading: currentLoc.heading ?? 0, label: trip.vehicle_no }
+                          : null}
+                        polyline={trip.route_polyline ?? null}
+                      />
                       
                       <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none"></div>
                       

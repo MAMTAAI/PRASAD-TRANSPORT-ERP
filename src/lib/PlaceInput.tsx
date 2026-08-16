@@ -1,0 +1,154 @@
+// @ts-nocheck
+// ============================================================================
+// <PlaceInput /> — Places Autocomplete that degrades to a plain text box.
+//
+// THE DEGRADE MATTERS MORE THAN THE AUTOCOMPLETE. Half this ERP's lanes are
+// depot names that Google has never heard of — "BONGAIGAON RC OFFICE (7R01)",
+// "MOINARBAND DEPOT (7D18)". If the component demanded a Google-resolved place
+// the operator could not type the thing they actually have. So the free text is
+// always accepted, the suggestions are an accelerator, and picking one is
+// optional.
+//
+// SESSION TOKENS ARE NOT DECORATION. Autocomplete is billed per KEYSTROKE
+// unless the requests are grouped by a session token, which turns a whole
+// lookup into one charge. A new token is minted per lookup and thrown away the
+// moment a place is chosen — reusing it across lookups is the mistake that
+// makes the grouping silently stop working.
+// ============================================================================
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { loadGoogleMaps } from './maps';
+
+export default function PlaceInput({
+  value, onChange, placeholder = 'Type a place…', className = '',
+  onResolved, disabled, id, autoFocus,
+}) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const svcRef = useRef(null);
+  const tokenRef = useRef(null);
+  const boxRef = useRef(null);
+  const timer = useRef(null);
+
+  useEffect(() => {
+    let dead = false;
+    loadGoogleMaps()
+      .then(() => {
+        if (dead) return;
+        const g = window.google;
+        if (!g?.maps?.places?.AutocompleteService) return;   // Places library absent
+        svcRef.current = new g.maps.places.AutocompleteService();
+        tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+        setReady(true);
+      })
+      .catch(() => { /* no key, no network — the plain input still works */ });
+    return () => { dead = true; };
+  }, []);
+
+  useEffect(() => {
+    const onDoc = (e) => { if (!boxRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('pointerdown', onDoc);
+    return () => document.removeEventListener('pointerdown', onDoc);
+  }, []);
+
+  const ask = useCallback((text) => {
+    if (!svcRef.current || text.trim().length < 3) { setSuggestions([]); return; }
+    svcRef.current.getPlacePredictions(
+      {
+        input: text,
+        sessionToken: tokenRef.current,
+        // India only. A lane from "Guwahati" should not offer Guwahati, Texas.
+        componentRestrictions: { country: 'in' },
+      },
+      (res, status) => {
+        const g = window.google;
+        if (status !== g.maps.places.PlacesServiceStatus.OK || !res) { setSuggestions([]); return; }
+        setSuggestions(res.slice(0, 5));
+        setOpen(true);
+        setHighlight(-1);
+      },
+    );
+  }, []);
+
+  const type = (e) => {
+    const v = e.target.value;
+    onChange(v);
+    // 250ms: fast enough to feel live, slow enough that "Bongaigaon" is one
+    // lookup rather than ten. Every keystroke is a billed prediction request.
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => ask(v), 250);
+  };
+
+  const choose = (s) => {
+    onChange(s.description);
+    setOpen(false);
+    setSuggestions([]);
+    onResolved?.({ description: s.description, place_id: s.place_id });
+    // Token is spent. The next lookup starts a new billing session.
+    const g = window.google;
+    if (g?.maps?.places?.AutocompleteSessionToken) {
+      tokenRef.current = new g.maps.places.AutocompleteSessionToken();
+    }
+  };
+
+  const key = (e) => {
+    if (!open || suggestions.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => Math.min(h + 1, suggestions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter' && highlight >= 0) { e.preventDefault(); choose(suggestions[highlight]); }
+    else if (e.key === 'Escape') setOpen(false);
+  };
+
+  return (
+    <div ref={boxRef} className="relative">
+      <input
+        id={id}
+        value={value ?? ''}
+        onChange={type}
+        onKeyDown={key}
+        onFocus={() => suggestions.length && setOpen(true)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        autoComplete="off"
+        className={className}
+        aria-autocomplete="list"
+        aria-expanded={open}
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-xl
+                       border border-white/10 bg-[#0b0f18]/97 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          {suggestions.map((s, i) => (
+            <li key={s.place_id}>
+              <button
+                type="button"
+                onMouseEnter={() => setHighlight(i)}
+                onClick={() => choose(s)}
+                className={`block w-full px-3 py-2.5 text-left text-[12.5px] transition-colors
+                            ${i === highlight ? 'bg-cyan-500/15 text-cyan-200' : 'text-white/70 hover:bg-white/5'}`}
+              >
+                <span className="block font-semibold">
+                  {s.structured_formatting?.main_text ?? s.description}
+                </span>
+                {s.structured_formatting?.secondary_text && (
+                  <span className="block text-[11px] text-white/35">
+                    {s.structured_formatting.secondary_text}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+          <li className="border-t border-white/5 px-3 py-1.5 text-[10px] text-white/25">
+            Suggestions from Google — or just type the depot name and carry on.
+          </li>
+        </ul>
+      )}
+      {!ready && value?.length > 2 && (
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-white/25">
+          typing only
+        </span>
+      )}
+    </div>
+  );
+}

@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { logAudit } from './lib/audit';
 
 import { API_BASE } from './lib/apiBase';
+import RouteMap from './lib/RouteMap';
+import PlaceInput from './lib/PlaceInput';
 const API = API_BASE;
 const BAZAAR = `${API}/api/v1/bazaar`;
 
@@ -67,42 +69,48 @@ export default function BazaarAdmin() {
     } catch (e) { console.error("Error fetching market trucks:", e); }
   };
 
-  // 📍 SMART ROUTE & TOLL CALCULATOR ENGINE
-  const handleCalculateRoute = () => {
+  // 📍 SMART ROUTE & TOLL CALCULATOR
+  //
+  // THIS USED TO MAKE THE NUMBERS UP. Distance was Math.random() between 150
+  // and 1200 with four hardcoded lanes; the toll was distance/60 x 145. Both
+  // went onto a real load that vendors then bid against, presented as the
+  // output of an "analysis".
+  //
+  // Distance now comes from Google Directions through the server (the key for
+  // it never reaches this bundle). Tolls come from what the fleet actually paid
+  // on that corridor. When a lane has no history the toll is left BLANK and the
+  // reason is shown — an operator who knows a figure is a guess can correct it,
+  // one who believes it was computed cannot.
+  const [analysis, setAnalysis] = useState(null);
+
+  const handleCalculateRoute = async () => {
     if (!loadForm.origin || !loadForm.destination) {
-      return alert("Please enter both Pickup and Drop locations first!");
+      return alert('Please enter both Pickup and Drop locations first!');
     }
-    
     setLoading(true);
-    setShowMap(false); 
-
-    setTimeout(() => {
-      const o = loadForm.origin.toLowerCase();
-      const d = loadForm.destination.toLowerCase();
-      
-      let dist = Math.floor(Math.random() * (1200 - 150) + 150); 
-      let tolls = Math.floor(dist / 60); 
-      let tollAmt = tolls * 145; 
-
-      if ((o.includes('bong') && d.includes('guw')) || (d.includes('bong') && o.includes('guw'))) {
-        dist = 185; tolls = 3; tollAmt = 420;
-      } else if ((o.includes('bong') && d.includes('barpeta')) || (d.includes('bong') && o.includes('barpeta'))) {
-        dist = 130; tolls = 2; tollAmt = 265;
-      } else if ((o.includes('guw') && d.includes('jorh')) || (d.includes('guw') && o.includes('jorh'))) {
-        dist = 305; tolls = 5; tollAmt = 780;
-      } else if ((o.includes('bong') && d.includes('sili')) || (d.includes('bong') && o.includes('sili'))) {
-        dist = 390; tolls = 6; tollAmt = 950;
-      }
-
-      setLoadForm(prev => ({ 
-        ...prev, 
-        distance_km: dist.toString(),
-        toll_plazas: tolls.toString(),
-        toll_amount: tollAmt.toString()
+    setShowMap(false);
+    setAnalysis(null);
+    try {
+      const j = await fetchJson(`${API}/api/v1/maps/lane-analysis`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origin: loadForm.origin, destination: loadForm.destination }),
+      });
+      setAnalysis(j);
+      setLoadForm((prev) => ({
+        ...prev,
+        // Only fill what was actually established. An empty box is a question;
+        // a fabricated one is an answer nobody asked for.
+        distance_km: j.distance?.km != null ? String(j.distance.km) : prev.distance_km,
+        toll_amount: j.toll?.amount != null ? String(j.toll.amount) : prev.toll_amount,
+        toll_plazas: j.toll?.plazas != null ? String(j.toll.plazas) : prev.toll_plazas,
       }));
       setShowMap(true);
+    } catch (e) {
+      setAnalysis({ error: e.message });
+    } finally {
       setLoading(false);
-    }, 800); 
+    }
   };
 
   const handlePostLoad = async () => {
@@ -380,11 +388,19 @@ export default function BazaarAdmin() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', background: '#020617', padding: '20px', borderRadius: '12px', border: '1px solid #1e293b' }}>
                   <div>
                     <label style={{fontSize:'11px', color:'#10b981', fontWeight:'bold'}}>📍 Pickup Location (Origin) *</label>
-                    <input className="glass-input" style={{ borderColor: '#10b981', marginTop: '5px', textTransform: 'uppercase' }} placeholder="e.g. BONGAIGAON" value={loadForm.origin} onChange={e=>setLoadForm({...loadForm, origin:e.target.value})} />
+                    <PlaceInput
+                      className="glass-input"
+                      value={loadForm.origin}
+                      onChange={(v) => setLoadForm({ ...loadForm, origin: v })}
+                      placeholder="e.g. BONGAIGAON" />
                   </div>
                   <div>
                     <label style={{fontSize:'11px', color:'#ef4444', fontWeight:'bold'}}>📍 Drop Location (Destination) *</label>
-                    <input className="glass-input" style={{ borderColor: '#ef4444', marginTop: '5px', textTransform: 'uppercase' }} placeholder="e.g. GUWAHATI" value={loadForm.destination} onChange={e=>setLoadForm({...loadForm, destination:e.target.value})} />
+                    <PlaceInput
+                      className="glass-input"
+                      value={loadForm.destination}
+                      onChange={(v) => setLoadForm({ ...loadForm, destination: v })}
+                      placeholder="e.g. GUWAHATI" />
                   </div>
                   
                   <button onClick={handleCalculateRoute} style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', marginTop: '5px', display: 'flex', justifyContent: 'center', gap: '10px' }}>
@@ -416,22 +432,47 @@ export default function BazaarAdmin() {
                   </div>
                 </div>
 
-                {/* ✅ THE FIX: PROPER GOOGLE MAPS iFRAME URL */}
-                <div style={{ position: 'relative', background: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', overflow: 'hidden', minHeight: '250px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {!showMap ? (
-                    <div style={{ textAlign: 'center', zIndex: 10 }}>
+                {/* The iframe embed here was a picture of a route, not the route:
+                    it re-queried Google from the browser with no key, could not
+                    be styled, and had no relationship to the distance in the box
+                    above it. This draws the ACTUAL polyline the analysis
+                    returned, so the map and the number agree by construction. */}
+                {!showMap ? (
+                  <div style={{ position: 'relative', background: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', minHeight: '250px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '40px', marginBottom: '10px', filter: 'grayscale(1)', opacity: 0.5 }}>🗺️</div>
                       <div style={{ color: '#64748b', fontSize: '12px' }}>Type locations & click<br/>'Analyze Route'</div>
                     </div>
-                  ) : (
-                    // 💯 The perfectly formatted URL that will never fail.
-                    <iframe 
-                      title="Google Map Route"
-                      className="dark-map-iframe"
-                      src={`https://maps.google.com/maps?q=${encodeURIComponent(loadForm.origin)}+to+${encodeURIComponent(loadForm.destination)}&t=&z=7&ie=UTF8&iwloc=&output=embed`}
-                    />
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <RouteMap height={250} polyline={analysis?.distance?.polyline} />
+                )}
+
+                {/* WHERE EACH NUMBER CAME FROM. The distance is Google's; the
+                    toll is our own history or nothing at all. Saying which is
+                    the difference between a figure an operator can sanity-check
+                    and one they have to take on faith. */}
+                {analysis && (
+                  <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(15,23,42,0.7)', border: '1px solid #1e293b', fontSize: '11px', lineHeight: 1.6 }}>
+                    {analysis.error && (
+                      <div style={{ color: '#f59e0b' }}>Analysis failed: {analysis.error}</div>
+                    )}
+                    {analysis.distance && (
+                      <div style={{ color: analysis.distance.km != null ? '#38bdf8' : '#f59e0b' }}>
+                        {analysis.distance.km != null
+                          ? <>Distance <b>{analysis.distance.km} km</b>{analysis.distance.duration_min ? ` · about ${Math.round(analysis.distance.duration_min / 60)}h ${analysis.distance.duration_min % 60}m` : ''} — Google Directions{analysis.distance.cached ? ' (cached, not re-billed)' : ''}</>
+                          : <>Distance unavailable — {analysis.distance.detail || analysis.distance.error}. Enter it by hand.</>}
+                      </div>
+                    )}
+                    {analysis.toll && (
+                      <div style={{ color: analysis.toll.amount != null ? '#22c55e' : '#94a3b8' }}>
+                        {analysis.toll.amount != null
+                          ? <>Toll <b>₹{analysis.toll.amount}</b> across ~{analysis.toll.plazas} plazas — {analysis.toll.basis}</>
+                          : <>No toll figure: {analysis.toll.basis}</>}
+                      </div>
+                    )}
+                  </div>
+                )}
 
               </div>
 
