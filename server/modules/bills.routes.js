@@ -296,6 +296,15 @@ export async function registerBillRoutes(app) {
                   gross_freight: { type: 'number', minimum: 0 },
                   shortage_amt: { type: 'number', minimum: 0, default: 0 },
                   lr_no: { type: ['string', 'null'], maxLength: 40 },
+                  // additionalProperties is false on this object, so a caller
+                  // that wants to mark a line provisional has to be able to say
+                  // so through the schema. Otherwise Fastify strips the flag
+                  // and an estimate arrives on the invoice looking agreed --
+                  // the same silent-drop that lost iocl_invoice_no on the AC5
+                  // import.
+                  provisional: { type: 'boolean', default: false },
+                  manual_rate_required: { type: 'boolean', default: false },
+                  pricing_note: { type: ['string', 'null'], maxLength: 300 },
                 },
               },
             },
@@ -405,6 +414,14 @@ export async function registerBillRoutes(app) {
           sgst_amt: half,
           igst_amt: 0,
           net_payable: r2(gross - shortage - tds),
+          // Carried from the request so an estimate reaches the invoice
+          // labelled as one. A line the rate engine could not price at all
+          // rides at zero with manual_rate_required set, rather than being
+          // dropped -- 52 delivered loads vanishing off a bill looks identical
+          // to 52 loads that were never meant to be on it.
+          provisional: line.provisional ?? false,
+          manual_rate_required: line.manual_rate_required ?? false,
+          pricing_note: line.pricing_note ?? null,
         };
       });
 
@@ -459,12 +476,15 @@ export async function registerBillRoutes(app) {
               `INSERT INTO company_bill_trips
                  (bill_id, trip_id, trip_code, lr_no, vehicle_no, driver_name, loading_date, unloading_date,
                   qty, rate, rtkm, billing_type, gross_freight, shortage_amt, tds_amt,
-                  cgst_amt, sgst_amt, igst_amt, net_payable, final_passed_amt)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19)`,
+                  cgst_amt, sgst_amt, igst_amt, net_payable, final_passed_amt,
+                  provisional, manual_rate_required, pricing_note)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19,
+                       $20,$21,$22)`,
               [bill.id, l.trip_id, l.trip_code, l.lr_no, l.vehicle_no, l.driver_name,
                l.loading_date, l.unloading_date, l.qty, l.rate, l.rtkm, l.billing_type,
                l.gross_freight, l.shortage_amt, l.tds_amt, l.cgst_amt, l.sgst_amt, l.igst_amt,
-               l.net_payable]);
+               l.net_payable,
+               l.provisional ?? false, l.manual_rate_required ?? false, l.pricing_note ?? null]);
           }
 
           // Billing linkage only — see migration 019 on why these two columns

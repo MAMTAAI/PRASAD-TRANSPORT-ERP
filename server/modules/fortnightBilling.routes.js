@@ -170,7 +170,7 @@ export async function registerFortnightBillingRoutes(app, opts = {}) {
         };
         g.unpriced = unpriced;
         g.lines = g.trips.map((t, i) => ({
-          sl: i + 1, trip_code: t.trip_code, vehicle_no: t.vehicle_no,
+          sl: i + 1, trip_id: t.id, trip_code: t.trip_code, vehicle_no: t.vehicle_no,
           challan_no: t.challan_no, iocl_invoice_no: t.iocl_invoice_no,
           loading_date: t.loading_date, unloading_date: t.unloading_date,
           route: `${t.loading_point ?? '?'} -> ${t.unloading_location ?? '?'}`,
@@ -180,6 +180,7 @@ export async function registerFortnightBillingRoutes(app, opts = {}) {
           gross_freight: t._priced.amount,
           shortage_amt: Number(t.shortage_penalty ?? 0),
           priced_from: t._priced.source,
+          why: t._priced.reason,
         }));
         delete g.trips;
       }
@@ -197,5 +198,100 @@ export async function registerFortnightBillingRoutes(app, opts = {}) {
     totals.gross = Math.round(totals.gross * 100) / 100;
 
     return { ok: true, range: [from, to], fortnights: out.length, totals, periods: out };
+  });
+
+  // ── Generate ───────────────────────────────────────────────────────────────
+  // Delegates every group to POST /billing/bills via app.inject, so bills are
+  // created and revenue reaches the ledger by EXACTLY the path the Bill
+  // Management screen uses. A second insert path would be a second set of rules
+  // about when revenue is recognised.
+  //
+  // Sequential on purpose. Bill numbers are minted from the current maximum,
+  // and 460 concurrent injections would race for the same number.
+  app.post('/generate-fortnights', { preHandler: guard }, async (req, reply) => {
+    const from = req.body?.from, to = req.body?.to;
+    if (!from || !to) return reply.code(400).send({ error: 'BAD_RANGE', detail: 'from and to are required' });
+
+    // Reuse the planner verbatim: what is generated is what was previewed.
+    const planRes = await app.inject({
+      method: 'POST', url: '/api/v1/billing/plan-fortnights',
+      headers: { 'content-type': 'application/json', authorization: req.headers.authorization ?? '' },
+      payload: { from, to, group_by: req.body?.group_by ?? 'COMPANY_CUSTOMER_DEPOT' },
+    });
+    if (planRes.statusCode !== 200) {
+      return reply.code(502).send({ error: 'PLAN_FAILED', detail: planRes.body.slice(0, 400) });
+    }
+    const plan = planRes.json();
+
+    const created = [], failed = [];
+    let grossPosted = 0, linesManual = 0;
+
+    for (const p of plan.periods) {
+      for (const g of p.groups) {
+        const trips = g.lines.map((l) => ({
+          trip_id: l.trip_id,
+          qty: Number(l.qty) || 0,
+          rate: Number(l.rate) || 0,
+          rtkm: Number(l.rtkm) || 0,
+          // A line the engine could not price goes on at zero and says so. The
+          // CHECK constraint refuses a manual_rate_required line that carries a
+          // number, so these two can never drift apart.
+          gross_freight: l.gross_freight == null ? 0 : Number(l.gross_freight),
+          shortage_amt: Number(l.shortage_amt) || 0,
+          lr_no: l.challan_no ?? null,
+          billing_type: l.unit === 'MT' ? 'PER_MT' : 'PER_KL',
+          provisional: true,
+          manual_rate_required: l.gross_freight == null,
+          pricing_note: l.gross_freight == null
+            ? `unpriced: ${l.why ?? 'rate engine could not price this line'}`
+            : `${l.rule ?? 'STANDARD'} via ${l.priced_from ?? 'RATE_ENGINE'}`,
+        }));
+        linesManual += trips.filter((t) => t.manual_rate_required).length;
+
+        const res = await app.inject({
+          method: 'POST', url: '/api/v1/billing/bills',
+          headers: { 'content-type': 'application/json', authorization: req.headers.authorization ?? '' },
+          payload: {
+            company: g.company,
+            location: g.depot,
+            billing_period: `${p.period.half === 'FIRST' ? '1st Half' : '2nd Half'} ${p.period.year}-${String(p.period.month).padStart(2, '0')}`,
+            period_from: p.period.from,
+            period_to: p.period.to,
+            bill_date: p.period.to,
+            created_by: 'fortnight-auto-billing',
+            post_revenue: true,
+            trips,
+          },
+        });
+
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          const body = res.json();
+          created.push({
+            bill_no: body.bill?.bill_no ?? body.bill_no ?? null,
+            company: g.company, customer: g.customer, depot: g.depot,
+            period: p.period.label, trips: trips.length,
+            gross: g.totals.gross, manual: trips.filter((t) => t.manual_rate_required).length,
+          });
+          grossPosted += Number(g.totals.gross) || 0;
+        } else {
+          failed.push({
+            company: g.company, customer: g.customer, depot: g.depot,
+            period: p.period.label, trips: trips.length,
+            status: res.statusCode, detail: res.body.slice(0, 220),
+          });
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      range: [from, to],
+      bills_created: created.length,
+      bills_failed: failed.length,
+      gross_posted: Math.round(grossPosted * 100) / 100,
+      lines_needing_manual_rate: linesManual,
+      created: created.slice(0, 40),
+      failed: failed.slice(0, 40),
+    };
   });
 }
