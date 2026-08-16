@@ -22,8 +22,17 @@ export function loadGoogleMaps(): Promise<void> {
     // `geometry` is required for encoding.decodePath — the dispatch map draws
     // route polylines from cached encoded strings, and without this library
     // decodePath is simply undefined and every lane silently fails to render.
+    //
+    // `places` is required by PlaceInput. Without it AutocompleteService is
+    // undefined, the component degrades to a plain text box, and it does so
+    // SILENTLY — the autocomplete simply never appears and nothing says why.
+    // Verified absent in the browser before this line was fixed.
+    //
     // Loading a library costs nothing extra: Maps JS is billed per map load.
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry`;
+    //
+    // loading=async is Google's own recommendation; without it the SDK logs a
+    // performance warning on every page and blocks the parser while it fetches.
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry,places&loading=async`;
     s.async = true;
     s.defer = true;
     s.onload = () => resolve();
