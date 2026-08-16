@@ -32,6 +32,7 @@ import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
 import { registerFortnightBillingRoutes } from './modules/fortnightBilling.routes.js';
+import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
@@ -151,6 +152,11 @@ await app.register(registerBillRoutes,     { prefix: '/api/v1/billing' });
 // delegates creation to POST /billing/bills so revenue reaches the ledger by
 // exactly one path.
 await app.register(registerFortnightBillingRoutes, { prefix: '/api/v1/billing' });
+// Fortnightly petrol-pump bills: group unbilled slips by pump and period, price
+// them (465 of 479 slips carry litres but no money, so the rate is derived and
+// labelled), and show the variance against the physical bill BEFORE
+// /queues/fuel-reconcile posts it to the vendor ledger.
+await app.register(registerPumpBillingRoutes, { prefix: '/api/v1/fuel' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.
