@@ -20,8 +20,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Download, ExternalLink, AlertTriangle, Loader2, Table2 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 import { inrFull } from './useDashboardData';
+import GlobalPagination, { DEFAULT_PAGE_SIZE } from '../components/GlobalPagination';
 
-const PAGE = 100;
+// SERVER-SIDE PAGING, not a slice of a downloaded array. finance.toll_spent is
+// 3,883 rows; fetching all of them to show 20 would make the drawer slow in
+// exactly the case pagination exists for. The control drives the API's OFFSET.
 
 /** Column names are raw SQL identifiers; make them readable without a mapping table. */
 const humanise = (c) =>
@@ -48,26 +51,30 @@ export default function DrillDownViewer({ metric, expected = null, filterQs = ''
   const [data, setData] = useState(null);
   const [rows, setRows] = useState([]);
   const [state, setState] = useState('loading');
-  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(DEFAULT_PAGE_SIZE);
   const closeRef = useRef(null);
 
-  const load = useCallback(async (off) => {
-    setState(off === 0 ? 'loading' : 'more');
+  const load = useCallback(async (p, n) => {
+    setState('loading');
     try {
       const sep = filterQs ? '&' : '';
       const r = await fetch(
-        `${API_BASE}/api/v1/dashboard/drilldown/${encodeURIComponent(metric)}?limit=${PAGE}&offset=${off}${sep}${filterQs}`,
+        `${API_BASE}/api/v1/dashboard/drilldown/${encodeURIComponent(metric)}?limit=${n}&offset=${(p - 1) * n}${sep}${filterQs}`,
         { headers: { Authorization: `Bearer ${localStorage.getItem('prasad_token') || ''}` } },
       );
       if (!r.ok) { setState('error'); return; }
       const j = await r.json();
       setData(j);
-      setRows((prev) => (off === 0 ? j.rows : [...prev, ...j.rows]));
+      setRows(j.rows);
       setState('ok');
     } catch { setState('error'); }
   }, [metric, filterQs]);
 
-  useEffect(() => { setOffset(0); load(0); }, [load]);
+  useEffect(() => { load(page, size); }, [load, page, size]);
+  // A different metric restarts at page 1; staying on page 7 of the last one
+  // would open the drawer somewhere arbitrary in a set you have not seen.
+  useEffect(() => { setPage(1); }, [metric]);
 
   // Escape closes, and focus lands on the close button so the drawer is usable
   // without a mouse.
@@ -145,7 +152,7 @@ export default function DrillDownViewer({ metric, expected = null, filterQs = ''
                   {data?.money_total !== null && data?.money_total !== undefined && (
                     <> · <span className="font-bold text-emerald-300">₹{inrFull(data.money_total)}</span></>
                   )}
-                  {rows.length < total && <> · showing {rows.length}</>}
+                  
                 </>
               )}
             </p>
@@ -243,19 +250,22 @@ export default function DrillDownViewer({ metric, expected = null, filterQs = ''
             </table>
           )}
 
-          {rows.length > 0 && total !== null && rows.length < total && (
-            <div className="p-3 text-center">
-              <button
-                onClick={() => { const n = offset + PAGE; setOffset(n); load(n); }}
-                disabled={state === 'more'}
-                className="rounded-lg border border-slate-600 bg-white/5 px-4 py-2 text-[11px] font-bold
-                           text-slate-300 transition-colors hover:bg-white/10 disabled:opacity-50"
-              >
-                {state === 'more' ? 'loading…' : `Load ${Math.min(PAGE, total - rows.length)} more of ${total.toLocaleString('en-IN')}`}
-              </button>
-            </div>
-          )}
+
         </div>
+
+        {total > 0 && (
+          <GlobalPagination
+            page={page}
+            pages={Math.max(1, Math.ceil(total / size))}
+            size={size}
+            total={total}
+            from={total === 0 ? 0 : (page - 1) * size + 1}
+            to={Math.min(page * size, total)}
+            onPage={setPage}
+            onSize={(n) => { setSize(n); setPage(1); }}
+            className="shrink-0 bg-slate-900/60"
+          />
+        )}
 
         <footer className="shrink-0 border-t border-slate-800 px-4 py-2 text-[10px] text-slate-500">
           {linkable

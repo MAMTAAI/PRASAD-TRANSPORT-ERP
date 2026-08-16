@@ -129,7 +129,7 @@ export function registerDashboardRoutes(app) {
              count(*) AS trips,
              COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0) AS freight
         FROM trips t
-        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN vehicles v ON v.id = t.vehicle_id
        WHERE ($5::date IS NULL OR t.loading_date >= $5::date)
          AND ($6::date IS NULL OR t.loading_date <= $6::date)
          ${TRIP_F}
@@ -142,7 +142,7 @@ export function registerDashboardRoutes(app) {
              count(*) AS trips,
              COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0) AS revenue
         FROM trips t
-        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN vehicles v ON v.id = t.vehicle_id
        WHERE t.loading_date BETWEEN '2000-01-01' AND '2100-01-01' ${TRIP_F}
        GROUP BY 1 ORDER BY 1 DESC LIMIT 13`, P);
 
@@ -245,7 +245,7 @@ export function registerDashboardRoutes(app) {
              COALESCE(t.shortage_penalty,0) - COALESCE(rec.recovered,0) AS pending,
              rec.last_at                             AS last_recovery_at
         FROM trips t
-        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN vehicles v ON v.id = t.vehicle_id
         LEFT JOIN LATERAL (
           SELECT sum(d.amount) AS recovered, max(d.txn_date) AS last_at
             FROM driver_transactions d
@@ -313,7 +313,7 @@ export function registerDashboardRoutes(app) {
              COALESCE(sum(t.shortage_penalty),0)      AS charged,
              COALESCE(sum(rec.recovered),0)           AS recovered
         FROM trips t
-        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN vehicles v ON v.id = t.vehicle_id
         LEFT JOIN LATERAL (
           SELECT sum(d.amount) AS recovered FROM driver_transactions d
            WHERE d.trip_id = t.id AND d.txn_type = 'SHORTAGE_RECOVERY') rec ON true
@@ -680,7 +680,7 @@ export function registerDashboardRoutes(app) {
                  COALESCE(t.shortage_penalty, 0)            AS penalty,
                  COALESCE(rec.recovered, 0)                 AS recovered
             FROM trips t
-            JOIN vehicles v ON v.id = t.vehicle_id
+            LEFT JOIN vehicles v ON v.id = t.vehicle_id
             LEFT JOIN LATERAL (
               SELECT COALESCE(sum(dt.amount), 0) AS recovered
                 FROM driver_transactions dt

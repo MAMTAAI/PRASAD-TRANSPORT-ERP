@@ -15,7 +15,7 @@ import {
   Tooltip, CartesianGrid, Legend,
 } from 'recharts';
 import {
-  GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle, Drillable,
+  GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle, Drillable, openDrilldown,
 } from './shared';
 import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
@@ -224,7 +224,13 @@ export default function FinanceDashboard({ live, filter }) {
                 ))}
                 <div className="mt-1 pt-2 border-t border-slate-700/50 flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total outstanding</span>
-                  <span className="text-[13px] font-black text-cyan-300">₹{inrFull(emi.total_outstanding)}</span>
+                  <button type="button" onClick={() => openDrilldown('finance.loans', emi.total_outstanding)}
+                          title="Show the loans behind this figure"
+                          className="cursor-pointer rounded text-[13px] font-black text-cyan-300 underline-offset-4
+                                     transition-colors hover:text-cyan-200 hover:underline focus:outline-none
+                                     focus-visible:ring-2 focus-visible:ring-cyan-400/70">
+                    ₹{inrFull(emi.total_outstanding)}
+                  </button>
                 </div>
                 {/* The figure above is a STORED balance, not a computed one. It
                     was set from the opening position and no EMI has decremented

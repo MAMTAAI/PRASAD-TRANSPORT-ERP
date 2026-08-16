@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
 const MASTERS_API = `${API}/api/v1/masters`;
@@ -265,10 +266,11 @@ export default function FuelMgmt() {
     if (reconToDate && s.date > reconToDate) matchDate = false;
     return matchDate;
   });
+  const pgFilteredUnbilledSlips = usePagination(filteredUnbilledSlips);
 
   const handleSelectAllFilteredSlips = (e: any) => {
      if(e.target.checked) {
-        const filteredIds = filteredUnbilledSlips.map(s => s.id);
+        const filteredIds = pgFilteredUnbilledSlips.slice.map(s => s.id);
         setSelectedSlips(filteredIds);
      } else {
         setSelectedSlips([]);
@@ -677,6 +679,7 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
             <p style={{ color: '#94a3b8', fontSize: '12px', marginBottom: '15px' }}>Verify rates and quantities before posting to the Vendor Ledger.</p>
             
             {!reconVendor ? <p style={{ color: '#64748b' }}>Select a vendor first to see pending slips...</p> : (
+              <>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
                 <thead>
                   <tr>
@@ -741,6 +744,8 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                   ))}
                 </tbody>
               </table>
+            <GlobalPagination {...pgFilteredUnbilledSlips} />
+              </>
             )}
           </div>
         </div>

@@ -198,11 +198,11 @@ export const METRICS = {
     from: 'ledger_entries le',
     where: 'TRUE',
     filter: 'NONE',
-    select: `le.id::text AS id, le.entry_date, le.voucher_no, le.ledger_name,
+    select: `le.id::text AS id, le.entry_date, le.voucher_id::text AS voucher_id, le.source_ref, le.ledger_name,
              le.dr_cr, le.amount, le.particulars, le.created_at`,
     order: 'le.created_at DESC',
     measure: 'le.amount',
-    link: { module: 'ACCOUNTS', screen: 'LEDGER', idField: 'id', labelField: 'voucher_no' },
+    link: { module: 'ACCOUNTS', screen: 'LEDGER', idField: 'id', labelField: 'source_ref' },
   },
 
   // ── CRM ───────────────────────────────────────────────────────────────────
@@ -231,6 +231,66 @@ export const METRICS = {
     order: 'w.ts DESC',
     measure: null,
     link: { module: 'CRM', screen: 'WHATSAPP', idField: 'id', labelField: 'phone' },
+  },
+
+  'ops.shortage': {
+    hub: 'ops', label: 'Driver Shortage', unit: 'INR',
+    from: `trips t LEFT JOIN vehicles v ON v.id = t.vehicle_id
+           LEFT JOIN LATERAL (
+             SELECT COALESCE(sum(dt.amount),0) AS recovered
+               FROM driver_transactions dt
+              WHERE dt.trip_id = t.id AND dt.txn_type = 'SHORTAGE_RECOVERY') rec ON true`,
+    where: 'COALESCE(t.shortage_penalty,0) > 0',
+    filter: 'TRIP',
+    // Trip-wise, not driver-wise. The panel groups by driver; the audit question
+    // is always "which trip", because that is the row somebody has to go and fix.
+    select: `t.id::text AS id, t.trip_code, t.driver_name, t.vehicle_no,
+             t.loading_date, t.shortage_qty, t.shortage_penalty,
+             rec.recovered,
+             (COALESCE(t.shortage_penalty,0) - rec.recovered) AS still_owed`,
+    order: '(COALESCE(t.shortage_penalty,0) - rec.recovered) DESC, t.loading_date DESC',
+    measure: 'COALESCE(t.shortage_penalty,0)',
+    link: { module: 'OPERATION', screen: 'SETTLEMENT', idField: 'id', labelField: 'trip_code' },
+  },
+
+  'ops.doc_expiry': {
+    hub: 'ops', label: 'Expiring Documents', unit: 'documents',
+    // The view the compliance panel already reads, with the same threshold
+    // function -- not a reimplementation of "soon".
+    from: 'v_compliance_alerts ca',
+    where: 'ca.expires_on - CURRENT_DATE <= compliance_alert_days()',
+    filter: 'NONE',
+    select: `ca.subject, ca.subject_kind, ca.owner_name, ca.doc_type,
+             COALESCE(ca.doc_name, ca.doc_type) AS doc_name,
+             ca.expires_on, (ca.expires_on - CURRENT_DATE)::int AS days_left, ca.source`,
+    order: 'ca.expires_on ASC',
+    measure: null,
+    link: null,
+  },
+
+  'finance.customers': {
+    hub: 'finance', label: 'Customer Freight', unit: 'INR',
+    from: 'trips t LEFT JOIN vehicles v ON v.id = t.vehicle_id',
+    where: 'COALESCE(t.freight_amount,0) <> 0',
+    filter: 'TRIP',
+    select: `t.id::text AS id, COALESCE(NULLIF(t.customer_name,''),'UNKNOWN') AS customer_name,
+             t.trip_code, t.vehicle_no, t.loading_date, t.freight_amount,
+             t.billed_amount, t.status`,
+    order: 't.freight_amount DESC NULLS LAST',
+    measure: 'COALESCE(t.freight_amount,0)',
+    link: { module: 'ACCOUNTS', screen: 'BILLING', idField: 'id', labelField: 'trip_code' },
+  },
+
+  'finance.ledger_book': {
+    hub: 'finance', label: 'Ledger Book', unit: 'INR',
+    from: 'ledgers l JOIN ledger_entries e ON e.ledger_id = l.id',
+    where: 'TRUE',
+    filter: 'NONE',
+    select: `e.id::text AS id, e.entry_date, l.ledger_name, l.group_head,
+             e.dr_cr, e.amount, e.source_ref, e.particulars`,
+    order: 'e.entry_date DESC NULLS LAST, e.created_at DESC',
+    measure: 'e.amount',
+    link: { module: 'ACCOUNTS', screen: 'LEDGER', idField: 'id', labelField: 'source_ref' },
   },
 };
 

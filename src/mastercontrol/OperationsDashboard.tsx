@@ -118,6 +118,7 @@ export default function OperationsDashboard({ live, filter }) {
           <PanelHeader
             icon={FileWarning}
             title="Master Document Vault"
+            onTitleClick={() => openDrilldown('ops.doc_expiry', null)}
             accent="text-red-400"
             right={<StatusPill tone="red" pulse>Compliance Alerts</StatusPill>}
           />

@@ -312,9 +312,19 @@ export function registerTripImportRoutes(app) {
               t.customer_name, btrim(c.company_name) AS company,
               COALESCE(NULLIF(t.freight_amount,0), 0)::numeric(14,2) AS freight,
               t.loaded_qty, t.unloaded_qty, t.shortage_qty,
-              NOT v.is_company_owned AS is_attached
+              -- COALESCE because the join below is now LEFT: a trip whose vehicle
+              -- row never resolved has no ownership flag, and defaulting it to
+              -- "not attached" is the conservative answer -- it withholds a
+              -- commission payout to an owner we cannot actually identify,
+              -- rather than inventing one.
+              COALESCE(NOT v.is_company_owned, false) AS is_attached
          FROM trips t
-         JOIN vehicles v ON v.id = t.vehicle_id
+         -- LEFT, not INNER. This query builds the BILLING CANDIDATE list, and an
+         -- inner join meant a completed unbilled trip whose vehicle_id was never
+         -- resolved could never be billed at all -- it was absent from the list
+         -- rather than flagged on it. Silently unbillable revenue is the worst
+         -- shape this bug can take.
+         LEFT JOIN vehicles v ON v.id = t.vehicle_id
          LEFT JOIN companies c ON c.id = t.company_id
         WHERE COALESCE(t.billed_amount,0) = 0
           AND t.status = 'COMPLETED'

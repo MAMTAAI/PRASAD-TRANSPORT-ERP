@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
 
@@ -89,6 +90,7 @@ export default function LedgerMgmt() {
       (group === 'ALL' || r.group_head === group) &&
       (!t || r.ledger_name.toLowerCase().includes(t) || (r.group_head ?? '').toLowerCase().includes(t)));
   }, [rows, q, group]);
+  const pgView = usePagination(view);
 
   const totals = useMemo(() => {
     let dr = 0, cr = 0;
@@ -164,7 +166,7 @@ export default function LedgerMgmt() {
               <tr><td colSpan={6} style={{ padding: 28, textAlign: 'center', color: C.faint }}>
                 No ledger matches that filter.</td></tr>
             )}
-            {view.map((r) => (
+            {pgView.slice.map((r) => (
               <tr key={r.ledger_name} onClick={() => openStatement(r.ledger_name)}
                   style={{ cursor: 'pointer' }}
                   title="Open statement">
@@ -185,6 +187,7 @@ export default function LedgerMgmt() {
             ))}
           </tbody>
         </table>
+            <GlobalPagination {...pgView} />
       </div>
 
       {open && (

@@ -66,6 +66,17 @@ function windowOf(q) {
   return { from, to };
 }
 
+// NOTE ON THE INNER JOINS BELOW -- THEY ARE DELIBERATE.
+// Every other trips->vehicles join in this codebase was changed to LEFT, because
+// there the join only existed so a filter could reach the vehicles table and an
+// inner join silently dropped trips whose vehicle_id was NULL.
+//
+// Here it is different in kind. These queries GROUP BY owner, and ownership is a
+// property of the vehicle. A trip with no vehicle row has no owner, so it cannot
+// belong on any owner's statement -- LEFT joining would invent a NULL-owner
+// bucket and put real money in it. Refusing to attribute is right; guessing is
+// not. Such trips surface instead in the fleet-wide dashboard totals, which is
+// where an unattributed trip belongs.
 export function registerOwnerRoutes(app) {
   // ── Who are the owners ────────────────────────────────────────────────────
   app.get('/owners', async (req, reply) => {

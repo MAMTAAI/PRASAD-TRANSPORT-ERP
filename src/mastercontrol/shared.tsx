@@ -26,7 +26,11 @@ export function GlassPanel({ children, className = '', glow = '' }) {
 // ---------------------------------------------------------------------------
 // PanelHeader — icon + title + optional right-side accessory
 // ---------------------------------------------------------------------------
-export function PanelHeader({ icon: Icon, title, accent = 'text-cyan-400', right = null, sub = '' }) {
+// `onTitleClick` makes a whole panel auditable, for panels whose subject is a
+// LIST rather than a single number -- the document vault, the ledger book. A
+// KpiCard drills from its figure; these have no one figure to attach to, so the
+// title is the handle.
+export function PanelHeader({ icon: Icon, title, accent = 'text-cyan-400', right = null, sub = '', onTitleClick = null }) {
   return (
     <div className="flex items-center justify-between px-4 pt-4 pb-2">
       <div className="flex items-center gap-2 min-w-0">
@@ -36,7 +40,22 @@ export function PanelHeader({ icon: Icon, title, accent = 'text-cyan-400', right
           </span>
         )}
         <div className="min-w-0">
-          <h3 className="text-[13px] font-bold tracking-wide text-slate-100 truncate uppercase">{title}</h3>
+          {onTitleClick ? (
+            <button
+              type="button"
+              onClick={onTitleClick}
+              title={`Show the rows behind ${title}`}
+              className="group/t block max-w-full cursor-pointer text-left focus:outline-none
+                         focus-visible:ring-2 focus-visible:ring-cyan-400/70 rounded"
+            >
+              <h3 className="truncate text-[13px] font-bold uppercase tracking-wide text-slate-100
+                             underline-offset-4 transition-colors group-hover/t:text-cyan-200 group-hover/t:underline">
+                {title}
+              </h3>
+            </button>
+          ) : (
+            <h3 className="text-[13px] font-bold tracking-wide text-slate-100 truncate uppercase">{title}</h3>
+          )}
           {sub && <p className="text-[10px] text-slate-500 truncate">{sub}</p>}
         </div>
       </div>

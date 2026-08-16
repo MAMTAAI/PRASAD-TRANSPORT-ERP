@@ -87,9 +87,19 @@ export function registerDrilldownRoutes(app) {
     const checks = [];
     for (const key of metricKeys()) {
       const m = METRICS[key];
-      if (!m.headline) { checks.push({ key, status: 'NO_HEADLINE', note: 'no single card to compare against' }); continue; }
       try {
+        // EXECUTE EVERY METRIC, even one with no card to compare against.
+        // Skipping them meant a metric with a broken query sat at "no headline"
+        // and looked benign -- two of them referenced a ledger_entries.voucher_no
+        // that does not exist, and neither showed up here until somebody clicked
+        // the card. A drill-down that 500s is a defect whether or not there is a
+        // number to check it against, so the query runs regardless and only the
+        // COMPARISON is conditional.
         const { rows } = await query(totalsSql(m), P);
+        if (!m.headline) {
+          checks.push({ key, status: 'RUNS_OK', rows: Number(rows[0].n), note: 'query runs; no single card to compare against' });
+          continue;
+        }
         const drill = m.measure ? Number(rows[0].total) : Number(rows[0].n);
         const card = Number(at(payload, m.headline));
         // Money is compared to the paisa, counts exactly. A tolerance here would
@@ -107,7 +117,8 @@ export function registerDrilldownRoutes(app) {
     const bad = checks.filter((c) => c.status === 'MISMATCH' || c.status === 'ERROR');
     return {
       ok: bad.length === 0,
-      checked: checks.filter((c) => c.status !== 'NO_HEADLINE').length,
+      executed: checks.length,
+      compared: checks.filter((c) => c.status === 'MATCH' || c.status === 'MISMATCH').length,
       mismatches: bad.length,
       checks,
     };

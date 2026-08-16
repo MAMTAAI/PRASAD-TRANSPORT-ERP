@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from 'react';
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { round2, getTripFreight, getTripExpense, getTripAdvances } from './lib/accounting/tripMath';
 import { sendWhatsApp, waResultText } from './lib/waSend';
 import BottomSheet from './ui/BottomSheet';
@@ -917,6 +918,7 @@ export default function TripManagment() {
           (t.challan_no || t.Challan_No || '').toLowerCase().includes(q)
       );
   }), [trips, debouncedSearch]);
+  const pgActiveTrips = usePagination(activeTrips);
 
   const completedTrips = useMemo(() => trips.filter(t => t.trip_status === 'COMPLETED').filter(t => {
       let matchDate = true;
@@ -939,6 +941,7 @@ export default function TripManagment() {
       }
       return matchDate && matchSearch;
   }), [trips, debouncedSearch, historyFromDate, historyToDate]);
+  const pgCompletedTrips = usePagination(completedTrips);
 
   // 🚦 Map a raw trip_status to a design-system lifecycle pill (Phase 4)
   const tripStatusPill = (status: string) => {
@@ -1326,7 +1329,7 @@ export default function TripManagment() {
       {activeTab === 'ACTIVE' && isMobile && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {activeTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching active trips found.</div> :
-           activeTrips.map(t => {
+           pgActiveTrips.slice.map(t => {
             const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
             let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
             if (hTarget === 0) hTarget = parseFloat(getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) || 0;
@@ -1418,6 +1421,7 @@ export default function TripManagment() {
               )})}
             </tbody>
           </table>
+            <GlobalPagination {...pgActiveTrips} />
         </div>
       )}
 
@@ -1425,7 +1429,7 @@ export default function TripManagment() {
       {activeTab === 'COMPLETED' && isMobile && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {completedTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching completed trips found.</div> :
-           completedTrips.map(t => (
+           pgCompletedTrips.slice.map(t => (
             <div key={t.id} style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                 <b style={{ fontSize: '16px', color: '#38bdf8' }}>{t.vehicle_no || t.Vehical_No}</b>
@@ -1495,6 +1499,7 @@ export default function TripManagment() {
               ))}
             </tbody>
           </table>
+            <GlobalPagination {...pgCompletedTrips} />
           {!historyDone && !debouncedSearch && (
             <button onClick={loadMoreHistory} disabled={loadingMore} style={{ width: '100%', marginTop: '14px', minHeight: '48px', background: loadingMore ? '#475569' : 'transparent', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
               {loadingMore ? '⌛ Loading…' : `⬇️ Load ${HISTORY_PAGE} more completed trips`}

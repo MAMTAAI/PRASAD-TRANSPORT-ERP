@@ -1,5 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { extractDocument } from './lib/aiScanner';
 import { scopeCurrent } from './lib/rbac';
 
@@ -321,6 +322,7 @@ export default function Vehical() {
     
     return matchesSearch && matchesCompany && matchesOwner;
   });
+  const pgFilteredVehicles = usePagination(filteredVehicles);
 
   return (
     <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
@@ -391,7 +393,7 @@ export default function Vehical() {
                 : `🔍 ${vehicles.length} vehicles me se koi filter/search se match nahi hui — filters clear karke dekhein.`}
             </div>
           )}
-          {filteredVehicles.map((v) => {
+          {pgFilteredVehicles.slice.map((v) => {
             const isActive = String(v.status || 'Active').toLowerCase().includes('active');
             return (
             <div key={v.id} className="glass-card" style={{ padding: '25px', position: 'relative' }}>
@@ -438,6 +440,8 @@ export default function Vehical() {
           )})}
         </div>
       )}
+      {/* Cards, not a table -- the control is markup-agnostic on purpose. */}
+      <GlobalPagination {...pgFilteredVehicles} label="vehicles" />
 
       {/* 🛸 MODAL FORM */}
       {showForm && (

@@ -25,8 +25,7 @@ import {
   ShieldAlert, CalendarClock, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
-  GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote,
-} from './shared';
+  GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote, Drillable,} from './shared';
 import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
 
@@ -879,8 +878,10 @@ export function ShortageRecoveryPanel({ live, filter }) {
         {tot && (
           <>
             <div className="mb-2 grid grid-cols-3 gap-1.5">
-              <Tile label="Charged" value={`₹${inr(tot.charged)}`} tone="text-slate-100"
-                    sub={`${Number(tot.qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })} KL short`} />
+              <Drillable metric="ops.shortage" expected={tot.charged}>
+                <Tile label="Charged" value={`₹${inr(tot.charged)}`} tone="text-slate-100"
+                      sub={`${Number(tot.qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })} KL short`} />
+              </Drillable>
               <Tile label="Recovered" value={`₹${inr(tot.recovered)}`} tone="text-emerald-300"
                     sub={tot.recovery_pct != null ? `${tot.recovery_pct}% of charged` : null} />
               <Tile label="Still owed" value={`₹${inr(tot.pending)}`}

@@ -13,6 +13,7 @@
 // — the server has multipart support and the S3 config exists in .env.example,
 // but no upload endpoint yet. Uploads keep working; see the notes for the plan.
 import React, { useState, useEffect } from 'react';
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
@@ -499,6 +500,7 @@ export default function DriverMgmt() {
     String(d.mobile || '').includes(q) ||
     linkedVehicles(d).some(v => normVehicle(v).includes(normVehicle(q)))
   );
+  const pgFilteredDrivers = usePagination(filteredDrivers);
 
   const activeDriversCount = drivers.filter(d => d.status === 'ACTIVE' || !d.status).length;
   const pendingApprovalsCount = drivers.filter(d => d.approval_status === 'PENDING' || !d.approval_status).length;
@@ -657,6 +659,7 @@ export default function DriverMgmt() {
             {q && <span style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{filteredDrivers.length} of {drivers.length} drivers</span>}
           </div>
           {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Drivers from Server...</p> : (
+            <>
             <table>
               <thead>
                 <tr>
@@ -669,7 +672,7 @@ export default function DriverMgmt() {
               </thead>
               <tbody>
                 {filteredDrivers.length === 0 ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>{q ? `No drivers match "${searchQuery}".` : 'No Drivers found.'}</td></tr> :
-                  filteredDrivers.map((d) => (
+                  pgFilteredDrivers.slice.map((d) => (
                   <tr key={d.id}>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -728,6 +731,8 @@ export default function DriverMgmt() {
                 ))}
               </tbody>
             </table>
+            <GlobalPagination {...pgFilteredDrivers} />
+            </>
           )}
         </div>
       )}
