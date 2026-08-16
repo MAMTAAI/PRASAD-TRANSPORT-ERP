@@ -42,6 +42,7 @@ import { registerCrmRoutes } from './modules/crm.routes.js';
 import { registerAuthRoutes } from './modules/auth.routes.js';
 import { registerQueueRoutes } from './modules/queues.routes.js';
 import { registerDashboardRoutes } from './modules/dashboard.routes.js';
+import { registerDrilldownRoutes } from './modules/drilldown.routes.js';
 import { registerPortalRoutes } from './modules/portal.routes.js';
 import { registerAuditLogger } from './lib/auditLogger.js';
 import { registerMapsRoutes } from './modules/maps.routes.js';
@@ -216,6 +217,9 @@ await app.register(registerTripImportRoutes,  { prefix: '/api/v1' });
 // row that must NOT reach a ledger.
 await app.register(registerFuelImportRoutes,  { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
+// Drill-down reads the dashboard's own payload through app.inject() for its
+// self-check, so it must register AFTER the routes it verifies.
+await app.register(registerDrilldownRoutes, { prefix: '/api/v1' });
 // MDM + maker-checker + provisional accrual (migrations 059-063).
 await app.register(registerGovernanceRoutes, { prefix: '/api/v1' });
 // Fleet Partner app: blind-bid load board, own fleet, earnings.

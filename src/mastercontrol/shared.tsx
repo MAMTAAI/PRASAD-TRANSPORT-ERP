@@ -51,7 +51,42 @@ export function PanelHeader({ icon: Icon, title, accent = 'text-cyan-400', right
 // ---------------------------------------------------------------------------
 // KpiCard — big-number stat card with accent glow
 // ---------------------------------------------------------------------------
-export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan' }) {
+// `onDrill` turns a card into a button that opens the rows behind its number.
+// Cards WITHOUT it stay inert and show no pointer -- a hover cue that leads
+// nowhere teaches people the dashboard is broken.
+/**
+ * Open the drill-down drawer for `metric`, telling it what the card was showing.
+ * MasterControlApp listens; nothing else needs to know the drawer exists.
+ *
+ * `expected` is not decoration -- the drawer compares it against the rows it
+ * fetches and refuses to hide a disagreement.
+ */
+export const openDrilldown = (metric, expected = null) =>
+  window.dispatchEvent(new CustomEvent('pt:drilldown', { detail: { metric, expected } }));
+
+/**
+ * Wraps any number that is NOT a KpiCard -- a tile, a figure inside a panel --
+ * and makes it open its own rows. Renders children untouched when `metric` is
+ * null, so a figure with no row-level query stays inert rather than offering a
+ * click that goes nowhere.
+ */
+export function Drillable({ metric, expected = null, children, className = '' }) {
+  if (!metric) return children;
+  return (
+    <button
+      type="button"
+      onClick={() => openDrilldown(metric, expected)}
+      title="Click to see the rows behind this number"
+      className={`block w-full cursor-pointer rounded-xl text-left transition-all duration-150
+                  hover:bg-white/[0.06] hover:brightness-110
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70 ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan', onDrill = null }) {
   const accents = {
     cyan:    { text: 'text-cyan-300',    ring: 'border-cyan-500/30',    glowCls: 'shadow-[0_0_25px_rgba(34,211,238,0.12)]',  bar: 'from-cyan-500 to-cyan-300' },
     emerald: { text: 'text-emerald-300', ring: 'border-emerald-500/30', glowCls: 'shadow-[0_0_25px_rgba(52,211,153,0.12)]',  bar: 'from-emerald-500 to-emerald-300' },
@@ -60,8 +95,22 @@ export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan' }) {
     violet:  { text: 'text-violet-300',  ring: 'border-violet-500/30',  glowCls: 'shadow-[0_0_25px_rgba(167,139,250,0.12)]', bar: 'from-violet-500 to-violet-300' },
   };
   const a = accents[accent] || accents.cyan;
+  const Tag = onDrill ? 'button' : 'div';
   return (
-    <div className={`relative overflow-hidden rounded-2xl bg-slate-900/40 backdrop-blur-md border ${a.ring} ${a.glowCls} p-4`}>
+    <Tag
+      {...(onDrill
+        ? {
+            onClick: onDrill,
+            type: 'button',
+            title: `Show the rows behind ${label}`,
+            'aria-label': `Show the rows behind ${label}`,
+          }
+        : {})}
+      className={`relative overflow-hidden rounded-2xl bg-slate-900/40 backdrop-blur-md border ${a.ring} ${a.glowCls} p-4
+        ${onDrill
+          ? 'w-full cursor-pointer text-left transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-900/70 hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70'
+          : ''}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider truncate">{label}</p>
@@ -75,7 +124,13 @@ export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan' }) {
         )}
       </div>
       <div className={`absolute bottom-0 left-0 right-0 h-[3px] bg-gradient-to-r ${a.bar} opacity-70`} />
-    </div>
+      {onDrill && (
+        <span className="pointer-events-none absolute right-2 bottom-2 text-[9px] font-bold uppercase
+                         tracking-wider text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
+          click to audit
+        </span>
+      )}
+    </Tag>
   );
 }
 

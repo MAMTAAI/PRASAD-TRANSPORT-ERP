@@ -206,6 +206,31 @@ function AppShell() {
     return () => window.removeEventListener('pt:open-owner-statement', open);
   }, []);
 
+  // The general form of the jump above, for the drill-down drawer: a row in the
+  // viewer opens the screen that owns that record. Same reasoning -- the drawer
+  // is nested inside three different dashboards and must not learn how the shell
+  // routes.
+  //
+  // focusId rides along in the URL as ?focus=, so the target screen can scroll
+  // to or preselect the record. A screen that ignores it simply opens normally,
+  // which is why this is safe to dispatch for every metric rather than only the
+  // ones already wired to read it.
+  useEffect(() => {
+    const go = (e: any) => {
+      const d = e?.detail ?? {};
+      if (!d.screen) return;
+      if (d.module && ['OPERATION', 'ACCOUNTS', 'CRM'].includes(d.module)) setActiveModule(d.module);
+      setActiveComponent(d.screen);
+      if (d.focusId) {
+        const u = new URL(window.location.href);
+        u.searchParams.set('focus', String(d.focusId));
+        window.history.replaceState(null, '', u.toString());
+      }
+    };
+    window.addEventListener('pt:navigate', go);
+    return () => window.removeEventListener('pt:navigate', go);
+  }, []);
+
   // Keep module + screen in the URL alongside the filter, so refreshing or
   // sharing the link reproduces the exact context. Written by the filter store
   // with replaceState — a filter change is not navigation and must not stack

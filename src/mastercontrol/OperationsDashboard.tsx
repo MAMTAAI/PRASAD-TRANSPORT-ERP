@@ -13,7 +13,7 @@ import {
   FileText, ScanLine, Phone, Video, AlertTriangle, Gauge,
 } from 'lucide-react';
 import {
-  GlassPanel, PanelHeader, KpiCard, StatusPill, Dot, Avatar,
+  GlassPanel, PanelHeader, KpiCard, StatusPill, Dot, Avatar, openDrilldown,
 } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
@@ -81,10 +81,19 @@ export default function OperationsDashboard({ live, filter }) {
   const offline = !!live?.error;
 
   const kpiLive = ops ? [
-    { label: 'Fleet Size', value: String(ops.fleet_size), sub: 'Active vehicles', icon: Truck, accent: 'cyan' },
-    { label: 'Active Trips', value: String(ops.active_trips), sub: 'In transit now', icon: Route, accent: 'emerald' },
-    { label: 'Pending Unloading', value: String(ops.pending_unloading), sub: 'Awaiting unload', icon: PackageOpen, accent: 'amber' },
-  ] : kpis;
+    { label: 'Fleet Size', value: String(ops.fleet_size), sub: 'Active vehicles', icon: Truck, accent: 'cyan',
+      metric: 'ops.fleet_size', raw: ops.fleet_size },
+    { label: 'Active Trips', value: String(ops.active_trips), sub: 'In transit now', icon: Route, accent: 'emerald',
+      metric: 'ops.active_trips', raw: ops.active_trips },
+    { label: 'Pending Unloading', value: String(ops.pending_unloading), sub: 'Awaiting unload', icon: PackageOpen, accent: 'amber',
+      metric: 'ops.pending_unloading', raw: ops.pending_unloading },
+  // NO MOCK FALLBACK. This used to fall back to `kpis` -- Fleet Size 50, Active
+  // Trips 266, Pending Unloading 14 -- invented figures rendered in exactly the
+  // same type as real ones, with nothing on screen to tell them apart. That is
+  // the failure useDashboardData's own honesty contract exists to forbid, and
+  // it is where the "14 pending unloading" that nobody could reconcile came
+  // from: it was never a query result, it was a constant from the design mock.
+  ] : kpis.map((k) => ({ ...k, value: '--', sub: offline ? 'API unreachable' : 'no data', metric: null, raw: null }));
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
   const driverRows = ops?.drivers?.length ? ops.drivers : [];
@@ -99,7 +108,8 @@ export default function OperationsDashboard({ live, filter }) {
         {/* KPI cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
           {kpiLive.map((k) => (
-            <KpiCard key={k.label} icon={k.icon} label={k.label} value={k.value} sub={k.sub} accent={k.accent} />
+            <KpiCard key={k.label} icon={k.icon} label={k.label} value={k.value} sub={k.sub} accent={k.accent}
+                     onDrill={k.metric ? () => openDrilldown(k.metric, k.raw) : null} />
           ))}
         </div>
 

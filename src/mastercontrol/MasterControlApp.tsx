@@ -15,6 +15,7 @@ import MasterControlDashboard from './MasterControlDashboard';
 import useDashboardData from './useDashboardData';
 import { useGlobalFilter } from '../lib/filterStore';
 import FilterBar from './FilterBar';
+import DrillDownViewer from './DrillDownViewer';
 
 const MODULES = [
   { id: 'ops', label: 'Operations', icon: Truck, accent: 'text-cyan-300', bar: 'from-cyan-500 to-blue-500' },
@@ -46,6 +47,26 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   // lifetime; this screen is now just another consumer.
   const filter = useGlobalFilter();
   const live = useDashboardData(filter.qs());
+
+  // ONE drawer for all three hubs. Any card anywhere dispatches
+  //     window.dispatchEvent(new CustomEvent('pt:drilldown',
+  //       { detail: { metric: 'ops.active_trips', expected: 17 } }))
+  // and lands here. An event rather than prop-drilling because the cards are
+  // nested several levels down inside three different dashboards, and a context
+  // just to carry one modal would be threaded through every one of them.
+  //
+  // `expected` is the figure the card was DISPLAYING. The drawer compares it
+  // against the rows it fetches and shouts if they differ -- that comparison is
+  // the whole reason this is worth building.
+  const [drill, setDrill] = useState(null);
+  useEffect(() => {
+    const open = (e) => {
+      const d = e?.detail ?? {};
+      if (d.metric) setDrill({ metric: d.metric, expected: d.expected ?? null });
+    };
+    window.addEventListener('pt:drilldown', open);
+    return () => window.removeEventListener('pt:drilldown', open);
+  }, []);
 
   useEffect(() => {
     // TODO: Fetch from AWS PostgreSQL — global alert count + session context
@@ -206,6 +227,18 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
           {activeTab === 'crm' && <MasterControlDashboard live={live} filter={filter} />}
         </main>
       </div>
+
+      {drill && (
+        <DrillDownViewer
+          metric={drill.metric}
+          expected={drill.expected}
+          /* The drawer must obey the SAME scope as the card that opened it, or
+             it explains a different number than the one clicked. qs() carries a
+             leading '?'; the viewer appends to an existing query string. */
+          filterQs={filter.qs().replace(/^\?/, '')}
+          onClose={() => setDrill(null)}
+        />
+      )}
     </div>
   );
 }

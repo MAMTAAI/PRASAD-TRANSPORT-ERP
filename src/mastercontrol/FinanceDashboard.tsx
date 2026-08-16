@@ -15,7 +15,7 @@ import {
   Tooltip, CartesianGrid, Legend,
 } from 'recharts';
 import {
-  GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle,
+  GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle, Drillable,
 } from './shared';
 import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
@@ -99,10 +99,11 @@ export default function FinanceDashboard({ live, filter }) {
         {/* Unbilled Freight — Cyan */}
         <GlassPanel className="p-4 border-cyan-500/30 shadow-[0_0_25px_rgba(34,211,238,0.10)]">
           <div className="flex items-start justify-between">
-            <div>
+            <Drillable metric={fin ? 'finance.unbilled' : null} expected={fin?.unbilled_freight} className="p-1 -m-1">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Unbilled Freight</p>
               <p className="mt-1 text-3xl font-black text-cyan-300">{fin ? `₹ ${inr(fin.unbilled_freight)}` : '--'}</p>
-            </div>
+              <p className="mt-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-500/60">click to audit</p>
+            </Drillable>
             <span className="grid place-items-center w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/40 text-cyan-300"><Fuel size={20} /></span>
           </div>
           <div className="mt-3">
@@ -261,9 +262,10 @@ export default function FinanceDashboard({ live, filter }) {
               </p>
             ) : (
               <>
-                <div>
+                <Drillable metric="finance.toll_spent" expected={toll.spent_total} className="p-1 -m-1">
                   <p className="text-[10px] font-semibold text-slate-500 uppercase">Toll Spent (all recorded)</p>
                   <p className="text-2xl font-black text-emerald-300">₹{inrFull(toll.spent_total)}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-emerald-500/60">click to audit</p>
                   {/* The mock showed a tag balance; fastag_accounts holds no
                       rows, so that number does not exist to show. Say so. */}
                   {!toll.balance_available && (
@@ -272,7 +274,7 @@ export default function FinanceDashboard({ live, filter }) {
                       These are the crossings actually charged.
                     </p>
                   )}
-                </div>
+                </Drillable>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2">
                     <p className="text-[9px] font-semibold text-slate-500 uppercase">This Month</p>

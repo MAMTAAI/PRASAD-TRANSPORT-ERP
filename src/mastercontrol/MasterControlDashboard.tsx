@@ -11,7 +11,7 @@ import {
   Bot, Wifi, Users, Satellite, MessageCircle, Mail, BrainCircuit,
   Activity, Signal, MapPin, Zap, ChevronRight, Inbox, Tags, AlarmClock,
 } from 'lucide-react';
-import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar } from './shared';
+import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar, Drillable } from './shared';
 import LiveStaffTracker from './LiveStaffTracker';
 import UserApprovals from './UserApprovals';
 import PortalAccessControl from './PortalAccessControl';
@@ -279,10 +279,11 @@ export default function MasterControlDashboard({ live }) {
               {/* Engine state and message ledger are separate facts: the phone
                   can be linked while nothing has been said yet. */}
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
+                <Drillable metric={wa ? 'crm.whatsapp' : null} expected={wa?.total}
+                           className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
                   <p className="text-sm font-black text-white">{wa ? wa.inbound : '--'}</p>
                   <p className="text-[8px] text-slate-500 uppercase">received</p>
-                </div>
+                </Drillable>
                 <div className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
                   <p className="text-sm font-black text-white">{wa ? wa.outbound : '--'}</p>
                   <p className="text-[8px] text-slate-500 uppercase">sent</p>

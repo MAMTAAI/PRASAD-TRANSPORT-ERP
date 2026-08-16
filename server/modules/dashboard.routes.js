@@ -1026,8 +1026,13 @@ export function registerDashboardRoutes(app) {
 
       const { rows: tot } = await query(`
         SELECT count(*)::int                                                        AS total,
-               count(*) FILTER (WHERE direction = 'IN')::int                        AS inbound,
-               count(*) FILTER (WHERE direction = 'OUT')::int                       AS outbound,
+               -- direction is stored as 'incoming'/'outgoing', NOT 'IN'/'OUT'. This
+               -- filter asked for 'IN' and matched nothing, so the CRM hub showed
+               -- inbound 0 and outbound 0 while wa_chats held 5 incoming messages.
+               -- Matching on the first three letters accepts both spellings, so a
+               -- future engine writing 'IN' does not silently zero the card again.
+               count(*) FILTER (WHERE upper(left(direction,2)) = 'IN')::int          AS inbound,
+               count(*) FILTER (WHERE upper(left(direction,3)) = 'OUT')::int         AS outbound,
                count(*) FILTER (WHERE ts >= now() - interval '24 hours')::int       AS last_24h,
                count(DISTINCT phone)::int                                           AS contacts,
                max(ts)                                                              AS last_msg_at
