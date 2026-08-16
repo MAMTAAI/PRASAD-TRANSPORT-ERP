@@ -170,7 +170,7 @@ export default function OperationsDashboard({ live, filter }) {
             chart. That chart plotted trips per weekday: a shape with no vehicle
             in it, so nothing followed from reading it. This names the trucks
             and puts what they earned and lost on the same row. */}
-        <VehicleRtkmPanel live={live} />
+        <VehicleRtkmPanel live={live} filter={filter} />
 
         {/* Shortage recovery sits with operations because collecting it is an
             operations job, not an accounts one. */}

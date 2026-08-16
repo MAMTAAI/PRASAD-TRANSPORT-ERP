@@ -18,16 +18,17 @@
 // column would put a second, smaller revenue number on the same screen as the
 // matrix. Two revenue figures on one dashboard is worse than none.
 // ============================================================================
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Gauge, X, ArrowUpRight, ArrowDownRight, HandCoins, ShieldCheck, Search,
-  ShieldAlert, CalendarClock,
+  ShieldAlert, CalendarClock, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote,
 } from './shared';
 import { inr, inrFull } from './useDashboardData';
+import { API_BASE } from '../lib/apiBase';
 
 const km = (n) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '--');
 
@@ -49,7 +50,7 @@ const shortageText = (n) => {
 // ── the drill-down ──────────────────────────────────────────────────────────
 // Portalled to <body> and fixed, for the same reason the hover cards are: the
 // panel it opens from is inside a scroll container that would crop it.
-function RtkmModal({ rows, onClose }) {
+function RtkmModal({ rows, period, onClose }) {
   const [q, setQ] = useState('');
   const [sort, setSort] = useState({ key: 'rtkm', dir: 'desc' });
 
@@ -121,7 +122,9 @@ function RtkmModal({ rows, onClose }) {
           <div className="min-w-0 flex-1">
             <h3 className="text-[13px] font-black uppercase tracking-wide text-slate-100">Vehicle Productivity — full fleet</h3>
             <p className="text-[10px] text-slate-500">
-              {rows.length} vehicle{rows.length === 1 ? '' : 's'} with recorded RTKM · click a heading to re-sort
+              {period?.label ?? 'all time'}
+              {period?.from ? ` (${period.from} to ${period.to})` : ''}
+              {' · '}{rows.length} vehicle{rows.length === 1 ? '' : 's'} · click a heading to re-sort
             </p>
           </div>
           <label className="hidden items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-950/60 px-2 py-1.5 sm:flex">
@@ -149,12 +152,14 @@ function RtkmModal({ rows, onClose }) {
                 {th('trips', 'Trips')}
                 {th('rtkm', 'Total RTKM')}
                 {th('freight', 'Total Freight Bill')}
+                {th('per_km', '₹ / km')}
+                {th('rtkm_delta_pct', 'vs prev')}
                 {th('shortage', 'Total Shortage')}
               </tr>
             </thead>
             <tbody>
               {view.length === 0 && (
-                <tr><td colSpan={5} className="py-6 text-center text-[11px] text-slate-600">No vehicle matches “{q}”.</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-[11px] text-slate-600">No vehicle matches “{q}”.</td></tr>
               )}
               {view.map((r) => (
                 <tr key={r.vehicle} className="border-b border-slate-800/60 transition-colors duration-100 hover:bg-white/5">
@@ -168,6 +173,21 @@ function RtkmModal({ rows, onClose }) {
                   <td className="whitespace-nowrap px-3 py-2 text-right font-mono font-bold text-cyan-300">{km(r.rtkm)}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-slate-200">
                     {Number(r.freight) > 0 ? `₹${inrFull(r.freight)}` : <span className="text-slate-600">not billed</span>}
+                  </td>
+                  {/* Rupees per kilometre is the figure that separates a long
+                      truck from a productive one — a lorry can run the most
+                      distance in the fleet and earn the least on it. */}
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-emerald-300">
+                    {r.per_km ? `₹${r.per_km}` : <span className="text-slate-600">—</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-mono">
+                    {r.rtkm_delta_pct == null
+                      ? <span className="text-slate-600" title="no comparable previous period">new</span>
+                      : (
+                        <span className={r.rtkm_delta_pct >= 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                          {r.rtkm_delta_pct >= 0 ? '+' : ''}{r.rtkm_delta_pct}%
+                        </span>
+                      )}
                   </td>
                   <td className={`whitespace-nowrap px-3 py-2 text-right font-mono font-bold ${shortageText(r.shortage)}`}>
                     {Number(r.shortage) > 0 ? `₹${inrFull(r.shortage)}` : '—'}
@@ -183,6 +203,10 @@ function RtkmModal({ rows, onClose }) {
                 <td className="px-3 py-2 text-right font-mono font-bold text-slate-300">{totals.trips}</td>
                 <td className="px-3 py-2 text-right font-mono font-black text-cyan-300">{km(totals.rtkm)}</td>
                 <td className="px-3 py-2 text-right font-mono font-black text-slate-100">₹{inrFull(totals.freight)}</td>
+                <td className="px-3 py-2 text-right font-mono font-black text-emerald-300">
+                  {totals.rtkm > 0 ? `₹${(totals.freight / totals.rtkm).toFixed(2)}` : '—'}
+                </td>
+                <td className="px-3 py-2" />
                 <td className={`px-3 py-2 text-right font-mono font-black ${shortageText(totals.shortage)}`}>₹{inrFull(totals.shortage)}</td>
               </tr>
             </tfoot>
@@ -190,9 +214,11 @@ function RtkmModal({ rows, onClose }) {
         </div>
 
         <p className="border-t border-slate-700/60 px-4 py-2 text-[9.5px] leading-relaxed text-slate-500">
-          RTKM is the round-trip distance recorded on each trip. Freight is the billed amount — the same figure the
-          Owner Fleet Matrix reads, so the two agree. A vehicle showing “not billed” has run trips with no freight
-          recorded against them yet; its RTKM is real, its revenue is simply not in the books.
+          RTKM is the round-trip distance recorded on each trip, counted by LOADING date — a trip that crossed a
+          fortnight boundary belongs to the period whose kilometres it ran, not the one it finished in. Freight is the
+          billed amount, the same figure the Owner Fleet Matrix reads, so the two agree. “Not billed” means trips with
+          no freight recorded yet: the distance is real, the revenue simply is not in the books. “vs prev” compares the
+          same length of window one step back — fortnight against fortnight, never against a half-finished one.
         </p>
       </div>
     </div>,
@@ -201,16 +227,30 @@ function RtkmModal({ rows, onClose }) {
 }
 
 // ── one ranked row ──────────────────────────────────────────────────────────
-function RankRow({ r, rank, best }) {
+// One ranked vehicle, drawn as a BAR rather than a number in a column.
+// The eye compares lengths far faster than it compares five-digit figures, and
+// the whole point of a top/bottom list is the comparison.
+function RankRow({ r, rank, max, tone }) {
+  const pct = Number(max) > 0 ? Math.max(2, (Number(r.rtkm) / Number(max)) * 100) : 0;
+  const delta = r.rtkm_delta_pct;
+
   const { triggerProps, overlay } = useHoverCard(() => (
     <>
-      <HoverTitle sub={`${r.trips} trip${r.trips === 1 ? '' : 's'} with recorded RTKM`}>{r.vehicle}</HoverTitle>
-      <HoverKv k="Total RTKM" v={`${km(r.rtkm)} km`} tone="text-cyan-300" />
+      <HoverTitle sub={`${r.trips} trip${r.trips === 1 ? '' : 's'} in this period`}>{r.vehicle}</HoverTitle>
+      <HoverKv k="RTKM" v={`${km(r.rtkm)} km`} tone="text-cyan-300" />
       <HoverKv k="Average per trip" v={`${km(Number(r.rtkm) / Math.max(1, r.trips))} km`} />
-      <HoverKv k="Total freight bill" v={Number(r.freight) > 0 ? `₹${inrFull(r.freight)}` : 'not billed'}
+      <HoverKv k="Freight billed" v={Number(r.freight) > 0 ? `₹${inrFull(r.freight)}` : 'not billed'}
                tone={Number(r.freight) > 0 ? 'text-slate-200' : 'text-amber-300'} />
-      <HoverKv strong k="Total shortage" v={Number(r.shortage) > 0 ? `₹${inrFull(r.shortage)}` : 'none'}
+      {r.per_km && <HoverKv k="Earned per km" v={`₹${r.per_km}`} tone="text-emerald-300" />}
+      {Number(r.qty) > 0 && <HoverKv k="Quantity carried" v={`${Number(r.qty).toLocaleString('en-IN')} KL`} />}
+      <HoverKv strong k="Shortage" v={Number(r.shortage) > 0 ? `₹${inrFull(r.shortage)}` : 'none'}
                tone={shortageText(r.shortage)} />
+      {delta != null && (
+        <HoverNote tone={delta >= 0 ? 'text-emerald-300/85' : 'text-amber-300/85'}>
+          {delta >= 0 ? 'Up' : 'Down'} {Math.abs(delta)}% on the previous period
+          ({km(r.prev_rtkm)} km). Like-for-like — same length of window, one step back.
+        </HoverNote>
+      )}
       {r.unbilled_trips > 0 && (
         <HoverNote tone="text-amber-300/90">
           {r.unbilled_trips} of these trips carry no billed freight, so the revenue
@@ -218,35 +258,108 @@ function RankRow({ r, rank, best }) {
         </HoverNote>
       )}
     </>
-  ), { placement: 'top', width: 280 });
+  ), { placement: 'top', width: 290 });
 
   return (
     <>
       <div
         {...triggerProps}
         tabIndex={0}
-        className="touch-manipulation flex items-center gap-2 rounded-lg border border-slate-800/60 bg-white/5
-                   px-2.5 py-1.5 outline-none transition-colors duration-100 hover:bg-white/10
-                   focus-visible:ring-1 focus-visible:ring-cyan-400/60"
+        className="touch-manipulation group relative overflow-hidden rounded-lg border border-slate-800/60
+                   bg-white/[0.03] px-2.5 py-1.5 outline-none transition-colors duration-100
+                   hover:bg-white/[0.07] focus-visible:ring-1 focus-visible:ring-cyan-400/60"
       >
-        <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md text-[9px] font-black
-          ${best ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-700/40 text-slate-400'}`}>{rank}</span>
-        <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-100">{r.vehicle}</span>
-        <span className="shrink-0 font-mono text-[11px] font-black text-cyan-300">{km(r.rtkm)}</span>
-        <span className="shrink-0 text-[8.5px] uppercase tracking-wider text-slate-600">km</span>
+        {/* the bar, behind the text rather than beside it — no column stolen */}
+        <span
+          aria-hidden
+          className={`absolute inset-y-0 left-0 transition-all duration-500
+            ${tone === 'top' ? 'bg-gradient-to-r from-emerald-500/25 to-emerald-500/[0.04]'
+                             : 'bg-gradient-to-r from-amber-500/20 to-amber-500/[0.03]'}`}
+          style={{ width: `${pct}%` }}
+        />
+        <div className="relative flex items-center gap-2">
+          <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-md text-[9px] font-black
+            ${tone === 'top' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+            {rank}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-100">{r.vehicle}</span>
+
+          {delta != null && (
+            <span className={`hidden shrink-0 items-center gap-0.5 text-[9px] font-black sm:flex
+              ${delta >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+              {delta >= 0 ? <ArrowUpRight size={9} /> : <ArrowDownRight size={9} />}{Math.abs(delta)}%
+            </span>
+          )}
+          <span className="shrink-0 font-mono text-[11px] font-black text-cyan-300">{km(r.rtkm)}</span>
+          <span className="shrink-0 text-[8px] uppercase tracking-wider text-slate-600">km</span>
+          <span className="hidden w-20 shrink-0 text-right font-mono text-[10px] text-slate-400 md:block">
+            {Number(r.freight) > 0 ? `₹${inr(r.freight)}` : '—'}
+          </span>
+        </div>
       </div>
       {overlay}
     </>
   );
 }
 
-// ── TOP / BOTTOM 5 BY RTKM ──────────────────────────────────────────────────
-export function VehicleRtkmPanel({ live }) {
+// ── TOP / BOTTOM 5 BY RTKM, PER PERIOD ──────────────────────────────────────
+// THE FORTNIGHT IS 1–15 AND 16–END OF MONTH, not "the last 15 days". A sliding
+// window shifts every time you look at it and can never be compared with the
+// one before; these are the same boundaries the billing cycles and the IOCL
+// invoices use, so a fortnight here is the fortnight that gets billed.
+export function VehicleRtkmPanel({ live, filter }) {
   const [open, setOpen] = useState(false);
-  const data = live?.data?.ops?.vehicle_rtkm;
+  const [period, setPeriod] = useState('FORTNIGHT');
+  const [offset, setOffset] = useState(0);
+  const [data, setData] = useState(null);
+  const [state, setState] = useState('loading');
+
+  const qs = useMemo(() => {
+    const q = new URLSearchParams({ period, offset: String(offset) });
+    const f = filter?.filters ?? {};
+    if (f.companyId) q.set('company_id', f.companyId);
+    if (f.branchId) q.set('branch_id', f.branchId);
+    if (f.owner) q.set('owner', f.owner);
+    if (f.fleet) q.set('fleet', f.fleet);
+    return q.toString();
+  }, [period, offset, filter?.filters]);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setState('loading');
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/dashboard/vehicle-productivity?${qs}`);
+      if (!r.ok) { setState('error'); return; }
+      setData(await r.json());
+      setState('ok');
+    } catch { setState('error'); }
+  }, [qs]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Live, but quietly: a background refresh must not blank the panel somebody
+  // is reading. 45s because trips are entered by hand, not streamed.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') load(true);
+    }, 45000);
+    return () => clearInterval(t);
+  }, [load]);
+
   const top = data?.top ?? [];
   const bottom = data?.bottom ?? [];
   const all = data?.all ?? [];
+  const tot = data?.totals;
+  const maxRtkm = top[0]?.rtkm ?? 0;
+  const totalDelta = tot && Number(tot.prev_rtkm) > 0
+    ? Math.round(((Number(tot.rtkm) - Number(tot.prev_rtkm)) / Number(tot.prev_rtkm)) * 100)
+    : null;
+
+  const TABS = [
+    { k: 'FORTNIGHT', label: '15 Day' },
+    { k: 'MONTH', label: 'Month' },
+    { k: 'YEAR', label: 'Year' },
+    { k: 'ALL', label: 'All' },
+  ];
 
   return (
     <GlassPanel className="border-cyan-500/25">
@@ -254,7 +367,7 @@ export function VehicleRtkmPanel({ live }) {
         icon={Gauge}
         title="Vehicle Productivity — RTKM"
         accent="text-cyan-400"
-        sub={all.length ? `${all.length} vehicles ranked · click for the full report` : 'no RTKM recorded yet'}
+        sub={data ? `${data.vehicles} vehicles · ${data.period?.label}` : 'loading…'}
         right={
           <button
             onClick={() => setOpen(true)}
@@ -267,46 +380,126 @@ export function VehicleRtkmPanel({ live }) {
         }
       />
 
-      {all.length === 0 ? (
-        <p className="px-4 pb-4 text-[11px] leading-relaxed text-slate-500">
-          No trip in this scope has a round-trip distance recorded, so there is nothing to rank.
-        </p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-3 px-3 pb-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1.5 flex items-center gap-1.5 px-1 text-[9px] font-black uppercase tracking-wider text-emerald-400">
-                <ArrowUpRight size={11} /> Top 5 — highest RTKM
-              </p>
-              <div className="flex flex-col gap-1">
-                {top.map((r, i) => <RankRow key={r.vehicle} r={r} rank={i + 1} best />)}
-              </div>
-            </div>
-            <div>
-              <p className="mb-1.5 flex items-center gap-1.5 px-1 text-[9px] font-black uppercase tracking-wider text-amber-400">
-                <ArrowDownRight size={11} /> Bottom 5 — lowest RTKM
-              </p>
-              <div className="flex flex-col gap-1">
-                {bottom.map((r, i) => <RankRow key={r.vehicle} r={r} rank={all.length - i} />)}
-              </div>
-            </div>
+      <div className="px-3 pb-3">
+        {/* period selector + stepper */}
+        <div className="mb-2.5 flex items-center gap-1.5">
+          <div className="flex flex-1 gap-1 rounded-xl bg-black/30 p-1">
+            {TABS.map((t) => (
+              <button
+                key={t.k}
+                onClick={() => { setPeriod(t.k); setOffset(0); }}
+                className={`flex-1 rounded-lg px-2 py-1.5 text-[10.5px] font-black transition-all duration-150
+                  ${period === t.k
+                    ? 'bg-cyan-500/20 text-cyan-200 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.35)]'
+                    : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-
-          {/* With fewer than ten ranked vehicles the two lists share rows. Saying
-              so is cheaper than letting someone read the same truck as both the
-              best and the worst performer. */}
-          {data?.overlap && (
-            <p className="px-4 pb-3 text-[9.5px] text-amber-400/80">
-              ⚠ Only {all.length} vehicles have RTKM in this scope, so the two lists overlap — some trucks appear in both.
-            </p>
+          {period !== 'ALL' && (
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl bg-black/30 p-1">
+              <button onClick={() => setOffset((o) => o + 1)} aria-label="Previous period"
+                className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-cyan-300">
+                <ChevronLeft size={13} />
+              </button>
+              <button onClick={() => setOffset((o) => Math.max(0, o - 1))} disabled={offset === 0}
+                aria-label="Next period"
+                className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 transition-colors
+                           hover:bg-white/10 hover:text-cyan-300 disabled:opacity-25">
+                <ChevronRight size={13} />
+              </button>
+            </div>
           )}
-        </>
-      )}
+        </div>
 
-      {open && <RtkmModal rows={all} onClose={() => setOpen(false)} />}
+        {/* the period's own totals — distance, money, and rupees per km */}
+        {tot && (
+          <div className="mb-2.5 grid grid-cols-3 gap-1.5">
+            <Tile label="Total RTKM" value={km(tot.rtkm)} unit="km" tone="text-cyan-300"
+                  delta={totalDelta} sub={data.previous ? `vs ${data.previous.label}` : null} />
+            <Tile label="Freight" value={`₹${inr(tot.freight)}`} tone="text-emerald-300"
+                  sub={`${tot.trips} trip${tot.trips === 1 ? '' : 's'}`} />
+            <Tile label="Per km" value={tot.per_km ? `₹${tot.per_km}` : '—'} tone="text-violet-300"
+                  sub={Number(tot.shortage) > 0 ? `₹${inr(tot.shortage)} shortage` : 'no shortage'} />
+          </div>
+        )}
+
+        {state === 'loading' && (
+          <div className="flex flex-col gap-1.5">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-8 animate-pulse rounded-lg bg-white/5" style={{ animationDelay: `${i * 70}ms` }} />
+            ))}
+          </div>
+        )}
+
+        {state === 'error' && (
+          <p className="py-3 text-center text-[11px] text-amber-400/80">Could not load productivity for this period.</p>
+        )}
+
+        {state === 'ok' && all.length === 0 && (
+          <p className="py-4 text-center text-[11px] leading-relaxed text-slate-500">
+            No trip with a recorded RTKM ran in {data.period?.label}.
+            {offset === 0 && ' This period may simply not have started yet — step back a period.'}
+          </p>
+        )}
+
+        {state === 'ok' && all.length > 0 && (
+          <>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 px-1 text-[9px] font-black uppercase tracking-wider text-emerald-400">
+                  <ArrowUpRight size={11} /> Top 5 — highest RTKM
+                </p>
+                <div className="flex flex-col gap-1">
+                  {top.map((r, i) => <RankRow key={r.vehicle} r={r} rank={i + 1} max={maxRtkm} tone="top" />)}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1.5 flex items-center gap-1.5 px-1 text-[9px] font-black uppercase tracking-wider text-amber-400">
+                  <ArrowDownRight size={11} /> Bottom 5 — lowest RTKM
+                </p>
+                <div className="flex flex-col gap-1">
+                  {bottom.map((r, i) => (
+                    <RankRow key={r.vehicle} r={r} rank={all.length - i} max={maxRtkm} tone="bottom" />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {data.overlap && (
+              <p className="mt-2 px-1 text-[9.5px] text-amber-400/80">
+                ⚠ Only {all.length} vehicles have RTKM in this scope, so the two lists overlap — some trucks appear in both.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {open && <RtkmModal rows={all} period={data?.period} onClose={() => setOpen(false)} />}
     </GlassPanel>
   );
 }
+
+/** One headline figure with an optional period-on-period delta. */
+function Tile({ label, value, unit, sub, tone = 'text-slate-100', delta }) {
+  return (
+    <div className="rounded-xl border border-slate-800/70 bg-black/25 px-2.5 py-2">
+      <p className="text-[8.5px] font-black uppercase tracking-wider text-slate-600">{label}</p>
+      <p className={`mt-0.5 flex items-baseline gap-1 text-[15px] font-black leading-none ${tone}`}>
+        {value}
+        {unit && <span className="text-[8.5px] font-bold uppercase text-slate-600">{unit}</span>}
+        {delta != null && (
+          <span className={`ml-auto flex items-center gap-0.5 text-[9px] ${delta >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+            {delta >= 0 ? <ArrowUpRight size={9} /> : <ArrowDownRight size={9} />}{Math.abs(delta)}%
+          </span>
+        )}
+      </p>
+      {sub && <p className="mt-0.5 truncate text-[9px] text-slate-600">{sub}</p>}
+    </div>
+  );
+}
+
 
 // ── DRIVER SHORTAGE RECOVERY ────────────────────────────────────────────────
 function ShortageRow({ r, settled }) {

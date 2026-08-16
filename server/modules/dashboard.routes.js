@@ -17,6 +17,7 @@
 import { query, isDegraded } from '../db/pool.js';
 import { tallyAlive } from '../lib/tallyAdapter.js';
 import { requireAdminRole } from './auth.routes.js';
+import { periodBounds, previousOf, PERIODS } from '../lib/periods.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
@@ -69,6 +70,103 @@ const VEHICLE_F = `
   AND ($4::text IS NULL OR (CASE WHEN v.is_company_owned THEN 'OWNED' ELSE 'ATTACHED' END) = $4::text)`;
 
 export function registerDashboardRoutes(app) {
+  // ── VEHICLE PRODUCTIVITY, BY PERIOD ───────────────────────────────────────
+  //
+  // A SEPARATE ENDPOINT FROM /dashboard/v5 ON PURPOSE. This panel refreshes on
+  // its own and the operator flips between fortnights while looking at it;
+  // driving that from the full dashboard payload would re-run the compliance
+  // sweep, the owner matrix and the ledger roll-up every time somebody clicked
+  // "previous fortnight".
+  //
+  // BOTH FIGURES COME FROM THE SAME ROWS. RTKM and freight are summed in one
+  // pass over the same trips, so a vehicle can never show distance from one
+  // window and money from another. Freight is billed_amount via the same
+  // COALESCE the owner matrix uses — 489 trips carry it against 21 with
+  // freight_amount, and using the other column would put a second, smaller
+  // revenue figure on the same screen.
+  app.get('/dashboard/vehicle-productivity', async (req, reply) => {
+    if (isDegraded()) {
+      return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+    }
+    const period = PERIODS.includes(String(req.query?.period ?? '').toUpperCase())
+      ? String(req.query.period).toUpperCase() : 'FORTNIGHT';
+    const bounds = periodBounds(period, req.query?.offset);
+    const prev = previousOf(bounds);
+
+    const F = filtersOf(req.query);
+    const P = [F.companyId, F.branchId, F.owner, F.fleet];
+
+    // Trips are dated by loading_date: that is when the kilometres were run.
+    // Dating by unloading would move a trip that crossed a fortnight boundary
+    // into the wrong invoice period.
+    const rowsFor = async (b) => {
+      if (!b) return [];
+      const { rows } = await query(`
+        SELECT t.vehicle_no,
+               count(*)::int                                  AS trips,
+               round(sum(t.rtkm), 1)                          AS rtkm,
+               COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0) AS freight,
+               COALESCE(sum(t.shortage_penalty), 0)           AS shortage,
+               COALESCE(sum(t.loaded_qty), 0)                 AS qty,
+               count(*) FILTER (WHERE COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0) = 0)::int
+                                                              AS unbilled_trips
+          FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+         WHERE t.vehicle_no IS NOT NULL AND t.rtkm > 0
+           AND ($5::date IS NULL OR t.loading_date >= $5::date)
+           AND ($6::date IS NULL OR t.loading_date <= $6::date)
+           ${TRIP_F}
+         GROUP BY t.vehicle_no
+         ORDER BY sum(t.rtkm) DESC`, [...P, b.from, b.to]);
+      return rows;
+    };
+
+    const [cur, before] = await Promise.all([rowsFor(bounds), rowsFor(prev)]);
+
+    const prevByVehicle = Object.fromEntries(before.map((r) => [r.vehicle_no, r]));
+    const all = cur.map((r) => {
+      const was = prevByVehicle[r.vehicle_no];
+      return {
+        vehicle: r.vehicle_no,
+        trips: num(r.trips),
+        rtkm: r.rtkm,
+        freight: r.freight,
+        shortage: r.shortage,
+        qty: r.qty,
+        unbilled_trips: num(r.unbilled_trips),
+        // Rupees earned per kilometre run — the number that says whether a long
+        // truck is a productive truck or just a tired one.
+        per_km: Number(r.rtkm) > 0
+          ? (Number(r.freight) / Number(r.rtkm)).toFixed(2) : null,
+        prev_rtkm: was ? was.rtkm : null,
+        // Percent change vs the SAME period one step back, which is the only
+        // comparison that means anything on a fortnightly cycle.
+        rtkm_delta_pct: was && Number(was.rtkm) > 0
+          ? Math.round(((Number(r.rtkm) - Number(was.rtkm)) / Number(was.rtkm)) * 100)
+          : null,
+      };
+    });
+
+    const sum = (k) => all.reduce((a, r) => a + Number(r[k] || 0), 0);
+    return {
+      period: bounds,
+      previous: prev ? { label: prev.label, from: prev.from, to: prev.to } : null,
+      vehicles: all.length,
+      // Fewer than ten ranked vehicles means top-5 and bottom-5 share rows.
+      overlap: all.length > 0 && all.length < 10,
+      totals: {
+        trips: sum('trips'),
+        rtkm: +sum('rtkm').toFixed(1),
+        freight: sum('freight').toFixed(2),
+        shortage: sum('shortage').toFixed(2),
+        per_km: sum('rtkm') > 0 ? (sum('freight') / sum('rtkm')).toFixed(2) : null,
+        prev_rtkm: before.reduce((a, r) => a + Number(r.rtkm || 0), 0).toFixed(1),
+      },
+      top: all.slice(0, 5),
+      bottom: all.slice(-5).reverse(),
+      all,
+    };
+  });
+
   app.get('/dashboard/v5', async (req, reply) => {
     if (isDegraded()) {
       return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
