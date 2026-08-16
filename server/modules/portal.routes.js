@@ -36,9 +36,17 @@ async function resolveParty(req, reply) {
   const done = await requireAuth(req, reply);
   if (done !== undefined) return done;                 // requireAuth already replied
 
+  // One query answers the role, the scope AND the gate. Fetching the party
+  // separately would leave a window where a route could read data for an
+  // account whose approval had just been withdrawn.
   const { rows } = await query(
-    `SELECT role::text AS role, customer_id, vendor_id, status
-       FROM users WHERE id = $1::uuid`, [req.user.sub]);
+    `SELECT u.role::text AS role, u.customer_id, u.vendor_id, u.status,
+            COALESCE(c.is_approved_for_portal, v.is_approved_for_portal, false) AS approved,
+            COALESCE(c.portal_features, v.portal_features, '{}'::jsonb)         AS features
+       FROM users u
+       LEFT JOIN customers c ON c.id = u.customer_id
+       LEFT JOIN vendors   v ON v.id = u.vendor_id
+      WHERE u.id = $1::uuid`, [req.user.sub]);
   const u = rows[0];
   if (!u || u.status !== 'ACTIVE') {
     return reply.code(403).send({ error: 'FORBIDDEN', detail: 'account is not active' });
@@ -49,8 +57,64 @@ async function resolveParty(req, reply) {
   if ((u.role === 'CUSTOMER' && !u.customer_id) || (u.role === 'VENDOR' && !u.vendor_id)) {
     return reply.code(403).send({ error: 'UNSCOPED_PORTAL_ACCOUNT' });
   }
-  req.party = { role: u.role, customerId: u.customer_id, vendorId: u.vendor_id };
+
+  // THE GATE. Default-deny: a party is dark until an admin says otherwise, and
+  // this is checked on EVERY request rather than at login, so withdrawing
+  // approval takes effect on the next call instead of whenever the session
+  // happens to expire. A distinct code, because the SPA shows a different
+  // screen for "waiting on the office" than for "you are not allowed".
+  if (!u.approved) {
+    return reply.code(403).send({
+      error: 'PORTAL_NOT_APPROVED',
+      detail: 'This account is not yet approved for portal access. '
+            + 'Prasad Transport office must enable it before any data is shown.',
+    });
+  }
+
+  req.party = {
+    role: u.role, customerId: u.customer_id, vendorId: u.vendor_id,
+    features: u.features ?? {},
+  };
 }
+
+/** What this caller may actually see.
+ *
+ *  Three layers ANDed: the gate (already passed to get here), the admin's
+ *  role-wide matrix, and the party's own feature map. ANDed, never ORed — a
+ *  stale per-party flag must not be able to re-open what the role matrix closed,
+ *  or "no VENDOR sees ledgers" becomes a suggestion. */
+export async function visibleModules(party) {
+  const { rows } = await query(
+    `SELECT module_key, parent_key, label, is_visible, sensitive
+       FROM v_portal_role_matrix WHERE role = $1`, [party.role]);
+  const out = {};
+  for (const m of rows) {
+    const roleAllows = m.is_visible;
+    const short = m.module_key.split('.').slice(1).join('.');
+    const partyOverride = party.features?.[short] ?? party.features?.[m.module_key];
+    out[m.module_key] = roleAllows && partyOverride !== false;
+  }
+  // A field cannot be visible when its page is not.
+  for (const m of rows) {
+    if (m.parent_key && out[m.parent_key] === false) out[m.module_key] = false;
+  }
+  return out;
+}
+
+/** Guard a route behind a module key. */
+export const needsModule = (moduleKey) => async (req, reply) => {
+  const done = await resolveParty(req, reply);
+  if (done !== undefined) return done;
+  const vis = await visibleModules(req.party);
+  if (!vis[moduleKey]) {
+    return reply.code(403).send({
+      error: 'MODULE_NOT_ENABLED',
+      detail: `${moduleKey} is switched off for the ${req.party.role} role.`,
+      module: moduleKey,
+    });
+  }
+  req.visible = vis;
+};
 
 /** Narrow a portal guard to one role. */
 const only = (role) => async (req, reply) => {
@@ -90,27 +154,62 @@ export function registerPortalRoutes(app) {
     return { role, party: rows[0] ?? null };
   });
 
+  // ── What may this account see ─────────────────────────────────────────────
+  // The portal asks once on load and hides what it must. Hiding in the client
+  // is presentation only — every route below is guarded independently, because
+  // a hidden button is not a permission.
+  app.get('/portal/capabilities', { preHandler: resolveParty }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const vis = await visibleModules(req.party);
+    const { rows } = await query(
+      `SELECT module_key, label, description, parent_key, sensitive, sort_order
+         FROM v_portal_role_matrix WHERE role = $1 ORDER BY sort_order`, [req.party.role]);
+    return {
+      role: req.party.role,
+      modules: rows.map((m) => ({ ...m, visible: !!vis[m.module_key] })),
+      visible: vis,
+    };
+  });
+
   // ── Customer: my loads ────────────────────────────────────────────────────
   // Deliberately NOT `SELECT *`. A trip row carries what we pay the driver,
   // what the trip cost us and what margin it left — none of which is the
   // customer's business even though the row is "theirs".
-  app.get('/portal/customer/trips', { preHandler: only('CUSTOMER') }, async (req, reply) => {
+  app.get('/portal/customer/trips', { preHandler: needsModule('cust.shipments') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const limit = pageSize(req.query?.limit);
+    // FIELD-LEVEL GATING IS DONE IN THE SELECT, not by deleting keys afterwards.
+    // A route that fetches the freight and then strips it has already put the
+    // number in the process, in the query log and in any error report that
+    // dumps the row. Not selecting it is the only version that is actually
+    // withheld.
+    const showFreight = !!req.visible['cust.shipments.freight'];
+    const showDriver  = !!req.visible['cust.shipments.driver'];
     const { rows } = await query(
       `SELECT trip_code, status, vehicle_no, product_type,
               loading_date, loading_point, loaded_qty,
               unloading_date, unloading_location, unloaded_qty, shortage_qty,
               challan_no, advice_no, billing_status
+              ${showFreight ? ', COALESCE(NULLIF(billed_amount,0), freight_amount) AS freight_amount' : ''}
+              ${showDriver ? ', driver_name, driver_mobile' : ''}
          FROM trips
         WHERE customer_id = $1::uuid
         ORDER BY loading_date DESC NULLS LAST
         LIMIT $2`, [req.party.customerId, limit]);
-    return { count: rows.length, trips: rows };
+    return {
+      count: rows.length,
+      trips: rows,
+      // Say which fields were withheld rather than letting the client guess
+      // whether a missing key means "hidden" or "not recorded".
+      withheld: [
+        ...(showFreight ? [] : ['freight_amount']),
+        ...(showDriver ? [] : ['driver_name', 'driver_mobile']),
+      ],
+    };
   });
 
   // ── Customer: my bills ────────────────────────────────────────────────────
-  app.get('/portal/customer/bills', { preHandler: only('CUSTOMER') }, async (req, reply) => {
+  app.get('/portal/customer/bills', { preHandler: needsModule('cust.ledger') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const limit = pageSize(req.query?.limit);
     const { rows } = await query(
@@ -126,7 +225,7 @@ export function registerPortalRoutes(app) {
   });
 
   // ── Vendor: my vehicles ───────────────────────────────────────────────────
-  app.get('/portal/vendor/vehicles', { preHandler: only('VENDOR') }, async (req, reply) => {
+  app.get('/portal/vendor/vehicles', { preHandler: needsModule('vend.vehicles') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
       `SELECT registration_no, vehicle_class, capacity, driver_name, driver_mobile,
@@ -141,7 +240,7 @@ export function registerPortalRoutes(app) {
   // The route VendorPortal.tsx has been calling since it was written. It has
   // never existed until now, which is the other half of why that portal was
   // unreachable.
-  app.get('/portal/vendor/bills', { preHandler: only('VENDOR') }, async (req, reply) => {
+  app.get('/portal/vendor/bills', { preHandler: needsModule('vend.bills') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const limit = pageSize(req.query?.limit);
     const { rows } = await query(

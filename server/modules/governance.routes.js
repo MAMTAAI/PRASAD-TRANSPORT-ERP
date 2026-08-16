@@ -445,6 +445,121 @@ export function registerGovernanceRoutes(app) {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // 2b. PORTAL ACCESS CONTROL
+  // ═══════════════════════════════════════════════════════════════════════
+
+  app.get('/portal-access/matrix', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT role, module_key, label, description, parent_key, sensitive,
+              sort_order, is_visible, updated_at
+         FROM v_portal_role_matrix ORDER BY role, sort_order`);
+    const { rows: parties } = await query(`
+      SELECT 'CUSTOMER' AS role, id, customer_name AS name,
+             is_approved_for_portal, portal_approved_at FROM customers
+      UNION ALL
+      SELECT 'VENDOR', id, vendor_name, is_approved_for_portal, portal_approved_at FROM vendors
+      UNION ALL
+      SELECT 'DRIVER', id, name, is_approved_for_portal, portal_approved_at FROM drivers
+      ORDER BY role, name`);
+    const byRole = {};
+    for (const r of rows) (byRole[r.role] ??= []).push(r);
+    return {
+      matrix: byRole,
+      parties,
+      gate_summary: ['CUSTOMER', 'VENDOR', 'DRIVER'].map((role) => ({
+        role,
+        approved: parties.filter((p) => p.role === role && p.is_approved_for_portal).length,
+        total: parties.filter((p) => p.role === role).length,
+      })),
+    };
+  });
+
+  // Toggle a module for a role. Every flip is audited — "who opened the vendor
+  // ledger to every vendor" is the question this table exists to answer.
+  app.patch('/portal-access/:role/:moduleKey', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { role, moduleKey } = req.params;
+    const visible = req.body?.is_visible;
+    if (typeof visible !== 'boolean') {
+      return reply.code(400).send({ error: 'BAD_REQUEST', detail: 'is_visible must be true or false' });
+    }
+    return withTransaction(async (t) => {
+      const { rows: mod } = await t.query(
+        `SELECT module_key, parent_key, label FROM portal_modules
+          WHERE module_key = $1 AND role = $2`, [moduleKey, role]);
+      if (!mod[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such module for this role' });
+
+      const { rows: was } = await t.query(
+        `SELECT is_visible FROM portal_role_access WHERE role=$1 AND module_key=$2`, [role, moduleKey]);
+
+      const { rows: now } = await t.query(`
+        INSERT INTO portal_role_access (role, module_key, is_visible, updated_by, updated_at)
+        VALUES ($1, $2, $3, $4::uuid, now())
+        ON CONFLICT (role, module_key) DO UPDATE
+          SET is_visible = EXCLUDED.is_visible, updated_by = EXCLUDED.updated_by,
+              updated_at = now()
+        RETURNING is_visible`, [role, moduleKey, visible, req.user.sub]);
+
+      // Closing a page closes its fields. Leaving a field "visible" under a
+      // hidden page is a row that reads as permission and grants nothing —
+      // until someone reopens the page and is surprised by what comes back.
+      let cascaded = 0;
+      if (!visible) {
+        const { rowCount } = await t.query(
+          `UPDATE portal_role_access SET is_visible = false, updated_by = $3::uuid, updated_at = now()
+            WHERE role = $1 AND is_visible
+              AND module_key IN (SELECT module_key FROM portal_modules WHERE parent_key = $2)`,
+          [role, moduleKey, req.user.sub]);
+        cascaded = rowCount;
+      }
+
+      await t.query(
+        `INSERT INTO portal_access_audit (role, module_key, was_visible, now_visible, actor_id, actor_name)
+         VALUES ($1,$2,$3,$4,$5::uuid,$6)`,
+        [role, moduleKey, was[0]?.is_visible ?? null, visible, req.user.sub,
+         req.user.name ?? req.user.email ?? null]);
+
+      return { role, module_key: moduleKey, is_visible: now[0].is_visible, fields_closed: cascaded };
+    });
+  });
+
+  // THE GATE ITSELF. Nothing loads on a portal until this is true.
+  const PARTY_TABLE = { CUSTOMER: 'customers', VENDOR: 'vendors', DRIVER: 'drivers' };
+  app.post('/portal-access/party/:role/:id/approval', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const table = PARTY_TABLE[req.params.role];
+    if (!table) return reply.code(400).send({ error: 'BAD_ROLE' });
+    const approve = req.body?.approved;
+    if (typeof approve !== 'boolean') {
+      return reply.code(400).send({ error: 'BAD_REQUEST', detail: 'approved must be true or false' });
+    }
+    const { rows } = await query(
+      `UPDATE ${table}
+          SET is_approved_for_portal = $2,
+              portal_approved_by = CASE WHEN $2 THEN $3::uuid ELSE NULL END,
+              portal_approved_at = CASE WHEN $2 THEN now() ELSE NULL END
+        WHERE id = $1::uuid
+        RETURNING id, is_approved_for_portal, portal_approved_at`,
+      [req.params.id, approve, req.user.sub]);
+    if (!rows[0]) return reply.code(404).send({ error: 'NOT_FOUND' });
+    await query(
+      `INSERT INTO portal_access_audit (role, module_key, was_visible, now_visible, actor_id, actor_name)
+       VALUES ($1, $2, $3, $4, $5::uuid, $6)`,
+      [req.params.role, `party:${req.params.id}`, !approve, approve, req.user.sub,
+       req.user.name ?? req.user.email ?? null]);
+    return rows[0];
+  });
+
+  app.get('/portal-access/audit', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT role, module_key, was_visible, now_visible, actor_name, created_at
+         FROM portal_access_audit ORDER BY created_at DESC LIMIT 100`);
+    return { count: rows.length, rows };
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // 3. PROVISIONAL / ACCRUAL
   // ═══════════════════════════════════════════════════════════════════════
 

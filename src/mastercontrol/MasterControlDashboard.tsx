@@ -14,6 +14,7 @@ import {
 import { GlassPanel, PanelHeader, StatusPill, Dot, Avatar } from './shared';
 import LiveStaffTracker from './LiveStaffTracker';
 import UserApprovals from './UserApprovals';
+import PortalAccessControl from './PortalAccessControl';
 
 // ---------------------------------------------------------------------------
 // MOCK DATA — matches the approved v5.0 design exactly
@@ -402,6 +403,11 @@ export default function MasterControlDashboard({ live }) {
       {/* Access control first: an account waiting for approval is a person
           unable to work, so the queue sits above the monitoring panels. */}
       <UserApprovals />
+
+      {/* Who may reach the outside portals at all, and what they see when they
+          do. Sits with User Approvals because it is the same job: deciding who
+          gets in, one layer further out. */}
+      <PortalAccessControl />
 
       {/* Boss monitoring — real sessions and the real audit trail, as opposed
           to the ticker below it, which is a scrolling summary of ledger
