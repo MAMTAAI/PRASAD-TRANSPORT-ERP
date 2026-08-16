@@ -245,6 +245,14 @@ export async function registerOpsRoutes(app) {
     loading_date: { type: ['string', 'null'], format: 'date' },
     loading_point: { type: ['string', 'null'], maxLength: 160 },
     challan_no: { type: ['string', 'null'], maxLength: 60 },
+    // The IOCL AC5 dispatch invoice number. Absent from this list until
+    // 2026-08-16, which mattered more than it looks: the body schema is
+    // additionalProperties:false, and Fastify STRIPS unknown properties rather
+    // than rejecting them. So the AC5 importer posted iocl_invoice_no, got a
+    // 200 back, and 26 trips landed with the field null -- silently losing the
+    // one column the import deduplicates on. A re-run would then have inserted
+    // all 26 again. A dropped field is louder as a 400 than as a success.
+    iocl_invoice_no: { type: ['string', 'null'], maxLength: 40 },
     product_type: { type: ['string', 'null'], maxLength: 60 },
     loaded_qty: { type: ['number', 'null'], minimum: 0 },
     rtkm: { type: ['number', 'null'], minimum: 0 },
