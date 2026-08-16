@@ -19,6 +19,7 @@ import { query, isDegraded } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
 import { computeTax } from '../lib/taxEngine.js';
 import { drain } from '../agents/bus.js';
+import { requireAdminOrService } from './auth.routes.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -329,9 +330,20 @@ export async function registerFinanceRoutes(app) {
   });
 
   // ── Voucher posting (TARA) ────────────────────────────────────────────────
+  // ── AUTHORISATION ON THE MONEY DOOR ───────────────────────────────────────
+  // This endpoint posts to the ledger through TARA. It was open: anything that
+  // could reach the port could move cash, and the only thing in the way was that
+  // the API binds to 127.0.0.1 — which stops a stranger on the network and
+  // stops nothing else on the host.
+  //
+  // Admin JWT, or the service token for the unattended IOCL reconciler. The
+  // service path does not exist unless ERP_SERVICE_TOKEN is configured, and a
+  // service caller is recorded as 'SERVICE' rather than borrowing a person's
+  // identity.
   app.post(
     '/vouchers',
     {
+      preHandler: requireAdminOrService,
       schema: {
         body: {
           type: 'object', required: ['type'], additionalProperties: false,

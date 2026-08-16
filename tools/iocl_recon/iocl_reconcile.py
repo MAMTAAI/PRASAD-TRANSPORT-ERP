@@ -974,6 +974,24 @@ def post_vouchers(groups: list[ReconGroup], args) -> list[dict]:
         return []
 
     url = args.api_base.rstrip("/") + "/api/v1/finance/vouchers"
+
+    # POST /finance/vouchers now demands authorisation - it moves real money.
+    # This job is unattended, so it carries the service token rather than a
+    # person's session: a staff JWT in a config file either never expires (worse)
+    # or lapses overnight and fails the 3am run (useless).
+    #
+    # Refuse to start without it rather than discovering a wall of 401s halfway
+    # through a bill run, having already parsed and matched everything.
+    service_token = os.environ.get("ERP_SERVICE_TOKEN", "").strip()
+    if not service_token:
+        sys.stderr.write(
+            "FATAL: ERP_SERVICE_TOKEN is not set.\n"
+            "  POST /finance/vouchers requires an admin or service token since\n"
+            "  the endpoint was secured. Set ERP_SERVICE_TOKEN in the environment\n"
+            "  (it is in the server .env) and re-run, or drop --post-vouchers to\n"
+            "  reconcile without posting.\n")
+        return []
+    headers = {"Authorization": f"Bearer {service_token}", "X-Service-Name": "iocl_reconcile"}
     by_bill: dict[str, list[ReconGroup]] = defaultdict(list)
     for g in groups:
         if g.match_status == "MATCHED":
@@ -1015,7 +1033,7 @@ def post_vouchers(groups: list[ReconGroup], args) -> list[dict]:
         if tds > 0:
             payload["tds"] = {"ledger": args.tds_ledger, "amount": float(tds)}
         try:
-            r = requests.post(url, json=payload, timeout=30)
+            r = requests.post(url, json=payload, timeout=30, headers=headers)
             body = (r.json() if r.headers.get("content-type", "").startswith("application/json")
                     else {"raw": r.text[:400]})
             results.append({"bill_no": bill_no, "http": r.status_code,

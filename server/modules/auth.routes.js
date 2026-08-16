@@ -23,6 +23,7 @@
 // PASSWORD_RESET_REQUIRED, which the cutover needs — otherwise six staff see
 // "wrong password" for a password that was never wrong.
 // ─────────────────────────────────────────────────────────────────────────────
+import { timingSafeEqual } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
 import { hashPassword, verifyPassword, issueToken, verifyToken, bearer, hashCode, verifyCode, newOtp, ALGO } from '../lib/auth.js';
 import * as otp from '../lib/otpChannel.js';
@@ -110,6 +111,37 @@ export async function requireAdminRole(req, reply) {
   if (!['SUPER_ADMIN', 'ADMIN'].includes(req.user.role)) {
     return reply.code(403).send({ error: 'FORBIDDEN', detail: 'admin role required' });
   }
+}
+
+/** Admin token OR a machine caller holding the service secret.
+ *
+ *  WHY A SECOND DOOR EXISTS AT ALL. POST /finance/vouchers moves real money and
+ *  now demands authorisation — but one of its callers is not a person. The IOCL
+ *  reconciler runs unattended and posts a RECEIPT per bill; giving it a human's
+ *  JWT would mean either a never-expiring staff token in a config file or a
+ *  nightly job that fails at 3am when the session lapses. Neither is more secure
+ *  than a dedicated secret that can be rotated on its own.
+ *
+ *  The service path is OFF unless ERP_SERVICE_TOKEN is set, so an install that
+ *  never configures one has exactly the admin-only behaviour and no weaker
+ *  fallback to discover later. Comparison is timing-safe: a plain === on a
+ *  secret leaks its prefix to anyone willing to measure.
+ *
+ *  A service caller is NOT an admin. It gets req.user.role = 'SERVICE' and no
+ *  session, so anything that reads req.user.sub for an actor id records a
+ *  machine rather than impersonating a person. */
+export async function requireAdminOrService(req, reply) {
+  const configured = process.env.ERP_SERVICE_TOKEN;
+  const presented = bearer(req);
+  if (configured && presented && configured.length >= 24) {
+    const a = Buffer.from(presented);
+    const b = Buffer.from(configured);
+    if (a.length === b.length && timingSafeEqual(a, b)) {
+      req.user = { sub: null, role: 'SERVICE', name: 'service:' + (req.headers['x-service-name'] ?? 'unnamed') };
+      return;
+    }
+  }
+  return requireAdminRole(req, reply);
 }
 
 export async function registerAuthRoutes(app) {

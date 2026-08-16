@@ -20,6 +20,7 @@
 // could no longer see an advance issued from Trip Command Center. That is the
 // defect this endpoint closes: one query, every producer, ordered.
 // ─────────────────────────────────────────────────────────────────────────────
+import { createHash } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
 import { drain } from '../agents/bus.js';
@@ -412,6 +413,7 @@ export async function registerMastersRoutes(app) {
   // ═══ DRIVERS ══════════════════════════════════════════════════════════════
   const DRIVER_COLS = ['name', 'mobile', 'alt_mobile', 'address', 'profile_pic_url', 'license_no',
     'license_expiry', 'dl_photo_url', 'hzd_cert_no', 'hzd_expiry', 'hzd_photo_url', 'aadhar_no',
+    'aadhar_hash', 'aadhar_last4',
     'aadhar_photo_url', 'pan_no', 'bank_name', 'account_no', 'ifsc_code', 'bank_photo_url',
     'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status', 'status', 'remarks',
     'company_id', 'additional_docs'];
@@ -461,9 +463,29 @@ export async function registerMastersRoutes(app) {
     }
   );
 
+  // ── AADHAAR NEVER LANDS IN PLAINTEXT ──────────────────────────────────────
+  // The KYC screens still send the full twelve digits — that is what the person
+  // typing has in front of them, and asking the UI to hash it would put the one
+  // security-relevant step in the least trustworthy place. It is converted here,
+  // on the way in: hash for matching, last four for recognition, and a masked
+  // display value. Migration 067 removed the 29 that were already stored and
+  // added a CHECK that refuses twelve consecutive digits, so this is the path
+  // that keeps working rather than an optional nicety.
+  const maskAadhaar = (b) => {
+    if (b.aadhar_no === undefined) return b;
+    const digits = String(b.aadhar_no ?? '').replace(/[^0-9]/g, '');
+    if (!/^[0-9]{12}$/.test(digits)) return b;   // already masked, or not a number
+    return {
+      ...b,
+      aadhar_no: `XXXX XXXX ${digits.slice(-4)}`,
+      aadhar_hash: createHash('sha256').update(digits).digest('hex'),
+      aadhar_last4: digits.slice(-4),
+    };
+  };
+
   app.post('/drivers', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
-    const b = req.body ?? {};
+    const b = maskAadhaar(req.body ?? {});
     if (!b.name) return reply.code(400).send({ error: 'NO_NAME' });
     const cols = DRIVER_COLS.filter((c) => b[c] !== undefined);
     try {
@@ -477,7 +499,7 @@ export async function registerMastersRoutes(app) {
 
   app.patch('/drivers/:id', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
-    const u = buildUpdate('drivers', DRIVER_COLS, req.body ?? {});
+    const u = buildUpdate('drivers', DRIVER_COLS, maskAadhaar(req.body ?? {}));
     if (!u) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
     u.args[0] = req.params.id;
     try {
