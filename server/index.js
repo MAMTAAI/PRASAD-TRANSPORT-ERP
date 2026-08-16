@@ -42,6 +42,7 @@ import { registerPortalRoutes } from './modules/portal.routes.js';
 import { registerAuditLogger } from './lib/auditLogger.js';
 import { registerMapsRoutes } from './modules/maps.routes.js';
 import { registerOwnerRoutes } from './modules/owners.routes.js';
+import { registerGovernanceRoutes } from './modules/governance.routes.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
 import { registerTripImportRoutes } from './modules/tripImport.routes.js';
 import { registerFuelImportRoutes } from './modules/fuelImport.routes.js';
@@ -193,6 +194,8 @@ await app.register(registerTripImportRoutes,  { prefix: '/api/v1' });
 // row that must NOT reach a ledger.
 await app.register(registerFuelImportRoutes,  { prefix: '/api/v1' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
+// MDM + maker-checker + provisional accrual (migrations 059-063).
+await app.register(registerGovernanceRoutes, { prefix: '/api/v1' });
 
 
 // ── Boot ───────────────────────────────────────────────────────────────────
