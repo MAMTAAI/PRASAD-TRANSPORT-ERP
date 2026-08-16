@@ -2,25 +2,37 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Provisional freight for a trip, from the rate schedule in master_iocl_rates.
 //
-// TWO PRODUCTS, TWO FORMULAS, AND THEY ARE NOT INTERCHANGEABLE
+// ONE FORMULA, TWO UNITS, AND A SHORT-HAUL EXCEPTION
 //
-//   POL  HSD / MS / ATF, in KL, rate is per KL per km
-//        amount = rtkm * rate * qty
+//     billed = billable_rtkm * rate * qty      LPG in MT, POL in KL
 //
-//   LPG  bulk gas, in MT, rate is a FLAT per-MT lane rate
-//        amount = rate * qty                        <- no distance term
+// An earlier version of this file claimed LPG had NO distance term and billed a
+// flat per-MT lane rate. That was wrong. The evidence came from two lanes, 86 km
+// and 341 km, where per-MT was identical across loads -- but rtd is constant
+// within a lane, so per-MT is constant there under any formula. A fixed-distance
+// artefact was read as a fixed-rate rule.
 //
-// Both were measured off 1,157 real IOCL bill lines. The LPG one is the trap:
-// its per-MT rate is ~1,443 where a POL rate is ~3.4, so feeding an LPG load
-// through the POL formula multiplies a 17 MT load by 341 km and bills roughly a
-// hundred times the real figure. The unit is therefore decided by the product,
-// never by the caller, and the two paths never share a branch.
+// Across all LPG lanes, 1075 km to 2864 km:
+//     >= 400 km   n=61   3.0067 .. 3.4325   median 3.3135   sd 0.094
+//     <  400 km   n=19   3.5040 .. 10.6487  median 4.2304   sd 1.490
+// An sd of 0.094 across a 2.7x spread of distances is a per-km rate.
+//
+// BILLABLE RTKM IS NOT ALWAYS ACTUAL RTKM. The wide short-haul band is the
+// contract regime, not a different formula:
+//
+//   is_fixed_freight     bill fixed_trip_rate flat; distance and quantity do
+//                        not enter the arithmetic at all
+//   min_rtkm_guarantee   bill GREATEST(actual, floor) -- every short LPG lane
+//                        measured bills as if it ran further than it did
+//                        (86 -> 276, 341 -> 435, 344 -> 364, 391 -> 483)
+//
+// The unit rule is the one that still cannot be crossed: LPG is MT, POL is KL,
+// enforced by CHECK constraint. Billing 17 MT as 17 KL is the error that unit
+// separation exists to prevent.
 //
 // EVERY ANSWER IS PROVISIONAL. 441 of 1,061 POL bill lines do not fit the
-// formula, and the misses are large (258 average 60,074 low). Until that is
-// understood a computed freight is an estimate to be reconciled against the
-// real bill, not a replacement for it. Callers get `provisional: true` and are
-// expected to respect it.
+// formula and the misses are large. This computes an estimate to reconcile
+// against the real bill, not a replacement for it.
 import { query } from '../db/pool.js';
 
 // Product text as it appears on an AC5 -> category. The AC5 prints things like
@@ -59,6 +71,7 @@ export async function computeFreight({
     rtkm: rtkm == null ? null : Number(rtkm),
     qty: qty == null ? null : Number(qty),
     rate: null, basis: null, amount: null,
+    rule: null, billable_rtkm: null, min_rtkm_guarantee: null, fixed_trip_rate: null,
     rate_source: null, rate_id: null, sample_loads: null,
     provisional: true, reason: null,
   };
@@ -74,6 +87,7 @@ export async function computeFreight({
   // median taken across every lane in the fleet.
   const { rows } = await query(
     `SELECT id, rate, basis, unit, source, sample_loads, ship_to_code,
+            is_fixed_freight, min_rtkm_guarantee, fixed_trip_rate,
             (ship_to_code IS NOT NULL) AS is_lane
        FROM master_iocl_rates
       WHERE status = 'ACTIVE'
@@ -100,14 +114,35 @@ export async function computeFreight({
   out.rate_id = r.id;
   out.sample_loads = r.sample_loads;
 
-  // The whole point of `basis`: PER_UNIT_FLAT must not touch rtkm.
-  const amount = r.basis === 'PER_UNIT_KM'
-    ? Number(rtkm) * Number(r.rate) * Number(qty)
-    : Number(r.rate) * Number(qty);
+  // ── Fixed freight: distance and quantity do not enter it ──────────────────
+  if (r.is_fixed_freight) {
+    out.rule = 'FIXED_TRIP_RATE';
+    out.billable_rtkm = null;
+    out.amount = Math.round(Number(r.fixed_trip_rate) * 100) / 100;
+    out.fixed_trip_rate = Number(r.fixed_trip_rate);
+    return out;
+  }
 
-  // Rounded to paise here for display; the authoritative arithmetic happens in
-  // SQL numeric when the value is written.
-  out.amount = Math.round(amount * 100) / 100;
+  // ── Minimum guarantee: bill the floor when the run is shorter than it ─────
+  const actual = Number(rtkm) || 0;
+  const floor = r.min_rtkm_guarantee == null ? null : Number(r.min_rtkm_guarantee);
+  const billable = floor != null && floor > actual ? floor : actual;
+  out.billable_rtkm = billable;
+  out.min_rtkm_guarantee = floor;
+  out.rule = floor != null && floor > actual ? 'MIN_RTKM_GUARANTEE' : 'STANDARD';
+
+  if (r.basis === 'PER_UNIT_FLAT') {
+    // Retired basis, kept readable rather than silently mis-billed: a
+    // PER_UNIT_FLAT row is a lane TOTAL, not a rate, so it must not be
+    // multiplied by anything.
+    out.reason = 'rate row uses the superseded PER_UNIT_FLAT basis; re-seed it';
+    out.amount = null;
+    return out;
+  }
+
+  // Rounded to paise for display; the authoritative arithmetic happens in SQL
+  // numeric when the figure is written.
+  out.amount = Math.round(billable * Number(r.rate) * Number(qty) * 100) / 100;
   return out;
 }
 
@@ -116,9 +151,14 @@ export async function computeFreight({
  * variance = (revised - provisional) * (rtkm * qty)  for POL
  *          = (revised - provisional) * qty           for LPG
  */
-export function rateVariance({ basis, provisionalRate, revisedRate, rtkm, qty }) {
+export function rateVariance({ basis, provisionalRate, revisedRate, rtkm, qty, billableRtkm = null }) {
   const delta = Number(revisedRate) - Number(provisionalRate);
-  const units = basis === 'PER_UNIT_KM' ? Number(rtkm) * Number(qty) : Number(qty);
+  // The variance rides on the distance that was BILLED, not the one driven --
+  // on a lane with a minimum guarantee those differ, and using the actual
+  // distance would under-state every adjustment on exactly the short lanes
+  // where the rate is least certain.
+  const km = billableRtkm != null ? Number(billableRtkm) : Number(rtkm);
+  const units = basis === 'PER_UNIT_KM' ? km * Number(qty) : Number(qty);
   const amount = Math.round(delta * units * 100) / 100;
   return {
     delta_rate: Math.round(delta * 1e6) / 1e6,
