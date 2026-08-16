@@ -64,8 +64,10 @@ AC5_QUERY = (
 )
 
 MAILBOXES = [
-    {"token": "gmail_token.json",   "company": "M/S PRASAD TRANSPORT", "label": "Prasad Transport"},
-    {"token": "jaiswal_token.json", "company": "JAISWAL ENTERPRISE",   "label": "Jaiswal Enterprise"},
+    {"token": "gmail_token.json",   "company": "M/S PRASAD TRANSPORT", "label": "Prasad Transport",
+     "address": "prasadtransport699@gmail.com"},
+    {"token": "jaiswal_token.json", "company": "JAISWAL ENTERPRISE",   "label": "Jaiswal Enterprise",
+     "address": "jaiswalenterprise2016@gmail.com"},
 ]
 
 
@@ -87,15 +89,15 @@ def fetch(window_from: date, window_to: date, out_dir: Path, limit: Optional[int
     for mb in MAILBOXES:
         token = here / mb["token"]
         if not token.exists():
-            print(f"  {mb['label']:<20} no token ({mb['token']}) - skipped")
+            print(f"  {mb['label']:<20} {mb['address']:<32} no token ({mb['token']}) - skipped")
             summary[mb["label"]] = {"status": "no_token"}
             continue
         dest = out_dir / mb["label"].replace(" ", "_")
         dest.mkdir(parents=True, exist_ok=True)
         res = fetch_bills_from_gmail(dest, creds_path=creds, token_path=token, query=q, limit=limit)
         n = len(res.get("downloaded", []))
-        print(f"  {mb['label']:<20} {res.get('status')}  downloaded {n}, "
-              f"already had {res.get('skipped_existing', 0)}")
+        print(f"  {mb['label']:<20} {mb['address']:<32} {res.get('status')}  "
+              f"downloaded {n}, already had {res.get('skipped_existing', 0)}")
         summary[mb["label"]] = {"status": res.get("status"), "downloaded": n,
                                 "dir": str(dest)}
     return summary
@@ -239,6 +241,7 @@ def main(argv: list[str]) -> int:
             print(f"      {name}: {why}")
 
     print("\n=== insert")
+    inserted_count = 0
     if not buckets["NEW"]:
         print("  nothing new to insert.")
     elif not args.apply:
@@ -277,6 +280,7 @@ def main(argv: list[str]) -> int:
             except Exception as exc:                  # noqa: BLE001
                 failed.append((load.doc_no, str(exc)[:90]))
         print(f"  inserted {done}, failed {len(failed)}")
+        inserted_count = done
         for inv, why in failed[:10]:
             print(f"      inv {inv}: {why}")
 
@@ -291,6 +295,18 @@ def main(argv: list[str]) -> int:
         "dup_shape": [{"trip": t, **l.as_dict()} for l, t in buckets["DUP_SHAPE"]],
     }, indent=1), encoding="utf-8")
     print(f"\nreport -> {args.json}")
+
+    # One machine-readable line at the end, so the API parses a value instead of
+    # scraping prose that was written for a person to read.
+    print("RESULT_JSON " + json.dumps({
+        "inserted": inserted_count,
+        "duplicates": len(buckets["DUP_INVOICE"]) + len(buckets["DUP_INVOICE_VEHICLE"]),
+        "held_for_review": len(buckets["DUP_SHAPE"]),
+        "parsed": len(parsed),
+        "rejected": len(rejected),
+        "applied": bool(args.apply),
+        "window": [args.window_from.isoformat(), args.window_to.isoformat()],
+    }))
     return 0
 
 

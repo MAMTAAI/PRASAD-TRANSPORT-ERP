@@ -20,7 +20,7 @@
 //   • Deleting a loaded trip is now the server's decision. A trip with fuel,
 //     advances or a bill against it is CANCELLED rather than destroyed — the old
 //     screen hard-deleted it and the money it referenced became orphaned.
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { extractLoadingSlip } from './lib/aiScanner';
 import { parseDocDate } from './lib/tripMatch';
 import { resolveRate } from './lib/freightEngine';
@@ -60,6 +60,22 @@ export default function LodingDetals() {
   const [scanLowConf, setScanLowConf] = useState<string[]>([]);
 
   const [showInboxModal, setShowInboxModal] = useState(false);
+
+  // ── Gmail invoice sync ──────────────────────────────────────────────────────
+  // Pulls IOCL AC5 dispatch invoices from both mailboxes and files them as
+  // loading entries. The heavy lifting is server-side; this only starts it,
+  // reports what came back, and reloads the table.
+  const [syncing, setSyncing] = useState(false);
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null);
+  const toastTimer = useRef<any>(null);
+
+  const say = useCallback((kind: 'ok' | 'err' | 'info', text: string, ms = 7000) => {
+    setToast({ kind, text });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), ms);
+  }, []);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
   const [isDragging, setIsDragging] = useState(false);
 
   const [vehSearch, setVehSearch] = useState('');
@@ -93,6 +109,52 @@ export default function LodingDetals() {
     }
     setLoading(false);
   }, []);
+
+  const syncGmailInvoices = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    // Gmail + pdfplumber over a couple of hundred PDFs is minutes. Saying so is
+    // better than a spinner that looks stuck.
+    say('info', '📨 Reading both mailboxes… this can take a few minutes.', 600000);
+    try {
+      // The endpoint is admin-guarded, and the SPA authenticates with the
+      // bearer token it stored at login -- the same way LiveStaffTracker and the
+      // GPS emitter do. Without this the button reaches the API and comes
+      // straight back UNAUTHENTICATED, which is what it did the first time.
+      const token = localStorage.getItem('prasad_token');
+      const res = await fetch(`${API}/api/v1/iocl/sync-gmail`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({ apply: true }),
+      });
+      const j = await res.json().catch(() => ({}));
+
+      if (res.status === 409) { say('info', `⏳ ${j.detail || 'A sync is already running.'}`); return; }
+      if (res.status === 401 || res.status === 403) {
+        say('err', '🔒 Sync needs an admin login — sign in as an admin and try again.', 12000);
+        return;
+      }
+      if (!res.ok) { say('err', `❌ Sync failed: ${j.detail || j.error || res.status}`, 12000); return; }
+
+      const bits = [`${j.duplicates ?? 0} already imported`];
+      if (j.held_for_review) bits.push(`${j.held_for_review} held for review`);
+      if (j.rejected) bits.push(`${j.rejected} not AC5 invoices`);
+      say(j.inserted > 0 ? 'ok' : 'info',
+          `${j.inserted > 0 ? '✅' : 'ℹ️'} ${j.message} · ${bits.join(' · ')}`, 12000);
+
+      // Refresh regardless of the count: a concurrent hand entry may have landed
+      // while the sync was running, and the table should not be stale either way.
+      await loadAll();
+    } catch (e: any) {
+      say('err', `❌ Sync failed: ${e?.message || 'network error'}`, 12000);
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, say, loadAll]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { setVehSearch(f.vehicle_no || ''); }, [f.vehicle_no]);
@@ -549,12 +611,38 @@ export default function LodingDetals() {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button onClick={loadAll} style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', fontSize: 13 }}>🔄 Refresh</button>
+          <button onClick={syncGmailInvoices} disabled={syncing}
+            title="Pull IOCL AC5 invoices from prasadtransport699@gmail.com and jaiswalenterprise2016@gmail.com"
+            style={{ background: syncing ? '#334155' : '#0f766e', color: syncing ? '#94a3b8' : '#ccfbf1', border: `1px solid ${syncing ? '#475569' : '#14b8a6'}`, padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: syncing ? 'wait' : 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
+            {syncing ? '⏳ Syncing…' : '📨 Sync Gmail Invoices'}
+          </button>
           <button onClick={() => setShowInboxModal(true)}
             style={{ background: 'linear-gradient(135deg,#3b82f6,#8b5cf6)', color: '#fff', border: 'none', padding: '12px 25px', borderRadius: '30px', fontWeight: '900', cursor: 'pointer', fontSize: '14px', boxShadow: '0 5px 20px rgba(139,92,246,0.4)' }}>
             📥 Smart Inbox (Email &amp; Scan)
           </button>
         </div>
       </div>
+
+      {/* Sync toast. Fixed so it stays visible while the table reloads under it,
+          and dismissible because a 12-second message about 26 invoices is
+          something an operator may want to keep reading, or get rid of. */}
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          role="status"
+          style={{
+            position: 'fixed', top: 18, right: 18, zIndex: 9999, maxWidth: 460,
+            padding: '14px 18px', borderRadius: 12, cursor: 'pointer', fontSize: 13, lineHeight: 1.5,
+            background: toast.kind === 'ok' ? 'rgba(16,185,129,0.14)' : toast.kind === 'err' ? 'rgba(239,68,68,0.14)' : 'rgba(56,189,248,0.14)',
+            border: `1px solid ${toast.kind === 'ok' ? '#10b981' : toast.kind === 'err' ? '#ef4444' : '#38bdf8'}`,
+            color: toast.kind === 'ok' ? '#a7f3d0' : toast.kind === 'err' ? '#fecaca' : '#bae6fd',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)',
+          }}
+        >
+          {toast.text}
+          <div style={{ fontSize: 10, opacity: 0.6, marginTop: 6 }}>click to dismiss</div>
+        </div>
+      )}
 
       {err && (
         <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
@@ -851,6 +939,13 @@ export default function LodingDetals() {
               Drop a loading slip or invoice here, paste one from the clipboard, or browse. It is read on-device by DeepSeek (via Ollama) — nothing leaves this machine.
             </p>
             <div style={{ fontSize: 48, margin: '18px 0' }}>{isScanningFile ? '⏳' : isDragging ? '📥' : '📄'}</div>
+            <button onClick={syncGmailInvoices} disabled={syncing}
+              style={{ background: syncing ? '#334155' : '#0f766e', color: syncing ? '#94a3b8' : '#ccfbf1', border: `1px solid ${syncing ? '#475569' : '#14b8a6'}`, padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: syncing ? 'wait' : 'pointer', display: 'block', margin: '0 auto 14px' }}>
+              {syncing ? '⏳ Syncing both mailboxes…' : '📨 Sync Gmail Invoices'}
+            </button>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 14 }}>
+              prasadtransport699@gmail.com &nbsp;·&nbsp; jaiswalenterprise2016@gmail.com
+            </div>
             <label style={{ background: '#38bdf8', color: '#0f172a', padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: isScanningFile ? 'not-allowed' : 'pointer', display: 'inline-block' }}>
               {isScanningFile ? 'Scanning…' : '📎 Browse a file'}
               <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleManualFileUpload} disabled={isScanningFile} />

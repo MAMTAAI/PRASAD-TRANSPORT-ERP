@@ -30,6 +30,7 @@ import { registerMastersRoutes } from './modules/masters.routes.js';
 import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
+import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
@@ -157,6 +158,11 @@ await app.register(registerTollRoutes,     { prefix: '/api/v1/toll' });
 // is the only path that de-duplicates against what the GTROPY API already
 // fetched before anything is posted.
 await app.register(registerTollImportRoutes, { prefix: '/api/v1/toll' });
+// IOCL AC5 dispatch invoices -> loading entries, pulled from both mailboxes.
+// Admin-guarded: it inserts trips, and a sync button anyone can press is a
+// mass-insert button. Exclusive per run -- two concurrent syncs would each
+// build a deduplication index blind to the other's uncommitted inserts.
+await app.register(registerIoclSyncRoutes, { prefix: '/api/v1/iocl' });
 // Vehicle loans: contract import, the opening liability at a cut-off, and EMIs
 // split into principal and interest. Kept apart from the loan CRUD screens for
 // the same reason as the toll importer — this is the only path that recognises
