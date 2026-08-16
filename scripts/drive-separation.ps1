@@ -47,6 +47,11 @@ $PLAN = @(
   @{ Src = 'E:\JAISWAL_CAPITAL_SERVER';                             Dst = 'H:\'; Owner = 'Jaiswal Capital' }
   @{ Src = 'E:\jaiswal-algo-backend';                               Dst = 'H:\'; Owner = 'Jaiswal Capital' }
   @{ Src = 'E:\jaiswal-terminal';                                   Dst = 'H:\'; Owner = 'Jaiswal Capital' }
+  # Added after the first run. This was not in the original list and turned up
+  # in the leftovers audit of E:\ -- 63,834 files, 9.24 GB of trading engine
+  # (api.py, agents, api-scrip-master.csv) sitting on the shared drive. It is
+  # the single largest piece of Jaiswal material that was still misplaced.
+  @{ Src = 'E:\Algo-Engine';                                        Dst = 'H:\'; Owner = 'Jaiswal Capital' }
 )
 
 $LOG = Join-Path $PSScriptRoot ("drive-separation-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
