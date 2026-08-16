@@ -5,7 +5,7 @@
 // Middle: Finance & EMI Command · FASTag & Toll · Tally Sync · Sales/Revenue charts
 // Bottom: Master Ledgers & Cash/Bank Book (Dr ₹2.96 Cr / Cr ₹2.95 Cr)
 // ============================================================================
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Fuel, Banknote, ReceiptText, Wallet, Landmark, CarFront, RefreshCcw,
   PieChart as PieIcon, BarChart3, BookOpenText, Search, ArrowUpRight,
@@ -18,18 +18,12 @@ import {
   GlassPanel, PanelHeader, StatusPill, Dot, ProgressBar, chartTooltipStyle, axisStyle,
 } from './shared';
 import { inr, inrFull } from './useDashboardData';
+import { API_BASE } from '../lib/apiBase';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import { LivePnl, UnbilledFreight } from './OpsWidgets';
 
-// ---------------------------------------------------------------------------
-// MOCK DATA — matches the approved v5.0 design numbers exactly
-// ---------------------------------------------------------------------------
-const fleetCards = [
-  { brand: 'BPCL', balance: '₹45L', tone: 'from-amber-500/20 to-yellow-500/5', border: 'border-amber-500/40', text: 'text-amber-300' },
-  { brand: 'HPCL', balance: '₹35L', tone: 'from-blue-500/20 to-indigo-500/5', border: 'border-blue-500/40', text: 'text-blue-300' },
-  { brand: 'IOCL', balance: '₹35L', tone: 'from-orange-500/20 to-red-500/5', border: 'border-orange-500/40', text: 'text-orange-300' },
-];
-
+// Gradients for the EMI bars. This is styling, not data — the lender names and
+// balances beside it come from loan_master.
 const EMI_GRADIENTS = [
   'from-fuchsia-500 to-amber-400',
   'from-sky-500 to-cyan-400',
@@ -37,53 +31,64 @@ const EMI_GRADIENTS = [
   'from-emerald-500 to-teal-400',
 ];
 
-const emiBanks = [
-  { bank: 'Axis Bank', amount: '₹1.25 Cr', note: 'Next payment in 30–60 days', pct: 62, gradient: 'from-fuchsia-500 to-amber-400' },
-  { bank: 'SBI', amount: '₹85 Lakhs', note: 'EMI progress on schedule', pct: 48, gradient: 'from-sky-500 to-cyan-400' },
-  { bank: 'HDFC', amount: '₹42 Lakhs', note: 'EMI liabilities · ₹20 Lakhs cleared', pct: 34, gradient: 'from-rose-500 to-orange-400' },
-];
-
-const customerSales = [
-  { name: 'IOCL Refinery', value: 60, color: '#22d3ee' },
-  { name: 'Haldia Petrochem', value: 25, color: '#34d399' },
-  { name: 'Others', value: 15, color: '#fbbf24' },
-];
-
-const monthlyRevenue = [
-  { month: 'Jan', revenue: 21.4 }, { month: 'Feb', revenue: 24.8 }, { month: 'Mar', revenue: 22.6 },
-  { month: 'Apr', revenue: 27.9 }, { month: 'May', revenue: 25.3 }, { month: 'Jun', revenue: 31.2 },
-  { month: 'Jul', revenue: 34.6 },
-];
-
-const ledgerRows = [
-  { name: 'SBI Bank', date: '13/03/2026', type: 'Bank', debit: '₹85.0 L', credit: '₹72.5 L', receipts: '₹1,240', payments: '₹980' },
-  { name: 'HPCL (Fuel)', date: '22/03/2026', type: 'Fuel Card', debit: '₹20.0 L', credit: '₹19.6 L', receipts: '—', payments: '₹1,000' },
-  { name: 'BPCL (Fuel)', date: '25/03/2026', type: 'Fuel Card', debit: '₹20.0 L', credit: '₹19.4 L', receipts: '—', payments: '₹2,000' },
-  { name: 'Driver Cash', date: '24/03/2026', type: 'Cash', debit: '₹8.0 L', credit: '₹7.9 L', receipts: '₹800', payments: '₹650' },
-  { name: 'Customer Payments', date: '21/03/2026', type: 'Receivable', debit: '₹1.63 Cr', credit: '₹1.76 Cr', receipts: '₹3,550', payments: '—' },
-];
-
 // ---------------------------------------------------------------------------
+// No constants here any more.
+//
+// This block used to hold five hand-written arrays — an Axis Bank loan of
+// 1.25 Cr, an SBI one of 85 lakh, a revenue split of "IOCL Refinery 60 /
+// Haldia 25 / Others 15", seven months of invented turnover. None of it was
+// ever true: the firm's 29 loans are with TATA CAPITAL and INDUSIND, and the
+// freight is concentrated in three IOCL depots. The arrays had stopped being
+// rendered, but they sat here looking authoritative, ready for the next person
+// to wire one back up. Deleted rather than left as a fallback: a chart with no
+// data should say so, not quietly substitute a plausible shape.
+// ---------------------------------------------------------------------------
+
 export default function FinanceDashboard({ live, filter }) {
   // LIVE from GET /api/v1/dashboard/v5
   const fin = live?.data?.finance ?? null;
   const offline = !!live?.error;
+
+  // ...and the parts /dashboard/v5 does not carry: the loan book, and revenue
+  // measured by the freight actually run rather than by what has been receipted.
+  const [hub, setHub] = useState(null);
+  useEffect(() => {
+    let dead = false;
+    const load = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/dashboard/finance-hub`);
+        if (r.ok && !dead) setHub(await r.json());
+      } catch { /* the panels fall back to an empty state, never to a made-up one */ }
+    };
+    load();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
+    const onVis = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
 
   const bookRows = fin?.ledger_book ?? [];
   const bankRows = fin?.banks ?? [];
   const emi = fin?.emi ?? null;
   const toll = fin?.toll ?? null;
   const tally = fin?.tally ?? null;
-  const monthlyLive = fin?.monthly?.length ? fin.monthly : monthlyRevenue;
-  const custLive = fin?.customers?.length
-    ? (() => {
-        const palette = ['#22d3ee', '#34d399', '#fbbf24', '#a78bfa', '#f472b6'];
-        const total = fin.customers.reduce((s, c) => s + Number(c.value || 0), 0) || 1;
-        return fin.customers.map((c, i) => ({
-          name: c.name, value: Math.round((Number(c.value) / total) * 100), color: palette[i % palette.length],
-        }));
-      })()
-    : customerSales;
+  const monthlyLive = fin?.monthly?.length ? fin.monthly : [];
+
+  // WHERE THE REVENUE ACTUALLY COMES FROM.
+  //
+  // This pie used to read finance.customers, which is the sales LEDGER — money
+  // receipted against a customer account. Almost nothing has been posted there,
+  // so it reported that 97% of the business was AADHAR GREEN INDUSTRIES LLP on
+  // a total of 61,591 rupees, while the trucks had in fact run 1.57 crore of
+  // freight. The chart was not lying about its own numbers; it was answering a
+  // different question from the one its title asked.
+  //
+  // Freight by consignee is the answer to "who is our revenue", and it is the
+  // same figure the Owner Fleet Matrix and the RTKM panel bill on.
+  const PALETTE = ['#22d3ee', '#34d399', '#fbbf24', '#a78bfa', '#f472b6', '#fb7185', '#60a5fa', '#94a3b8'];
+  const custLive = (hub?.revenue?.parties ?? []).map((p, i) => ({
+    name: p.party, value: p.share_pct, freight: p.freight, trips: p.trips, color: PALETTE[i % PALETTE.length],
+  }));
 
   return (
     <div className="flex flex-col gap-4">
@@ -220,6 +225,24 @@ export default function FinanceDashboard({ live, filter }) {
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total outstanding</span>
                   <span className="text-[13px] font-black text-cyan-300">₹{inrFull(emi.total_outstanding)}</span>
                 </div>
+                {/* The figure above is a STORED balance, not a computed one. It
+                    was set from the opening position and no EMI has decremented
+                    it since, so it overstates the debt by whatever has been
+                    repaid. Saying that out loud is the whole point: an owner who
+                    knows the number is stale will go and fix the postings; one
+                    who thinks it is live will budget against it. */}
+                {hub?.debt?.staleness && (
+                  <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/5 px-2.5 py-2">
+                    <p className="text-[10px] font-bold text-amber-300">
+                      Opening balance — not yet reduced by recorded EMIs
+                    </p>
+                    <p className="mt-0.5 text-[9px] leading-relaxed text-amber-200/70">
+                      All {hub.debt.staleness.stale_loans} loans still carry their balance as of{' '}
+                      {hub.debt.staleness.as_of}. ₹{inrFull(hub.debt.staleness.unposted_repayment)} of
+                      principal has been paid since and is not reflected above, so the true debt is lower.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -333,35 +356,56 @@ export default function FinanceDashboard({ live, filter }) {
           </div>
         </GlassPanel>
 
-        {/* Customer Sales Donut */}
+        {/* Revenue concentration — freight actually run, by consignee */}
         <GlassPanel>
-          <PanelHeader icon={PieIcon} title="Customer Sales Breakdown" accent="text-cyan-400" />
-          <div className="px-2 pb-2 h-44 flex items-center">
-            <div className="w-1/2 h-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={custLive} dataKey="value" nameKey="name"
-                    innerRadius="55%" outerRadius="85%" paddingAngle={3} stroke="none"
-                  >
-                    {custLive.map((s) => <Cell key={s.name} fill={s.color} />)}
-                  </Pie>
-                  <Tooltip {...chartTooltipStyle} />
-                </PieChart>
-              </ResponsiveContainer>
+          <PanelHeader
+            icon={PieIcon}
+            title="Revenue Concentration"
+            accent="text-cyan-400"
+            sub={hub ? `₹${inr(hub.revenue.total)} freight · top ${custLive.length}` : 'loading'}
+          />
+          {custLive.length === 0 ? (
+            <div className="px-4 pb-4 h-44 grid place-items-center text-center">
+              <p className="text-[11px] text-slate-500">
+                {hub ? 'No freight recorded in this period.' : 'Reading freight by consignee…'}
+              </p>
             </div>
-            <div className="w-1/2 flex flex-col gap-2 pr-3">
-              {custLive.map((s) => (
-                <div key={s.name} className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-[10px] text-slate-400 min-w-0">
-                    <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} />
-                    <span className="truncate">{s.name}</span>
-                  </span>
-                  <span className="text-[11px] font-black text-slate-200">{s.value}%</span>
-                </div>
-              ))}
+          ) : (
+            <div className="px-2 pb-2 h-44 flex items-center">
+              <div className="w-1/2 h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={custLive} dataKey="value" nameKey="name"
+                      innerRadius="55%" outerRadius="85%" paddingAngle={3} stroke="none"
+                    >
+                      {custLive.map((s) => <Cell key={s.name} fill={s.color} />)}
+                    </Pie>
+                    {/* Percent alone hides the scale; the rupees say whether a
+                        29% share is 46 lakh or 600 rupees. */}
+                    <Tooltip
+                      {...chartTooltipStyle}
+                      formatter={(v, _n, e) => [`₹${inrFull(e?.payload?.freight ?? 0)} · ${v}% · ${e?.payload?.trips ?? 0} trips`, e?.payload?.name]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="w-1/2 flex flex-col gap-1.5 pr-3 overflow-y-auto max-h-full">
+                {custLive.map((s) => (
+                  <div key={s.name} className="flex items-center justify-between gap-2" title={`₹${inrFull(s.freight)} over ${s.trips} trips`}>
+                    <span className="flex items-center gap-1.5 text-[10px] text-slate-400 min-w-0">
+                      <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} />
+                      <span className="truncate">{s.name}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="text-[11px] font-black text-slate-200">{s.value}%</span>
+                      <span className="block text-[9px] text-slate-500 font-mono">₹{inr(s.freight)}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </GlassPanel>
       </div>
 
@@ -370,17 +414,27 @@ export default function FinanceDashboard({ live, filter }) {
 
         {/* Monthly Revenue Breakdown */}
         <GlassPanel>
-          <PanelHeader icon={BarChart3} title="Monthly Revenue Breakdown" accent="text-amber-400" sub="₹ in Lakhs" />
+          {/* The axis said "in Lakhs" and then plotted rupees, so a 48 lakh month
+              drew a bar labelled 4807273. Same series, honest scale. */}
+          <PanelHeader icon={BarChart3} title="Monthly Revenue Breakdown" accent="text-amber-400" sub="freight credited · ₹ lakh" />
           <div className="px-2 pb-3 h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyLive} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
-                <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="month" tick={axisStyle} axisLine={false} tickLine={false} />
-                <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
-                <Tooltip {...chartTooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                <Bar dataKey="revenue" name="Revenue (₹L)" radius={[6, 6, 0, 0]} fill="#22d3ee" maxBarSize={26} />
-              </BarChart>
-            </ResponsiveContainer>
+            {monthlyLive.length === 0 ? (
+              <div className="h-full grid place-items-center">
+                <p className="text-[11px] text-slate-500">No freight posted in the last seven months.</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyLive} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
+                  <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="month" tick={axisStyle} axisLine={false} tickLine={false} />
+                  <YAxis tick={axisStyle} axisLine={false} tickLine={false}
+                         tickFormatter={(v) => (Number(v) / 100000).toFixed(0)} />
+                  <Tooltip {...chartTooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                           formatter={(v) => [`₹${inrFull(v)}`, 'Freight credited']} />
+                  <Bar dataKey="revenue" name="Freight credited" radius={[6, 6, 0, 0]} fill="#22d3ee" maxBarSize={26} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </GlassPanel>
 

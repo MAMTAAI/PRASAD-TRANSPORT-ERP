@@ -174,7 +174,7 @@ export default function OperationsDashboard({ live, filter }) {
 
         {/* Shortage recovery sits with operations because collecting it is an
             operations job, not an accounts one. */}
-        <ShortageRecoveryPanel live={live} />
+        <ShortageRecoveryPanel live={live} filter={filter} />
 
         {/* Fleet Maintenance Hub */}
         <GlassPanel>

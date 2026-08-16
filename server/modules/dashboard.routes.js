@@ -70,6 +70,287 @@ const VEHICLE_F = `
   AND ($4::text IS NULL OR (CASE WHEN v.is_company_owned THEN 'OWNED' ELSE 'ATTACHED' END) = $4::text)`;
 
 export function registerDashboardRoutes(app) {
+  // ── FINANCE HUB ───────────────────────────────────────────────────────────
+  //
+  // THIS SCREEN USED TO BE ENTIRELY INVENTED. It showed an Axis Bank loan of
+  // 1.25 Cr, an SBI one of 85 lakh and an HDFC one of 42 lakh. The firm banks
+  // with neither Axis nor HDFC: the 29 real loans are with TATA CAPITAL and
+  // INDUSIND. A finance screen that is confidently wrong is worse than one that
+  // is empty, because nobody goes and checks a number that is already there.
+  //
+  // Every figure below is read from loan_master, emi_payments and trips.
+  app.get('/dashboard/finance-hub', async (req, reply) => {
+    if (isDegraded()) {
+      return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+    }
+    const period = PERIODS.includes(String(req.query?.period ?? '').toUpperCase())
+      ? String(req.query.period).toUpperCase() : 'ALL';
+    const bounds = periodBounds(period, req.query?.offset);
+    const F = filtersOf(req.query);
+    const P = [F.companyId, F.branchId, F.owner, F.fleet];
+
+    // Lenders, with what is actually still owed. remaining_principal is the
+    // figure the books carry; principal_paid_since is what EMIs have retired
+    // since the opening balance. Where those disagree the loan has drifted and
+    // the screen says so rather than picking the flattering one.
+    const { rows: lenders } = await query(`
+      SELECT l.bank_name,
+             count(*)                                        AS loans,
+             count(*) FILTER (WHERE l.payment_status = 'ACTIVE') AS active,
+             COALESCE(sum(l.principal_amt), 0)               AS principal,
+             COALESCE(sum(l.remaining_principal), 0)         AS outstanding,
+             COALESCE(sum(l.emi_amount), 0)                  AS emi_monthly,
+             COALESCE(sum(pay.paid), 0)                      AS principal_paid_since
+        FROM loan_master l
+        LEFT JOIN LATERAL (
+          SELECT sum(e.principal_part) AS paid FROM emi_payments e WHERE e.loan_id = l.id
+        ) pay ON true
+       GROUP BY l.bank_name
+       ORDER BY sum(l.remaining_principal) DESC NULLS LAST`);
+
+    // Per-vehicle loans, so a truck can be seen carrying its own debt.
+    const { rows: loans } = await query(`
+      SELECT l.loan_account_no, l.vehicle_no, l.bank_name, l.loan_type,
+             l.principal_amt, l.remaining_principal, l.emi_amount,
+             l.rate_of_interest, l.tenure_months, l.emis_completed,
+             l.payment_status,
+             COALESCE(pay.n, 0) AS payments_recorded
+        FROM loan_master l
+        LEFT JOIN LATERAL (
+          SELECT count(*) n FROM emi_payments e WHERE e.loan_id = l.id
+        ) pay ON true
+       ORDER BY l.remaining_principal DESC NULLS LAST`);
+
+    // Where the money actually comes from. The old screen said "IOCL Refinery
+    // 60%, Haldia Petrochem 25%, Others 15%" — round numbers nobody measured.
+    // The real concentration is by consignee depot.
+    const { rows: parties } = await query(`
+      SELECT COALESCE(NULLIF(trim(t.consignee_name), ''), '(not recorded)') AS party,
+             count(*) AS trips,
+             COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0) AS freight
+        FROM trips t
+        JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE ($5::date IS NULL OR t.loading_date >= $5::date)
+         AND ($6::date IS NULL OR t.loading_date <= $6::date)
+         ${TRIP_F}
+       GROUP BY 1 ORDER BY 3 DESC NULLS LAST LIMIT 8`, [...P, bounds.from, bounds.to]);
+
+    // Revenue by month. Bounded to sane dates: one trip carries a year of
+    // "0026", a typo that would otherwise stretch the axis across two millennia.
+    const { rows: monthly } = await query(`
+      SELECT to_char(t.loading_date,'YYYY-MM') AS month,
+             count(*) AS trips,
+             COALESCE(sum(COALESCE(NULLIF(t.billed_amount,0), t.freight_amount, 0)), 0) AS revenue
+        FROM trips t
+        JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE t.loading_date BETWEEN '2000-01-01' AND '2100-01-01' ${TRIP_F}
+       GROUP BY 1 ORDER BY 1 DESC LIMIT 13`, P);
+
+    // Real bank and cash balances, straight off the ledger view.
+    const { rows: accounts } = await query(`
+      SELECT b.ledger_name, b.group_head, b.balance_natural AS balance,
+             b.total_dr, b.total_cr
+        FROM v_ledger_balances b
+       WHERE b.group_head ILIKE '%Bank%' OR b.group_head ILIKE '%Cash%'
+       ORDER BY abs(b.balance_natural::numeric) DESC NULLS LAST LIMIT 10`);
+
+    // HOW STALE IS THE OUTSTANDING FIGURE?
+    //
+    // remaining_principal is a stored balance, set from the opening position on
+    // 31-03-2026 and never decremented since. Every EMI recorded in
+    // emi_payments has retired principal that this number does not know about.
+    // The screen keeps showing the stored figure — it is what the books say —
+    // but it must not present it as today's debt without saying so.
+    const { rows: driftRows } = await query(`
+      SELECT count(*) FILTER (WHERE abs(drift::numeric) > 1) AS stale_loans,
+             COALESCE(sum(drift::numeric), 0)                AS total_drift,
+             max(opening_as_of)                              AS as_of
+        FROM v_loan_reconciliation`);
+    const drift = driftRows[0] ?? {};
+
+    const n = (v) => Number(v || 0);
+    const outstanding = lenders.reduce((a, l) => a + n(l.outstanding), 0);
+    const emiMonthly = lenders.reduce((a, l) => a + n(l.emi_monthly), 0);
+    const freightTotal = parties.reduce((a, p) => a + n(p.freight), 0);
+
+    return {
+      period: bounds,
+      debt: {
+        lenders: lenders.map((l) => ({
+          ...l,
+          share_pct: outstanding > 0 ? Math.round((n(l.outstanding) / outstanding) * 100) : 0,
+          repaid_pct: n(l.principal) > 0
+            ? Math.round(((n(l.principal) - n(l.outstanding)) / n(l.principal)) * 100) : null,
+        })),
+        loans,
+        totals: {
+          loans: loans.length,
+          principal: lenders.reduce((a, l) => a + n(l.principal), 0).toFixed(2),
+          outstanding: outstanding.toFixed(2),
+          emi_monthly: emiMonthly.toFixed(2),
+        },
+        // Non-null means the outstanding above is an opening balance carrying
+        // unposted repayments, and the real debt is lower by roughly this much.
+        staleness: n(drift.total_drift) > 1 ? {
+          stale_loans: Number(drift.stale_loans),
+          unposted_repayment: n(drift.total_drift).toFixed(2),
+          as_of: drift.as_of,
+        } : null,
+      },
+      // Concentration risk: if one depot is most of the freight, losing it is
+      // the whole business, and that is worth seeing next to the debt.
+      revenue: {
+        parties: parties.map((p) => ({
+          ...p,
+          share_pct: freightTotal > 0 ? Math.round((n(p.freight) / freightTotal) * 100) : 0,
+        })),
+        total: freightTotal.toFixed(2),
+        monthly: monthly.reverse(),
+      },
+      accounts,
+    };
+  });
+
+  // ── DRIVER SHORTAGE RECOVERY, BY PERIOD ───────────────────────────────────
+  //
+  // PENDING IS CHARGED MINUS RECOVERED, never "has a penalty". Every recovery is
+  // a driver_transactions row of type SHORTAGE_RECOVERY carrying the trip_id, so
+  // what is still owed is arithmetic on two real tables rather than a flag
+  // somebody has to remember to clear. That is also what makes it auto-update:
+  // the moment a recovery row lands, the pending figure drops on the next read.
+  //
+  // TRIP-WISE IS THE UNIT THAT CAN BE ACTED ON. "Prakash Prasad owes 15,767" is
+  // a number to argue about; "trip PT00653 on 8 July, 0.412 KL short on AS 26C
+  // 5107" is a conversation with a driver. Both are returned.
+  app.get('/dashboard/shortage-recovery', async (req, reply) => {
+    if (isDegraded()) {
+      return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+    }
+    const period = PERIODS.includes(String(req.query?.period ?? '').toUpperCase())
+      ? String(req.query.period).toUpperCase() : 'ALL';
+    const bounds = periodBounds(period, req.query?.offset);
+    const F = filtersOf(req.query);
+    const P = [F.companyId, F.branchId, F.owner, F.fleet];
+
+    // One CTE, read three ways: per trip, per driver, and as a total. Deriving
+    // the three separately is how a summary ends up disagreeing with the rows
+    // underneath it.
+    const { rows: trips } = await query(`
+      SELECT t.id, t.trip_code, t.loading_date, t.vehicle_no,
+             COALESCE(t.driver_name, 'driver not recorded') AS driver_name,
+             t.loading_point, COALESCE(t.unloading_location, t.consignee_name) AS destination,
+             COALESCE(t.shortage_qty, 0)             AS qty,
+             COALESCE(t.shortage_penalty, 0)         AS penalty,
+             COALESCE(rec.recovered, 0)              AS recovered,
+             COALESCE(t.shortage_penalty,0) - COALESCE(rec.recovered,0) AS pending,
+             rec.last_at                             AS last_recovery_at
+        FROM trips t
+        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN LATERAL (
+          SELECT sum(d.amount) AS recovered, max(d.txn_date) AS last_at
+            FROM driver_transactions d
+           WHERE d.trip_id = t.id AND d.txn_type = 'SHORTAGE_RECOVERY'
+        ) rec ON true
+       WHERE COALESCE(t.shortage_penalty, 0) > 0
+         AND ($5::date IS NULL OR t.loading_date >= $5::date)
+         AND ($6::date IS NULL OR t.loading_date <= $6::date)
+         ${TRIP_F}
+       ORDER BY (COALESCE(t.shortage_penalty,0) - COALESCE(rec.recovered,0)) DESC,
+                COALESCE(t.shortage_penalty,0) DESC`, [...P, bounds.from, bounds.to]);
+
+    // Group in JS off the SAME rows the client sees, so the driver totals and
+    // the trip list can never disagree.
+    const byKey = new Map();
+    for (const t of trips) {
+      const key = `${t.driver_name}||${t.vehicle_no}`;
+      const g = byKey.get(key) ?? {
+        driver: t.driver_name, vehicle: t.vehicle_no, trips: 0,
+        qty: 0, penalty: 0, recovered: 0, pending: 0, trip_codes: [], last_recovery_at: null,
+      };
+      g.trips += 1;
+      g.qty += Number(t.qty);
+      g.penalty += Number(t.penalty);
+      g.recovered += Number(t.recovered);
+      g.pending += Number(t.pending);
+      if (t.trip_code) g.trip_codes.push(t.trip_code);
+      if (t.last_recovery_at && (!g.last_recovery_at || t.last_recovery_at > g.last_recovery_at)) {
+        g.last_recovery_at = t.last_recovery_at;
+      }
+      byKey.set(key, g);
+    }
+    const drivers = [...byKey.values()]
+      .map((g) => ({
+        ...g,
+        qty: g.qty.toFixed(3),
+        penalty: g.penalty.toFixed(2),
+        recovered: g.recovered.toFixed(2),
+        pending: g.pending.toFixed(2),
+        settled: g.pending <= 0.005,
+      }))
+      .sort((a, b) => Number(b.pending) - Number(a.pending) || Number(b.penalty) - Number(a.penalty));
+
+    const sum = (f) => trips.reduce((a, t) => a + Number(t[f] || 0), 0);
+    const charged = sum('penalty');
+    const recovered = sum('recovered');
+
+    // What actually came back, and when — this is the feed that answers
+    // "has anyone paid since I last looked".
+    const { rows: recent } = await query(`
+      SELECT d.driver_name, d.amount, d.txn_date, d.mode, d.remarks,
+             t.trip_code, t.vehicle_no
+        FROM driver_transactions d
+        LEFT JOIN trips t ON t.id = d.trip_id
+       WHERE d.txn_type = 'SHORTAGE_RECOVERY'
+       ORDER BY d.txn_date DESC NULLS LAST, d.created_at DESC
+       LIMIT 12`);
+
+    // Fortnight-by-fortnight trend, for the graph. Charged against recovered:
+    // a period where the two diverge is one where money stopped coming back.
+    const { rows: trend } = await query(`
+      SELECT to_char(t.loading_date,'YYYY-MM') AS mon,
+             CASE WHEN extract(day FROM t.loading_date) <= 15 THEN 'H1' ELSE 'H2' END AS half,
+             min(t.loading_date) AS from_date,
+             COALESCE(sum(t.shortage_penalty),0)      AS charged,
+             COALESCE(sum(rec.recovered),0)           AS recovered
+        FROM trips t
+        JOIN vehicles v ON v.id = t.vehicle_id
+        LEFT JOIN LATERAL (
+          SELECT sum(d.amount) AS recovered FROM driver_transactions d
+           WHERE d.trip_id = t.id AND d.txn_type = 'SHORTAGE_RECOVERY') rec ON true
+       WHERE COALESCE(t.shortage_penalty,0) > 0 ${TRIP_F}
+       GROUP BY 1,2 ORDER BY min(t.loading_date) DESC LIMIT 8`, P);
+
+    return {
+      period: bounds,
+      totals: {
+        trips: trips.length,
+        drivers: new Set(trips.map((t) => t.driver_name)).size,
+        charged: charged.toFixed(2),
+        recovered: recovered.toFixed(2),
+        pending: (charged - recovered).toFixed(2),
+        // The single number that says whether recovery is working at all.
+        recovery_pct: charged > 0 ? Math.round((recovered / charged) * 100) : null,
+        qty: sum('qty').toFixed(3),
+      },
+      drivers,
+      pending: drivers.filter((d) => !d.settled),
+      settled: drivers.filter((d) => d.settled),
+      trips: trips.map((t) => ({
+        trip_id: t.id, trip_code: t.trip_code, date: t.loading_date,
+        vehicle: t.vehicle_no, driver: t.driver_name,
+        route: `${t.loading_point ?? '?'} -> ${t.destination ?? '?'}`,
+        qty: t.qty, penalty: t.penalty, recovered: t.recovered, pending: t.pending,
+        settled: Number(t.pending) <= 0.005,
+        last_recovery_at: t.last_recovery_at,
+      })),
+      recent_recoveries: recent,
+      trend: trend.reverse().map((r) => ({
+        label: `${r.mon} ${r.half}`,
+        charged: r.charged, recovered: r.recovered,
+      })),
+    };
+  });
+
   // ── VEHICLE PRODUCTIVITY, BY PERIOD ───────────────────────────────────────
   //
   // A SEPARATE ENDPOINT FROM /dashboard/v5 ON PURPOSE. This panel refreshes on
@@ -528,18 +809,27 @@ export function registerDashboardRoutes(app) {
     }, { income: [], expense: [], total_income: 0, total_expense: 0, net: 0 });
 
     const banks = await safe(errors, 'banks', async () => {
+      // READ THE COMPUTED VIEW, NOT ledgers.current_balance.
+      //
+      // current_balance is a denormalised column that nothing maintains: 184 of
+      // the 185 ledgers still hold 0 in it. This widget therefore reported every
+      // bank account as empty while SBI (8490) had 74.48 lakh in it, on 3.63
+      // crore of debits against 2.88 crore of credits. v_ledger_balances derives
+      // the balance from ledger_entries, which is the only place the money
+      // actually is.
       const { rows } = await query(`
-        SELECT ledger_name, COALESCE(current_balance,0) AS bal
-        FROM ledgers
+        SELECT ledger_name, COALESCE(balance_natural,0) AS bal
+        FROM v_ledger_balances
         WHERE group_head ILIKE '%Bank%' OR group_head ILIKE '%Cash%' OR group_head ILIKE '%Wallet%'
-        ORDER BY COALESCE(current_balance,0) DESC LIMIT 8`);
+        ORDER BY abs(COALESCE(balance_natural,0)::numeric) DESC LIMIT 8`);
       return rows.map((r) => ({ name: r.ledger_name, balance: num(r.bal) }));
     }, []);
 
     const groups = await safe(errors, 'group_totals', async () => {
+      // Same dead column as above — group totals were all zero for the same reason.
       const { rows } = await query(`
-        SELECT group_head, COALESCE(SUM(current_balance),0) AS bal, count(*) AS n
-        FROM ledgers GROUP BY 1 ORDER BY 2 DESC LIMIT 12`);
+        SELECT group_head, COALESCE(SUM(balance_natural),0) AS bal, count(*) AS n
+        FROM v_ledger_balances GROUP BY 1 ORDER BY abs(SUM(balance_natural)) DESC LIMIT 12`);
       return rows.map((r) => ({ group: r.group_head, balance: num(r.bal), count: num(r.n) }));
     }, []);
 

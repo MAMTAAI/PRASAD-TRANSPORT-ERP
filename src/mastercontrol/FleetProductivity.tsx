@@ -342,7 +342,11 @@ export function VehicleRtkmPanel({ live, filter }) {
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') load(true);
     }, 45000);
-    return () => clearInterval(t);
+    // Same reason as the shortage panel: a hidden tab stops polling, so without
+    // this you come back to figures from whenever you wandered off.
+    const onVis = () => { if (document.visibilityState === 'visible') load(true); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, [load]);
 
   const top = data?.top ?? [];
@@ -502,53 +506,76 @@ function Tile({ label, value, unit, sub, tone = 'text-slate-100', delta }) {
 
 
 // ── DRIVER SHORTAGE RECOVERY ────────────────────────────────────────────────
-function ShortageRow({ r, settled }) {
+//
+// PENDING IS CHARGED MINUS RECOVERED, never "has a penalty". Every recovery is a
+// driver_transactions row keyed on the trip, so what is still owed is arithmetic
+// over two real tables — which is also what makes this self-updating: the moment
+// a recovery is posted, the figure drops on the next read. Nothing to tick off.
+//
+// A SETTLED PENALTY IS NEVER SHOWN AS ACTIONABLE. It is kept, behind a fold,
+// because showing one as outstanding is how a driver gets docked twice for the
+// same shortage.
+function ShortageRow({ r, settled, max }) {
+  const pct = Number(max) > 0 ? Math.max(2, (Number(settled ? r.penalty : r.pending) / Number(max)) * 100) : 0;
+  const recPct = Number(r.penalty) > 0 ? Math.round((Number(r.recovered) / Number(r.penalty)) * 100) : 0;
+
   const { triggerProps, overlay } = useHoverCard(() => (
     <>
       <HoverTitle sub={r.vehicle}>{r.driver}</HoverTitle>
       <HoverKv k="Trips with shortage" v={r.trips} />
-      {r.trip_codes && <HoverKv k="Trips" v={r.trip_codes} mono={false} />}
-      <HoverKv k="Shortage quantity" v={r.qty != null ? `${Number(r.qty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} KL` : '—'} />
+      {r.trip_codes?.length > 0 && <HoverKv k="Trips" v={r.trip_codes.join(', ')} mono={false} />}
+      <HoverKv k="Quantity short" v={`${Number(r.qty).toLocaleString('en-IN', { maximumFractionDigits: 3 })} KL`} />
       <HoverKv k="Penalty charged" v={`₹${inrFull(r.penalty)}`} />
-      <HoverKv k="Already recovered" v={`₹${inrFull(r.recovered)}`} tone="text-emerald-300" />
+      <HoverKv k="Recovered so far" v={`₹${inrFull(r.recovered)}`} tone="text-emerald-300" />
       <HoverKv strong k="Still owed" v={`₹${inrFull(r.pending)}`}
                tone={Number(r.pending) > 0 ? shortageText(r.pending) : 'text-emerald-400'} />
+      {r.last_recovery_at && (
+        <HoverKv k="Last recovery" v={String(r.last_recovery_at).slice(0, 10)} />
+      )}
       <HoverNote tone={settled ? 'text-emerald-300/80' : 'text-amber-300/90'}>
         {settled
           ? 'Fully recovered through the driver khata — nothing further to collect. Shown for the record, not for action.'
-          : 'Not yet taken back. Recovery posts to the driver khata and its GL leg in the same transaction.'}
+          : `${recPct}% recovered so far. Recovery posts to the khata and its GL leg in the same transaction.`}
       </HoverNote>
     </>
   ), { placement: 'top', width: 300 });
 
+  const tone = settled ? 'settled' : shortageTone(r.pending);
   return (
     <>
       <div
         {...triggerProps}
         tabIndex={0}
-        className={`touch-manipulation flex items-center gap-2.5 rounded-lg border px-2.5 py-2 outline-none
+        className={`touch-manipulation relative overflow-hidden rounded-lg border px-2.5 py-2 outline-none
                     transition-colors duration-100 focus-visible:ring-1 focus-visible:ring-cyan-400/60
-          ${settled
-            ? 'border-slate-800/60 bg-white/[0.03] hover:bg-white/[0.06]'
-            : shortageTone(r.pending) === 'red'
-              ? 'border-red-500/50 bg-red-500/10 hover:bg-red-500/15 shadow-[0_0_16px_rgba(248,113,113,0.15)]'
-              : shortageTone(r.pending) === 'amber'
-                ? 'border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/15'
-                : 'border-slate-700/60 bg-white/5 hover:bg-white/10'}`}
+          ${settled ? 'border-slate-800/60 bg-white/[0.02] hover:bg-white/[0.05]'
+            : tone === 'red' ? 'border-red-500/50 bg-red-500/[0.07] hover:bg-red-500/[0.12] shadow-[0_0_16px_rgba(248,113,113,0.12)]'
+            : tone === 'amber' ? 'border-amber-500/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12]'
+            : 'border-slate-700/60 bg-white/5 hover:bg-white/10'}`}
       >
-        <div className="min-w-0 flex-1">
-          <p className={`truncate text-[11px] font-bold ${settled ? 'text-slate-400' : 'text-slate-100'}`}>{r.driver}</p>
-          <p className="truncate text-[9px] text-slate-500">
-            {r.vehicle} · {r.trips} trip{r.trips === 1 ? '' : 's'}
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className={`font-mono text-[11.5px] font-black ${settled ? 'text-slate-500' : shortageText(r.pending)}`}>
-            ₹{inrFull(settled ? r.penalty : r.pending)}
-          </p>
-          <p className="text-[8.5px] uppercase tracking-wider text-slate-600">
-            {settled ? 'recovered' : 'to recover'}
-          </p>
+        <span aria-hidden
+          className={`absolute inset-y-0 left-0 transition-all duration-500
+            ${settled ? 'bg-gradient-to-r from-emerald-500/12 to-transparent'
+                      : 'bg-gradient-to-r from-red-500/18 to-transparent'}`}
+          style={{ width: `${pct}%` }} />
+        <div className="relative flex items-center gap-2.5">
+          <div className="min-w-0 flex-1">
+            <p className={`truncate text-[11px] font-bold ${settled ? 'text-slate-400' : 'text-slate-100'}`}>
+              {r.driver}
+            </p>
+            <p className="truncate text-[9px] text-slate-500">
+              {r.vehicle} · {r.trips} trip{r.trips === 1 ? '' : 's'}
+              {Number(r.recovered) > 0 && !settled && ` · ${recPct}% back`}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className={`font-mono text-[11.5px] font-black ${settled ? 'text-slate-500' : shortageText(r.pending)}`}>
+              ₹{inrFull(settled ? r.penalty : r.pending)}
+            </p>
+            <p className="text-[8.5px] uppercase tracking-wider text-slate-600">
+              {settled ? 'recovered' : 'to recover'}
+            </p>
+          </div>
         </div>
       </div>
       {overlay}
@@ -556,16 +583,206 @@ function ShortageRow({ r, settled }) {
   );
 }
 
-export function ShortageRecoveryPanel({ live }) {
+/** Trip-wise detail — the level somebody can actually act on. */
+function ShortageModal({ data, onClose }) {
+  const [q, setQ] = useState('');
+  const [tab, setTab] = useState('trips');
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
+
+  const needle = q.trim().toLowerCase();
+  const trips = (data?.trips ?? []).filter((t) => !needle
+    || `${t.driver} ${t.vehicle} ${t.trip_code ?? ''}`.toLowerCase().includes(needle));
+  const tot = trips.reduce((a, t) => ({
+    penalty: a.penalty + Number(t.penalty || 0),
+    recovered: a.recovered + Number(t.recovered || 0),
+    pending: a.pending + Number(t.pending || 0),
+  }), { penalty: 0, recovered: 0, pending: 0 });
+
+  return createPortal(
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm mc-fade-in sm:p-6"
+         onClick={onClose} role="presentation">
+      <div role="dialog" aria-modal="true" aria-label="Shortage recovery detail"
+           onClick={(e) => e.stopPropagation()}
+           className="flex w-full max-w-5xl max-h-full flex-col overflow-hidden rounded-2xl border
+                      border-red-500/30 bg-slate-900/95 shadow-[0_24px_80px_rgba(0,0,0,0.7)]">
+        <div className="flex items-center gap-3 border-b border-slate-700/60 px-4 py-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-700/50 bg-white/5 text-red-400">
+            <HandCoins size={16} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[13px] font-black uppercase tracking-wide text-slate-100">Shortage Recovery — trip by trip</h3>
+            <p className="text-[10px] text-slate-500">
+              {data?.period?.label}
+              {data?.period?.from ? ` (${data.period.from} to ${data.period.to})` : ''}
+              {' · '}{data?.totals?.trips} trips · {data?.totals?.drivers} drivers
+            </p>
+          </div>
+          <div className="hidden gap-1 rounded-lg bg-black/30 p-1 sm:flex">
+            {[['trips', 'Trips'], ['recoveries', 'Recoveries']].map(([k, l]) => (
+              <button key={k} onClick={() => setTab(k)}
+                className={`rounded-md px-2.5 py-1 text-[10px] font-bold transition-colors
+                  ${tab === k ? 'bg-red-500/20 text-red-200' : 'text-slate-500 hover:text-slate-300'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <label className="hidden items-center gap-1.5 rounded-lg border border-slate-700/60 bg-slate-950/60 px-2 py-1.5 sm:flex">
+            <Search size={12} className="text-slate-500" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="driver, truck, trip…"
+                   className="w-32 bg-transparent text-[11px] text-slate-200 placeholder-slate-600 outline-none" />
+          </label>
+          <button onClick={onClose} aria-label="Close"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-700/60 bg-white/5
+                       text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100">
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto">
+          {tab === 'trips' ? (
+            <table className="w-full min-w-[780px] text-[11px]">
+              <thead>
+                <tr className="border-b border-slate-800">
+                  {['Trip', 'Date', 'Vehicle', 'Driver', 'Short (KL)', 'Penalty', 'Recovered', 'Still owed'].map((h, i) => (
+                    <th key={h} className={`sticky top-0 z-10 bg-slate-950/95 px-3 py-2 text-[9.5px] font-black uppercase
+                                            tracking-wider text-slate-500 backdrop-blur ${i < 4 ? 'text-left' : 'text-right'}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trips.length === 0 && (
+                  <tr><td colSpan={8} className="py-6 text-center text-[11px] text-slate-600">
+                    {q ? `Nothing matches “${q}”.` : 'No shortage recorded in this period.'}
+                  </td></tr>
+                )}
+                {trips.map((t) => (
+                  <tr key={t.trip_id} className={`border-b border-slate-800/60 transition-colors duration-100 hover:bg-white/5
+                                                  ${t.settled ? 'opacity-60' : ''}`}>
+                    <td className="px-3 py-2 font-bold text-slate-100">{t.trip_code ?? '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-400">{String(t.date ?? '').slice(0, 10)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-slate-300">{t.vehicle}</td>
+                    <td className="px-3 py-2 text-slate-300">{t.driver}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-slate-400">
+                      {Number(t.qty).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-slate-200">₹{inrFull(t.penalty)}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono text-emerald-300">₹{inrFull(t.recovered)}</td>
+                    <td className={`whitespace-nowrap px-3 py-2 text-right font-mono font-black
+                                    ${t.settled ? 'text-slate-600' : shortageText(t.pending)}`}>
+                      {t.settled ? 'settled' : `₹${inrFull(t.pending)}`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-700 bg-slate-950/60">
+                  <td colSpan={5} className="px-3 py-2 text-[9.5px] font-black uppercase tracking-wider text-slate-500">
+                    {q ? 'Filtered total' : 'Period total'}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-black text-slate-100">₹{inrFull(tot.penalty)}</td>
+                  <td className="px-3 py-2 text-right font-mono font-black text-emerald-300">₹{inrFull(tot.recovered)}</td>
+                  <td className={`px-3 py-2 text-right font-mono font-black ${shortageText(tot.pending)}`}>₹{inrFull(tot.pending)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          ) : (
+            // The feed that answers "has anybody paid since I last looked".
+            <div className="p-3">
+              {(data?.recent_recoveries ?? []).length === 0 && (
+                <p className="py-6 text-center text-[11px] text-slate-600">No recovery has been posted yet.</p>
+              )}
+              {(data?.recent_recoveries ?? []).map((r, i) => (
+                <div key={i} className="mb-1.5 flex items-center gap-3 rounded-lg border border-slate-800/60 bg-white/[0.03] px-3 py-2">
+                  <span className="shrink-0 font-mono text-[10px] text-slate-600">{String(r.txn_date ?? '').slice(0, 10)}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11.5px] font-bold text-slate-200">{r.driver_name}</p>
+                    <p className="truncate text-[9.5px] text-slate-500">
+                      {[r.trip_code, r.vehicle_no, r.mode].filter(Boolean).join(' · ') || 'no trip linked'}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-mono text-[12px] font-black text-emerald-300">₹{inrFull(r.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p className="border-t border-slate-700/60 px-4 py-2 text-[9.5px] leading-relaxed text-slate-500">
+          “Still owed” is the penalty charged minus what the driver khata has already taken back — arithmetic over two
+          tables, not a flag somebody has to remember to clear. Post a recovery and this figure drops on the next
+          refresh. Settled rows are dimmed rather than hidden: a settled penalty shown as outstanding is how a driver
+          gets docked twice for the same shortage.
+        </p>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export function ShortageRecoveryPanel({ live, filter }) {
   const [showSettled, setShowSettled] = useState(false);
-  const data = live?.data?.ops?.shortage_recovery;
+  const [open, setOpen] = useState(false);
+  const [period, setPeriod] = useState('ALL');
+  const [offset, setOffset] = useState(0);
+  const [data, setData] = useState(null);
+  const [state, setState] = useState('loading');
+
+  const qs = useMemo(() => {
+    const q = new URLSearchParams({ period, offset: String(offset) });
+    const f = filter?.filters ?? {};
+    if (f.companyId) q.set('company_id', f.companyId);
+    if (f.branchId) q.set('branch_id', f.branchId);
+    if (f.owner) q.set('owner', f.owner);
+    if (f.fleet) q.set('fleet', f.fleet);
+    return q.toString();
+  }, [period, offset, filter?.filters]);
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setState('loading');
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/dashboard/shortage-recovery?${qs}`);
+      if (!r.ok) { setState('error'); return; }
+      setData(await r.json());
+      setState('ok');
+    } catch { setState('error'); }
+  }, [qs]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Auto-update: a recovery posted anywhere in the ERP shows up here without a
+  // reload. Quietly, so it never blanks a panel somebody is reading.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') load(true);
+    }, 30000);
+    // A hidden tab deliberately stops polling — but that means coming back to
+    // it shows figures from whenever you left, which for money is worse than
+    // showing nothing. Refresh on return, so what you look at is what is true.
+    const onVis = () => { if (document.visibilityState === 'visible') load(true); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, [load]);
+
+  const tot = data?.totals;
   const pending = data?.pending ?? [];
   const settled = data?.settled ?? [];
+  const maxPending = Number(pending[0]?.pending ?? 0) || Number(settled[0]?.penalty ?? 0);
+  const trend = data?.trend ?? [];
+  const trendMax = Math.max(1, ...trend.map((x) => Number(x.charged)));
 
-  // Summed for the header pill only. Both figures come from the API as
-  // SQL-summed strings; this is display arithmetic, not accounting.
-  const owed = pending.reduce((a, r) => a + Number(r.pending || 0), 0);
-  const back = settled.reduce((a, r) => a + Number(r.recovered || 0), 0);
+  const TABS = [
+    { k: 'FORTNIGHT', label: '15 Day' },
+    { k: 'MONTH', label: 'Month' },
+    { k: 'YEAR', label: 'Year' },
+    { k: 'ALL', label: 'All' },
+  ];
 
   return (
     <GlassPanel className={pending.length ? 'border-red-500/40' : 'border-emerald-500/25'}>
@@ -573,59 +790,135 @@ export function ShortageRecoveryPanel({ live }) {
         icon={pending.length ? HandCoins : ShieldCheck}
         title="Driver Shortage Recovery"
         accent={pending.length ? 'text-red-400' : 'text-emerald-400'}
-        sub={pending.length ? 'outstanding against drivers' : 'nothing outstanding'}
+        sub={data ? `${data.period?.label} · ${tot?.trips ?? 0} trips · ${tot?.drivers ?? 0} drivers` : 'loading…'}
         right={
-          <StatusPill tone={pending.length ? 'red' : 'emerald'} pulse={pending.length > 0}>
-            {pending.length ? `₹${inr(owed)} to recover` : 'all recovered'}
-          </StatusPill>
+          <button onClick={() => setOpen(true)} disabled={!data?.trips?.length}
+            className="rounded-lg border border-red-600/50 bg-red-500/10 px-2.5 py-1 text-[10px] font-bold
+                       text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-40">
+            ALL DETAILS
+          </button>
         }
       />
 
       <div className="px-3 pb-3">
-        {pending.length === 0 ? (
-          // NOT an empty box. Every shortage on the books has been taken back,
-          // and the panel has to say that plainly — an empty list reads as
-          // "not loaded" and invites someone to go looking for the data.
+        <div className="mb-2.5 flex items-center gap-1.5">
+          <div className="flex flex-1 gap-1 rounded-xl bg-black/30 p-1">
+            {TABS.map((t) => (
+              <button key={t.k} onClick={() => { setPeriod(t.k); setOffset(0); }}
+                className={`flex-1 rounded-lg px-2 py-1.5 text-[10.5px] font-black transition-all duration-150
+                  ${period === t.k ? 'bg-red-500/20 text-red-200 shadow-[inset_0_0_0_1px_rgba(248,113,113,0.35)]'
+                                   : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {period !== 'ALL' && (
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl bg-black/30 p-1">
+              <button onClick={() => setOffset((o) => o + 1)} aria-label="Previous period"
+                className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-red-300">
+                <ChevronLeft size={13} />
+              </button>
+              <button onClick={() => setOffset((o) => Math.max(0, o - 1))} disabled={offset === 0}
+                aria-label="Next period"
+                className="grid h-6 w-6 place-items-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-red-300 disabled:opacity-25">
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {tot && (
+          <>
+            <div className="mb-2 grid grid-cols-3 gap-1.5">
+              <Tile label="Charged" value={`₹${inr(tot.charged)}`} tone="text-slate-100"
+                    sub={`${Number(tot.qty).toLocaleString('en-IN', { maximumFractionDigits: 2 })} KL short`} />
+              <Tile label="Recovered" value={`₹${inr(tot.recovered)}`} tone="text-emerald-300"
+                    sub={tot.recovery_pct != null ? `${tot.recovery_pct}% of charged` : null} />
+              <Tile label="Still owed" value={`₹${inr(tot.pending)}`}
+                    tone={Number(tot.pending) > 0 ? 'text-red-400' : 'text-emerald-400'}
+                    sub={pending.length ? `${pending.length} driver${pending.length === 1 ? '' : 's'}` : 'nothing outstanding'} />
+            </div>
+
+            {/* recovery rate, as a bar rather than a percentage nobody reads */}
+            {tot.recovery_pct != null && (
+              <div className="mb-2.5">
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-300 transition-all duration-700"
+                       style={{ width: `${tot.recovery_pct}%` }} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* fortnight trend — charged against recovered. A period where the two
+            diverge is one where money stopped coming back. */}
+        {trend.length > 1 && (
+          <div className="mb-2.5 rounded-xl border border-slate-800/70 bg-black/25 px-2.5 py-2">
+            <p className="mb-1.5 text-[8.5px] font-black uppercase tracking-wider text-slate-600">
+              By fortnight · charged vs recovered
+            </p>
+            <div className="flex h-12 items-end gap-1">
+              {trend.map((x) => {
+                const ch = (Number(x.charged) / trendMax) * 100;
+                const rc = (Number(x.recovered) / trendMax) * 100;
+                return (
+                  <div key={x.label} className="group relative flex flex-1 items-end justify-center gap-px"
+                       title={`${x.label}: charged ₹${inrFull(x.charged)}, recovered ₹${inrFull(x.recovered)}`}>
+                    <span className="w-1/2 rounded-t-sm bg-slate-600/70" style={{ height: `${Math.max(2, ch)}%` }} />
+                    <span className="w-1/2 rounded-t-sm bg-emerald-500/80" style={{ height: `${Math.max(2, rc)}%` }} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-1 flex justify-between text-[7.5px] text-slate-600">
+              <span>{trend[0]?.label}</span><span>{trend[trend.length - 1]?.label}</span>
+            </div>
+          </div>
+        )}
+
+        {state === 'loading' && (
+          <div className="flex flex-col gap-1.5">
+            {[...Array(3)].map((_, i) => <div key={i} className="h-10 animate-pulse rounded-lg bg-white/5" />)}
+          </div>
+        )}
+
+        {state === 'ok' && pending.length === 0 && (
           <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-3">
             <p className="flex items-center gap-1.5 text-[11px] font-black text-emerald-300">
-              <ShieldCheck size={13} /> No shortage is outstanding.
+              <ShieldCheck size={13} /> Nothing outstanding in {data.period?.label}.
             </p>
             <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-              All {settled.reduce((a, r) => a + r.trips, 0)} shortage{settled.reduce((a, r) => a + r.trips, 0) === 1 ? '' : 's'} on
-              the books — ₹{inrFull(back)} across {settled.length} driver{settled.length === 1 ? '' : 's'} — have been recovered
-              through the driver khata. Nothing here needs collecting.
+              {settled.length > 0
+                ? `All ${tot.trips} shortage${tot.trips === 1 ? '' : 's'} — ₹${inrFull(tot.charged)} across ${settled.length} driver${settled.length === 1 ? '' : 's'} — have been recovered through the driver khata.`
+                : 'No shortage was recorded in this period at all.'}
             </p>
           </div>
-        ) : (
+        )}
+
+        {state === 'ok' && pending.length > 0 && (
           <div className="flex flex-col gap-1.5">
-            {pending.map((r) => <ShortageRow key={`${r.driver}-${r.vehicle}`} r={r} />)}
+            {pending.map((r) => <ShortageRow key={`${r.driver}-${r.vehicle}`} r={r} max={maxPending} />)}
           </div>
         )}
 
         {settled.length > 0 && (
           <>
-            <button
-              onClick={() => setShowSettled((v) => !v)}
+            <button onClick={() => setShowSettled((v) => !v)}
               className="mt-2 w-full rounded-lg border border-slate-700/60 bg-white/5 px-2 py-1.5 text-[9.5px]
-                         font-bold uppercase tracking-wider text-slate-400 transition-colors hover:bg-white/10"
-            >
-              {showSettled ? '▴ hide' : '▾ show'} {settled.length} already recovered · ₹{inrFull(back)}
+                         font-bold uppercase tracking-wider text-slate-400 transition-colors hover:bg-white/10">
+              {showSettled ? '▴ hide' : '▾ show'} {settled.length} already recovered · ₹{inrFull(tot.recovered)}
             </button>
             {showSettled && (
               <div className="mt-1.5 flex flex-col gap-1.5">
-                {settled.map((r) => <ShortageRow key={`${r.driver}-${r.vehicle}`} r={r} settled />)}
+                {settled.map((r) => <ShortageRow key={`${r.driver}-${r.vehicle}`} r={r} settled max={maxPending} />)}
               </div>
             )}
           </>
         )}
       </div>
 
-      {settled.length > 0 && (
-        <p className="px-4 pb-3 text-[9.5px] leading-relaxed text-slate-500">
-          Recovered entries are kept behind a fold rather than mixed in. A settled penalty shown as actionable is
-          how a driver gets docked for the same shortage twice.
-        </p>
-      )}
+      {open && <ShortageModal data={data} onClose={() => setOpen(false)} />}
     </GlassPanel>
   );
 }
