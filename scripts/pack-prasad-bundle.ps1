@@ -85,6 +85,18 @@ $critHits = @(); $warnHits = @()
 # Only text-ish files can be scanned meaningfully.
 $textExt = @('.js','.cjs','.mjs','.ts','.tsx','.jsx','.json','.py','.ps1','.sh','.sql','.md','.yml','.yaml','.env','.txt','.conf','.cfg','.ini','.html','.css')
 
+# A COMMENT ABOUT the other company is not contamination; CODE THAT READS FROM
+# it is. The first run flagged 22 criticals and nearly all were prose: this
+# script's own pattern list, the docs describing the split, a slide reading
+# "prasad_erp / jaiswal_capital_db". Meanwhile the three that mattered --
+# erp_auto_healer.cjs defaulting to Jaiswal's bridge TOKEN, and erp_system_log
+# writing into their repo -- sat undifferentiated in the same list.
+#
+# So prose extensions and this script itself can never raise a CRITICAL. They
+# are still scanned for WARN, where a human can skim them.
+$PROSE_EXT = @('.md', '.txt', '.html')
+$SELF_PATH = $MyInvocation.MyCommand.Path
+
 foreach ($f in $files) {
   if ($textExt -notcontains $f.Extension.ToLower()) { continue }
   if ($f.Length -gt 2MB) { continue }
@@ -92,8 +104,13 @@ foreach ($f in $files) {
   if (-not $text) { continue }
   $rel = $f.FullName.Substring($Source.Length).TrimStart('\')
 
+  # Build output is a copy of sources already scanned; it doubles every hit.
+  $isBuildArtifact = $f.FullName -match 'android\\app\\build\\' -or $f.FullName -match 'mergeReleaseAssets'
+  $canBeCritical = ($PROSE_EXT -notcontains $f.Extension.ToLower()) -and
+                   ($f.FullName -ne $SELF_PATH) -and (-not $isBuildArtifact)
+
   foreach ($rule in $CRITICAL) {
-    if ($text -match $rule.Pattern) {
+    if ($canBeCritical -and $text -match $rule.Pattern) {
       $line = ($text -split "`n" | Select-String -Pattern $rule.Pattern | Select-Object -First 1)
       $critHits += [pscustomobject]@{ Rule = $rule.Name; File = $rel; Line = ($line -replace '\s+',' ').Trim() }
     }
