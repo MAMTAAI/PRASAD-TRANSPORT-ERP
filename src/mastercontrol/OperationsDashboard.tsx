@@ -103,7 +103,7 @@ export default function OperationsDashboard({ live, filter }) {
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
       {/* ══════════════ LEFT PANEL ══════════════ */}
-      <div className="lg:col-span-3 flex flex-col gap-4">
+      <div className="lg:col-span-3 min-w-0 flex flex-col gap-4">
 
         {/* KPI cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
@@ -169,7 +169,7 @@ export default function OperationsDashboard({ live, filter }) {
       </div>
 
       {/* ══════════════ CENTER PANEL ══════════════ */}
-      <div className="lg:col-span-6 flex flex-col gap-4">
+      <div className="lg:col-span-6 min-w-0 flex flex-col gap-4">
 
         {/* Best Vehicle Trips */}
         <GlassPanel>
@@ -282,7 +282,7 @@ export default function OperationsDashboard({ live, filter }) {
       </div>
 
       {/* ══════════════ RIGHT PANEL — LIVE DISPATCH CHAT ══════════════ */}
-      <div className="lg:col-span-3">
+      <div className="lg:col-span-3 min-w-0">
         <GlassPanel className="flex flex-col lg:h-full border-emerald-500/30 shadow-[0_0_30px_rgba(52,211,153,0.08)]">
           <PanelHeader
             icon={MessageSquareText}
@@ -387,14 +387,26 @@ export default function OperationsDashboard({ live, filter }) {
         </GlassPanel>
       </div>
       {/* The dispatch map belongs with Operations, not CRM — it is what
-          dispatch watches all day. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          dispatch watches all day.
+
+          THE col-span IS LOAD-BEARING. This block and the matrix below it are
+          direct children of the `lg:grid-cols-12` grid that opens this
+          component. A grid child with no column span occupies exactly ONE
+          track, so without `lg:col-span-12` these two took a twelfth of the
+          width each — about 8% — and the map, the "polling" pill and the
+          waiting queue folded into a pair of unreadable ribbons with their
+          labels stacked on top of each other. Anything appended to this grid
+          from here on needs a span for the same reason. */}
+      <div className="lg:col-span-12 grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch [&>*]:min-w-0">
         <LiveFleetMap />
         <UnloadingQueue live={live} />
       </div>
 
       {/* Owner fleet sits with the fleet. Clicking a row scopes the whole dashboard,
-          so this table and the KPI cards above always agree. */}
+          so this table and the KPI cards above always agree. Full width — the
+          matrix carries fourteen figures per owner and has nowhere to put them
+          in a narrow column. */}
+      <div className="lg:col-span-12 min-w-0">
       <OwnerFleetMatrix
         filters={filter?.filters}
         set={filter?.set}
@@ -406,6 +418,7 @@ export default function OperationsDashboard({ live, filter }) {
           window.dispatchEvent(new CustomEvent('pt:open-owner-statement', { detail: owner }));
         }}
       />
+      </div>
 
     </div>
   );

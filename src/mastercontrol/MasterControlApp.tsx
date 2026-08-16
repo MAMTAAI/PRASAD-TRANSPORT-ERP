@@ -59,7 +59,7 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   const heading = MODULE_TITLES[activeTab];
 
   return (
-    <div className="min-h-full w-full bg-[#080c14] text-slate-200 rounded-2xl overflow-hidden ring-1 ring-slate-800/60"
+    <div className="mc-shell min-h-full w-full bg-[#080c14] text-slate-200 rounded-2xl overflow-hidden ring-1 ring-slate-800/60"
       style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
 
       {/* Shared keyframes for the whole v5.0 module */}
@@ -77,6 +77,24 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
         .mc-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes mcFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .mc-fade-in { animation: mcFadeIn 0.35s ease-out; }
+
+        /* Hover-card entry. 90ms is a fade-IN on something already positioned,
+           not a delay before it appears — the card is in the DOM and placed on
+           the same frame as the pointerenter. Anyone who prefers no motion gets
+           it with no animation at all, still instantly. */
+        @keyframes mcHoverCardIn { from { opacity: 0; transform: translateY(3px) scale(0.985); } to { opacity: 1; transform: none; } }
+        .mc-hovercard-in { animation: mcHoverCardIn 90ms ease-out; }
+        @media (prefers-reduced-motion: reduce) { .mc-hovercard-in { animation: none; } }
+
+        /* Kill the ~300ms synthetic-click delay so a tap on a truck row reacts
+           on touch-down like the hover card does. Scoped to the things that are
+           actually tappable — a blanket `*` would also land on the Google Maps
+           canvas, whose own gesture handling is not ours to override. */
+        .mc-shell button,
+        .mc-shell a,
+        .mc-shell tr,
+        .mc-shell [role="switch"],
+        .mc-shell .touch-manipulation { touch-action: manipulation; }
       `}</style>
 
       {/* ambient glow backdrop */}

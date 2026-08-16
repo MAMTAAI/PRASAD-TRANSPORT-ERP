@@ -23,7 +23,7 @@
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Satellite, AlertTriangle, MapPin, Navigation, Wifi } from 'lucide-react';
-import { GlassPanel, PanelHeader, StatusPill } from './shared';
+import { GlassPanel, PanelHeader, StatusPill, HoverCard, HoverTitle, HoverKv, HoverNote } from './shared';
 import { loadGoogleMaps } from '../lib/maps';
 import { API_BASE } from '../lib/apiBase';
 import { getRoute } from '../lib/mapsCache';
@@ -77,6 +77,11 @@ export default function LiveFleetMap() {
   const [board, setBoard] = useState({ withFix: [], noFix: [], total: 0 });
   const [socketState, setSocketState] = useState('connecting'); // connecting | live | down
   const routesRef = useRef(new Map());   // trip_id -> google.maps.Polyline
+  // ONE InfoWindow for the whole map, not one per marker. It opens on hover
+  // now, and per-marker windows would let a fast sweep across the fleet leave
+  // a trail of them open behind the pointer.
+  const infoRef = useRef(null);
+  const pinnedRef = useRef(null);        // trip_id whose window was clicked open
 
   // ── data ──────────────────────────────────────────────────────────────────
   const fetchBoard = useCallback(async () => {
@@ -155,6 +160,12 @@ export default function LiveFleetMap() {
         });
         // Live congestion on the corridors the fleet runs.
         new g.maps.TrafficLayer().setMap(mapRef.current);
+        // Tapping bare map releases a pinned truck card, so a pinned window is
+        // never something you have to hunt for the close button on.
+        mapRef.current.addListener('click', () => {
+          pinnedRef.current = null;
+          infoRef.current?.close();
+        });
         setStatus('ready');
       } catch (e) {
         if (cancelled) return;
@@ -185,17 +196,34 @@ export default function LiveFleetMap() {
           map, position: pos, icon: truckIcon(0), title: `${t.vehicle_no} · ${t.trip_code}`,
           zIndex: 20,
         });
-        const info = new g.maps.InfoWindow();
-        marker.addListener('click', () => {
-          info.setContent(
-            `<div style="font-family:Inter,sans-serif;color:#0b1220;font-size:12px;line-height:1.5">
-               <b>${t.vehicle_no ?? '—'}</b> · ${t.trip_code ?? ''}<br/>
-               ${t.driver_name ?? 'driver not set'}<br/>
-               ${t.loading_point ?? '?'} → ${t.destination ?? '?'}<br/>
-               <span style="color:#475569">fix: ${t.source ?? 'unknown'} · ${
-                 t.recorded_at ? new Date(t.recorded_at).toLocaleString('en-IN') : '—'}</span>
-             </div>`);
+        // HOVER OPENS IT. This used to be click-only, which meant the detail
+        // behind a truck cost a deliberate click to see and a stray click on
+        // the map to dismiss — on a dispatch board where the whole point is
+        // sweeping the fleet. Hover shows it, moving off hides it again, and a
+        // click PINS it so the window survives while you read or copy from it.
+        // On touch, Maps synthesises the click, so the first tap still pins.
+        if (!infoRef.current) infoRef.current = new g.maps.InfoWindow();
+        const content = () =>
+          `<div style="font-family:Inter,sans-serif;color:#0b1220;font-size:12px;line-height:1.5">
+             <b>${t.vehicle_no ?? '—'}</b> · ${t.trip_code ?? ''}<br/>
+             ${t.driver_name ?? 'driver not set'}<br/>
+             ${t.loading_point ?? '?'} → ${t.destination ?? '?'}<br/>
+             <span style="color:#475569">fix: ${t.source ?? 'unknown'} · ${
+               t.recorded_at ? new Date(t.recorded_at).toLocaleString('en-IN') : '—'}</span>
+           </div>`;
+        const show = () => {
+          const info = infoRef.current;
+          info.setContent(content());
           info.open({ anchor: marker, map });
+        };
+        marker.addListener('mouseover', show);
+        marker.addListener('mouseout', () => {
+          if (pinnedRef.current === t.id) return;   // clicked open — leave it
+          infoRef.current?.close();
+        });
+        marker.addListener('click', () => {
+          pinnedRef.current = pinnedRef.current === t.id ? null : t.id;
+          if (pinnedRef.current) show(); else infoRef.current?.close();
         });
         entry = { marker, current: pos, target: pos, raf: null };
         live.set(t.id, entry);
@@ -275,7 +303,8 @@ export default function LiveFleetMap() {
   }, [board, status]);
 
   // Tear every marker and line down on unmount; Maps holds its own references
-  // and a detached overlay keeps the whole map alive otherwise.
+  // and a detached overlay keeps the whole map alive otherwise. The shared
+  // InfoWindow goes with them, or it holds a reference to a dead anchor.
   useEffect(() => () => {
     for (const [, entry] of markersRef.current) {
       if (entry.raf) cancelAnimationFrame(entry.raf);
@@ -284,6 +313,9 @@ export default function LiveFleetMap() {
     markersRef.current.clear();
     for (const [, line] of routesRef.current) line.setMap(null);
     routesRef.current.clear();
+    infoRef.current?.close();
+    infoRef.current = null;
+    pinnedRef.current = null;
   }, []);
 
   const plotted = board.withFix.length;
@@ -298,11 +330,38 @@ export default function LiveFleetMap() {
         right={
           <span className="flex items-center gap-1.5">
             {/* Whether the live push is actually connected. Without this, a
-                dead socket and a quiet fleet look identical. */}
-            <StatusPill tone={socketState === 'live' ? 'emerald' : socketState === 'down' ? 'amber' : 'slate'}
-                        pulse={socketState === 'live'}>
-              <Wifi size={9} /> {socketState === 'live' ? 'live push' : socketState === 'down' ? 'polling' : '…'}
-            </StatusPill>
+                dead socket and a quiet fleet look identical. The pill has room
+                for one word; the card behind it says what that word costs. */}
+            <HoverCard
+              width={290}
+              content={
+                <>
+                  <HoverTitle sub={socketState === 'live' ? 'Positions are pushed as they arrive' : socketState === 'down' ? 'Falling back to timed refreshes' : 'Handshake in progress'}>
+                    {socketState === 'live' ? 'Live push · connected' : socketState === 'down' ? 'Polling · socket down' : 'Connecting'}
+                  </HoverTitle>
+                  <HoverKv k="Refresh interval"
+                           v={socketState === 'live' ? `${REFRESH_LIVE_MS / 1000}s` : `${REFRESH_FALLBACK_MS / 1000}s`} />
+                  <HoverKv k="Trips being tracked" v={board.total} />
+                  <HoverKv k="Drawn on the map" v={plotted}
+                           tone={plotted > 0 ? 'text-emerald-300' : 'text-amber-300'} />
+                  <HoverKv k="No fix yet" v={board.noFix.length}
+                           tone={board.noFix.length > 0 ? 'text-amber-300' : 'text-slate-400'} />
+                  {socketState === 'down' && (
+                    <HoverNote tone="text-amber-300/90">
+                      The socket is not connected, so the poll IS the tracking and
+                      it runs faster to compensate. Production nginx has no
+                      /socket.io route, which is the usual reason this reads
+                      &ldquo;polling&rdquo; there and &ldquo;live push&rdquo; locally.
+                    </HoverNote>
+                  )}
+                </>
+              }
+            >
+              <StatusPill tone={socketState === 'live' ? 'emerald' : socketState === 'down' ? 'amber' : 'slate'}
+                          pulse={socketState === 'live'}>
+                <Wifi size={9} /> {socketState === 'live' ? 'live push' : socketState === 'down' ? 'polling' : '…'}
+              </StatusPill>
+            </HoverCard>
             <StatusPill tone={plotted > 0 ? 'emerald' : 'amber'}>
               {plotted} / {board.total} on map
             </StatusPill>
@@ -345,13 +404,37 @@ export default function LiveFleetMap() {
             : 'No truck is reporting GPS yet'}
         </span>
         {board.noFix.length > 0 && (
-          <span
+          <HoverCard
+            placement="top"
+            width={300}
             className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400/90"
-            title="These trips are in transit but no device has ever sent a position for them. They are deliberately not drawn — an invented marker is indistinguishable from a real one."
+            content={
+              <>
+                <HoverTitle sub="In transit, deliberately not drawn">
+                  {board.noFix.length} truck{board.noFix.length === 1 ? '' : 's'} awaiting a first fix
+                </HoverTitle>
+                <div className="max-h-40 overflow-y-auto pr-1">
+                  {board.noFix.slice(0, 12).map((t) => (
+                    <HoverKv key={t.id}
+                             k={t.loading_point && t.destination ? `${t.loading_point} → ${t.destination}` : (t.trip_code || 'trip')}
+                             v={t.vehicle_no || '—'} />
+                  ))}
+                </div>
+                {board.noFix.length > 12 && (
+                  <p className="mt-1 text-[9px] text-slate-600">…and {board.noFix.length - 12} more.</p>
+                )}
+                <HoverNote>
+                  No device has ever sent a position for these. They are left off
+                  the map on purpose — once an invented marker is drawn there is
+                  no way to tell it from a real one, and this is the screen
+                  people use to judge whether a truck is off-route.
+                </HoverNote>
+              </>
+            }
           >
             <MapPin size={10} />
             {board.noFix.length} awaiting first GPS fix — not plotted
-          </span>
+          </HoverCard>
         )}
       </div>
     </GlassPanel>

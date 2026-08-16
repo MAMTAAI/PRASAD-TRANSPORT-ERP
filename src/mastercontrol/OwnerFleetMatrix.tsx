@@ -16,7 +16,9 @@
 // ============================================================================
 import React, { useCallback, useEffect, useState } from 'react';
 import { Users, FileText, AlertTriangle } from 'lucide-react';
-import { GlassPanel, PanelHeader, StatusPill } from './shared';
+import {
+  GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote,
+} from './shared';
 import { API_BASE } from '../lib/apiBase';
 
 const money = (n) => Number(n ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -101,8 +103,12 @@ export default function OwnerFleetMatrix({ filters, set, onOpenStatement }) {
         }
       />
 
+      {/* A width FLOOR, not a width. Seven columns of figures cannot share
+          less than this without the headings wrapping through the numbers
+          underneath them; below the floor the panel scrolls sideways, which is
+          legible, instead of compressing, which is not. */}
       <div className="px-3 pb-3 overflow-x-auto">
-        <table className="w-full text-[11px]">
+        <table className="w-full min-w-[860px] text-[11px]">
           <thead>
             <tr className="border-b border-slate-800">
               {th('owner', 'Owner', true)}
@@ -121,48 +127,15 @@ export default function OwnerFleetMatrix({ filters, set, onOpenStatement }) {
             {state === 'ok' && sorted.length === 0 && (
               <tr><td colSpan={7} className="py-4 text-center text-slate-600">No owners in this scope.</td></tr>
             )}
-            {sorted.map((r) => {
-              const selected = filters?.owner === r.owner;
-              const negative = Number(r.net_payable) < 0;
-              return (
-                <tr
-                  key={r.owner}
-                  onClick={() => set?.({ owner: selected ? '' : r.owner })}
-                  title={selected ? 'Click to clear this owner filter' : `Scope the dashboard to ${r.owner}`}
-                  className={`cursor-pointer border-b border-slate-800/60 transition-colors
-                    ${selected ? 'bg-violet-500/15' : 'hover:bg-white/5'}`}
-                >
-                  <td className="px-2 py-2 text-left">
-                    <div className="font-bold text-slate-100">{r.owner}</div>
-                    <div className="text-[9px] text-slate-500">
-                      {r.trucks} truck{r.trucks === 1 ? '' : 's'}
-                      {r.attached_trucks > 0 && <span className="text-amber-400"> · {r.attached_trucks} attached</span>}
-                      {r.unbilled_trips > 0 && <span className="text-amber-400/80"> · {r.unbilled_trips} unbilled</span>}
-                    </div>
-                  </td>
-                  <td className="px-2 py-2 text-right font-bold text-slate-300">{r.trucks}</td>
-                  <td className="px-2 py-2 text-right">
-                    {r.active_trips > 0
-                      ? <StatusPill tone="emerald" pulse>{r.active_trips}</StatusPill>
-                      : <span className="text-slate-600">—</span>}
-                  </td>
-                  <td className="px-2 py-2 text-right font-mono text-slate-200">₹{money(r.gross_freight)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-amber-300/90">₹{money(r.deductions)}</td>
-                  <td className={`px-2 py-2 text-right font-mono font-black ${negative ? 'text-red-400' : 'text-emerald-400'}`}>
-                    ₹{money(r.net_payable)}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onOpenStatement?.(r.owner); }}
-                      title="Open the IOCL-style owner statement"
-                      className="rounded-lg border border-cyan-600/50 bg-cyan-500/10 px-2 py-1 text-[9px] font-bold text-cyan-300 hover:bg-cyan-500/20"
-                    >
-                      <FileText size={9} className="inline mr-1" />KHATA
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
+            {sorted.map((r) => (
+              <OwnerRow
+                key={r.owner}
+                r={r}
+                selected={filters?.owner === r.owner}
+                onSelect={() => set?.({ owner: filters?.owner === r.owner ? '' : r.owner })}
+                onOpenStatement={onOpenStatement}
+              />
+            ))}
           </tbody>
         </table>
       </div>
@@ -174,5 +147,101 @@ export default function OwnerFleetMatrix({ filters, set, onOpenStatement }) {
         </p>
       )}
     </GlassPanel>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// One owner. The table can only afford six of the fourteen figures the API
+// returns per owner, so the rest used to be reachable only by exporting the
+// CSV. They are on the row now: hovering it — or, on a phone, the first tap —
+// opens the full settlement breakdown instantly, and the row still filters the
+// dashboard on click exactly as before.
+// ---------------------------------------------------------------------------
+function OwnerRow({ r, selected, onSelect, onOpenStatement }) {
+  const negative = Number(r.net_payable) < 0;
+
+  // Built lazily — this only runs for the one row actually under the pointer,
+  // not for all of them on every re-render.
+  const card = () => (
+    <>
+      <HoverTitle sub={selected ? 'Dashboard is scoped to this owner · click to clear' : 'Click the row to scope the dashboard'}>
+        {r.owner}
+      </HoverTitle>
+
+      <p className="mb-1 text-[9px] font-black uppercase tracking-wider text-slate-600">Fleet</p>
+      <HoverKv k="Trucks" v={r.trucks} />
+      <HoverKv k="Attached (not company-owned)" v={r.attached_trucks}
+               tone={r.attached_trucks > 0 ? 'text-amber-300' : 'text-slate-400'} />
+
+      <p className="mt-2 mb-1 text-[9px] font-black uppercase tracking-wider text-slate-600">Trips in scope</p>
+      <HoverKv k="Total" v={r.trips} />
+      <HoverKv k="In transit now" v={r.active_trips}
+               tone={r.active_trips > 0 ? 'text-emerald-300' : 'text-slate-400'} />
+      <HoverKv k="Unbilled (no freight yet)" v={r.unbilled_trips}
+               tone={r.unbilled_trips > 0 ? 'text-amber-300' : 'text-slate-400'} />
+
+      <p className="mt-2 mb-1 text-[9px] font-black uppercase tracking-wider text-slate-600">Settlement</p>
+      <HoverKv k="Gross freight" v={`₹${money(r.gross_freight)}`} />
+      <HoverKv k="Less commission" v={`−₹${money(r.commission)}`} tone="text-slate-400" />
+      <HoverKv k="Less fuel" v={`−₹${money(r.fuel)}`} tone="text-slate-400" />
+      <HoverKv k="Less toll" v={`−₹${money(r.toll)}`} tone="text-slate-400" />
+      <HoverKv k="Less advances" v={`−₹${money(r.advances)}`} tone="text-slate-400" />
+      <HoverKv k="Less shortage" v={`−₹${money(r.shortage)}`}
+               tone={Number(r.shortage) > 0 ? 'text-red-300' : 'text-slate-400'} />
+      <HoverKv strong k="Net payable" v={`₹${money(r.net_payable)}`}
+               tone={negative ? 'text-red-400' : 'text-emerald-400'} />
+
+      {negative && (
+        <HoverNote tone="text-amber-300/90">
+          Negative because {r.unbilled_trips > 0
+            ? `${r.unbilled_trips} of these trips carry no billed freight yet — real deductions are sitting against nil income.`
+            : 'the deductions above exceed the freight billed in this period.'}
+        </HoverNote>
+      )}
+    </>
+  );
+
+  const { triggerProps, overlay } = useHoverCard(card, { placement: 'top', width: 320 });
+
+  return (
+    <>
+      <tr
+        {...triggerProps}
+        onClick={onSelect}
+        className={`cursor-pointer border-b border-slate-800/60 transition-colors duration-100
+          ${selected ? 'bg-violet-500/15' : 'hover:bg-white/5'}`}
+      >
+        <td className="px-2 py-2 text-left">
+          <div className="font-bold text-slate-100">{r.owner}</div>
+          <div className="text-[9px] text-slate-500">
+            {r.trucks} truck{r.trucks === 1 ? '' : 's'}
+            {r.attached_trucks > 0 && <span className="text-amber-400"> · {r.attached_trucks} attached</span>}
+            {r.unbilled_trips > 0 && <span className="text-amber-400/80"> · {r.unbilled_trips} unbilled</span>}
+          </div>
+        </td>
+        <td className="px-2 py-2 text-right font-bold text-slate-300 whitespace-nowrap">{r.trucks}</td>
+        <td className="px-2 py-2 text-right whitespace-nowrap">
+          {r.active_trips > 0
+            ? <StatusPill tone="emerald" pulse>{r.active_trips}</StatusPill>
+            : <span className="text-slate-600">—</span>}
+        </td>
+        <td className="px-2 py-2 text-right font-mono text-slate-200 whitespace-nowrap">₹{money(r.gross_freight)}</td>
+        <td className="px-2 py-2 text-right font-mono text-amber-300/90 whitespace-nowrap">₹{money(r.deductions)}</td>
+        <td className={`px-2 py-2 text-right font-mono font-black whitespace-nowrap ${negative ? 'text-red-400' : 'text-emerald-400'}`}>
+          ₹{money(r.net_payable)}
+        </td>
+        <td className="px-2 py-2 text-right whitespace-nowrap">
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenStatement?.(r.owner); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            title="Open the IOCL-style owner statement"
+            className="rounded-lg border border-cyan-600/50 bg-cyan-500/10 px-2 py-1 text-[9px] font-bold text-cyan-300 hover:bg-cyan-500/20"
+          >
+            <FileText size={9} className="inline mr-1" />KHATA
+          </button>
+        </td>
+      </tr>
+      {overlay}
+    </>
   );
 }

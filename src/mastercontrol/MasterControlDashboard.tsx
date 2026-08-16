@@ -172,7 +172,7 @@ export default function MasterControlDashboard({ live }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
         {/* ══════════════ LEFT PANEL ══════════════ */}
-        <div className="lg:col-span-3 flex flex-col gap-4">
+        <div className="lg:col-span-3 min-w-0 flex flex-col gap-4">
 
           {/* 10 Mahavidya AI Agent Fleet Command Center */}
           <GlassPanel className="border-emerald-500/30">
@@ -237,7 +237,7 @@ export default function MasterControlDashboard({ live }) {
         </div>
 
         {/* ══════════════ CENTER PANEL — LIVE TRACKING ══════════════ */}
-        <div className="lg:col-span-5 flex flex-col gap-4">
+        <div className="lg:col-span-5 min-w-0 flex flex-col gap-4">
           {/* The live Google map moved to the OPERATIONS tab, where dispatch
               actually watches it. It is deliberately NOT rendered here as well:
               Maps JS is billed per MAP LOAD, so the same map on two tabs would
@@ -259,7 +259,7 @@ export default function MasterControlDashboard({ live }) {
         </div>
 
         {/* ══════════════ RIGHT PANEL ══════════════ */}
-        <div className="lg:col-span-4 flex flex-col gap-4">
+        <div className="lg:col-span-4 min-w-0 flex flex-col gap-4">
 
           {/* Super WhatsApp CRM Inbox */}
           <GlassPanel className={wa?.engine?.connected ? 'border-emerald-500/30' : 'border-red-500/30'}>

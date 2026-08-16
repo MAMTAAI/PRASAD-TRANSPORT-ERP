@@ -4,7 +4,10 @@
 // Glassmorphism design system: dark ground #080c14, frosted slate panels,
 // neon cyan/emerald/amber accents. Every primitive here is responsive-first.
 // ============================================================================
-import React from 'react';
+import React, {
+  useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { MoreHorizontal } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -157,3 +160,206 @@ export const chartTooltipStyle = {
 };
 
 export const axisStyle = { fontSize: 10, fill: '#64748b' };
+
+// ---------------------------------------------------------------------------
+// useHoverCard — detail popovers that open on hover AND on the first touch.
+//
+// Two separate things were wrong with the affordance this replaces:
+//
+//   1. It was a native `title=`. The browser sits on that for roughly a second
+//      before drawing anything, and on a phone it never draws at all — so the
+//      detail behind a row was, in practice, unreachable on the devices the
+//      yard actually uses.
+//   2. Anything positioned inside these panels gets clipped. The owner matrix
+//      lives in `overflow-x-auto`, the queues in `overflow-y-auto`; a popover
+//      drawn in flow is cut off at the panel edge exactly when it has something
+//      long to say.
+//
+// So: NO timer anywhere on the open path — pointerenter sets state and nothing
+// else — and the card is portalled to <body> at `position: fixed`, measured off
+// the trigger's own rect, which no ancestor's overflow can crop.
+//
+// Touch is handled explicitly instead of being left to pointerenter. On a
+// touchscreen the browser fires pointerenter at touch-down and pointerleave the
+// instant the finger lifts, so one shared code path makes the card flash and
+// vanish. A touch pointer therefore LATCHES the card open until the next tap
+// outside, Escape, or unmount — while a mouse keeps plain hover-in/hover-out.
+// ---------------------------------------------------------------------------
+const HC_GAP = 10;   // px between the trigger and the card
+const HC_EDGE = 8;   // px the card keeps clear of the viewport edge
+
+export function useHoverCard(content, { placement = 'top', width = 300 } = {}) {
+  const id = useId();
+  const triggerRef = useRef(null);
+  const cardRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [sticky, setSticky] = useState(false);   // true => opened by touch
+  const [pos, setPos] = useState(null);          // null => mounted, not yet measured
+
+  const place = useCallback(() => {
+    const t = triggerRef.current?.getBoundingClientRect();
+    const card = cardRef.current;
+    if (!t || !card) return;
+    const cw = card.offsetWidth;
+    const ch = card.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Flip to whichever side actually has room, so the last row of a long
+    // table does not open its card off the bottom of the screen.
+    let side = placement;
+    if (side === 'top' && t.top - ch - HC_GAP < HC_EDGE) side = 'bottom';
+    else if (side === 'bottom' && t.bottom + ch + HC_GAP > vh - HC_EDGE) side = 'top';
+
+    const rawTop = side === 'top' ? t.top - ch - HC_GAP : t.bottom + HC_GAP;
+    const maxTop = Math.max(HC_EDGE, vh - ch - HC_EDGE);
+    const maxLeft = Math.max(HC_EDGE, vw - cw - HC_EDGE);
+    const top = Math.min(Math.max(rawTop, HC_EDGE), maxTop);
+    const left = Math.min(Math.max(t.left + t.width / 2 - cw / 2, HC_EDGE), maxLeft);
+    // Hand back the SAME object when nothing moved. place() runs from a layout
+    // effect and again on every scroll frame; a fresh {top,left} each time
+    // re-renders on both, and out of a layout effect that is a loop React kills
+    // with "Maximum update depth exceeded".
+    setPos((prev) => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
+  }, [placement]);
+
+  const close = useCallback(() => { setOpen(false); setSticky(false); }, []);
+
+  // Measure before paint: the card mounts hidden, this positions it, and the
+  // browser paints once — so "instant" stays instant with no visible jump.
+  // `content` is deliberately NOT a dependency. Callers build it as an inline
+  // arrow, so its identity changes on every render; depending on it would re-run
+  // this effect forever. Size changes are picked up by the listener below.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return; }
+    place();
+  }, [open, place]);
+
+  // Follow the trigger while anything scrolls (capture catches inner scrollers
+  // too — the matrix and the queues are each their own scroll container).
+  useEffect(() => {
+    if (!open) return undefined;
+    const onMove = () => place();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+  }, [open, place]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, close]);
+
+  // A latched (touch-opened) card is dismissed by the next tap anywhere else.
+  useEffect(() => {
+    if (!open || !sticky) return undefined;
+    const onDown = (e) => {
+      if (triggerRef.current?.contains(e.target)) return;
+      close();
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [open, sticky, close]);
+
+  const triggerProps = {
+    ref: triggerRef,
+    // Mouse and pen: straight through. No delay, no distance threshold.
+    onPointerEnter: (e) => {
+      if (e.pointerType === 'touch') return;
+      setSticky(false);
+      setOpen(true);
+    },
+    onPointerLeave: (e) => {
+      if (e.pointerType === 'touch' || sticky) return;
+      setOpen(false);
+    },
+    // Touch: fires at touch-DOWN, well before a click would land, which is what
+    // makes the FIRST tap enough. Tapping the same trigger again closes it.
+    onPointerDown: (e) => {
+      if (e.pointerType !== 'touch') return;
+      setSticky(true);
+      setOpen((v) => !v);
+    },
+    onFocus: () => { setSticky(false); setOpen(true); },
+    onBlur: () => { if (!sticky) setOpen(false); },
+    'aria-describedby': open ? id : undefined,
+  };
+
+  const body = typeof content === 'function' ? (open ? content() : null) : content;
+
+  const overlay = open && body != null && typeof document !== 'undefined'
+    ? createPortal(
+        <div
+          ref={cardRef}
+          id={id}
+          role="tooltip"
+          className="fixed z-[9999] pointer-events-none rounded-xl border border-cyan-500/40 bg-slate-950/95 backdrop-blur-md px-3 py-2.5 text-slate-200 shadow-[0_16px_48px_rgba(0,0,0,0.65)] mc-hovercard-in"
+          style={{
+            top: pos ? pos.top : 0,
+            left: pos ? pos.left : 0,
+            width,
+            maxWidth: `calc(100vw - ${HC_EDGE * 2}px)`,
+            visibility: pos ? 'visible' : 'hidden',
+          }}
+        >
+          {body}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return { triggerProps, overlay, open };
+}
+
+// ---------------------------------------------------------------------------
+// HoverCard — the hook wrapped up for anything that is not a table row.
+// (A <tr> cannot be wrapped in a <span>, so rows call useHoverCard directly.)
+// ---------------------------------------------------------------------------
+export function HoverCard({
+  content, children, placement = 'top', width = 300, as: Tag = 'span', className = '',
+}) {
+  const { triggerProps, overlay } = useHoverCard(content, { placement, width });
+  return (
+    <>
+      <Tag
+        {...triggerProps}
+        tabIndex={0}
+        className={`touch-manipulation cursor-help outline-none rounded focus-visible:ring-1 focus-visible:ring-cyan-400/60 ${className}`}
+      >
+        {children}
+      </Tag>
+      {overlay}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The pieces these cards are built from, so every popover on the dashboard
+// reads the same way.
+// ---------------------------------------------------------------------------
+export function HoverTitle({ children, sub = '' }) {
+  return (
+    <div className="mb-2 border-b border-slate-700/60 pb-1.5">
+      <p className="text-[11px] font-black uppercase tracking-wider text-cyan-300 leading-tight">{children}</p>
+      {sub && <p className="mt-0.5 text-[9.5px] text-slate-500 leading-snug">{sub}</p>}
+    </div>
+  );
+}
+
+export function HoverKv({ k, v, tone = 'text-slate-200', mono = true, strong = false }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-3 py-[1.5px] ${strong ? 'mt-1 border-t border-slate-700/60 pt-1.5' : ''}`}>
+      <span className={`text-[10px] truncate ${strong ? 'font-black uppercase tracking-wider text-slate-400' : 'text-slate-500'}`}>{k}</span>
+      <span className={`shrink-0 ${strong ? 'text-[11.5px] font-black' : 'text-[10.5px] font-bold'} ${mono ? 'font-mono' : ''} ${tone}`}>{v}</span>
+    </div>
+  );
+}
+
+export function HoverNote({ children, tone = 'text-slate-400' }) {
+  return <p className={`mt-2 border-t border-slate-700/60 pt-1.5 text-[9.5px] leading-relaxed ${tone}`}>{children}</p>;
+}
