@@ -121,3 +121,4 @@ android/app/build/
 android/build/
 android/.gradle/
 android/app/src/main/assets/public/
+scripts/drive-separation-*.log
