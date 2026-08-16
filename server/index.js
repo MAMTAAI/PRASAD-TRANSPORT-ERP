@@ -31,6 +31,7 @@ import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
+import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
@@ -237,6 +238,13 @@ try {
   if (conn.degraded) {
     app.log.warn('running WITHOUT a database — all data routes will return 503 until one is reachable');
   }
+
+  // Background IOCL invoice sync: every 15 minutes, 09:00-21:59 local.
+  // Started only with a working database -- the importer's first act is to read
+  // every trip to build its deduplication index, and against a degraded pool it
+  // would fail every quarter hour and fill the log with it.
+  if (!conn.degraded) startIoclSyncCron(app);
+  else app.log.warn('iocl sync cron NOT started — database is degraded');
 } catch (err) {
   // A failure here is a code/roster defect, not an infrastructure one — those
   // are already handled above — so exiting is correct.
@@ -254,6 +262,9 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     app.log.info(`${signal} received — draining`);
     try {
       await app.close();
+      // Stop the scheduler before the pool closes, or a tick that fires mid
+      // shutdown spawns an importer whose database vanishes under it.
+      stopIoclSyncCron();
       stopLoops();
       await stopBus();
       await closePool();
