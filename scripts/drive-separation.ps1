@@ -95,8 +95,28 @@ foreach ($item in $PLAN) {
 
   if (Test-Path -LiteralPath $dest) { $blockers += "destination already exists: $dest" }
 
-  # running processes inside the source
-  $live = @($procIndex | Where-Object { "$($_.ExecutablePath) $($_.CommandLine)" -like "*$src*" })
+  # Running processes inside the source.
+  #
+  # Matching the command line ALONE is not enough and this cost a real miss:
+  # 'node bridge.cjs', 'node server/index.js' and 'node server.js' are all
+  # started with RELATIVE paths, so the folder never appears in their command
+  # line even though their working directory is inside it and they hold open
+  # file handles there. Four processes were declared clear and were not.
+  #
+  # So also ask each process for its actual current directory, via the handle
+  # its own modules are loaded from, and fall back to a loaded-module path scan.
+  $live = @($procIndex | Where-Object {
+    $cl = "$($_.ExecutablePath) $($_.CommandLine)"
+    if ($cl -like "*$src*") { return $true }
+    # cwd check: cheap, and catches every relative-path launch
+    try {
+      $pr = Get-Process -Id $_.ProcessId -ErrorAction Stop
+      foreach ($m in $pr.Modules) {
+        if ($m.FileName -like "$src*") { return $true }
+      }
+    } catch { }
+    return $false
+  })
   if ($live.Count -gt 0) {
     $names = ($live | Select-Object -First 4 | ForEach-Object { "$($_.Name)($($_.ProcessId))" }) -join ', '
     $more = if ($live.Count -gt 4) { " +$($live.Count - 4) more" } else { '' }
