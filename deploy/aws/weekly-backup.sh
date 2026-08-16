@@ -21,7 +21,17 @@ set -euo pipefail
 
 BACKUP_DIR=/home/ubuntu/backups/weekly
 GDRIVE_REMOTE=gdrive
-GDRIVE_PATH=JaiswalCapital/ServerBackups/weekly
+# PRASAD's backups go in a PRASAD path.
+#
+# This read JaiswalCapital/ServerBackups/weekly. The remote's root folder is
+# Prasad's own Drive area -- the same root holds the AS26C* vehicle document
+# folders -- so nothing was leaking into Jaiswal Capital's storage. But this
+# tarball carries /var/www/prasad-erp/.env, the nginx config, the pm2 dump and
+# the letsencrypt private keys, and it was sitting in a folder named for the
+# other company. Anyone auditing the Drive would have drawn the obvious wrong
+# conclusion, and the day Jaiswal's own backup targets that same name, the two
+# collide in Prasad's storage.
+GDRIVE_PATH=PrasadTransport/ServerBackups/weekly
 RETENTION_DAYS=30
 KEEP_MIN=4
 STAMP=$(date +%Y%m%d-%H%M)
