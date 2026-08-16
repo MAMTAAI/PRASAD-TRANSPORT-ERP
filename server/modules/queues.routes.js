@@ -377,7 +377,14 @@ export async function registerQueueRoutes(app) {
         entry_date: b.to ?? new Date().toISOString().slice(0, 10),
         narration: `Fuel bill verified — ${vendor.vendor_name}, ${slips.length} slip(s)${period}`,
         lines: [
-          { ledger: 'Diesel / Fuel Expense', dr_cr: 'DR', amount: billAmount, group: 'Direct Expenses' },
+          // GROUP MUST EXIST IN account_groups -- ledgers.group_head carries a
+          // foreign key onto it. This said 'Direct Expenses', which is not a
+          // group in this chart of accounts; the real one is
+          // 'Direct Expenses - Fuel & HSD'. Every attempt to post a fuel bill
+          // through here died on a 23503, so this path had never once reached
+          // the ledger.
+          { ledger: 'Direct Expenses - Fuel & HSD', dr_cr: 'DR', amount: billAmount,
+            group: 'Direct Expenses - Fuel & HSD' },
           { ledger: `Creditors: ${vendor.vendor_name}`, dr_cr: 'CR', amount: billAmount,
             group: /fuel|pump/i.test(vendor.vendor_type ?? '') ? 'Sundry Creditors (Fuel Pumps)' : 'Sundry Creditors (Vendors)' },
         ],

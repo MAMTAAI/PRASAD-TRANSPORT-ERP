@@ -30,7 +30,7 @@
 // This module does not change that. It only makes the comparison possible
 // beforehand, so an operator can see a variance before posting rather than
 // discovering it in the ledger afterwards.
-import { query } from '../db/pool.js';
+import { query, withTransaction } from '../db/pool.js';
 import { requireAdminOrService } from './auth.routes.js';
 
 /** Fortnight bounds; the 2nd half ends on the real last day of the month. */
@@ -217,5 +217,187 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
       slip_ids: pump.slips.map((s) => s.id),
       lines,
     };
+  });
+
+  // ── Reference key ─────────────────────────────────────────────────────────
+  // Period-derived, NOT slip-derived. The old FUELBILL_<vendor>_<slip ids>
+  // minted a fresh reference whenever the slip list changed, so adding one slip
+  // let a second voucher post for the same pump and the same fortnight.
+  const refFor = (vendorId, period) =>
+    `PUMPBILL_${vendorId}_${period.year}${String(period.month).padStart(2, '0')}_` +
+    `${period.half === 'FIRST' ? 'H1' : 'H2'}`;
+
+  // ── 1. Create a DRAFT. Writes to pump_bill_drafts and nothing else. ───────
+  app.post('/pump-bill-draft', { preHandler: guard }, async (req, reply) => {
+    const { vendor_id: vendorId, year, month, half } = req.body ?? {};
+    if (!vendorId || !year || !month || !half) {
+      return reply.code(400).send({ error: 'BAD_INPUT', detail: 'vendor_id, year, month and half (FIRST|SECOND) are required' });
+    }
+    const period = fortnight(Number(year), Number(month), String(half).toUpperCase());
+    const ref = refFor(vendorId, period);
+
+    // Refuse before doing any work if this fortnight is already posted. The
+    // unique index would catch it at approval anyway, but failing here means an
+    // operator is never shown a draft they can never approve.
+    const { rows: existing } = await query(
+      `SELECT id, status, ref_no, approved_at FROM pump_bill_drafts
+        WHERE vendor_id = $1::uuid AND period_from = $2::date AND period_to = $3::date
+          AND status IN ('APPROVED', 'DRAFT')`,
+      [vendorId, period.from, period.to]);
+    const approved = existing.find((r) => r.status === 'APPROVED');
+    if (approved) {
+      return reply.code(409).send({
+        error: 'PERIOD_ALREADY_POSTED',
+        detail: `${period.label} is already posted for this pump (${approved.ref_no})`,
+        bill_id: approved.id,
+      });
+    }
+    const openDraft = existing.find((r) => r.status === 'DRAFT');
+
+    const plan = await app.inject({
+      method: 'POST', url: '/api/v1/fuel/pump-bill-plan',
+      headers: { 'content-type': 'application/json', authorization: req.headers.authorization ?? '' },
+      payload: { from: period.from, to: period.to },
+    });
+    if (plan.statusCode !== 200) return reply.code(502).send({ error: 'PLAN_FAILED', detail: plan.body.slice(0, 300) });
+    const pump = plan.json().periods.flatMap((x) => x.pumps).find((g) => g.vendor_id === vendorId);
+    if (!pump) return reply.code(404).send({ error: 'NO_UNBILLED_SLIPS', detail: `no unbilled slips for this pump in ${period.label}` });
+
+    const slipIds = pump.slips.map((x) => x.id);
+    const linesJson = JSON.stringify(pump.slips);
+
+    const sql = openDraft
+      ? `UPDATE pump_bill_drafts SET vendor_name=$2, slip_ids=$3::uuid[], slip_count=$4,
+             system_liters=$5, system_amount=$6, derived_pct=$7, lines=$8::jsonb, updated_at=now()
+           WHERE id=$1::uuid RETURNING *`
+      : `INSERT INTO pump_bill_drafts
+             (vendor_id, vendor_name, period_from, period_to, half, ref_no,
+              slip_ids, slip_count, system_liters, system_amount, derived_pct, lines, created_by)
+           VALUES ($1::uuid,$2,$3::date,$4::date,$5,$6,$7::uuid[],$8,$9,$10,$11,$12::jsonb,$13)
+           RETURNING *`;
+    const args = openDraft
+      ? [openDraft.id, pump.vendor_name, slipIds, pump.totals.slips, pump.totals.liters,
+         pump.totals.system_amount, pump.totals.derived_pct, linesJson]
+      : [vendorId, pump.vendor_name, period.from, period.to, period.half, ref,
+         slipIds, pump.totals.slips, pump.totals.liters, pump.totals.system_amount,
+         pump.totals.derived_pct, linesJson, req.user?.name ?? 'api'];
+    const { rows: [draft] } = await query(sql, args);
+
+    return { ok: true, mode: 'DRAFT', refreshed: !!openDraft, ref_no: ref, period, draft };
+  });
+
+  // ── 2. Review: physical bill + hand-typed rates. Still only the draft. ────
+  app.patch('/pump-bill-draft/:id', { preHandler: guard }, async (req, reply) => {
+    const { rows: [d] } = await query('SELECT * FROM pump_bill_drafts WHERE id = $1::uuid', [req.params.id]);
+    if (!d) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (d.status !== 'DRAFT') return reply.code(409).send({ error: 'NOT_A_DRAFT', detail: `this bill is ${d.status}` });
+
+    // A rate typed by a human beats every derived rate, and re-prices its line.
+    // 465 of 479 slips carry no rate at all, so this is the field that makes a
+    // system bill mean anything before a physical bill arrives.
+    const overrides = { ...(d.rate_overrides ?? {}), ...(req.body?.rate_overrides ?? {}) };
+    const lines = (d.lines ?? []).map((l) => {
+      const ov = overrides[l.id];
+      if (ov == null) return l;
+      const rate = Number(ov);
+      return { ...l, rate_used: rate, rate_basis: 'MANUAL', system_amount: Math.round(l.liters * rate * 100) / 100 };
+    });
+    const sysAmount = Math.round(lines.reduce((a, l) => a + (Number(l.system_amount) || 0), 0) * 100) / 100;
+    const solid = (l) => l.rate_basis === 'SLIP_RATE' || l.rate_basis === 'MANUAL';
+    const derivedPct = lines.length
+      ? Math.round(100 * lines.filter((l) => !solid(l)).length / lines.length) : 0;
+
+    const { rows: [updated] } = await query(
+      `UPDATE pump_bill_drafts
+          SET physical_amount = COALESCE($2, physical_amount),
+              physical_liters = COALESCE($3, physical_liters),
+              rate_overrides  = $4::jsonb,
+              lines           = $5::jsonb,
+              system_amount   = $6,
+              derived_pct     = $7,
+              notes           = COALESCE($8, notes),
+              updated_at      = now()
+        WHERE id = $1::uuid RETURNING *`,
+      [req.params.id, req.body?.physical_amount ?? null, req.body?.physical_liters ?? null,
+       JSON.stringify(overrides), JSON.stringify(lines), sysAmount, derivedPct, req.body?.notes ?? null]);
+
+    const phys = updated.physical_amount == null ? null : Number(updated.physical_amount);
+    return {
+      ok: true, mode: 'DRAFT', draft: updated,
+      comparison: {
+        system:   { liters: Number(updated.system_liters), amount: Number(updated.system_amount), derived_pct: derivedPct },
+        physical: { liters: updated.physical_liters == null ? null : Number(updated.physical_liters), amount: phys },
+        variance: phys == null ? null : {
+          amount_delta: Math.round((phys - Number(updated.system_amount)) * 100) / 100,
+          liters_delta: updated.physical_liters == null ? null
+            : Math.round((Number(updated.physical_liters) - Number(updated.system_liters)) * 100) / 100,
+          meaningful: derivedPct < 50,
+          note: derivedPct >= 50
+            ? `${derivedPct}% of the system amount is still a derived rate -- enter the rates and this variance starts measuring the pump instead of the estimate`
+            : null,
+        },
+      },
+    };
+  });
+
+  // ── 3. Approve. The only step that writes outside the draft. ──────────────
+  app.post('/pump-bill-draft/:id/approve', { preHandler: guard }, async (req, reply) => {
+    const { rows: [d] } = await query('SELECT * FROM pump_bill_drafts WHERE id = $1::uuid', [req.params.id]);
+    if (!d) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (d.status === 'APPROVED') {
+      return reply.code(409).send({ error: 'ALREADY_APPROVED', detail: `posted as ${d.ref_no}`, voucher_id: d.voucher_id });
+    }
+    if (d.status !== 'DRAFT') return reply.code(409).send({ error: 'NOT_A_DRAFT', detail: `this bill is ${d.status}` });
+
+    const amount = Number(req.body?.physical_amount ?? d.physical_amount);
+    if (!(amount > 0)) {
+      return reply.code(400).send({ error: 'NO_PHYSICAL_AMOUNT', detail: 'the pump bill amount is what gets posted; enter it before approving' });
+    }
+
+    // Delegate posting and slip locking to /queues/fuel-reconcile, which already
+    // distributes pro-rata by litres and posts DR fuel / CR creditor through
+    // TARA. Approval is a gate in front of it, not a second way to do it.
+    const res = await app.inject({
+      method: 'POST', url: '/api/v1/queues/fuel-reconcile',
+      headers: { 'content-type': 'application/json', authorization: req.headers.authorization ?? '' },
+      payload: {
+        vendor_id: d.vendor_id, slip_ids: d.slip_ids, bill_amount: amount,
+        from: d.period_from, to: d.period_to,
+      },
+    });
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      return reply.code(res.statusCode).send({ error: 'POST_FAILED', detail: res.body.slice(0, 400) });
+    }
+    const posted = res.json();
+
+    try {
+      const { rows: [approved] } = await query(
+        `UPDATE pump_bill_drafts
+            SET status='APPROVED', physical_amount=$2, voucher_id=$3::uuid,
+                approved_by=$4, approved_at=now(), updated_at=now()
+          WHERE id=$1::uuid AND status='DRAFT' RETURNING *`,
+        [req.params.id, amount, posted.voucher_id ?? posted.voucher?.id ?? null, req.user?.name ?? 'api']);
+      return { ok: true, mode: 'APPROVED', ref_no: d.ref_no, draft: approved, posted };
+    } catch (e) {
+      // The unique index fired between the check and the write: somebody else
+      // approved this fortnight first. TARA is idempotent on ref_no, so nothing
+      // has been double-posted.
+      if (String(e.code) === '23505') {
+        return reply.code(409).send({ error: 'PERIOD_ALREADY_POSTED', detail: 'another approval for this pump and fortnight landed first' });
+      }
+      throw e;
+    }
+  });
+
+  app.get('/pump-bill-drafts', { preHandler: guard }, async (req) => {
+    const { rows } = await query(
+      `SELECT id, vendor_name, period_from, period_to, half, ref_no, status,
+              slip_count, system_liters, system_amount, physical_amount, derived_pct,
+              approved_at, voucher_id
+         FROM pump_bill_drafts
+        WHERE ($1::text IS NULL OR status = $1::text)
+        ORDER BY period_from DESC, vendor_name
+        LIMIT 200`, [req.query?.status ?? null]);
+    return { ok: true, count: rows.length, drafts: rows };
   });
 }
