@@ -14,8 +14,11 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const ERP_LOG = path.join(ROOT, 'logs', 'erp_system.log');
-const BOOT_BOOK = process.env.MAMTA_BOOT_BOOK
-  || 'E:\\jaiswal-terminal\\Algo-Engine\\boot_book.log';
+// Defaulted to E:\jaiswal-terminal\Algo-Engine\boot_book.log -- Prasad daemons
+// writing their operational log into the trading company's repo. A unified book
+// across both businesses is a fine idea, but it cannot be the DEFAULT across a
+// company boundary. Unset now means local book only.
+const BOOT_BOOK = process.env.MAMTA_BOOT_BOOK || null;
 
 // IST timestamp, ISO-8601 with milliseconds and +05:30 offset (boot_book.py parity).
 function istTs() {
@@ -54,6 +57,7 @@ function slog(agent, event, opts) {
 // Unified book (summary rows only — start/proposed/applied/discarded/rollback).
 function bootBook(agent, event, opts) {
   const line = JSON.stringify(row(agent, event, opts));
+  if (!BOOT_BOOK) return false;   // no cross-company sink configured
   try { appendLine(BOOT_BOOK, line); return true; } catch { return false; }
 }
 

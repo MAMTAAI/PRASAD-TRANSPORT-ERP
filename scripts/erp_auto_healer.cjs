@@ -57,10 +57,20 @@ const PROJECT = 'PRASAD_ERP';
 
 // ── config (env-overridable) ──────────────────────────────────────────────────
 const BRIDGE = process.env.MAMTA_BRIDGE_URL || 'http://127.0.0.1:8765';
-const TOKEN_FILE = process.env.MAMTA_BRIDGE_TOKEN_FILE
-  || 'E:\\jaiswal-terminal\\tools\\mamta-bridge\\.bridge_token';
-const APPROVALS = process.env.MAMTA_APPROVALS_PATH
-  || 'E:\\jaiswal-terminal\\Algo-Engine\\god_approvals.json';
+// NO CROSS-COMPANY DEFAULTS.
+//
+// These fell back to E:\jaiswal-terminal\... -- the Prasad healer read Jaiswal
+// Capital's bridge TOKEN and its approvals file straight out of the trading
+// repo. A company boundary crossed by a default value, which survived because
+// nobody looked at it. Both paths broke the moment jaiswal-terminal moved to
+// H:, which is the only reason it surfaced.
+//
+// Set the env var or the feature stays off. An unset variable disables the
+// integration; it never silently reaches into the other company's files.
+const TOKEN_FILE = process.env.MAMTA_BRIDGE_TOKEN_FILE || null;
+const APPROVALS = process.env.MAMTA_APPROVALS_PATH || null;
+if (!TOKEN_FILE) console.warn('[healer] MAMTA_BRIDGE_TOKEN_FILE unset -- bridge auth disabled (previously defaulted into the Jaiswal tree).');
+if (!APPROVALS) console.warn('[healer] MAMTA_APPROVALS_PATH unset -- approvals lane disabled.');
 const POLL_S = Number(process.env.ERP_HEAL_POLL_S || 15);
 const RATE_MAX = Number(process.env.ERP_HEAL_RATE_MAX || 3);      // per module…
 const RATE_WINDOW_MS = 3600 * 1000;                               // …per hour
@@ -95,7 +105,7 @@ const SERVICE_MAP = {
 };
 
 let TOKEN = process.env.MAMTA_BRIDGE_TOKEN || '';
-try { TOKEN = TOKEN || fs.readFileSync(TOKEN_FILE, 'utf8').trim(); } catch { /* logged at start */ }
+try { TOKEN = TOKEN || (TOKEN_FILE ? fs.readFileSync(TOKEN_FILE, 'utf8').trim() : ''); } catch { /* logged at start */ }
 
 // ── tiny utils ────────────────────────────────────────────────────────────────
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
