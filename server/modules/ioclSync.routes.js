@@ -18,6 +18,7 @@
 import { requireAdminOrService } from './auth.routes.js';
 import { runIoclSync, syncState, SyncBusyError } from '../lib/ioclSyncRunner.js';
 import { cronInfo } from '../lib/ioclSyncCron.js';
+import { enrichTrips } from '../lib/tripEnrich.js';
 
 export async function registerIoclSyncRoutes(app, opts = {}) {
   // This endpoint inserts trips. It is guarded, unlike the read-only status
@@ -27,6 +28,22 @@ export async function registerIoclSyncRoutes(app, opts = {}) {
   // Cheap poll so the UI can show progress, and so an operator can see whether
   // the background scheduler is actually on.
   app.get('/sync-status', async () => ({ ...syncState(), cron: cronInfo() }));
+
+  // Re-run the enrichment on its own. Useful after back-filling vehicle history,
+  // and dry_run lets an operator see what it WOULD write before it writes it.
+  app.post('/enrich-trips', { preHandler: guard }, async (req, reply) => {
+    try {
+      const r = await enrichTrips({
+        tripIds: Array.isArray(req.body?.trip_ids) ? req.body.trip_ids : null,
+        sinceHours: Number(req.body?.since_hours ?? 24),
+        dryRun: !!req.body?.dry_run,
+      });
+      return { ok: true, ...r };
+    } catch (e) {
+      req.log?.error({ err: e.message }, 'trip enrich failed');
+      return reply.code(500).send({ error: 'ENRICH_FAILED', detail: String(e.message).slice(0, 400) });
+    }
+  });
 
   app.post('/sync-gmail', { preHandler: guard }, async (req, reply) => {
     try {

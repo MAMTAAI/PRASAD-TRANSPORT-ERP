@@ -11,6 +11,7 @@
 // happen; giving it two blind copies of itself would undo that.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { enrichTrips } from './tripEnrich.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -120,14 +121,31 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       kl = (report.new || []).reduce((a, r) => a + Number(r.qty_kl || 0), 0);
     } catch { /* the summary is still useful without it */ }
 
+    // An imported trip arrives with no driver, no destination and no distance,
+    // because the AC5 does not carry them. Filling those from the vehicle's own
+    // history is what turns a row in the register into a trip somebody can
+    // actually dispatch against. Failures here must not fail the import: the
+    // invoices are already in, and an un-enriched trip is merely incomplete.
+    let enrich = null;
+    if (summary.inserted > 0) {
+      try {
+        const e = await enrichTrips({ sinceHours: 1 });
+        enrich = { updated: e.updated, held_back: e.skipped.length };
+        logLine({ event: 'enriched', trigger, ...enrich });
+      } catch (err) {
+        enrich = { error: String(err.message).slice(0, 200) };
+        logLine({ event: 'enrich_failed', trigger, detail: enrich.error });
+      }
+    }
+
     logLine({
-      event: 'ok', trigger, seconds: secs,
+      event: 'ok', trigger, seconds: secs, enrich,
       inserted: summary.inserted, duplicates: summary.duplicates,
       held_for_review: summary.held_for_review, parsed: summary.parsed,
       rejected: summary.rejected, kl_imported: kl,
       window: summary.window,
     });
-    return { ...summary, seconds: secs, kl_imported: kl };
+    return { ...summary, seconds: secs, kl_imported: kl, enrich };
   } catch (e) {
     logLine({ event: 'error', trigger, detail: String(e.message).slice(0, 600) });
     throw e;
