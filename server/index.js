@@ -54,6 +54,7 @@ import { registerTripImportRoutes } from './modules/tripImport.routes.js';
 import { registerFuelImportRoutes } from './modules/fuelImport.routes.js';
 import { initRealtime } from './lib/realtime.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
+import { startGraph, stopGraph } from './agents/graphEngine.js';
 
 const PORT = Number.parseInt(process.env.API_PORT ?? '3300', 10);
 const HOST = process.env.API_HOST ?? '127.0.0.1';
@@ -238,7 +239,14 @@ try {
   await initSwarm({ strict: true });
   await startBus();
   // Autonomous agent loops (Kali 10s, Tara 30s, ...). AGENT_LOOPS=0 disables.
-  if (process.env.AGENT_LOOPS !== '0') startLoops();
+  // GRAPH, not loops. Ten independent timers could not carry a finding from
+  // one agent to the next; a traversal threads one State through the nodes and
+  // routes on what earlier nodes actually found. AGENT_ENGINE=loop falls back
+  // to the old timers, which stay in the tree until the graph has run a while.
+  if (process.env.AGENT_LOOPS !== '0') {
+    if (process.env.AGENT_ENGINE === 'loop') startLoops();
+    else startGraph();
+  }
 
   await app.listen({ port: PORT, host: HOST });
   // Socket.io shares Fastify's HTTP server, so it needs no second port and no
@@ -277,6 +285,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
       // Stop the scheduler before the pool closes, or a tick that fires mid
       // shutdown spawns an importer whose database vanishes under it.
       stopIoclSyncCron();
+      stopGraph();
       stopLoops();
       await stopBus();
       await closePool();

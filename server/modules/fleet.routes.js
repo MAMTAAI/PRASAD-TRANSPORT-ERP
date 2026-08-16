@@ -14,6 +14,8 @@
 import multipart from '@fastify/multipart';
 import { status, AGENTS } from '../agents/registry.js';
 import { loopStats, processMetrics, setLoopEnabled, LOOPS } from '../agents/loopEngine.js';
+import { graphStatus } from '../agents/graphEngine.js';
+import { brainStatus } from '../ai/prasadBrain.js';
 import { memoryStats, stmSet, stmGet, stmRecent } from '../memory/okf.js';
 import { scanAndFile, resolveReview } from '../services/ocrAutoFiler.js';
 import { ocrStats } from '../services/textOcr.js';
@@ -33,6 +35,10 @@ export async function registerFleetRoutes(app) {
   app.get('/agents/fleet-status', async () => {
     const roster = status();
     const loops = loopStats();
+    // The graph is the live engine. Loop stats stay readable so a fallback run
+    // (AGENT_ENGINE=loop) still reports something instead of blanking the cards.
+    const graph = graphStatus();
+    const nodeById = new Map(graph.nodes.map((n) => [n.agentId, n]));
     const memory = await memoryStats(AGENT_IDS);
     const proc = processMetrics();
 
@@ -58,7 +64,15 @@ export async function registerFleetRoutes(app) {
         // ACTIVE = handling events; OPTIMAL = active with zero errors today;
         // PARKED/HALTED pass through from the registry.
         status: a.state === 'ACTIVE' ? (errorsToday === 0 ? 'OPTIMAL' : 'ACTIVE') : a.state,
-        loop_running: loop.running ?? false,
+        // GRAPH ACTIVE, not LOOP ON. A node has no timer of its own any more;
+        // it has an edge, and `gated_by` names the predecessors that open it.
+        engine: graph.mode,
+        graph_active: graph.active,
+        node: nodeById.get(a.id)?.node ?? null,
+        gated_by: nodeById.get(a.id)?.gated_by ?? [],
+        graph_ticks: nodeById.get(a.id)?.ticks ?? 0,
+        graph_skipped: nodeById.get(a.id)?.skipped ?? 0,
+        loop_running: graph.active || (loop.running ?? false),
         memory_interface: mem?.interface ?? 'IDLE',
         memory: { stm_pct: mem?.stm.pct ?? 0, ltm_pct: mem?.ltm.pct ?? 0, stm: mem?.stm, ltm: mem?.ltm },
         cpu_pct: proc.cpu_pct,     // process-level: one Node process hosts all ten
@@ -80,6 +94,8 @@ export async function registerFleetRoutes(app) {
     });
 
     return {
+      graph,
+      brain: brainStatus(),
       service: 'prasad-erp-agent-fleet',
       domain: 'TRANSPORT_LOGISTICS_ONLY',
       db_degraded: isDegraded(),

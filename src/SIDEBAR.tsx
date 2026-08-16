@@ -124,7 +124,9 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         // names. The last copy ("Live Books") is gone too: it only survived
         // because v5.0 was on demo numbers, and v5.0 now reads the real
         // PostgreSQL books through /api/v1/dashboard/v5. One home, not two.
-        { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
+        // AI Agent Fleet moved to the CRM (MAMTA AI) module on 2026-08-16. It is
+        // the AI control surface, not a dispatch screen, and it sat here only
+        // because that is where it was first built.
         { id: 'SMART_SCANNER', label: 'Smart Scanner (0-cost)', icon: '📸' },
         // NOT a dashboard — this is the voucher entry desk (RECEIPT / PAYMENT
         // / CONTRA through TARA) and the only posting path in the UI. Renamed
@@ -177,6 +179,10 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'WHATSAPP', label: 'WhatsApp CRM', icon: '💬' },
         { id: 'INBOX', label: 'Super CRM/Inbox', icon: '📧' },
         { id: 'AI_SETTINGS', label: 'AI Brain Control', icon: '🧠' },
+        // Moved here from OPERATIONS (2026-08-16): the ten Mahavidya agents are
+        // MAMTA AI's own control surface and belong beside AI Brain Control,
+        // not beside Trip Management.
+        { id: 'AGENT_FLEET', label: 'AI Agent Fleet', icon: '🤖' },
         { id: 'WEB_SETTINGS', label: 'Website Builder', icon: '🌐' },
         { id: 'CUSTOMER', label: 'Customer Master', icon: '🏢' },
         { id: 'ONBOARDING', label: 'KYC Approvals', icon: '🪪' },

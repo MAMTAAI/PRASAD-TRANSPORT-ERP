@@ -76,7 +76,14 @@ function AgentCard({ a, onAction }: { a: any; onAction: (kind: string, agent: an
 
       <div style={{ display: 'flex', gap: 6, margin: '8px 0', flexWrap: 'wrap' }}>
         <Badge text={`MEM ${a.memory_interface}`} color={a.memory_interface === 'IDLE' ? C.dim : C.ok} />
-        <Badge text={a.loop_running ? 'LOOP ON' : 'LOOP OFF'} color={a.loop_running ? C.ok : C.warn} />
+        {/* The engine is a directed graph now, not ten timers. `node` is this
+            agent's position in it and `gated_by` names the predecessors whose
+            findings open the edge -- neither had any meaning under a loop. */}
+        <Badge text={a.graph_active ? `GRAPH ACTIVE${a.node ? ' - ' + a.node : ''}` : (a.loop_running ? 'LOOP ON' : 'IDLE')}
+               color={a.graph_active ? C.ok : (a.loop_running ? C.warn : C.warn)} />
+        {a.gated_by?.length > 0 && (
+          <Badge text={`waits on: ${a.gated_by.join(', ')}`} color={C.purple ?? C.blue} />
+        )}
         {a.missing_tables?.length > 0 && <Badge text={`AWAITS ${a.missing_tables.length} TABLE(S)`} color={C.warn} />}
       </div>
 
