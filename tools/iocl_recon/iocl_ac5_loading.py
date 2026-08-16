@@ -66,7 +66,11 @@ AC5_QUERY = (
 MAILBOXES = [
     {"token": "gmail_token.json",   "company": "M/S PRASAD TRANSPORT", "label": "Prasad Transport",
      "address": "prasadtransport699@gmail.com"},
-    {"token": "jaiswal_token.json", "company": "JAISWAL ENTERPRISE",   "label": "Jaiswal Enterprise",
+# The company string is a GROUPING KEY for billing. It was "JAISWAL
+# ENTERPRISE" here while every pre-existing trip said "M/S JAISWAL
+# ENTERPRISE  " (with trailing spaces), so one company existed as two
+# strings and would have been billed on two separate invoices.
+    {"token": "jaiswal_token.json", "company": "M/S JAISWAL ENTERPRISE", "label": "Jaiswal Enterprise",
      "address": "jaiswalenterprise2016@gmail.com"},
 ]
 

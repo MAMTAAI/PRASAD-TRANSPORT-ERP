@@ -31,6 +31,7 @@ import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
+import { registerFortnightBillingRoutes } from './modules/fortnightBilling.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
@@ -145,6 +146,11 @@ await app.register(registerIntegrationRoutes, { prefix: '/api/v1' });
 // Cash & Bank Book, bank master and voucher reversal share the finance prefix.
 await app.register(registerCashbookRoutes, { prefix: '/api/v1/finance' });
 await app.register(registerBillRoutes,     { prefix: '/api/v1/billing' });
+// Fortnightly auto-billing: groups trips by unloading fortnight, operating
+// company, customer and depot, prices each line through the rate engine, and
+// delegates creation to POST /billing/bills so revenue reaches the ledger by
+// exactly one path.
+await app.register(registerFortnightBillingRoutes, { prefix: '/api/v1/billing' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.
