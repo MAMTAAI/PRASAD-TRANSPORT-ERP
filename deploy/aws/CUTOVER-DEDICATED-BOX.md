@@ -100,11 +100,22 @@ rollback. Drop it only once the new box has taken a full backup cycle.
 
 ## 8. Afterwards
 
-- WhatsApp engine on the new box boots to `WAITING_FOR_SCAN`; linking is a
-  deliberate phone scan. Point `WA_ENGINE_URL` at `127.0.0.1:5002`.
-- On the old box, `WA_ENGINE_URL` pointed at `127.0.0.1:5001`, which there
-  belongs to the Jaiswal trading API — every OTP send was querying the trading
-  engine. On a dedicated box that collision disappears, but set the port
-  explicitly anyway.
+- **The WhatsApp engine is not on the box, and that is by design.** On the old
+  box `WA_ENGINE_URL=http://127.0.0.1:5601`, and 5601 there is held by `sshd`:
+  it is a reverse SSH tunnel to the engine running on the office PC, which is
+  where the linked WhatsApp session lives. The AWS API reaches the PC's engine
+  through it. Verified by comparing `/api/status` on both ends — byte-identical
+  QR.
+
+  So the new box needs the same tunnel re-established, not a new engine. If you
+  do want the engine on the box instead, `prasad-wa-engine` (port 5002) exists
+  in the ecosystem file for that — but only ONE engine may ever be linked to
+  the number. Two linked engines both auto-reply, and drivers get every message
+  twice.
+
+  (An earlier revision of this document claimed 5601 was 5001 and collided with
+  the Jaiswal trading API. That was wrong: it came from reading the code's
+  fallback default `|| 'http://127.0.0.1:5001'` instead of the deployed
+  `.env.api` value. Nothing was ever misrouted to the trading engine.)
 - S3 for mobile uploads still needs an IAM user or instance role; nothing in
   this repo can create one without AWS credentials.

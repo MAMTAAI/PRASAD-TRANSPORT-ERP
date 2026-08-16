@@ -67,12 +67,17 @@ module.exports = {
     {
       // WhatsApp engine — OTP delivery and the CRM's send path.
       //
-      // PORT 5002, NOT 5001. On this shared box 5001 belongs to
-      // /home/ubuntu/Algo-Engine/api.py, the Jaiswal Capital trading API. The
-      // ERP's WA_ENGINE_URL had been pointing at 5001 all along, so every OTP
-      // attempt was querying the trading engine and getting {"detail":"Not
-      // Found"} back. Two unrelated systems, one port number, and an OTP
-      // channel that could never have worked.
+      // OPTIONAL — NOT the default path, and off by default in practice.
+      //
+      // Production reaches the WhatsApp engine on the OFFICE PC through a
+      // reverse SSH tunnel: WA_ENGINE_URL=127.0.0.1:5601, where 5601 is held
+      // by sshd. The linked session lives on that PC. This app exists only for
+      // the case where you want the engine ON the box instead.
+      //
+      // NEVER run both linked at once. Two engines authenticated to the same
+      // WhatsApp number both auto-reply, and every driver gets each message
+      // twice. Port 5002 because 5001 on the shared box belongs to the Jaiswal
+      // trading API (/home/ubuntu/Algo-Engine/api.py).
       //
       // Binds loopback: the engine's API is unauthenticated unless
       // WA_ENGINE_TOKEN is set, so it must never face the internet.
