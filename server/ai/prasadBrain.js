@@ -32,7 +32,15 @@ const OLLAMA = process.env.PRASAD_OLLAMA_URL || 'http://127.0.0.1:11434';
 
 // Pinned deliberately. Reading a shared VITE_LLM_MODEL would let another
 // product's config change what answers as Prasad Transport.
-const MODEL = process.env.PRASAD_BRAIN_MODEL || 'deepseek-r1:8b';
+//
+// deepseek-coder:6.7b, set by God on 2026-08-16. Worth recording that this is a
+// CODE model, not a general reasoning one: it is strongest on structured output
+// -- JSON extraction from an AC5, a SQL predicate, a rule check -- and weaker on
+// discursive prose than deepseek-r1:8b, which it replaces. Most of what these
+// ten agents ask for is structured, so the trade favours them; if an agent
+// starts needing narrative explanation, PRASAD_BRAIN_MODEL overrides this
+// without a code change.
+const MODEL = process.env.PRASAD_BRAIN_MODEL || 'deepseek-coder:6.7b';
 
 const IDENTITY = [
   'You are the core intelligence of Prasad Transport ERP exclusively.',
