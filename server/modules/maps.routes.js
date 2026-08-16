@@ -152,6 +152,77 @@ export function registerMapsRoutes(app) {
     return r;
   });
 
+  // ── ONE TRIP, EVERYTHING THE MAP NEEDS ────────────────────────────────────
+  //
+  // The tracking screen was geocoding origin and destination IN THE BROWSER on
+  // every trip selection: uncached, billed each time, and re-billed when the
+  // same trip was clicked twice. It also never drew a road at all — only a trail
+  // joining GPS pings, so a trip with no telemetry showed two pins and empty
+  // space between them.
+  //
+  // This returns the lane's road geometry and its endpoints in one call, both
+  // served from maps_cache after the first fetch, plus the latest real fix if
+  // there is one.
+  //
+  // THE TRUCK POSITION IS NOT INVENTED. `truck` is null unless trip_gps_pings
+  // holds an actual row. Interpolating a position from "departed at 9am, 178km
+  // to go" would put a marker on the map that looks exactly like a real fix and
+  // is a guess — on the screen dispatch uses to decide whether a lorry is off
+  // route.
+  app.get('/maps/trip/:tripId/route', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: t } = await query(`
+      SELECT id, trip_code, vehicle_no, status, driver_name,
+             loading_point, COALESCE(unloading_location, consignee_name) AS destination,
+             loading_date
+        FROM trips WHERE id = $1::uuid`, [req.params.tripId]);
+    if (!t[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such trip' });
+    const trip = t[0];
+
+    const [route, o, d] = await Promise.all([
+      getRoute(trip.loading_point, trip.destination),
+      geocode(trip.loading_point ? `${trip.loading_point}, India` : ''),
+      geocode(trip.destination ? `${trip.destination}, India` : ''),
+    ]);
+
+    const { rows: ping } = await query(`
+      SELECT lat, lng, speed_kmh, source, recorded_at
+        FROM trip_gps_pings WHERE trip_id = $1::uuid
+       ORDER BY recorded_at DESC LIMIT 1`, [req.params.tripId]);
+
+    const { rows: trail } = await query(`
+      SELECT lat, lng, recorded_at FROM trip_gps_pings
+       WHERE trip_id = $1::uuid ORDER BY recorded_at ASC LIMIT 500`, [req.params.tripId]);
+
+    return {
+      trip: {
+        id: trip.id, trip_code: trip.trip_code, vehicle_no: trip.vehicle_no,
+        status: trip.status, driver_name: trip.driver_name,
+        loading_point: trip.loading_point, destination: trip.destination,
+      },
+      origin: o.ok ? { lat: o.lat, lng: o.lng, label: trip.loading_point, resolved: o.formatted } : null,
+      destination: d.ok ? { lat: d.lat, lng: d.lng, label: trip.destination, resolved: d.formatted } : null,
+      route: route.ok
+        ? { polyline: route.polyline, distance_km: route.distance_m == null ? null : +(route.distance_m / 1000).toFixed(1),
+            duration_min: route.duration_s == null ? null : Math.round(route.duration_s / 60),
+            summary: route.summary, bounds: route.bounds, cached: !!route.cached }
+        : { polyline: null, error: route.reason, detail: route.detail },
+      // Real fixes only. Null means nobody knows where the lorry is, and the
+      // screen must say that rather than draw a plausible dot.
+      truck: ping[0] ? {
+        lat: Number(ping[0].lat), lng: Number(ping[0].lng),
+        speed_kmh: ping[0].speed_kmh, source: ping[0].source, at: ping[0].recorded_at,
+      } : null,
+      trail: trail.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), at: p.recorded_at })),
+      telemetry: {
+        pings: trail.length,
+        note: trail.length === 0
+          ? 'No device has ever reported a position for this trip. The lane is drawn from the road network; the vehicle is not placed.'
+          : null,
+      },
+    };
+  });
+
   // ── LANE ANALYSIS: distance from Google, tolls from our own history ───────
   //
   // The screen that calls this used to fabricate both. Distance was

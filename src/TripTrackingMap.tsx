@@ -30,6 +30,8 @@ export default function TripTrackingMap() {
   const mapDiv = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlays = useRef<any[]>([]);
+  // Road geometry + geocoded endpoints for the selected trip.
+  const [geo, setGeo] = useState<any>(null);
 
   // live board
   const loadBoard = useCallback(async () => {
@@ -56,6 +58,23 @@ export default function TripTrackingMap() {
     pull();
     const t = setInterval(pull, 10000);
     return () => { live = false; clearInterval(t); };
+  }, [selected]);
+
+  // ── THE ROAD ──────────────────────────────────────────────────────────────
+  // Fetched ONCE per trip, not on the 10s telemetry tick: the lane between two
+  // depots does not change while the lorry drives down it, and re-fetching it
+  // every ten seconds would bill a Directions call six times a minute per
+  // viewer. The server serves it from maps_cache after the first request, so
+  // one lane is billed once for the whole company.
+  useEffect(() => {
+    if (!selected) return;
+    let live = true;
+    setGeo(null);
+    fetch(`${API}/api/v1/maps/trip/${selected}/route`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live) setGeo(j); })
+      .catch(() => { /* the map still draws whatever telemetry exists */ });
+    return () => { live = false; };
   }, [selected]);
 
   // map init
@@ -108,29 +127,60 @@ export default function TripTrackingMap() {
       extend(pos);
     }
 
-    // geocode origin + destination so an un-pinged trip still frames its lane
-    const geocoder = new g.maps.Geocoder();
-    const geocodeInto = (place: string, label: string, done: () => void) => {
-      if (!place) return done();
-      geocoder.geocode({ address: `${place}, India` }, (results: any, status: string) => {
-        if (status === 'OK' && results?.[0]) {
-          const pos = results[0].geometry.location;
-          overlays.current.push(new g.maps.Marker({
-            map, position: pos, label: { text: label, color: '#0f172a', fontWeight: '900' },
-            icon: { path: g.maps.SymbolPath.BACKWARD_CLOSED_ARROW, scale: 6, fillColor: C.dim, fillOpacity: 0.9, strokeColor: '#0f172a', strokeWeight: 1 },
-          }));
-          extend(pos);
-        }
-        done();
-      });
-    };
-    // Fit AFTER both geocodes resolve (each may no-op) — the single fitBounds
-    // is what kills the world-map zoom-out for good.
-    geocodeInto(detail.route?.origin, 'A', () =>
-      geocodeInto(detail.route?.destination, 'B', () => {
-        if (boundsHasPoint) map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+    // ── THE ROAD ITSELF ─────────────────────────────────────────────────────
+    // Decoded from the server's cached polyline. This is what was missing: the
+    // screen drew a trail joining GPS pings and nothing else, so a trip with no
+    // telemetry — which is every trip today — showed two pins and empty space.
+    if (geo?.route?.polyline && g.maps.geometry?.encoding?.decodePath) {
+      const path = g.maps.geometry.encoding.decodePath(geo.route.polyline);
+      if (path?.length) {
+        // Casing under the line: a single stroke over dark tiles reads as a
+        // scratch. Two strokes read as a road.
+        overlays.current.push(new g.maps.Polyline({
+          map, path, strokeColor: '#0b1220', strokeOpacity: 0.9, strokeWeight: 8, zIndex: 3,
+        }));
+        overlays.current.push(new g.maps.Polyline({
+          map, path, strokeColor: C.blue, strokeOpacity: 0.95, strokeWeight: 4, zIndex: 4,
+        }));
+        path.forEach(extend);
+      }
+    }
+
+    // Endpoints, from the server's cached geocode rather than a fresh browser
+    // lookup on every click.
+    const pin = (pt: any, text: string, color: string) => {
+      if (!pt || !Number.isFinite(Number(pt.lat))) return;
+      const pos = { lat: Number(pt.lat), lng: Number(pt.lng) };
+      overlays.current.push(new g.maps.Marker({
+        map, position: pos, title: pt.resolved ?? pt.label ?? text, zIndex: 10,
+        label: { text, color: '#0f172a', fontWeight: '900', fontSize: '11px' },
+        icon: { path: g.maps.SymbolPath.CIRCLE, scale: 11, fillColor: color,
+                fillOpacity: 1, strokeColor: '#0f172a', strokeWeight: 2 },
       }));
-  }, [detail]);
+      extend(pos);
+    };
+    pin(geo?.origin, 'A', '#34d399');
+    pin(geo?.destination, 'B', '#f472b6');
+
+    // ── THE TRUCK ───────────────────────────────────────────────────────────
+    // Only ever from a real fix. `geo.truck` is null when trip_gps_pings holds
+    // nothing for this trip, and in that case nothing is drawn — an invented
+    // marker is indistinguishable from a real one on the screen dispatch uses to
+    // judge whether a lorry is off route.
+    if (geo?.truck && Number.isFinite(Number(geo.truck.lat))) {
+      const pos = { lat: Number(geo.truck.lat), lng: Number(geo.truck.lng) };
+      overlays.current.push(new g.maps.Marker({
+        map, position: pos, zIndex: 30,
+        title: `${geo.trip?.vehicle_no ?? 'Vehicle'} · ${geo.truck.source ?? 'gps'} · `
+             + new Date(geo.truck.at).toLocaleString('en-IN'),
+        icon: { path: 'M -7 -4 L 7 -4 L 9 0 L 7 4 L -7 4 Z', fillColor: '#22d3ee',
+                fillOpacity: 1, strokeColor: '#0f172a', strokeWeight: 2, scale: 1.7 },
+      }));
+      extend(pos);
+    }
+
+    if (boundsHasPoint) map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+  }, [detail, geo]);
 
   const badge = detail?.best?.badge;
   const badgeStyle = detail?.best ? SOURCE_STYLE[detail.best.source] : null;
