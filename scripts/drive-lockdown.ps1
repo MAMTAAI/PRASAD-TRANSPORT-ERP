@@ -16,7 +16,7 @@
   On each of F:\ and H:\ ROOT ONLY:
 
     1. Back up the current ACL to a .acl file next to this script. That file is
-       the undo:  icacls F:\ /restore <backup>
+       the undo:  the generated acl-undo-<letter>-<stamp>.ps1 (NOT icacls /restore -- see note at the save step)
     2. Remove ALL access-control entries for:
          Everyone
          BUILTIN\Users
@@ -114,7 +114,7 @@ if (-not $Execute) {
 if (-not $admin) { throw 'Refusing to apply ACLs without elevation. Re-run this window as Administrator.' }
 
 Write-Output "This will change NTFS permissions on $($DRIVES -join ' and ')."
-Write-Output "Undo for each drive:  icacls <drive> /restore $BACKUP\acl-backup-<letter>-$STAMP.acl"
+Write-Output "Undo for each drive (run ELEVATED):  $BACKUPcl-undo-<letter>-$STAMP.ps1"
 $answer = Read-Host 'Type Y to apply the lockdown, anything else to abort'
 if ($answer -ne 'Y') { Write-Output "aborted (answered '$answer')"; return }
 
@@ -135,7 +135,35 @@ foreach ($d in $DRIVES) {
   # undo a single-container change was wrong before it was fragile.
   & icacls $d /save $bak /C | Out-Null
   if (-not (Test-Path $bak)) { Write-Output "    could not save ACL backup -- SKIPPING $d"; continue }
+
+  # THE .acl FILE ALONE IS NOT AN UNDO, AND ON 16-08 THAT COST US THE DRIVE.
+  # `icacls <dir> /save` writes one record per item as
+  #     <name relative to dir>
+<SDDL>
+  # For the ROOT itself that relative name is the EMPTY STRING, so the file
+  # opens with a bare CRLF. `icacls H:\ /restore` then has no filename to bind
+  # the SDDL to and exits 2 -- "Successfully processed 0 files; Failed
+  # processing 1". The backup looked perfect (292 bytes, written, verified to
+  # exist) and was unusable at the one moment it was needed.
+  #
+  # So write a REAL undo beside it: the SDDL, and a script that applies it via
+  # Set-Acl, which takes a descriptor directly and needs no filename at all.
+  # Verified by running it -- H:\ went from Administrators+SYSTEM only back to
+  # Authenticated Users:(M) and readable by a non-elevated user.
+  $sddl = (Get-Item $d -Force).GetAccessControl().GetSecurityDescriptorSddlForm('Access')
+  $undo = "$BACKUP\acl-undo-$letter-$STAMP.ps1"
+  @(
+    "# Undo the $d lockdown. Run ELEVATED. Generated $STAMP.",
+    "`$s = '$sddl'",
+    "`$d = (Get-Item '$d' -Force)",
+    "`$a = `$d.GetAccessControl()",
+    "`$a.SetSecurityDescriptorSddlForm(`$s)",
+    "`$d.SetAccessControl(`$a)",
+    "icacls '$d'"
+  ) | Out-File $undo -Encoding ascii
+
   Write-Output "    ACL backed up -> $bak"
+  Write-Output "    UNDO SCRIPT   -> $undo   (this is the one that works)"
 
   # 2. SEED THE CHILDREN FIRST. This step is why H:\ locked out on 16-08.
   #
@@ -202,9 +230,27 @@ foreach ($d in $DRIVES) {
   }
 
   if (-not $ok) {
-    Write-Output "    ROLLING BACK $d from $bak"
-    & icacls $d /restore $bak /C | Out-Null
-    Write-Output "    rolled back. $d left as it was; fix the cause before retrying."
+    # ROLLBACK VIA Set-Acl, NOT icacls /restore.
+    # This branch is the whole safety net -- it fires precisely when the
+    # lockdown has just made a drive unreachable. It used to call
+    #     icacls $d /restore $bak
+    # which CANNOT work: the saved record for a volume root carries an empty
+    # relative name, so icacls exits 2 having processed nothing, prints no
+    # error we were checking, and this function reported "rolled back" over a
+    # drive it had not touched. That is exactly how H:\ stayed locked on 16-08
+    # -- the net was there, it just wasn't attached to anything.
+    Write-Output "    ROLLING BACK $d"
+    try {
+      $o = (Get-Item $d -Force)
+      $a = $o.GetAccessControl()
+      $a.SetSecurityDescriptorSddlForm($sddl)
+      $o.SetAccessControl($a)
+      Write-Output "    rolled back. $d left as it was; fix the cause before retrying."
+    } catch {
+      # Say so loudly. A rollback that fails silently is worse than none.
+      Write-Output "    *** ROLLBACK FAILED: $($_.Exception.Message)"
+      Write-Output "    *** $d MAY BE INACCESSIBLE. Run ELEVATED: $undo"
+    }
   }
 }
 
@@ -219,4 +265,4 @@ foreach ($d in $DRIVES) {
 }
 Write-Output "  New-Item -ItemType File 'F:\Prasad_Transport_Data\_writetest.txt'                    # expect OK"
 Write-Output ''
-Write-Output "Undo:  icacls <drive> /restore $BACKUP\acl-backup-<letter>-$STAMP.acl"
+Write-Output "Undo for each drive (run ELEVATED):  $BACKUPcl-undo-<letter>-$STAMP.ps1"
