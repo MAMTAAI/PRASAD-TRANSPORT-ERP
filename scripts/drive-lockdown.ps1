@@ -125,26 +125,34 @@ foreach ($d in $DRIVES) {
   Write-Output "=== $d"
 
   # 1. undo file first -- if this fails, change nothing.
-  & icacls $d /save $bak /T /C 2>&1 | Select-Object -Last 1 | Out-Null
+  #
+  # NO /T HERE. The first version used /save /T, which walks EVERY file on the
+  # volume. It died on
+  #   F:\Prasad_Transport_Data\archive\desktop\PRASAD TRANSPORT\Udyam Registration _ ... .pdf
+  # a 289-character path, past the 260-char MAX_PATH limit icacls still honours.
+  # A recursive backup was never needed: this script only ever modifies the
+  # ROOT, so the root ACL is the whole undo. Saving 5.7 MB of per-file ACLs to
+  # undo a single-container change was wrong before it was fragile.
+  & icacls $d /save $bak /C | Out-Null
   if (-not (Test-Path $bak)) { Write-Output "    could not save ACL backup -- SKIPPING $d"; continue }
   Write-Output "    ACL backed up -> $bak"
 
   # 2. drop the generic identities
   foreach ($id in @('Everyone', 'BUILTIN\Users', 'NT AUTHORITY\Authenticated Users')) {
-    & icacls $d /remove:g $id 2>&1 | Out-Null
-    & icacls $d /remove:d $id 2>&1 | Out-Null
+    & icacls $d /remove:g $id | Out-Null
+    & icacls $d /remove:d $id | Out-Null
     Write-Output "    removed  $id"
   }
 
   # 3. explicit grants
-  & icacls $d /grant "*S-1-5-18:(OI)(CI)F"   2>&1 | Out-Null   # SYSTEM, by SID
-  & icacls $d /grant "*S-1-5-32-544:(OI)(CI)F" 2>&1 | Out-Null # Administrators, by SID
-  & icacls $d /grant "${ME}:(OI)(CI)M"       2>&1 | Out-Null
+  & icacls $d /grant "*S-1-5-18:(OI)(CI)F"     | Out-Null   # SYSTEM, by SID
+  & icacls $d /grant "*S-1-5-32-544:(OI)(CI)F" | Out-Null   # Administrators, by SID
+  & icacls $d /grant "${ME}:(OI)(CI)M"         | Out-Null
   Write-Output "    granted  SYSTEM=F  Administrators=F  $ME=M"
 
   # 4. root-only deny: no new files or folders directly in the root.
   #    No (OI)(CI) => this folder only => subfolders stay fully writable.
-  & icacls $d /deny "${ME}:(WD,AD)" 2>&1 | Out-Null
+  & icacls $d /deny "${ME}:(WD,AD)" | Out-Null
   Write-Output "    denied   $ME create-file/create-folder AT ROOT ONLY (drag-drop guard)"
 }
 
