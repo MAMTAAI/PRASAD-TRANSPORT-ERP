@@ -52,6 +52,13 @@ $PLAN = @(
   # (api.py, agents, api-scrip-master.csv) sitting on the shared drive. It is
   # the single largest piece of Jaiswal material that was still misplaced.
   @{ Src = 'E:\Algo-Engine';                                        Dst = 'H:\'; Owner = 'Jaiswal Capital' }
+  # Also from the leftovers audit, and the more interesting find: this sat on
+  # F:\, the PRASAD drive, under a name that gives nothing away. Contents settle
+  # it -- "Jaiswal Capital Trading Terminal ( Master).docx", "cludi code auto
+  # trade.txt", and a Dashboard\ folder of live trading.txt, dhan order
+  # engen.txt, RMS.txt. 31 files, not one transport term among them. Small
+  # enough to overlook forever, which is exactly why it needed finding.
+  @{ Src = 'F:\Reserch  Analysis Work';                             Dst = 'H:\'; Owner = 'Jaiswal Capital' }
 )
 
 $LOG = Join-Path $PSScriptRoot ("drive-separation-{0}.log" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
