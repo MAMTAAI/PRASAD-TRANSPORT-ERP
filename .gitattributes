@@ -27,3 +27,9 @@
 *.jks  binary
 *.keystore binary
 *.aab  binary
+
+# Shell hooks must keep LF. Git's autocrlf would rewrite the shebang to
+# "#!/bin/sh\r", which sh rejects -- the pre-push guard would silently stop
+# running on every fresh clone, which is exactly when it is needed most.
+.githooks/* text eol=lf
+*.sh text eol=lf
