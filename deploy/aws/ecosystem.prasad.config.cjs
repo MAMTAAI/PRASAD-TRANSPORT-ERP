@@ -64,5 +64,34 @@ module.exports = {
       max_memory_restart: '1200M',
       time: true,
     },
+    {
+      // WhatsApp engine — OTP delivery and the CRM's send path.
+      //
+      // PORT 5002, NOT 5001. On this shared box 5001 belongs to
+      // /home/ubuntu/Algo-Engine/api.py, the Jaiswal Capital trading API. The
+      // ERP's WA_ENGINE_URL had been pointing at 5001 all along, so every OTP
+      // attempt was querying the trading engine and getting {"detail":"Not
+      // Found"} back. Two unrelated systems, one port number, and an OTP
+      // channel that could never have worked.
+      //
+      // Binds loopback: the engine's API is unauthenticated unless
+      // WA_ENGINE_TOKEN is set, so it must never face the internet.
+      //
+      // Puppeteer's Chromium is already in ~/.cache/puppeteer on this box, so
+      // no browser install is needed. The engine boots to WAITING_FOR_SCAN and
+      // stays there until somebody links a phone — deploying it does not, by
+      // itself, connect a WhatsApp account.
+      name: 'prasad-wa-engine',
+      script: 'server.js',
+      cwd: APP_DIR + '/whatsapp-server',
+      env: {
+        PORT: 5002,
+        HOST: '127.0.0.1',
+        NODE_ENV: 'production',
+        WA_CLIENT_ID: 'prasad-aws',
+      },
+      max_memory_restart: '900M',
+      time: true,
+    },
   ],
 };
