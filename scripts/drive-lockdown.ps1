@@ -137,23 +137,75 @@ foreach ($d in $DRIVES) {
   if (-not (Test-Path $bak)) { Write-Output "    could not save ACL backup -- SKIPPING $d"; continue }
   Write-Output "    ACL backed up -> $bak"
 
-  # 2. drop the generic identities
+  # 2. SEED THE CHILDREN FIRST. This step is why H:\ locked out on 16-08.
+  #
+  # H:'s folders were all written that morning by robocopy /COPY:DAT -- Data,
+  # Attributes, Timestamps, and no S for Security. So none of them carried an
+  # explicit ACE; every one depended on inheriting from the root. Removing
+  # Authenticated Users and BUILTIN\Users from H:\ therefore did not merely
+  # tighten the root, it deleted the only grant 400 GB of folders were living
+  # on, and the volume became unreadable to its own owner.
+  #
+  # F:\ survived the identical operation because its folders are older and
+  # carry inherited ACEs from a chain that was never broken.
+  #
+  # So: stamp real ACEs onto every child BEFORE touching the root. /T is
+  # deliberate and slow here -- it is the whole point. After this, children own
+  # their permissions and no longer care what the root says.
+  Write-Output "    seeding child ACLs (/T, this walks the volume and takes a while)..."
+  & icacls $d /grant "*S-1-5-18:(OI)(CI)F" /T /C /Q | Out-Null
+  & icacls $d /grant "*S-1-5-32-544:(OI)(CI)F" /T /C /Q | Out-Null
+  & icacls $d /grant "${ME}:(OI)(CI)M" /T /C /Q | Out-Null
+  Write-Output "    child ACLs seeded"
+
+  # 3. drop the generic identities FROM THE ROOT ONLY
   foreach ($id in @('Everyone', 'BUILTIN\Users', 'NT AUTHORITY\Authenticated Users')) {
     & icacls $d /remove:g $id | Out-Null
     & icacls $d /remove:d $id | Out-Null
     Write-Output "    removed  $id"
   }
 
-  # 3. explicit grants
+  # 4. explicit grants on the root
   & icacls $d /grant "*S-1-5-18:(OI)(CI)F"     | Out-Null   # SYSTEM, by SID
   & icacls $d /grant "*S-1-5-32-544:(OI)(CI)F" | Out-Null   # Administrators, by SID
   & icacls $d /grant "${ME}:(OI)(CI)M"         | Out-Null
   Write-Output "    granted  SYSTEM=F  Administrators=F  $ME=M"
 
-  # 4. root-only deny: no new files or folders directly in the root.
+  # 5. root-only deny: no new files or folders directly in the root.
   #    No (OI)(CI) => this folder only => subfolders stay fully writable.
   & icacls $d /deny "${ME}:(WD,AD)" | Out-Null
   Write-Output "    denied   $ME create-file/create-folder AT ROOT ONLY (drag-drop guard)"
+
+  # 6. PROVE IT STILL WORKS, AND ROLL BACK IF IT DOES NOT.
+  #
+  # A lockdown that locks the owner out is not a lockdown, it is an outage. The
+  # check is deliberately the two things that actually matter: can the volume be
+  # listed, and can an existing folder still be written to.
+  $ok = $true
+  try { Get-ChildItem -LiteralPath $d -Force -ErrorAction Stop | Out-Null }
+  catch { $ok = $false; Write-Output "    POST-CHECK FAILED: cannot list $d" }
+
+  if ($ok) {
+    $child = Get-ChildItem -LiteralPath $d -Directory -Force -ErrorAction SilentlyContinue |
+             Where-Object { $_.Name -notmatch 'RECYCLE|System Volume' } | Select-Object -First 1
+    if ($child) {
+      $probe = Join-Path $child.FullName '.lockdown-writetest'
+      try {
+        [System.IO.File]::WriteAllText($probe, 'x')
+        [System.IO.File]::Delete($probe)
+        Write-Output "    post-check: list OK, write OK inside $($child.Name)"
+      } catch {
+        $ok = $false
+        Write-Output "    POST-CHECK FAILED: cannot write inside $($child.Name)"
+      }
+    }
+  }
+
+  if (-not $ok) {
+    Write-Output "    ROLLING BACK $d from $bak"
+    & icacls $d /restore $bak /C | Out-Null
+    Write-Output "    rolled back. $d left as it was; fix the cause before retrying."
+  }
 }
 
 Write-Output ''
