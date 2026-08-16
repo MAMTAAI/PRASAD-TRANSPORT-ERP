@@ -1,5 +1,8 @@
 // @ts-nocheck
-// 🧠 AI Brain Control — control panel for the LOCAL Gemma 4 engine.
+// 🧠 AI Brain Control -- control panel for the LOCAL Ollama engine.
+// Model-agnostic on purpose: the dropdown lists whatever is actually pulled
+// (gemma4 for vision, deepseek-r1 for text), so naming one of them in the
+// heading was always going to drift out of date.
 // Live health (Ollama/model), swap active model + temperature + Mamta persona
 // (saved to localStorage — instant, no Firestore read), and a quick self-test.
 import React, { useEffect, useState } from 'react';
@@ -63,7 +66,7 @@ export default function AiSettings() {
   return (
     <div style={{ padding: '24px', color: '#fff', maxWidth: '900px', margin: '0 auto' }}>
       <h2 style={{ color: '#c084fc', margin: 0 }}>🧠 AI Brain Control <span style={{ fontSize: '11px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }}>100% LOCAL</span></h2>
-      <p style={{ color: '#94a3b8', marginTop: '6px' }}>Local Gemma 4 engine ka control — model, temperature, Mamta persona (sab .env/code change ke bina).</p>
+      <p style={{ color: '#94a3b8', marginTop: '6px' }}>Local AI engine ka control (Ollama) — model, temperature, Mamta persona (sab .env/code change ke bina).</p>
 
       {/* Live health */}
       <div style={card}>

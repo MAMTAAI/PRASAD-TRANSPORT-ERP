@@ -1,8 +1,18 @@
-// 🤖 Mamta AI Scanner — 100% LOCAL document extraction via Gemma 4 vision.
-// Replaces the old cloud OCR endpoint. Images go straight to the local model;
-// PDFs are rendered to an image first with pdf.js (a bundled lib, not a service).
+// 🤖 Mamta AI Scanner — 100% LOCAL document extraction.
+// Replaces the old cloud OCR endpoint. PDFs are rendered to an image first with
+// pdf.js (a bundled lib, not a service), then Tesseract turns the page into
+// text and DeepSeek parses it. Vision is the fallback, not the default.
 
 import { llmChat } from './llm';
+
+// Two models, because they do different jobs and are not interchangeable.
+//   TEXT_MODEL   reads OCR output. deepseek-r1 is a reasoning text model.
+//   VISION_MODEL reads pixels when OCR fails. MUST be multimodal; deepseek
+//                cannot do this and returns an empty object rather than an
+//                error, which is the worst way for it to fail.
+// Overridable so a box with different models pulled can point at its own.
+const TEXT_MODEL = (import.meta as any).env?.VITE_LLM_SCAN_TEXT_MODEL || 'deepseek-r1:8b';
+const VISION_MODEL = (import.meta as any).env?.VITE_LLM_SCAN_VISION_MODEL || 'gemma4:12b';
 
 export interface ExtractedSlip {
   challan_no: string;
@@ -103,16 +113,61 @@ async function pdfFirstPageToBase64(file: File): Promise<string> {
 
 /**
  * Extract structured fields from a loading slip / invoice (image or PDF),
- * fully on-device via Gemma 4 vision. Throws LLMOfflineError if Ollama is down.
+ * fully on-device. Throws LLMOfflineError if Ollama is down.
+ *
+ * OCR FIRST, THEN DEEPSEEK. VISION ONLY IF OCR COMES BACK THIN.
+ *
+ * This used to hand the raw image to the model and let it read the pixels,
+ * which only works on a MULTIMODAL model. gemma4 is one; deepseek-r1 and
+ * deepseek-coder are not -- they are text models and will cheerfully return an
+ * empty object when handed an image, with no error to notice. So "switch the
+ * scanner to DeepSeek" cannot be a one-line model swap: it needs the pixels
+ * turned into text first.
+ *
+ * Tesseract does that here, in the browser, which is the same shape as the
+ * zero-cost pipeline SmartScanner.tsx already uses (Tesseract -> deepseek-r1).
+ * Nothing leaves the machine either way.
+ *
+ * The vision path stays as the fallback for the case OCR genuinely cannot
+ * handle -- a photographed slip at an angle, faint dot-matrix print -- where a
+ * multimodal model still reads what Tesseract cannot. Below MIN_OCR_CHARS we
+ * assume that is what happened.
  */
+const MIN_OCR_CHARS = 120;
+
+async function ocrToText(imageB64: string): Promise<string> {
+  try {
+    const { createWorker } = await import('tesseract.js');
+    const worker = await createWorker('eng');
+    try {
+      const { data } = await worker.recognize(`data:image/png;base64,${imageB64}`);
+      return (data.text || '').trim();
+    } finally {
+      await worker.terminate();
+    }
+  } catch {
+    return '';   // OCR unavailable -> caller falls back to vision
+  }
+}
+
 export async function extractLoadingSlip(file: File): Promise<ExtractedSlip> {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const imageB64 = isPdf ? await pdfFirstPageToBase64(file) : await fileToBase64(file);
 
-  const res = await llmChat(
-    [{ role: 'user', content: PROMPT, images: [imageB64] }],
-    { format: 'json', temperature: 0, think: false, numCtx: 8192 }
-  );
+  const ocrText = await ocrToText(imageB64);
+  const useText = ocrText.length >= MIN_OCR_CHARS;
+
+  const res = useText
+    ? await llmChat(
+        [{ role: 'user', content: `${PROMPT}\n\nDocument text (OCR):\n"""\n${ocrText}\n"""` }],
+        { format: 'json', temperature: 0, think: false, numCtx: 8192, model: TEXT_MODEL }
+      )
+    // Vision fallback: needs a multimodal model, so it must NOT inherit the
+    // text model. Passing it explicitly keeps the two paths honest.
+    : await llmChat(
+        [{ role: 'user', content: PROMPT, images: [imageB64] }],
+        { format: 'json', temperature: 0, think: false, numCtx: 8192, model: VISION_MODEL }
+      );
 
   let parsed: any = {};
   try {

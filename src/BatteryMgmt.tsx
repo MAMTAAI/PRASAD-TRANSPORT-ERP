@@ -283,7 +283,7 @@ export default function BatteryMgmt() {
     if (!invoiceFile) return alert("⚠️ Please select an Invoice PDF or Image first!");
     setScanning(true); setUploadingDoc(true);
     try {
-      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      // 🤖 100% LOCAL extraction: Tesseract OCR -> DeepSeek (no cloud).
       const prompt = `Extract from this battery purchase invoice and reply with ONLY JSON:
 { "invoice_no": "", "vendor_name": "", "total_amount": 0, "gst_percent": 0 }
 Empty string / 0 if absent.`;
@@ -293,7 +293,7 @@ Empty string / 0 if absent.`;
         invoice_no: ai.invoice_no || `INV-${Math.floor(Math.random() * 10000)}`,
         vendor_name: ai.vendor_name || purchaseData.vendor_name,
       });
-      alert("✅ Invoice ko Mamta AI (local Gemma 4) ne padh liya. Verify karein.");
+      alert("✅ Invoice ko Mamta AI (local DeepSeek) ne padh liya. Verify karein.");
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
       alert(offline ? '❌ Local AI engine (Ollama) band hai. Manually bharein.' : '❌ Invoice padhi nahi gayi. Manually bharein.');
@@ -942,7 +942,7 @@ Empty string / 0 if absent.`;
             <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #38bdf8', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                <div>
                  <label style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '14px', display: 'block' }}>🤖 Upload Original Bill & Scan (Auto-Fill)</label>
-                 <p style={{ color: '#94a3b8', fontSize: '11px', marginTop: '5px', marginBottom: 0 }}>Select PDF/Image of the invoice. AI (local Gemma 4) will extract details.</p>
+                 <p style={{ color: '#94a3b8', fontSize: '11px', marginTop: '5px', marginBottom: 0 }}>Select PDF/Image of the invoice. AI (local DeepSeek) will extract details.</p>
                </div>
                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                  <input type="file" accept="image/*,.pdf" onChange={(e) => setInvoiceFile(e.target.files ? e.target.files[0] : null)} style={{ color: 'white', fontSize: '12px', background: '#1e293b', padding: '8px', borderRadius: '8px' }} />

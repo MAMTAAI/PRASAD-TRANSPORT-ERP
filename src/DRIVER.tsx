@@ -296,10 +296,10 @@ export default function DriverMgmt() {
     }
 
     try {
-      // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
+      // 🤖 100% LOCAL extraction: Tesseract OCR -> DeepSeek (no cloud).
       const ex = await extractDocument(file, docType);
       setScannedAIData({ documentNumber: ex.document_number, documentDate: ex.expiry_date || ex.issue_date, extraDetails: ex.holder_name, partyName: ex.holder_name });
-      alert(`✅ File saved + Mamta AI (local Gemma 4) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
+      alert(`✅ File saved + Mamta AI (local DeepSeek) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
       alert(`✅ File saved ho gayi.\n${offline ? '⚠️ Local AI engine (Ollama) band hai — scan nahi hua.' : '⚠️ Document scan nahi ho paya (file phir bhi save hai).'}`);

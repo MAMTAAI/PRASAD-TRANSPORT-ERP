@@ -298,7 +298,7 @@ export default function LodingDetals() {
       setScanLowConf(ex._lowConfidence || []);
       setActiveTab('MANUAL');
       setShowInboxModal(false);
-      alert(`✅ Mamta AI (local Gemma 4) scanned the slip. Verify and save.${ex._lowConfidence?.length ? ' Some fields are highlighted — check those.' : ''}`);
+      alert(`✅ Mamta AI (local DeepSeek) scanned the slip. Verify and save.${ex._lowConfidence?.length ? ' Some fields are highlighted — check those.' : ''}`);
       try { speak('नमस्कार सर। लोडिंग स्लिप लोकल ए आई से स्कैन हो गई है। कृपया चेक करके सेव करें।'); } catch { /* voice optional */ }
     } catch (error: any) {
       alert(error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '')
@@ -606,7 +606,7 @@ export default function LodingDetals() {
                 <label style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
                   🤖 Mamta AI Scanner <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px', marginLeft: '4px' }}>100% LOCAL</span>
                 </label>
-                <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Upload an invoice or loading slip (PDF/photo) — read on-device by Gemma 4, no internet. Auto-fills the form below.</p>
+                <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Upload an invoice or loading slip (PDF/photo) — read on-device by DeepSeek (via Ollama), no internet. Auto-fills the form below.</p>
               </div>
               <label style={{ background: '#38bdf8', color: '#0f172a', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: isScanningFile ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
                 {isScanningFile ? '⏳ Scanning…' : '📎 Upload & Scan'}
@@ -848,7 +848,7 @@ export default function LodingDetals() {
             style={{ width: '100%', maxWidth: 620, background: '#0f172a', border: `2px dashed ${isDragging ? '#10b981' : '#38bdf8'}`, borderRadius: 18, padding: 34, textAlign: 'center' }}>
             <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📥 Smart Inbox</h3>
             <p style={{ color: '#94a3b8', fontSize: 13 }}>
-              Drop a loading slip or invoice here, paste one from the clipboard, or browse. It is read on-device by Gemma 4 — nothing leaves this machine.
+              Drop a loading slip or invoice here, paste one from the clipboard, or browse. It is read on-device by DeepSeek (via Ollama) — nothing leaves this machine.
             </p>
             <div style={{ fontSize: 48, margin: '18px 0' }}>{isScanningFile ? '⏳' : isDragging ? '📥' : '📄'}</div>
             <label style={{ background: '#38bdf8', color: '#0f172a', padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: isScanningFile ? 'not-allowed' : 'pointer', display: 'inline-block' }}>

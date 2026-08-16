@@ -96,7 +96,7 @@ export default function AiLetterPad() {
 
     const today = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    // 🤖 100% LOCAL: draft the body with Gemma 4 (template fallback if offline).
+    // 🤖 100% LOCAL: draft the body with the local model (template fallback if offline).
     let bodyText = `With reference to the subject cited above, we wish to bring to your kind attention the matter of <strong>${actionType}</strong>${selectedVehicle ? ` for our vehicle <strong>${selectedVehicle}</strong>` : ''}. We request you to kindly process this at the earliest.`;
     try {
       const ctx = `Company: ${letterhead}. Addressed to: ${authority}. Subject/Action: ${actionType}.${selectedVehicle ? ` Vehicle: ${selectedVehicle}.` : ''}${selectedDriver ? ` Driver: ${selectedDriver}.` : ''}`;
