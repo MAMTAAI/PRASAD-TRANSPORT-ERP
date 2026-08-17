@@ -79,13 +79,26 @@ const MAX_FILE_BYTES = Number(process.env.ERP_HEAL_MAX_FILE_BYTES || 20000);
 const LLM_TIMEOUT_MS = Number(process.env.ERP_HEAL_LLM_TIMEOUT_S || 300) * 1000;
 const HEAL_MODEL = process.env.ERP_HEAL_MODEL || 'deepseek-coder:6.7b';
 
-const STATE_PATH = path.join(ROOT, 'logs', '.erp_healer_state.json');
-const LEDGER_PATH = path.join(ROOT, 'logs', 'erp_heal_proposals.json');
+// Where logs live. The scheduled task runs `node erp_auto_healer.cjs` with no
+// -r dotenv/config, so .env was never read here and LOG_DIR was invisible --
+// which is why the healer kept both writing AND tailing <repo>/logs on E:
+// after everything else moved to F:. Loading it is best-effort: a missing
+// dotenv must not stop the daemon that exists to keep things running.
+try { require('dotenv').config({ path: path.join(ROOT, '.env') }); } catch { /* optional */ }
+
+// THE READER AND THE WRITERS MUST AGREE. This process tails *.err.log to detect
+// crashes; if the stack starts writing to F: while this still watches E:, the
+// healer goes blind without a single error to show for it. Both sides read the
+// same variable for exactly that reason.
+const LOGS = process.env.LOG_DIR ? path.resolve(process.env.LOG_DIR) : path.join(ROOT, 'logs');
+
+const STATE_PATH = path.join(LOGS, '.erp_healer_state.json');
+const LEDGER_PATH = path.join(LOGS, 'erp_heal_proposals.json');
 const KILL_FILE = path.join(ROOT, 'ERP_HEALER.KILL');
 const BACKUP_DIR = path.join(ROOT, 'backups', 'heal');
 
 // stderr sources to tail (glob-free: explicit dirs, *.err.log inside)
-const LOG_DIRS = [path.join(ROOT, 'logs'), path.join(ROOT, 'whatsapp-server', 'logs')];
+const LOG_DIRS = [LOGS, path.join(ROOT, 'whatsapp-server', 'logs')];
 
 // modules the healer may patch (after God approval)
 const ALLOWED_DIRS = [ROOT, path.join(ROOT, 'scripts'), path.join(ROOT, 'whatsapp-server')];

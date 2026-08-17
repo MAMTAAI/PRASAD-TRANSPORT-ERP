@@ -19,7 +19,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const SCRIPT = path.join(REPO, 'tools', 'iocl_recon', 'iocl_ac5_loading.py');
 const PYTHON = process.env.PYTHON_BIN || 'python';
-const LOG_DIR = path.join(REPO, 'logs');
+// Honour LOG_DIR. server/config/init_drives.js fills it in from
+// LOCAL_STORAGE_PATH at boot (F:/Prasad_Transport_Data/logs on the office PC),
+// so hardcoding <repo>/logs here meant the cron log was the one file still
+// being written to the code drive after the 15-08 move to F:. Unset falls back
+// to the repo, which is the AWS layout.
+const LOG_DIR = process.env.LOG_DIR ? path.resolve(process.env.LOG_DIR) : path.join(REPO, 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'cron_sync.log');
 
 const RUN_TIMEOUT_MS = Number(process.env.IOCL_SYNC_TIMEOUT_MS || 15 * 60 * 1000);

@@ -170,6 +170,74 @@ Write-Host '    [ok] bundle is signed'
 
 Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
 
+# ---------------------------------------------------------------- publish
+# THE BUNDLE BELONGS ON F:, NOT IN THE REPO.
+#
+# App data on this PC lives on F:\Prasad_Transport_Data - that is the drive
+# routing rule, and F:\...uilds already existed for exactly this. Nothing
+# put the bundle there automatically, so the copy sitting on F: stayed the
+# hand-made 15-08-2026 build: the one with the empty env object that points
+# every phone at itself. Anyone who went to the documented location for "the
+# AAB" would have uploaded the broken one.
+#
+# gradle writes into android/app/build/, which is a build directory - it gets
+# wiped by a clean and is not the archive. This step makes the archive copy a
+# consequence of building rather than something to remember.
+Step 'Publishing the bundle to the data drive'
+
+$StorageRoot = $null
+$EnvFile = Join-Path $RepoRoot '.env'
+if (Test-Path $EnvFile) {
+    $m = Select-String -Path $EnvFile -Pattern '^\s*LOCAL_STORAGE_PATH\s*=\s*(.+?)\s*$'
+    if ($m) {
+        # .env writes the path with forward slashes (F:/Prasad_Transport_Data).
+        # Use a single backslash here: in a .NET replacement string a backslash
+        # is NOT an escape character, so '\\' would emit two of them.
+        $StorageRoot = $m.Matches[0].Groups[1].Value.Trim() -replace '/', '\'
+        # 'F:Prasad_...' with no separator is a DRIVE-RELATIVE path - it resolves
+        # against F:'s CURRENT DIRECTORY, not its root. It works by accident
+        # whenever the shell happens to sit at F:\ and quietly files the build
+        # somewhere else when it does not. Force it rooted.
+        $StorageRoot = $StorageRoot -replace '^([A-Za-z]:)(?![\\])', '$1\'
+    }
+}
+
+if (-not $StorageRoot) {
+    Write-Host '    LOCAL_STORAGE_PATH is not set in .env - leaving the bundle in the repo only.' -ForegroundColor Yellow
+} else {
+    # Same contract as server/config/init_drives.js: configured but missing is a
+    # hard stop, never a silent fallback onto the wrong drive.
+    $Volume = [System.IO.Path]::GetPathRoot($StorageRoot)
+    if (-not (Test-Path $Volume)) {
+        Fail "LOCAL_STORAGE_PATH points at $StorageRoot but the volume $Volume is not mounted. Refusing to scatter builds across two drives - plug the disk in, or unset LOCAL_STORAGE_PATH."
+    }
+
+    $BuildsDir = Join-Path $StorageRoot 'builds'
+    $ArchiveDir = Join-Path $BuildsDir 'archive'
+    New-Item -ItemType Directory -Force -Path $ArchiveDir | Out-Null
+
+    $Stable = Join-Path $BuildsDir 'app-release.aab'
+    $Versioned = Join-Path $BuildsDir "app-release-v$VersionName-$VersionCode.aab"
+
+    # Never overwrite a previous bundle out of existence: an uploaded AAB is the
+    # only way to reproduce what a user actually installed.
+    if (Test-Path $Stable) {
+        $PrevStamp = (Get-Item $Stable).LastWriteTime.ToString('yyyyMMdd-HHmmss')
+        $Parked = Join-Path $ArchiveDir "app-release-$PrevStamp.aab"
+        if (-not (Test-Path $Parked)) {
+            Move-Item $Stable $Parked
+            Write-Host "    previous bundle archived -> $Parked"
+        } else {
+            Remove-Item $Stable -Force
+        }
+    }
+
+    Copy-Item $AabPath $Versioned -Force
+    Copy-Item $AabPath $Stable -Force
+    Write-Host "    [ok] $Versioned"
+    Write-Host "    [ok] $Stable  (latest)"
+}
+
 # ---------------------------------------------------------------- done
 $Size = [math]::Round((Get-Item $AabPath).Length / 1MB, 2)
 Write-Host ''

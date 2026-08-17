@@ -19,8 +19,45 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root    = Split-Path -Parent $PSScriptRoot   # repo root (scripts\ is one level down)
-$LogDir  = Join-Path $Root 'logs'
+
+# LOG DIRECTORY - read from .env, not assumed to be inside the repo.
+#
+# App data on the office PC lives on F:/Prasad_Transport_Data (LOCAL_STORAGE_PATH
+# in .env, laid out by server/config/init_drives.js). This script used to write
+# ollama/bridge/whatsapp-engine/cloudflared logs to <repo>/logs regardless, so
+# after everything moved to F: on 15-08-2026 there were two live log
+# directories: the API's on F: and this stack's still on E:. Nobody noticed,
+# because both kept working.
+#
+# scripts/erp_auto_healer.cjs TAILS these same files to detect crashes and reads
+# the same variable. Change one side only and the healer watches an empty
+# directory forever.
+#
+# Unset LOG_DIR falls back to <repo>/logs, which is the AWS layout.
+$LogDir = $null
+$EnvFile = Join-Path $Root '.env'
+if (Test-Path $EnvFile) {
+    $m = Select-String -Path $EnvFile -Pattern '^\s*LOG_DIR\s*=\s*(.+?)\s*$'
+    if ($m) {
+        # A backslash is not an escape character in a .NET replacement string,
+        # so this must be a single one. 'F:Prasad_...' with no separator would
+        # be drive-RELATIVE and land wherever that drive's cwd happens to be.
+        $LogDir = $m.Matches[0].Groups[1].Value.Trim() -replace '/', '\'
+        $LogDir = $LogDir -replace '^([A-Za-z]:)(?![\\])', '$1\'
+    }
+}
+if (-not $LogDir) { $LogDir = Join-Path $Root 'logs' }
+
+# A configured volume that is not mounted must stop the launcher, not be
+# recreated as an empty folder on the wrong drive - same contract as
+# server/config/init_drives.js.
+$LogVolume = [System.IO.Path]::GetPathRoot($LogDir)
+if ($LogVolume -and -not (Test-Path $LogVolume)) {
+    Write-Error "LOG_DIR points at $LogDir but the volume $LogVolume is not mounted. Refusing to scatter logs across two drives."
+    exit 1
+}
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+Write-Host "Logs: $LogDir"
 
 function Test-PortUp([int]$Port) {
   return [bool](Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
