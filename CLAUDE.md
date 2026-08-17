@@ -27,6 +27,18 @@ PostgreSQL (`prasad_erp`), and a 10-agent swarm in `server/agents/`.
   SQL or a decimal library — never in JS floats.
 - **PowerShell scripts must be ASCII.** Non-ASCII breaks the scheduled tasks.
 
+- **App data lives on `F:\Prasad_Transport_Data`, never in the repo.** `.env`
+  sets `LOCAL_STORAGE_PATH` / `UPLOAD_DIR` / `LOG_DIR`, and
+  `server/config/init_drives.js` lays the tree out at boot and refuses to start
+  when the volume is missing rather than quietly recreating it on the wrong
+  drive. Anything that writes uploads, logs or build artefacts must READ those
+  variables, not `path.join(__dirname, 'logs')`. Three writers hardcoded the
+  repo path and survived the 15-08-2026 move unnoticed, leaving two live log
+  directories; `F:\...uilds` meanwhile still held a broken bundle because
+  nothing published there automatically. Both classes of bug fail by *working*.
+  Sweep leftovers with `scripts/migrate-logs-to-storage.ps1` (it skips files a
+  live writer holds open — run it again after the next logon).
+
 - **Pushing `main` is deploying.** `deploy/aws/ci-deploy.sh` runs on the AWS box
   from cron every 3 minutes: it fetches `origin/main`, fast-forwards, and
   `pm2 restart`s the API, the web app and the AI bridge. There is no approval
