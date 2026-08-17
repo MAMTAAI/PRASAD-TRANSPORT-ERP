@@ -72,9 +72,23 @@ Write-Host "  from : $Source"
 Write-Host "  to   : $LogDir"
 Write-Host ''
 
-$moved = 0; $skipped = 0; $renamed = 0
+# NOT LOGS - LIVE PROCESS STATE. These are owned and rewritten by a running
+# process (the healer updates its offsets on every tick), so they are not
+# history to preserve and sweeping them is actively wrong: the owner recreates
+# the file on E: within seconds, each copy differs from the last, and every run
+# of this script leaves another .from-repo- snapshot behind. Once the owner
+# restarts it writes to LOG_DIR directly and the file appears there by itself.
+$ExcludeNames = @('.erp_healer_state.json', 'erp_heal_proposals.json')
+
+$moved = 0; $skipped = 0; $renamed = 0; $duplicate = 0; $held = 0
 
 foreach ($f in (Get-ChildItem -Path $Source -File)) {
+    if ($ExcludeNames -contains $f.Name) {
+        Write-Host ("  STATE {0,-30} live process state, not history - its owner relocates it on restart" -f $f.Name) -ForegroundColor DarkGray
+        $held++
+        continue
+    }
+
     # Is anything holding it open? Opening for ReadWrite with no sharing is the
     # only reliable test on Windows; there is no "is locked" property.
     $locked = $false
@@ -89,8 +103,24 @@ foreach ($f in (Get-ChildItem -Path $Source -File)) {
 
     $target = Join-Path $LogDir $f.Name
     if (Test-Path $target) {
-        # Never overwrite: the file already on the data drive is the one the
-        # migrated services have been writing, and it is not the same history.
+        # IDENTICAL CONTENT IS NOT A SECOND HISTORY. A process still running the
+        # pre-fix code recreates its file on E: within seconds of the sweep --
+        # the healer rewrites .erp_healer_state.json on every tick -- so running
+        # this before the restart used to litter the data drive with byte-for-
+        # byte duplicates. Compare first: same bytes means drop the copy.
+        $srcHash = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash
+        $dstHash = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
+        if ($srcHash -eq $dstHash) {
+            if ($WhatIf) {
+                Write-Host ("  WOULD {0,-30} discard (identical copy already on the data drive)" -f $f.Name) -ForegroundColor DarkGray
+            } else {
+                Remove-Item -LiteralPath $f.FullName -Force
+                Write-Host ("  SAME  {0,-30} identical copy already there - source discarded" -f $f.Name) -ForegroundColor DarkGray
+            }
+            $duplicate++
+            continue
+        }
+        # Different bytes IS a different history - keep both, never overwrite.
         $stamp = $f.LastWriteTime.ToString('yyyyMMdd-HHmmss')
         $target = Join-Path $LogDir ("{0}.from-repo-{1}{2}" -f $f.BaseName, $stamp, $f.Extension)
         $renamed++
@@ -106,7 +136,7 @@ foreach ($f in (Get-ChildItem -Path $Source -File)) {
 }
 
 Write-Host ''
-Write-Host ("  {0} moved, {1} skipped (locked), {2} renamed to avoid a collision" -f $moved, $skipped, $renamed)
+Write-Host ("  {0} moved, {1} skipped (locked), {2} left as live state, {3} identical discarded, {4} renamed" -f $moved, $skipped, $held, $duplicate, $renamed)
 if ($skipped -gt 0) {
     Write-Host ''
     Write-Host '  Those files still have a process writing into them. After the next' -ForegroundColor Yellow
