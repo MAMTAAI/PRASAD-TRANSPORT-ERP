@@ -13,7 +13,14 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const ERP_LOG = path.join(ROOT, 'logs', 'erp_system.log');
+// Honour LOG_DIR like every other writer here. This one was missed in the
+// first pass -- the healer's STATE and its tail sources were repointed at the
+// data drive while its lifecycle book kept appending to <repo>/logs, so a
+// verified-clean migration still had a live writer on the code drive. Only
+// checking what was actually being written afterwards caught it.
+const ERP_LOG = path.join(
+  process.env.LOG_DIR ? path.resolve(process.env.LOG_DIR) : path.join(ROOT, 'logs'),
+  'erp_system.log');
 // Defaulted to E:\jaiswal-terminal\Algo-Engine\boot_book.log -- Prasad daemons
 // writing their operational log into the trading company's repo. A unified book
 // across both businesses is a fine idea, but it cannot be the DEFAULT across a

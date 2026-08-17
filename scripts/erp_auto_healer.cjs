@@ -50,6 +50,19 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
+// ENV BEFORE ANY MODULE THAT READS IT AT LOAD TIME. The scheduled task runs a
+// plain `node erp_auto_healer.cjs` with no -r dotenv/config, so .env is not in
+// the environment and LOG_DIR is invisible unless it is loaded here.
+//
+// This has to happen ABOVE the require below, not further down with the rest of
+// the config. erp_system_log.cjs computes its log path once, at module load;
+// loading .env after requiring it means the variable arrives too late and the
+// lifecycle book keeps appending to <repo>/logs while everything else has moved.
+// That is exactly what happened on the first attempt, and only checking which
+// files were actually being written afterwards caught it. Best-effort: a
+// missing dotenv must not stop the daemon whose job is keeping things running.
+try { require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') }); } catch { /* optional */ }
+
 const { slog, slogBoth, ROOT } = require('./erp_system_log.cjs');
 
 const AGENT = 'prasad-erp-healer';
@@ -78,13 +91,6 @@ const SIG_COOLDOWN_MS = Number(process.env.ERP_HEAL_SIG_COOLDOWN_S || 86400) * 1
 const MAX_FILE_BYTES = Number(process.env.ERP_HEAL_MAX_FILE_BYTES || 20000);
 const LLM_TIMEOUT_MS = Number(process.env.ERP_HEAL_LLM_TIMEOUT_S || 300) * 1000;
 const HEAL_MODEL = process.env.ERP_HEAL_MODEL || 'deepseek-coder:6.7b';
-
-// Where logs live. The scheduled task runs `node erp_auto_healer.cjs` with no
-// -r dotenv/config, so .env was never read here and LOG_DIR was invisible --
-// which is why the healer kept both writing AND tailing <repo>/logs on E:
-// after everything else moved to F:. Loading it is best-effort: a missing
-// dotenv must not stop the daemon that exists to keep things running.
-try { require('dotenv').config({ path: path.join(ROOT, '.env') }); } catch { /* optional */ }
 
 // THE READER AND THE WRITERS MUST AGREE. This process tails *.err.log to detect
 // crashes; if the stack starts writing to F: while this still watches E:, the

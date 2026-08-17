@@ -82,7 +82,11 @@ $ExcludeNames = @('.erp_healer_state.json', 'erp_heal_proposals.json')
 
 $moved = 0; $skipped = 0; $renamed = 0; $duplicate = 0; $held = 0
 
-foreach ($f in (Get-ChildItem -Path $Source -File)) {
+# RECURSE. Logs are not all flat: server/ai_engine writes a dated JSONL under
+# logs/ai_engine/, and a top-level-only sweep silently left that subtree on the
+# code drive while reporting success.
+foreach ($f in (Get-ChildItem -Path $Source -File -Recurse)) {
+    $rel = $f.FullName.Substring($Source.Length).TrimStart('\')
     if ($ExcludeNames -contains $f.Name) {
         Write-Host ("  STATE {0,-30} live process state, not history - its owner relocates it on restart" -f $f.Name) -ForegroundColor DarkGray
         $held++
@@ -101,7 +105,9 @@ foreach ($f in (Get-ChildItem -Path $Source -File)) {
         continue
     }
 
-    $target = Join-Path $LogDir $f.Name
+    $target = Join-Path $LogDir $rel
+    $parent = Split-Path $target -Parent
+    if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
     if (Test-Path $target) {
         # IDENTICAL CONTENT IS NOT A SECOND HISTORY. A process still running the
         # pre-fix code recreates its file on E: within seconds of the sweep --
@@ -122,17 +128,23 @@ foreach ($f in (Get-ChildItem -Path $Source -File)) {
         }
         # Different bytes IS a different history - keep both, never overwrite.
         $stamp = $f.LastWriteTime.ToString('yyyyMMdd-HHmmss')
-        $target = Join-Path $LogDir ("{0}.from-repo-{1}{2}" -f $f.BaseName, $stamp, $f.Extension)
+        $target = Join-Path $parent ("{0}.from-repo-{1}{2}" -f $f.BaseName, $stamp, $f.Extension)
         $renamed++
     }
 
     if ($WhatIf) {
-        Write-Host ("  WOULD {0,-30} -> {1}" -f $f.Name, (Split-Path $target -Leaf))
+        Write-Host ("  WOULD {0,-30} -> {1}" -f $rel, (Split-Path $target -Leaf))
     } else {
         Move-Item -LiteralPath $f.FullName -Destination $target
-        Write-Host ("  MOVE  {0,-30} -> {1}" -f $f.Name, (Split-Path $target -Leaf)) -ForegroundColor Green
+        Write-Host ("  MOVE  {0,-30} -> {1}" -f $rel, (Split-Path $target -Leaf)) -ForegroundColor Green
     }
     $moved++
+}
+
+# Prune what the sweep emptied, deepest first. A directory that still holds
+# something (an excluded state file, a locked log) is left exactly as it is.
+foreach ($d in (Get-ChildItem -Path $Source -Directory -Recurse | Sort-Object { $_.FullName.Length } -Descending)) {
+    if (-not (Get-ChildItem -LiteralPath $d.FullName -Force)) { Remove-Item -LiteralPath $d.FullName -Force }
 }
 
 Write-Host ''

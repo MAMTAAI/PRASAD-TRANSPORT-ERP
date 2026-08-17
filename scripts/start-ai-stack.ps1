@@ -57,6 +57,15 @@ if ($LogVolume -and -not (Test-Path $LogVolume)) {
     exit 1
 }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+
+# Hand it down. This script redirects each child's stdout/stderr itself, but
+# several of them ALSO keep their own log and already read LOG_DIR --
+# sync-tunnel.cjs has done so all along. Launched from a scheduled task there
+# is no .env in the environment, so those children saw nothing and quietly
+# defaulted back to <repo>\logs. Exporting it once here fixes every child at
+# once, including any added later.
+$env:LOG_DIR = $LogDir
+
 Write-Host "Logs: $LogDir"
 
 function Test-PortUp([int]$Port) {
