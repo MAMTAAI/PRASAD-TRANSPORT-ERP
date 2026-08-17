@@ -39,6 +39,16 @@ PostgreSQL (`prasad_erp`), and a 10-agent swarm in `server/agents/`.
   Sweep leftovers with `scripts/migrate-logs-to-storage.ps1` (it skips files a
   live writer holds open — run it again after the next logon).
 
+- **The repo's data directories are junctions, not folders.** `uploads`,
+  `backups`, `reports`, `data`, `mobile-shots` and `.screenshots` all point at
+  `F:\Prasad_Transport_Data`. Roughly fifteen writers across JavaScript and
+  Python use the repo path, so a junction moves the bytes without moving the
+  path and no writer can be "the one that was missed". Re-create them after a
+  fresh clone with `scripts/consolidate-to-storage.ps1` — it is idempotent,
+  refuses to move a file a process holds open, and never overwrites on merge.
+  `logs` is the exception: its writers read `LOG_DIR` directly, because the
+  healer *tails* those files and reader and writer have to agree on one path.
+
 - **Pushing `main` is deploying.** `deploy/aws/ci-deploy.sh` runs on the AWS box
   from cron every 3 minutes: it fetches `origin/main`, fast-forwards, and
   `pm2 restart`s the API, the web app and the AI bridge. There is no approval
