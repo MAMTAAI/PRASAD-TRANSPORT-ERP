@@ -4,8 +4,11 @@ Everything needed to get `com.prasadtransport.erp` from this repo onto Play,
 and to ship every update after that.
 
 **App:** Prasad Transport ERP · `com.prasadtransport.erp`
-**Current build:** versionName `1.0.1`, versionCode `2`
-**Bundle:** `android/app/build/outputs/bundle/release/app-release.aab` (4.69 MB)
+**Current build:** versionName `1.0.1`, versionCode `3`
+**Bundle:** `android/app/build/outputs/bundle/release/app-release.aab` (4.7 MB)
+
+> versionCode 1 and 2 are both spent — Play refuses a code it has seen before,
+> even for a release that was never rolled out. 3 is the first unused one.
 
 ---
 
