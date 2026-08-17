@@ -12,6 +12,20 @@ if (keystorePropsFile.exists()) {
     keystorePropsFile.withInputStream { keystoreProps.load(it) }
 }
 
+// Version. Read from android/version.properties so there is exactly one place
+// to bump, and so a release cannot be built with a stale versionCode. This
+// file IS tracked in git (it holds no secrets), so its absence means a broken
+// checkout rather than a missing local config - fail here, not at upload time
+// after Play has already accepted the file and rejected the version.
+def versionPropsFile = rootProject.file('version.properties')
+if (!versionPropsFile.exists()) {
+    throw new GradleException("android/version.properties is missing - it is tracked in git, so restore it rather than guessing a version.")
+}
+def versionProps = new Properties()
+versionPropsFile.withInputStream { versionProps.load(it) }
+def appVersionCode = Integer.parseInt(versionProps['VERSION_CODE'].toString().trim())
+def appVersionName = versionProps['VERSION_NAME'].toString().trim()
+
 android {
     namespace = "com.prasadtransport.erp"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -19,8 +33,8 @@ android {
         applicationId "com.prasadtransport.erp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -41,6 +55,11 @@ android {
     buildTypes {
         release {
             signingConfig keystorePropsFile.exists() ? signingConfigs.release : null
+            // R8 stays OFF. This is a WebView shell: all the app logic is the
+            // JavaScript in assets/public, which R8 never touches, so shrinking
+            // buys a few hundred KB of Java while risking the reflective
+            // lookups Capacitor uses to resolve plugins by class name. Turn it
+            // on only with a plugin-aware keep rule set and a device test.
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

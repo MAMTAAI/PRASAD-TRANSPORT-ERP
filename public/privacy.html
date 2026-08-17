@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Prasad Transport ERP</title>
+<!--
+  Served at https://prasadtransport.com/privacy.html
+
+  This file exists because Google Play will not publish an app without a
+  privacy policy at a public URL, and because this app asks for precise
+  location. It is a plain static page in public/, so `npm run build` on the
+  AWS box copies it into dist/ and nginx serves it with the SPA - no route,
+  no auth, no API call. That matters: Play's reviewer fetches this URL
+  anonymously, and anything behind the login wall reads to them as a dead link.
+
+  Keep it truthful. Everything claimed below is what the code actually does:
+  foreground-only location (AndroidManifest deliberately omits
+  ACCESS_BACKGROUND_LOCATION), no advertising or analytics SDK in package.json,
+  and no CAMERA permission because the bill scanner hands off to the system
+  picker.
+-->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1e293b; --muted: #64748b;
+    --rule: #e2e8f0; --accent: #0e7490; --card: #f8fafc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b1220; --fg: #e2e8f0; --muted: #94a3b8;
+      --rule: #1e293b; --accent: #22d3ee; --card: #111a2e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: 40px 20px 80px;
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 0 0 6px; letter-spacing: -0.4px; }
+  h2 { font-size: 19px; margin: 38px 0 10px; padding-top: 18px; border-top: 1px solid var(--rule); }
+  .sub { color: var(--muted); margin: 0 0 8px; }
+  .updated { color: var(--muted); font-size: 14px; margin: 0 0 28px; }
+  ul { padding-left: 20px; }
+  li { margin: 7px 0; }
+  a { color: var(--accent); }
+  code { background: var(--card); padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+  .box {
+    background: var(--card); border: 1px solid var(--rule);
+    border-radius: 10px; padding: 16px 18px; margin: 18px 0;
+  }
+  footer { margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--rule); color: var(--muted); font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Privacy Policy</h1>
+  <p class="sub"><strong>Prasad Transport ERP</strong> &mdash; Android application, package <code>com.prasadtransport.erp</code></p>
+  <p class="updated">Last updated: 17 August 2026</p>
+
+  <div class="box">
+    <strong>This is a private business application.</strong> Prasad Transport ERP is
+    the internal operations system of Prasad Transport, Bongaigaon, Assam, India.
+    It is used by our own staff, our drivers, and the customers and transport
+    partners we work with, each signing in with an account we issue. It is not a
+    consumer app, there is no public sign-up, and an account cannot be created
+    from inside the app.
+  </div>
+
+  <h2>Who we are</h2>
+  <p>
+    Prasad Transport, Bongaigaon, Assam, India, is the data controller for
+    information handled by this application. Contact details are at the bottom
+    of this page.
+  </p>
+
+  <h2>What we collect, and why</h2>
+  <table>
+    <tr><th>Data</th><th>Why we hold it</th></tr>
+    <tr>
+      <td><strong>Account details</strong><br>Name, work email address, mobile number, role and permissions</td>
+      <td>To sign you in, to decide which parts of the system you may open, and to record who made a change.</td>
+    </tr>
+    <tr>
+      <td><strong>Precise location</strong><br>GPS position of the device</td>
+      <td>Only for a driver who is on duty on a trip, and only while the app is open on screen. It places the vehicle on the dispatch board and on the customer's tracking view for that consignment.</td>
+    </tr>
+    <tr>
+      <td><strong>Operational records</strong><br>Trips, loading and unloading, fuel entries, tolls, expenses, invoices and ledgers</td>
+      <td>These are the business records of the transport work itself &mdash; the reason the system exists.</td>
+    </tr>
+    <tr>
+      <td><strong>Documents you upload</strong><br>Photographs of bills, permits, licences and vehicle papers</td>
+      <td>To attach a document to the trip, vehicle or invoice it belongs to.</td>
+    </tr>
+    <tr>
+      <td><strong>Technical logs</strong><br>IP address, request time, device type, and the action performed</td>
+      <td>Security and troubleshooting. Actions that change financial records are written to an append-only audit log.</td>
+    </tr>
+  </table>
+
+  <h2>Location, specifically</h2>
+  <ul>
+    <li>Location is requested <strong>only when a driver goes on duty</strong> for a trip. Office and accounts users are never asked for it.</li>
+    <li>It is collected <strong>in the foreground only</strong>. The app does not request background-location access and does not track a device when it is closed or in the background.</li>
+    <li>Android will ask your permission before any position is read, and you may refuse or later withdraw it in Settings. The rest of the app continues to work without it.</li>
+    <li>Positions are used to show the vehicle's progress on a consignment and are kept with that trip's record.</li>
+  </ul>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>We <strong>do not sell or rent</strong> personal data to anyone.</li>
+    <li>We <strong>do not use it for advertising</strong>, and the app contains no advertising or third-party analytics or tracking SDK.</li>
+    <li>We <strong>do not build profiles</strong> of you for any purpose beyond running the transport business.</li>
+    <li>The app does <strong>not</strong> ask for camera permission. When you attach a photograph, your phone's own camera or gallery app takes it and hands us only the picture you chose.</li>
+  </ul>
+
+  <h2>Who else sees it</h2>
+  <p>Data is shared only where the work requires it:</p>
+  <ul>
+    <li><strong>Within the business</strong> &mdash; with the staff whose role covers that record.</li>
+    <li><strong>With a customer or transport partner</strong> &mdash; limited to the consignments that are theirs. A customer sees the tracking and paperwork for their own loads, nothing else.</li>
+    <li><strong>With service providers who host or transmit the system on our behalf</strong> &mdash; our cloud hosting provider, our mapping provider for displaying a route, and our messaging provider for sending a one-time login code. They process data on our instructions only.</li>
+    <li><strong>Where the law requires it</strong> &mdash; to tax, transport or law-enforcement authorities on a lawful request, and to our auditors.</li>
+  </ul>
+
+  <h2>Where it is kept, and for how long</h2>
+  <p>
+    Data is stored in a PostgreSQL database on servers operated for Prasad
+    Transport, protected by access control and encrypted transport (HTTPS).
+    Accounting, trip and tax records are retained for the periods Indian tax and
+    transport law require. Location points are retained with the trip they
+    belong to. Session tokens expire automatically and can be revoked at any
+    time from the office.
+  </p>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li><strong>Location</strong> &mdash; grant or withdraw it in Android Settings &rsaquo; Apps &rsaquo; Prasad Transport &rsaquo; Permissions.</li>
+    <li><strong>See or correct your data</strong> &mdash; ask the office, or write to the address below.</li>
+    <li><strong>Delete your account</strong> &mdash; write to us and we will close the account and remove the personal details attached to it. Business and accounting records of completed transport work must be kept for the statutory period and cannot be deleted on request; they are retained as company records, not as a profile of you.</li>
+  </ul>
+
+  <h2>Children</h2>
+  <p>
+    The app is a workplace tool issued to employees and business contacts. It is
+    not directed at children and we do not knowingly collect data from anyone
+    under 18.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If this policy changes we will update this page and the date at the top. Any
+    material change will also be communicated to account holders.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Prasad Transport<br>
+    Bongaigaon, Assam, India<br>
+    Email: <a href="mailto:prasadtransport699@gmail.com">prasadtransport699@gmail.com</a>
+  </p>
+
+  <footer>
+    Prasad Transport ERP &middot; <code>com.prasadtransport.erp</code> &middot;
+    <a href="/">Open the application</a>
+  </footer>
+
+</main>
+</body>
+</html>

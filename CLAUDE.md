@@ -146,6 +146,39 @@ as the khata row.
 
 ---
 
+# Shipping the phone apps (2026-08-17)
+
+**Android** goes to Google Play as `com.prasadtransport.erp`. **iPhone has no
+native build and is not getting one** — iOS users install the PWA from Safari.
+
+Full runbook, store copy and every Play form answer: `play-store/README.md`.
+iPhone install instructions: `docs/IPHONE-PWA.md`.
+
+## Building a release
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1 -Bump patch
+```
+
+Never assemble one by hand. The script bakes the production API origin into
+the bundle and then refuses to hand over an AAB that does not carry it.
+
+- **A native build is not same-origin.** Capacitor serves the app from
+  `https://localhost`, so `src/lib/apiBase.ts` must resolve to an absolute
+  origin. The 15-08-2026 bundle resolved to `http://127.0.0.1:3300` and told
+  every handset to call itself; it installed, launched and failed every screen.
+- **`https://localhost` must stay in `ALLOWED_ORIGINS`.** That is the app's
+  CORS origin. Remove it and the phone app dies while the browser stays fine.
+- **`import.meta.env.VITE_AGENT_API_URL` must keep that exact spelling.** Vite
+  substitutes the literal text; the optional-chained form compiles to a read
+  from an empty object, and the variable is set and then ignored.
+- **versionCode lives in `android/version.properties`** and must increase on
+  every upload. Play rejects a reused code permanently.
+- The upload keystore is on `F:\Prasad_Transport_Data\keystore` and is not in
+  git. It is the only way to update the listing.
+
+---
+
 # Firebase is gone (2026-08-14)
 
 The app has no Firebase. `src/firebase.ts` is deleted, the `firebase` package is

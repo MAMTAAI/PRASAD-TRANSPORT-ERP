@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- allowBackup=false ON PURPOSE. Android's auto-backup copies the app's
+         private storage to the user's Google Drive, and for a Capacitor app
+         that private storage is the WebView's localStorage - which is where
+         the ERP keeps the signed-in session token. Backing that up puts a
+         working credential for the company books into a personal Drive, and
+         restoring an old backup onto a new phone would silently resurrect a
+         revoked session. There is nothing in this app worth restoring: it is
+         a thin client, all state lives in PostgreSQL.
+
+         usesCleartextTraffic=false is already the platform default at
+         targetSdk 36, but it is stated here so that a future plugin's manifest
+         merge cannot quietly re-enable plain HTTP. The API is HTTPS only. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
