@@ -125,6 +125,15 @@ export default function LoanEmiMgmt() {
   // the server knows that cut-off date per loan.
   const [tracker, setTracker] = useState<any | null>(null);
   const [trackerErr, setTrackerErr] = useState<string | null>(null);
+  // ── WHAT IS PAYABLE TODAY ───────────────────────────────────────────────
+  // Computed on the server (loan_emi_due), never here. The figure has to decide
+  // which book proves an instalment was paid — the lender's ledger where there
+  // is one, our own posted EMIs where there is not — and getting that wrong
+  // either double-counts every TATA instalment or invents 16 lakh of arrears on
+  // the three IndusInd loans. That rule lives in v_loan_payments_effective, in
+  // one place, and the browser is not one of the places it gets re-decided.
+  const [dueSummary, setDueSummary] = useState<any | null>(null);
+  const [dueErr, setDueErr] = useState<string | null>(null);
   const [loans, setLoans] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
@@ -206,6 +215,13 @@ export default function LoanEmiMgmt() {
       fetchJson(`${LOANS_API}/emi-tracker?months_ahead=6`)
         .then((t) => { setTracker(t); setTrackerErr(null); })
         .catch((e) => { setTracker(null); setTrackerErr(e.message || 'tracker unavailable'); });
+
+      // Separately fault-tolerant for the same reason as the tracker: a
+      // reporting query that fails must not blank the screen the operator
+      // works on. It says so on the card instead of showing a plausible zero.
+      fetchJson(`${LOANS_API}/due-summary`)
+        .then((d) => { setDueSummary(d.summary ?? null); setDueErr(null); })
+        .catch((e) => { setDueSummary(null); setDueErr(e.message || 'due summary unavailable'); });
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -968,14 +984,104 @@ export default function LoanEmiMgmt() {
         </div>
       </div>
 
+      {/* ── HEADLINE: WHAT IS PAYABLE, NOT WHAT IS OWED ────────────────────
+          The principal outstanding used to lead this screen. It is a true
+          number and an unusable one: nobody can act on 2.81 crore, and it does
+          not move when an EMI is paid or missed. The payable does, so it leads
+          now and the principal is demoted to the badge beneath it.
+
+          It is also demoted FOR A SECOND REASON. `Remaining_Principal` on
+          loan_master is a stale denormalised counter — the same class of column
+          v_loan_reconciliation exists to police — so it is shown small, labelled
+          "per the books", and never used to decide anything. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #ef4444' }}>
-          <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '12px' }}>🏦 TOTAL BANK LIABILITY (ACTIVE PRINCIPAL)</h3>
-          <h1 style={{ color: '#ef4444', margin: 0, fontSize: '30px' }}>₹{totalPrincipalDue.toLocaleString('en-IN', {minimumFractionDigits: 2})}</h1>
-        </div>
+        {(() => {
+          const payable = dueSummary ? Number(dueSummary.total_payable ?? 0) : null;
+          const owing = payable != null && payable > 0;
+          // Red only when there is something to act on. A dashboard that is
+          // permanently red is a dashboard nobody reads.
+          const accent = dueErr ? '#64748b' : owing ? '#ef4444' : '#10b981';
+          const rupee = (v: any) => Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+          return (
+            <div className="glass-card" style={{ padding: '20px', borderLeft: `5px solid ${accent}` }}>
+              <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '12px' }}>
+                💰 TOTAL EMI DUE (CURRENT &amp; OVERDUE)
+              </h3>
+
+              {dueErr ? (
+                <>
+                  <h1 style={{ color: '#64748b', margin: 0, fontSize: '24px' }}>—</h1>
+                  <div style={{ color: '#f59e0b', fontSize: '11px', marginTop: '6px' }}>
+                    could not be calculated: {dueErr}
+                  </div>
+                </>
+              ) : !dueSummary ? (
+                <h1 style={{ color: '#64748b', margin: 0, fontSize: '24px' }}>calculating…</h1>
+              ) : (
+                <>
+                  <h1 style={{ color: accent, margin: 0, fontSize: '30px' }}>₹{rupee(payable)}</h1>
+
+                  {/* The two components, separately. An "EMI due" that quietly
+                      bundles penal charges into the instalment total is a figure
+                      nobody can reconcile against a lender's statement. */}
+                  <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '8px', lineHeight: 1.7 }}>
+                    {owing ? (
+                      <>
+                        <b style={{ color: '#e2e8f0' }}>{dueSummary.instalments_unpaid}</b> unpaid instalment
+                        {dueSummary.instalments_unpaid === 1 ? '' : 's'} ₹{rupee(dueSummary.emi_unpaid)}
+                        {Number(dueSummary.penal_unpaid) > 0 && (
+                          <> + LPC / bounce ₹{rupee(dueSummary.penal_unpaid)}</>
+                        )}
+                        <br />
+                        across <b style={{ color: '#e2e8f0' }}>{dueSummary.loans_with_dues}</b> of{' '}
+                        {dueSummary.active_loans} active loans
+                        {dueSummary.worst_days_overdue > 0 && (
+                          <> · oldest <b style={{ color: '#ef4444' }}>{dueSummary.worst_days_overdue} days</b> overdue</>
+                        )}
+                      </>
+                    ) : (
+                      <>nothing outstanding through {String(dueSummary.through_date).slice(0, 10)}</>
+                    )}
+                  </div>
+
+                  {/* Secondary badge — see the note above the grid. */}
+                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #334155',
+                    display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase',
+                      letterSpacing: '.05em' }}>
+                      🏦 Bank liability (principal)
+                    </span>
+                    <span
+                      title={'Total principal outstanding across active loans, per the books. Useful '
+                        + 'for the balance sheet, not for deciding what to pay today. It is carried on '
+                        + 'a denormalised counter — read v_loan_reconciliation before relying on it.'}
+                      style={{ fontSize: '14px', fontWeight: 700, color: '#cbd5e1', cursor: 'help' }}>
+                      ₹{rupee(dueSummary.principal_outstanding ?? totalPrincipalDue)}
+                    </span>
+                  </div>
+
+                  {/* A loan with no payment record at all cannot contribute a due
+                      figure, and a total that silently omits one reads as if it
+                      were square. Say how many. */}
+                  {dueSummary.loans_without_payment_history > 0 && (
+                    <div style={{ color: '#f59e0b', fontSize: '10px', marginTop: '6px' }}>
+                      ⚠ {dueSummary.loans_without_payment_history} loan
+                      {dueSummary.loans_without_payment_history === 1 ? ' has' : 's have'} no payment
+                      history on record and cannot be included.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })()}
+
         <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #f59e0b' }}>
           <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '12px' }}>📅 EST. MONTHLY EMI COMMITMENT</h3>
           <h1 style={{ color: '#f59e0b', margin: 0, fontSize: '30px' }}>₹{totalEmiPerMonth.toLocaleString('en-IN', {minimumFractionDigits: 2})}+</h1>
+          <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '8px' }}>
+            contracted instalment this month, across {activeLoansList.length} active loans
+          </div>
         </div>
       </div>
 

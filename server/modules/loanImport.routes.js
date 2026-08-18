@@ -678,4 +678,47 @@ export async function registerLoanImportRoutes(app) {
       return { as_of: asOf, loans: loans.length, statement: loans };
     }
   );
+
+  // ── 6. what is payable right now ────────────────────────────────────────
+  // The dashboard's headline figure. Deliberately NOT the same question as the
+  // ledger statement's opening balance: that one is struck at a cut-off in the
+  // past and excludes charges the lender leaves undated, because a cut-off
+  // cannot be applied to a figure without one. This is "what do we owe today",
+  // there is no cut-off, and the undated charges are unambiguously outstanding
+  // — so they are in. Same data, different question, and both are stated.
+  app.get(
+    '/due-summary',
+    { schema: { querystring: { type: 'object', properties: {
+      through: { type: ['string', 'null'], format: 'date' },
+      limit: { type: 'integer', minimum: 1, maximum: 100, default: 40 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const through = req.query.through || null;
+      const limit = req.query.limit ?? 40;
+
+      const [{ rows: sum }, { rows: loans }] = await Promise.all([
+        query(
+          `SELECT max(through_date) AS through_date,
+                  count(*)::int AS active_loans,
+                  count(*) FILTER (WHERE total_payable > 0)::int AS loans_with_dues,
+                  COALESCE(SUM(instalments_unpaid), 0)::int AS instalments_unpaid,
+                  COALESCE(SUM(emi_unpaid), 0)::numeric(14,2) AS emi_unpaid,
+                  COALESCE(SUM(penal_unpaid), 0)::numeric(14,2) AS penal_unpaid,
+                  COALESCE(SUM(total_payable), 0)::numeric(14,2) AS total_payable,
+                  max(days_overdue) AS worst_days_overdue,
+                  min(oldest_unpaid_due_date) AS oldest_unpaid_due_date,
+                  COALESCE(SUM(principal_outstanding), 0)::numeric(14,2) AS principal_outstanding,
+                  count(*) FILTER (WHERE evidence = 'NONE')::int AS loans_without_payment_history
+             FROM loan_emi_due($1::date)`, [through]),
+        query(
+          `SELECT * FROM loan_emi_due($1::date)
+            WHERE total_payable > 0
+            ORDER BY total_payable DESC, oldest_unpaid_due_date
+            LIMIT $2`, [through, limit]),
+      ]);
+
+      return { ok: true, summary: sum[0] ?? null, loans };
+    }
+  );
 }

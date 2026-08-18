@@ -281,6 +281,35 @@ Payments are allocated **FIFO**, because TATA does not allocate receipts to
 instalments at all (47 demands, 39 receipts, one running balance). Earlier
 arrears discharge first; that is what reproduces the lender's own balance.
 
+## The dashboard's headline figure
+
+`GET /api/v1/loans/due-summary` → **TOTAL EMI DUE (CURRENT & OVERDUE)**, the
+card that used to read TOTAL BANK LIABILITY. Principal outstanding is true and
+unactionable — it does not move when an EMI is paid or missed — so it is now a
+small badge with a tooltip, and it is sourced from a stale denormalised counter
+anyway (see [Dead denormalised columns]).
+
+```
+loan_emi_due(p_through date DEFAULT <end of current month>)
+  instalments due <= p_through that the money has not reached   (FIFO)
++ penal charges outstanding
+```
+
+- **One payment book per loan, lender first.** `v_loan_payments_effective` is
+  where that rule lives. `loan_receipts` is the lender's record and
+  `emi_payments` is ours; summing both double-counts every TATA instalment,
+  while using only the lender's reports **₹16 lakh of phantom arrears on the
+  three IndusInd loans**, whose EMIs were paid on the day they fell due and
+  exist only in our book.
+- **Undated penal charges count only when `p_through >= CURRENT_DATE`.** There
+  is no cut-off in "what do we owe now", so they are in — that is why the
+  dashboard figure includes the ₹4.17 lakh the ledger statement leaves out.
+  Backdate the query and they drop out, because an undated figure cannot be
+  placed before a cut-off. Asked for 01-04-2026 the function returns
+  ₹41,25,268.17, the same fleet arrears `loan_opening_balance` computes.
+- Red only when something is payable. A dashboard that is permanently red is a
+  dashboard nobody reads.
+
 ## What is NOT covered
 
 The three **IndusInd** loans (`SXB0040*`, ₹61.4 lakh) have **no instalment
