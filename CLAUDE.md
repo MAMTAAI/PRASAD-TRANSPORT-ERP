@@ -400,6 +400,41 @@ block of ₹14,68,831, and the six real UTRs still show their seven each.
 `missing_instrument` marks the ones with no UTR on record, and the header says
 so rather than showing a voucher number that looks like one.
 
+### Read it by year, or by lender (086, 087)
+
+`GET /api/v1/loans/ledger` now takes `loan_no`, `vehicle_no` **or `financier`**,
+and every response carries `financial_years` per loan plus `group` /
+`group_financial_years` when a whole lender was asked for.
+
+- **The year is taken from the DUE date, never the payment date.** These
+  accounts settle two and three months in arrears, so a February instalment paid
+  in May belongs to the year it fell due in. Indian FY, 1 Apr – 31 Mar: these
+  loans span **2022-23 to 2027-28**, and neither the first nor the last year is
+  twelve instalments.
+- `closing_arrears` is what was owed **on 31 March** — a balance at a date, not a
+  running total — so it is computed in SQL and sent, never re-derived in the
+  browser.
+- The moratorium year shows what it should: FY 2022-23 on a 46-lakh chassis loan
+  is ₹2,94,713 of instalments against ₹1,044.95 of principal, because the six
+  low EMIs barely cover their own interest.
+- Groups: `v_loan_financier_summary` and `v_loan_fy_by_financier`.
+  `loans_with_ledger` short of `loans` is a group saying part of its own figure
+  is modelled — the three IndusInd NPAs — and the statement prints that warning
+  rather than averaging them in.
+
+**One payment book everywhere.** `v_loan_ledger` used to allocate from
+`loan_receipts` alone, so the three IndusInd loans showed four instalments and
+no payments against them when all four were paid on the day they fell due. It
+reads `v_loan_payments_effective` now — the same lender-first rule the dashboard
+uses — so the statement, the year summary and the headline card cannot disagree
+about whether an instalment was paid.
+
+`contract_value` / `interest_amt` printed as `—` on all 29 loans (074 added the
+columns; the import was never re-run). Backfilled as **arithmetic on the tiers**,
+not re-read from the PDFs: instalments summed = ₹60,57,050 and less the finance
+amount = ₹14,57,050, which is exactly what TATA prints. `v_loan_contract_check`
+is empty.
+
 ## What is NOT covered
 
 The three **IndusInd** loans (`SXB0040*`, ₹61.4 lakh) have **no instalment

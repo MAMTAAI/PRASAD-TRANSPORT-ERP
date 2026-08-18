@@ -651,6 +651,10 @@ export async function registerLoanImportRoutes(app) {
     { schema: { querystring: { type: 'object', properties: {
       loan_no: { type: ['string', 'null'], maxLength: 40 },
       vehicle_no: { type: ['string', 'null'], maxLength: 20 },
+      // A whole finance company at once. One RTGS settles thirteen trucks and
+      // one statement covers twenty-seven contracts, so the lender — not the
+      // truck — is the unit most questions are asked in.
+      financier: { type: ['string', 'null'], maxLength: 60 },
       as_of: { type: ['string', 'null'], format: 'date' },
     } } } },
     async (req, reply) => {
@@ -658,20 +662,23 @@ export async function registerLoanImportRoutes(app) {
       const asOf = req.query.as_of || OPENING_CUTOFF;
       const loanNo = req.query.loan_no || null;
       const vehicleNo = req.query.vehicle_no || null;
-      if (!loanNo && !vehicleNo) {
+      const financier = req.query.financier || null;
+      if (!loanNo && !vehicleNo && !financier) {
         return reply.code(400).send({ error: 'NO_SELECTION',
-          detail: 'give a loan_no or a vehicle_no' });
+          detail: 'give a loan_no, a vehicle_no or a financier' });
       }
 
       const { rows: heads } = await query(
         `SELECT * FROM v_loan_statement_header
           WHERE ($1::text IS NULL OR loan_account_no = $1)
             AND ($2::text IS NULL OR vehicle_no = $2)
-          ORDER BY loan_account_no`, [loanNo, vehicleNo]);
+            AND ($3::text IS NULL OR financier = $3)
+          ORDER BY vehicle_no, loan_type, loan_account_no`, [loanNo, vehicleNo, financier]);
       if (!heads.length) return reply.code(404).send({ error: 'NO_SUCH_LOAN' });
 
       const ids = heads.map((h) => h.loan_id);
-      const [{ rows: ledger }, { rows: opening }, { rows: charges }, { rows: health }] =
+      const [{ rows: ledger }, { rows: opening }, { rows: charges },
+             { rows: health }, { rows: fy }, { rows: group }, { rows: groupFy }] =
         await Promise.all([
           query(`SELECT * FROM v_loan_ledger WHERE loan_id = ANY($1::uuid[])
                   ORDER BY loan_account_no, instalment_no`, [ids]),
@@ -681,31 +688,41 @@ export async function registerLoanImportRoutes(app) {
                    FROM loan_charges WHERE loan_id = ANY($1::uuid[])
                   ORDER BY is_penal DESC, head`, [ids]),
           query(`SELECT * FROM v_loan_ledger_health WHERE loan_id = ANY($1::uuid[])`, [ids]),
+          // The year-by-year view, per loan. Sent whole rather than derived in
+          // the browser: the closing arrears at each 31 March is a balance at a
+          // date, not a running total, and re-deriving it from the row list is
+          // how a printed statement stops matching the database.
+          query(`SELECT * FROM v_loan_ledger_fy WHERE loan_id = ANY($1::uuid[])
+                  ORDER BY loan_account_no, fy_start`, [ids]),
+          financier
+            ? query(`SELECT * FROM v_loan_financier_summary WHERE financier = $1`, [financier])
+            : Promise.resolve({ rows: [] }),
+          financier
+            ? query(`SELECT * FROM v_loan_fy_by_financier WHERE financier = $1 ORDER BY fy_start`,
+                    [financier])
+            : Promise.resolve({ rows: [] }),
         ]);
 
       const by = (rows) => rows.reduce((m, r) => {
         (m[r.loan_id] ??= []).push(r); return m; }, {});
-      const ledgerBy = by(ledger), chargeBy = by(charges);
+      const ledgerBy = by(ledger), chargeBy = by(charges), fyBy = by(fy);
       const openBy = Object.fromEntries(opening.map((o) => [o.loan_id, o]));
       const healthBy = Object.fromEntries(health.map((h) => [h.loan_id, h]));
 
+      const num = (v) => Number(v ?? 0);
       const loans = heads.map((h) => {
         const rows = ledgerBy[h.loan_id] ?? [];
-        const open = openBy[h.loan_id] ?? null;
-        const ch = chargeBy[h.loan_id] ?? [];
-        // The statement's own arithmetic, so the page never has to add up money
-        // in JavaScript floats to fill in a total.
         const since = rows.filter((r) => r.due_date >= asOf);
-        const num = (v) => Number(v ?? 0);
         return {
           ...h,
-          opening: open,
+          opening: openBy[h.loan_id] ?? null,
           // Undated charges are reported BESIDE the opening balance, never
           // inside it. They are real and they are owed; what the lender does not
           // state is when they were raised, and a cut-off cannot be applied to a
           // figure that has no date. Folding them in would make the balance look
           // more precise than the paper it came from.
-          charges: ch,
+          charges: chargeBy[h.loan_id] ?? [],
+          financial_years: fyBy[h.loan_id] ?? [],
           totals: {
             demanded: num(h.total_demanded),
             received: num(h.total_received),
@@ -722,9 +739,25 @@ export async function registerLoanImportRoutes(app) {
         };
       });
 
-      return { as_of: asOf, loans: loans.length, statement: loans };
+      return {
+        as_of: asOf,
+        scope: financier ? 'FINANCIER' : (vehicleNo ? 'VEHICLE' : 'LOAN'),
+        financier,
+        group: group[0] ?? null,
+        group_financial_years: groupFy,
+        loans: loans.length,
+        statement: loans,
+      };
     }
   );
+
+  // ── the finance companies, for the picker ───────────────────────────────
+  app.get('/financiers', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT * FROM v_loan_financier_summary ORDER BY financed DESC`);
+    return { count: rows.length, financiers: rows };
+  });
 
   // ── 6. what is payable right now ────────────────────────────────────────
   // The dashboard's headline figure. Deliberately NOT the same question as the
