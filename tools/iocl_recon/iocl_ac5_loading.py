@@ -237,7 +237,7 @@ def main(argv: list[str]) -> int:
         print("  no invoice number recorded. Not inserted. Attaching the invoice to these")
         print("  is a human call:")
         for load, trip in buckets["DUP_SHAPE"][:10]:
-            print(f"      {trip}  {load.vehicle_no}  {load.loading_date}  {load.qty_kl} KL  inv {load.doc_no}")
+            print(f"      {trip}  {load.vehicle_no}  {load.loading_date}  {load.qty_kl} {load.unit or '?'}  inv {load.doc_no}")
 
     if rejected:
         print(f"\n  rejected files ({len(rejected)}):")
@@ -251,7 +251,7 @@ def main(argv: list[str]) -> int:
     elif not args.apply:
         print(f"  DRY RUN - {len(buckets['NEW'])} would be inserted:")
         for load, _ in buckets["NEW"][:15]:
-            print(f"      {load.vehicle_no}  {load.loading_date}  {load.qty_kl} KL  "
+            print(f"      {load.vehicle_no}  {load.loading_date}  {load.qty_kl} {load.unit or '?'}  "
                   f"{load.product}  inv {load.doc_no}")
     else:
         import urllib.request
@@ -279,7 +279,7 @@ def main(argv: list[str]) -> int:
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     created = json.loads(r.read())
-                print(f"      {created.get('trip_code')}  {load.vehicle_no}  {load.qty_kl} KL  inv {load.doc_no}")
+                print(f"      {created.get('trip_code')}  {load.vehicle_no}  {load.qty_kl} {load.unit or '?'}  inv {load.doc_no}")
                 done += 1
             except Exception as exc:                  # noqa: BLE001
                 failed.append((load.doc_no, str(exc)[:90]))

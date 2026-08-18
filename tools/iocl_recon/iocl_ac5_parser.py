@@ -153,9 +153,27 @@ def parse_ac5(path: Path) -> Ac5Load:
     # Item line: "<n> <matcode> <description> <qty> KL ..."  The quantity is the
     # first decimal that is followed by a unit, which keeps HSN codes and batch
     # numbers out of it.
+    #
+    # "TO" IS TONNES, AND LEAVING IT OUT COST THREE WEEKS OF LPG.
+    # Petroleum moves in KL and LPG moves in weight, and IOCL writes the LPG
+    # item line with the unit "TO":
+    #
+    #     1 94000 LPG NON-DOMESTIC NON-EXEMPTED 17.570 TO 271119 EXCSBONDNE
+    #     Taxable Value 17570.000 KG 70747.62 KG 1243035.68
+    #
+    # 17.570 TO is 17,570.000 KG on the very next line, so the unit is
+    # unambiguous. It was simply missing from this list, so every LPG AC5 fell
+    # through to "no item-line quantity found" and was rejected -- silently,
+    # because a rejected file is a count in a log and not an alert. The eight
+    # LPG tankers stopped appearing in the loading register after 20-07-2026,
+    # which is when hand entry stopped, and ten loads between 18-07 and 14-08
+    # were never imported at all.
+    #
+    # The safety rule below is untouched: the header "Qty:" is still refused,
+    # because that is the batch total for the whole tank.
     for line in text.split("\n"):
         m = re.match(
-            r"^\s*\d+\s+(\d{4,6})\s+(.+?)\s+([\d,]+\.\d{1,3})\s+(KL|MT|LTR|KG)\b",
+            r"^\s*\d+\s+(\d{4,6})\s+(.+?)\s+([\d,]+\.\d{1,3})\s+(KL|MT|LTR|KG|TO)\b",
             line, re.I)
         if m:
             load.material_code = m.group(1)

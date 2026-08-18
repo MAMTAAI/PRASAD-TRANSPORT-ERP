@@ -168,6 +168,44 @@ as the khata row.
 
 ---
 
+# LPG moves in tonnes, and the AC5 parser could not read it (2026-08-18)
+
+`iocl_ac5_parser.py` took the dispatched quantity off the item line and accepted
+the units `KL|MT|LTR|KG`. IOCL writes the **LPG** item line with `TO`:
+
+```
+1 94000 LPG NON-DOMESTIC NON-EXEMPTED 17.570 TO 271119 EXCSBONDNE
+Taxable Value 17570.000 KG 70747.62 KG 1243035.68
+```
+
+17.570 TO is 17,570 KG on the very next line, so the unit is unambiguous — it
+was simply missing from the list. Every LPG AC5 therefore fell through to *"no
+item-line quantity found"* and was rejected. **Silently**: a rejected file is a
+count in a log, not an alert.
+
+The eight LPG tankers (AS 26C 5102–5109) stopped appearing in the loading
+register after **20-07-2026**, which is when hand entry stopped, and **10 loads
+between 18-07 and 14-08 were never imported**. One unit in one regex.
+
+Fixed by adding `TO`. The safety rule beside it is untouched: the header `Qty:`
+is still refused, because that is the batch total for the whole tank and reading
+it would inflate a load thirty-fold.
+
+- `loaded_qty` holds **tonnes for LPG**, KL for POL — matching how the
+  hand-entered LPG trips were already recorded (17.320–21.000).
+- `server/lib/freightRate.js` categorises by material code, then by name
+  pattern, so `LPG DOMESTIC - BULK- NON SUBSIDISED` resolves to LPG/MT without
+  a mapping entry.
+- The loader's console lines printed a hardcoded `KL` for every load; they print
+  `load.unit` now, or an operator reads 17.570 KL for a 17.570 tonne load.
+
+**Dedup held.** After the backfill: no invoice number appears on two trips. The
+twelve same-vehicle/date/quantity pairs in the window are eleven genuine
+double-drops — different invoice, different filling station — and **one real
+hand-entry duplicate**, PT00672 / PT00688 (AS 26C 5109, 11-07, 17.840, both
+without an invoice, entered three days apart). Both are UNBILLED with no ledger
+or settlement rows.
+
 # The API must be running, or the loading register stops (2026-08-18)
 
 The 15-minute Gmail loading sync is a **node-cron inside the API process**
