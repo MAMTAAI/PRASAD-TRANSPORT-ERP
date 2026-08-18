@@ -12,7 +12,11 @@
 //
 // Strictly transport-domain: the namespace whitelist below is the boundary.
 // ─────────────────────────────────────────────────────────────────────────────
+import { createHash } from 'node:crypto';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { query, isDegraded } from '../db/pool.js';
+import { attempt } from '../lib/zeroGap.js';
 
 const OLLAMA = (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
 const EMBED_MODEL = process.env.RAG_EMBED_MODEL ?? process.env.VITE_LLM_EMBED_MODEL ?? 'nomic-embed-text';
@@ -43,7 +47,55 @@ export function chunkText(text, { size = 900, overlap = 120 } = {}) {
 }
 
 // ── Embedding ───────────────────────────────────────────────────────────────
+//
+// EVERY CALL WENT TO OLLAMA, INCLUDING THE ONES IT HAD ALREADY ANSWERED.
+// An embedding is a pure function of (model, text): the same chunk re-indexed
+// after an edit elsewhere in the document, the same question asked twice, a
+// re-run of the backfill — all paid the full round trip again, and each costs
+// GPU time the OCR worker and the enrichment pass are also queueing for.
+//
+// Two layers, both keyed by a hash of model+text so a model change can never
+// serve a stale vector:
+//   MEMORY  bounded LRU, instant, lost on restart
+//   DISK    JSON per vector under the data volume, survives restarts and the
+//           nightly backfill, which is where the repetition actually is
+//
+// Bounded on purpose. An unbounded cache in a long-lived API process is a leak
+// with a friendly name; at 2000 entries × ~768 floats this is a few tens of MB.
+const EMBED_CACHE_MAX = Number.parseInt(process.env.RAG_EMBED_CACHE_MAX ?? '2000', 10);
+const EMBED_CACHE_DIR = process.env.RAG_EMBED_CACHE_DIR
+  ?? join(process.env.LOCAL_STORAGE_PATH || 'F:/Prasad_Transport_Data', 'cache', 'embeddings');
+const memCache = new Map();
+const embedStats = { hits_mem: 0, hits_disk: 0, misses: 0, errors: 0 };
+
+const cacheKey = (text) =>
+  createHash('sha256').update(`${EMBED_MODEL}\u0000${text}`).digest('hex');
+
+function memGet(key) {
+  if (!memCache.has(key)) return null;
+  // Re-insert to make this the most-recently-used entry.
+  const v = memCache.get(key);
+  memCache.delete(key);
+  memCache.set(key, v);
+  return v;
+}
+function memPut(key, vec) {
+  memCache.set(key, vec);
+  if (memCache.size > EMBED_CACHE_MAX) memCache.delete(memCache.keys().next().value);
+}
+
 export async function embed(text) {
+  const key = cacheKey(text);
+  const hot = memGet(key);
+  if (hot) { embedStats.hits_mem++; return hot; }
+
+  const file = join(EMBED_CACHE_DIR, key.slice(0, 2), `${key}.json`);
+  try {
+    const vec = JSON.parse(await readFile(file, 'utf8'));
+    if (Array.isArray(vec) && vec.length) { embedStats.hits_disk++; memPut(key, vec); return vec; }
+  } catch { /* not cached yet, or unreadable — recompute */ }
+
+  embedStats.misses++;
   const res = await fetch(`${OLLAMA}/api/embeddings`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -55,7 +107,27 @@ export async function embed(text) {
   if (!Array.isArray(json.embedding) || !json.embedding.length) {
     throw new Error('embedding response carried no vector');
   }
+
+  memPut(key, json.embedding);
+  // Persisting must never fail the caller: a cache that can break the thing it
+  // was added to speed up is not worth having.
+  void mkdir(dirname(file), { recursive: true })
+    .then(() => writeFile(file, JSON.stringify(json.embedding)))
+    .catch(() => { embedStats.errors++; });
+
   return json.embedding;
+}
+
+export function embedCacheStats() {
+  const total = embedStats.hits_mem + embedStats.hits_disk + embedStats.misses;
+  return {
+    ...embedStats,
+    entries_in_memory: memCache.size,
+    max_in_memory: EMBED_CACHE_MAX,
+    hit_rate: total ? Number((((embedStats.hits_mem + embedStats.hits_disk) / total) * 100).toFixed(1)) : null,
+    model: EMBED_MODEL,
+    disk: EMBED_CACHE_DIR,
+  };
 }
 
 function cosine(a, b) {
@@ -90,10 +162,17 @@ export async function ingest({ namespace = 'transport', source, text, documentId
   let embedded = 0;
   for (let i = 0; i < chunks.length; i++) {
     let vector = null;
-    try {
-      vector = await embed(chunks[i]);
-      embedded++;
-    } catch { /* stored un-embedded; embedPending() will retry */ }
+    // Storing un-embedded is a legitimate fallback — but silently is not. If
+    // the embedder has been down all week, the retrieval quality is degraded
+    // and only this row will say so.
+    vector = await attempt({
+      process: 'rag.embed', kind: 'AI_FAILURE', severity: 'LOW',
+      title: 'Embedding unavailable — chunks stored without vectors',
+      action: 'Check Ollama is running, then run embedPending() to backfill.',
+      subjectType: 'rag', subjectId: source,
+      context: { namespace, source, chunk: i },
+    }, () => embed(chunks[i]), null);
+    if (vector) embedded++;
     await query(
       `INSERT INTO rag_chunks (namespace, document_id, source, chunk_no, content, embedding, embed_model)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,

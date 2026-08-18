@@ -61,17 +61,53 @@ function Scan([string]$root, [string]$foreignPattern, [string]$owner, [string]$f
 Scan $JAISWAL_ROOT $PRASAD_MARK  'JAISWAL(H:)' 'PRASAD'
 Scan $PRASAD_ROOT  $JAISWAL_MARK 'PRASAD(F:)'  'JAISWAL'
 
-# C: must hold no application data of either company at all.
+# FORBIDDEN DRIVES: C: and E: must hold no application data of either company.
+#
+# This block used to look at Desktop, Documents and Downloads only, and E: was
+# not checked at all. That is exactly why the 2026-08-18 consolidation found a
+# live Firebase project at C:\Users\<user>\Prasad_Transport_System, design
+# assets under Pictures\, and the whole ERP still running from E: -- while this
+# guard reported CLEAN throughout. A checker that watches three folders on one
+# drive is not a drive rule, so both the breadth and the drive list widen here.
+#
+# AppData is excluded deliberately: Claude/Gemini/npm caches keyed by project
+# name live there by design and are tool state, not business data. Flagging
+# them would produce permanent noise and train people to ignore this report.
+$FORBIDDEN = @()
 $U = $env:USERPROFILE
-foreach ($d in @("$U\Desktop", "$U\Documents", "$U\Downloads")) {
+if ($U -and (Test-Path $U)) {
+  $FORBIDDEN += Get-ChildItem $U -Force -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -notin @('AppData','.claude','.gemini','.cache','.vscode','.ssh') } |
+                  Select-Object -ExpandProperty FullName
+}
+if (Test-Path 'E:\') {
+  $FORBIDDEN += Get-ChildItem 'E:\' -Force -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -notmatch 'RECYCLE|System Volume Information' } |
+                  Select-Object -ExpandProperty FullName
+}
+
+foreach ($d in $FORBIDDEN) {
   if (-not (Test-Path $d)) { continue }
-  Get-ChildItem $d -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object {
-    # Leaf name only, same reason as above. Source repos and .git internals are
-    # tooling, not business data - relocating a working tree breaks IDE and
-    # remote paths, so they are reported separately rather than swept up.
-    if ($_.FullName -match '\\\.git\\|\\node_modules\\') { return }
+  $drive = ($d.Substring(0,1)).ToUpper()
+  $kind  = 'ON_' + $drive + '_DRIVE'
+
+  # The FOLDER name alone is enough to convict: a directory called
+  # "Prasad_Transport_System" is company data even when every file inside it is
+  # named index.js. Checking file names only is how a whole project stays
+  # invisible to this guard, which is precisely what happened.
+  $leaf = Split-Path $d -Leaf
+  if ($leaf -match $PRASAD_MARK -or $leaf -match $JAISWAL_MARK) {
+    $script:issues += [pscustomobject]@{
+      Kind = $kind; Owner = ($drive + ':'); Foreign = 'EITHER'; Path = $d }
+    continue    # tree already condemned; do not also list every file beneath it
+  }
+
+  Get-ChildItem $d -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {
+    # Source repos and .git internals are tooling, not business data.
+    if ($_.FullName -match '\\.git\|\node_modules\') { return }
     if ($_.Name -match $PRASAD_MARK -or $_.Name -match $JAISWAL_MARK) {
-      $script:issues += [pscustomobject]@{ Kind = 'ON_C_DRIVE'; Owner = 'C:'; Foreign = 'EITHER'; Path = $_.FullName }
+      $script:issues += [pscustomobject]@{
+        Kind = $kind; Owner = ($drive + ':'); Foreign = 'EITHER'; Path = $_.FullName }
     }
   }
 }
@@ -82,7 +118,7 @@ if (-not $Quiet) {
   Write-Host ("  H: Jaiswal  {0}" -f $(if (Test-Path $JAISWAL_ROOT) { 'present' } else { 'MISSING' }))
   Write-Host ""
   if ($issues.Count -eq 0) {
-    Write-Host "  CLEAN - no cross-contamination, no project data on C:" -ForegroundColor Green
+    Write-Host "  CLEAN - no cross-contamination, no project data on C: or E:" -ForegroundColor Green
   } else {
     Write-Host ("  {0} ISSUE(S):" -f $issues.Count) -ForegroundColor Yellow
     $issues | Group-Object Kind | ForEach-Object {

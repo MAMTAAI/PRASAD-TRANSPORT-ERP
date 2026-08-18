@@ -28,7 +28,7 @@
 [CmdletBinding()]
 param(
   [switch]$Execute,
-  [string]$Source = 'E:\PRASAD-TRANSPORT-ERP',
+  [string]$Source = (Split-Path -Parent $PSScriptRoot),
   [string]$OutDir = 'F:\Prasad_Transport_Data\deploy-bundles'
 )
 

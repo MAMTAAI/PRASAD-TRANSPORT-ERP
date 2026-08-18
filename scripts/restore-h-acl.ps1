@@ -4,7 +4,7 @@
 # rather than a hand-guessed approximation.
 # ASCII only (CLAUDE.md).
 $ErrorActionPreference = 'Continue'
-$log  = 'E:\PRASAD-TRANSPORT-ERP\scripts\acl-restore-H.log'
+$log  = Join-Path $PSScriptRoot 'acl-restore-H.log'
 $sddl = 'D:(A;;FA;;;BA)(A;OICIIO;GA;;;BA)(A;;FA;;;SY)(A;OICIIO;GA;;;SY)(A;;0x1301bf;;;AU)(A;OICIIO;SDGXGWGR;;;AU)(A;;0x1200a9;;;BU)(A;OICIIO;GXGR;;;BU)'
 
 "=== APPLY SDDL ===" | Out-File $log -Encoding ascii

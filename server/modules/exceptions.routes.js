@@ -371,6 +371,31 @@ export async function registerExceptionRoutes(app, opts = {}) {
     }
   });
 
+  // ── the department inbox ─────────────────────────────────────────────────
+  // Zero-Gap: every failure the system could not resolve, routed to the desk
+  // that can act on it, carrying the three things a person needs — why it
+  // stopped, how it got here, and what to do about it.
+  app.get(
+    '/departments',
+    { schema: { querystring: { type: 'object', properties: {
+      department: { type: ['string', 'null'], enum: ['OPERATIONS', 'ACCOUNTING', 'CRM', 'COMPLIANCE', 'IT', null] },
+      limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { department = null, limit = 100 } = req.query ?? {};
+      const { rows: summary } = await query('SELECT * FROM v_department_queue_summary ORDER BY open_items DESC');
+      const { rows: items } = await query(
+        `SELECT * FROM v_department_queue
+          WHERE ($1::text IS NULL OR department = $1)
+          ORDER BY CASE severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3
+                                 WHEN 'MEDIUM' THEN 2 ELSE 1 END DESC,
+                   COALESCE(amount_at_risk, 0) DESC, detected_at DESC
+          LIMIT $2`, [department, limit]);
+      return { total: items.length, summary, items };
+    }
+  );
+
   app.post('/:id/dismiss', { preHandler: guard }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const note = req.body?.note;

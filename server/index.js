@@ -37,6 +37,9 @@ import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
+import { registerScanRoutes } from './modules/scan.routes.js';
+import { registerWatchdogRoutes } from './modules/watchdog.routes.js';
+import { zeroGapPlugin } from './lib/zeroGap.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
@@ -140,6 +143,11 @@ app.setErrorHandler((err, req, reply) => {
 registerAuditLogger(app);
 
 // ── Modules ────────────────────────────────────────────────────────────────
+// ZERO-GAP: the net under everything. Any 5xx nobody wrapped becomes a row in
+// the owning department's queue instead of a line in a console. Registered
+// before the routes so it covers every scope below.
+zeroGapPlugin(app);
+
 await app.register(registerVehicleRoutes, { prefix: '/api/vehicles' });
 await app.register(registerAgentRoutes,   { prefix: '/api/agents' });
 // Stage-3 v1 surface (fleet telemetry, OCR auto-scan, RAG) — additive only;
@@ -188,6 +196,15 @@ await app.register(registerLoanImportRoutes, { prefix: '/api/v1/loans' });
 // Expiry alerts across lorries and drivers, and the backfill for compliance
 // fees that were filed without an accounting entry.
 await app.register(registerComplianceRoutes, { prefix: '/api/v1/compliance' });
+
+// The mobile scanner. Its own scope for @fastify/multipart, and deliberately
+// close to the root: the phone posts to /api/v1/scan whether it is talking to
+// this box or to AWS, so the same URL works from either.
+await app.register(registerScanRoutes, { prefix: '/api/v1' });
+
+// The Smart Watchdog board. Both environments and both firms write here; every
+// read is scoped by company, so Prasad and Jaiswal never see each other's box.
+await app.register(registerWatchdogRoutes, { prefix: '/api/v1/watchdog' });
 // Loans/EMI, tyres, batteries and the service log.
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 // Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.

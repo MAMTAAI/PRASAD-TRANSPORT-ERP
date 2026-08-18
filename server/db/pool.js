@@ -68,8 +68,22 @@ function buildSsl(kind) {
   return { rejectUnauthorized: false };
 }
 
+// POOL SIZING, AND WHY 10 WAS WRONG.
+//
+// Ten agent loops, the scheduler, the event-bus drainer and every HTTP request
+// share this one pool. At max: 10 they contend for the same ten connections, so
+// a caller that needs one WAITS — up to connectionTimeoutMillis, which is why
+// the log filled with "slow query 10009ms" against a ONE-ROW table and with
+// "Connection terminated due to connection timeout". Neither was a slow query:
+// both were a queue. A mobile scan sat behind that queue and answered in 34
+// seconds on a pipeline that does its own work in under five.
+//
+// 25 is chosen against this box's max_connections of 100, leaving room for
+// psql, the migration runner and a second app process. Raising it further would
+// not help: once the queue empties, more connections only add contention inside
+// Postgres instead of inside the pool.
 const poolTuning = () => ({
-  max: int(env('PG_POOL_MAX'), 10),
+  max: int(env('PG_POOL_MAX'), 25),
   idleTimeoutMillis: int(env('PG_IDLE_TIMEOUT_MS'), 30_000),
   connectionTimeoutMillis: int(env('PG_CONNECT_TIMEOUT_MS'), 10_000),
   statement_timeout: int(env('PG_STATEMENT_TIMEOUT_MS'), 30_000),
@@ -239,16 +253,55 @@ export async function query(text, params) {
     await initDb({ quiet: true });
     if (!active) throw new DbUnavailableError();
   }
-  const startedAt = process.hrtime.bigint();
+  // SEPARATE THE WAIT FROM THE WORK.
+  //
+  // This used to time pool.query() as a whole and call the total "slow query".
+  // It is not the same thing: pool.query() acquires a connection first, and when
+  // the pool is saturated that acquire is where the seconds go. The old message
+  // blamed the SQL — reporting a one-row lookup on agent_halts as a 10-second
+  // query — and sent anyone reading the log hunting for a missing index that
+  // was never missing. Acquire and execute are now measured and named apart, so
+  // the log says which of the two actually needs fixing.
+  const t0 = process.hrtime.bigint();
+  let client;
+  let acquiredAt = t0;
   try {
-    return await active.pool.query(text, params);
+    client = await active.pool.connect();
+    acquiredAt = process.hrtime.bigint();
+    return await client.query(text, params);
   } finally {
-    const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    client?.release();
+    const end = process.hrtime.bigint();
+    const waitMs = Number(acquiredAt - t0) / 1e6;
+    const execMs = Number(end - acquiredAt) / 1e6;
     const threshold = int(env('PG_SLOW_QUERY_MS'), 500);
-    if (ms > threshold) {
-      console.warn(`[db] slow query ${ms.toFixed(0)}ms: ${text.replace(/\s+/g, ' ').slice(0, 160)}`);
+    const waitThreshold = int(env('PG_SLOW_ACQUIRE_MS'), 250);
+    const sql = text.replace(/\s+/g, ' ').slice(0, 140);
+
+    if (waitMs > waitThreshold) {
+      // Not a query problem. Says so, and reports the saturation that caused it.
+      const s = poolStats();
+      console.warn(
+        `[db] pool wait ${waitMs.toFixed(0)}ms (pool ${s.total}/${s.max}, ${s.waiting} queued) before: ${sql}`
+      );
+    }
+    if (execMs > threshold) {
+      console.warn(`[db] slow query ${execMs.toFixed(0)}ms exec: ${sql}`);
     }
   }
+}
+
+/** Live pool saturation — the number that predicts the queue before it forms. */
+export function poolStats() {
+  if (!active?.pool) return { available: false };
+  const p = active.pool;
+  return {
+    available: true,
+    max: p.options?.max ?? null,
+    total: p.totalCount,      // connections currently open
+    idle: p.idleCount,        // of those, free right now
+    waiting: p.waitingCount,  // callers queued for one — above 0 IS the problem
+  };
 }
 
 /** Fetch exactly one row, or null. */

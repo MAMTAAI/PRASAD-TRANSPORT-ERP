@@ -5,6 +5,10 @@ import { uploadMedia, slug } from './lib/uploadMedia';
 import { toISODate } from './lib/accounting/tripMath';
 
 import { API_BASE } from './lib/apiBase';
+import UnmappedDocumentQueue from './components/UnmappedDocumentQueue';
+import ComplianceGapsWidget from './components/ComplianceGapsWidget';
+import DepartmentQueue from './components/DepartmentQueue';
+import WatchdogWidget from './components/WatchdogWidget';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;
@@ -131,6 +135,9 @@ export default function VehicleDocs() {
   // one threshold. Not derived here: a licence that lapsed stops a lorry just
   // as surely as a lapsed fitness certificate, and only the database sees both.
   const [alerts, setAlerts] = useState<any | null>(null);
+  // Drivers, so a queued Aadhaar or licence can be linked to the person it
+  // belongs to without leaving the screen.
+  const [drivers, setDrivers] = useState<any[]>([]);
 
   const fetchVehicles = async () => {
     setLoading(true);
@@ -152,6 +159,13 @@ export default function VehicleDocs() {
       fetchJson(`${API}/api/v1/compliance/alerts`)
         .then(setAlerts)
         .catch(() => setAlerts(null));
+
+      // Drivers, so a queued Aadhaar or licence can be linked to the person it
+      // belongs to without leaving the screen. Fault-tolerant for the same
+      // reason as the alert strip.
+      fetchJson(`${MASTERS}/drivers?limit=1000`)
+        .then((d: any) => setDrivers(d.drivers ?? []))
+        .catch(() => setDrivers([]));
     } catch (e: any) {
       setVehicles([]);
       setErr(`Fleet could not load from ${API} — ${e.message}`);
@@ -588,6 +602,25 @@ export default function VehicleDocs() {
           </div>
         );
       })()}
+
+      {/* Paperwork the bulk importer could not place. It sits above the vault
+          deliberately: an unfiled document is work outstanding, and a queue put
+          below the fold is a queue nobody clears. */}
+      {/* Absence first, then the work queue, then the vault itself: a lorry
+          with no paperwork is a bigger problem than one whose PUC expires in a
+          week, and the expiry strip above cannot see it at all. */}
+      {/* Zero-Gap: what the system TRIED and could not finish, above what it
+          found. A broken process outranks a missing document, because the
+          missing document may only be missing because the process broke. */}
+      {/* A broken server outranks a broken process, which outranks a missing
+          document. Scoped to PRASAD: this screen never shows Jaiswal's box. */}
+      <WatchdogWidget company="PRASAD" />
+
+      <DepartmentQueue />
+
+      <ComplianceGapsWidget />
+
+      <UnmappedDocumentQueue vehicles={vehicles} drivers={drivers} onAssigned={fetchVehicles} />
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
         <div>

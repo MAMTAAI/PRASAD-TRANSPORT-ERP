@@ -124,3 +124,8 @@ android/build/
 android/.gradle/
 android/app/src/main/assets/public/
 scripts/drive-separation-*.log
+
+# reports/ is a junction to F:\Prasad_Transport_Data\reports — generated output
+# on the data volume, not source. It was never ignored, so a `git add -A` would
+# have pulled 26 MB of generated reports into the code history.
+reports/

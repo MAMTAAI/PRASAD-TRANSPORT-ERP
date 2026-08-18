@@ -1,0 +1,53 @@
+{
+  "_README": "Operator-reviewed folder -> full registration. Every value must be an exact vehicle_no from the master (table: vehicles). A folder NOT listed here and carrying no full registration is REFUSED by the importer, never guessed.",
+
+  "_OVERLAP_DECISION": "Two trucks keep paperwork under BOTH an ATF and an ETHANOL folder because they changed service. Both folders are listed below pointing at the SAME vehicle, which is the decision being recorded: they are one truck, not two. Where the same document type appears in both folders the importer keeps the LATER expiry. If ATF's 9803/9808 is in fact a DIFFERENT truck, change its value here to that truck's registration and re-run the importer - do not change the code.",
+  "_OVERLAP_9803": "ATF TANKERS  (IOCL)/9803 (2 files) + ETHANOL TANKERS/AS26C9803 (10 files) -> AS 26C 9803",
+  "_OVERLAP_9808": "ATF TANKERS  (IOCL)/9808 (1 file)  + ETHANOL TANKERS/AS26C9808 (9 files)  -> AS 26C 9808",
+  "_NOTE_9888": "There is no AS 26C 9888 in the master. The fleet runs 9801-9816; the overlapping pair is 9803 and 9808.",
+  "_NOTE_9818": "ATF TANKERS  (IOCL)/9815/9818 home permit 20.07.2027.pdf names truck 9818, which does not exist in the master. It is refused and queued as unmapped rather than filed against 9815.",
+
+  "ATF TANKERS  (IOCL)/9801": "AS 26C 9801",
+  "ATF TANKERS  (IOCL)/9802": "AS 26C 9802",
+  "ATF TANKERS  (IOCL)/9803": "AS 26C 9803",
+  "ATF TANKERS  (IOCL)/9804": "AS 26C 9804",
+  "ATF TANKERS  (IOCL)/9805": "AS 26C 9805",
+  "ATF TANKERS  (IOCL)/9806": "AS 26C 9806",
+  "ATF TANKERS  (IOCL)/9807": "AS 26C 9807",
+  "ATF TANKERS  (IOCL)/9808": "AS 26C 9808",
+  "ATF TANKERS  (IOCL)/9809": "AS 26C 9809",
+  "ATF TANKERS  (IOCL)/9810": "AS 26C 9810",
+  "ATF TANKERS  (IOCL)/9812": "AS 26C 9812",
+  "ATF TANKERS  (IOCL)/9813": "AS 26C 9813",
+  "ATF TANKERS  (IOCL)/9814": "AS 26C 9814",
+  "ATF TANKERS  (IOCL)/9815": "AS 26C 9815",
+  "ATF TANKERS  (IOCL)/9816": "AS 26C 9816",
+
+  "ETHANOL TANKERS/AS26C9803": "AS 26C 9803",
+  "ETHANOL TANKERS/AS26C9808": "AS 26C 9808",
+  "ETHANOL TANKERS/AS26C9811": "AS 26C 9811",
+
+  "BULK LPG (ASSAM)/5101": "AS26C5101",
+  "BULK LPG (BIHAR)/NL01AA 3054": "NL 01AA 3054",
+
+  "ATF TANKERS  (BPCL)/NL01AD0831": "NL 01AD 0831",
+  "ATF TANKERS  (BPCL)/NL01AD0833": "NL 01AD 0833",
+  "ATF TANKERS  (BPCL)/NL01Q2670": "NL 01Q 2670",
+  "ATF TANKERS  (BPCL)/NL01Q4461": "NL 01Q 4461",
+  "ATF TANKERS  (BPCL)/NL01Q4470": "NL 01Q 4470",
+  "ATF TANKERS  (BPCL)/NL01Q7315": "NL 01Q 7315",
+  "ATF TANKERS  (BPCL)/NL01Q7316": "NL 01Q 7316",
+
+  "POLL TANKER IMPHAL (IOCL )/0828": "NL 01AD 0828",
+  "POLL TANKER IMPHAL (IOCL )/0834": "NL 01AD 0834",
+  "POLL TANKER IMPHAL (IOCL )/7317": "NL 01Q 7317",
+  "POLL TANKER IMPHAL (IOCL )/7318": "NL 01Q 7318",
+  "POLL TANKER IMPHAL (IOCL )/8666": "AS 19C 8666",
+  "POLL TANKER IMPHAL (IOCL )/8668": "AS 19C 8668",
+
+  "POLL TANKERS  (IOCL)/0401": "AS 26AC 0401",
+  "POLL TANKERS  (IOCL)/0402": "AS 26AC 0402",
+  "POLL TANKERS  (IOCL)/0403": "AS 26AC 0403",
+  "POLL TANKERS  (IOCL)/0405": "AS 26AC 0405",
+  "POLL TANKERS  (IOCL)/0407": "AS 26C 0407"
+}
