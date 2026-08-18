@@ -21,6 +21,7 @@ import React, { useState, useEffect } from 'react';
 //    paid before this system existed, so deriving would report debt already
 //    repaid. Migration 035 sets out the reasoning.)
 import { API_BASE } from './lib/apiBase';
+import LoanLedgerStatement from './LoanLedgerStatement';
 const API = API_BASE;
 const ASSETS = `${API}/api/v1/assets`;
 const MASTERS = `${API}/api/v1/masters`;
@@ -989,8 +990,15 @@ export default function LoanEmiMgmt() {
           <button className={`tab-btn ${activeTab === 'EMIS' ? 'active' : ''}`} onClick={() => setActiveTab('EMIS')}>💸 EMI PAYMENT HISTORY</button>
           <button className={`tab-btn ${activeTab === 'REPORT' ? 'active' : ''}`} onClick={() => setActiveTab('REPORT')}>📊 EMI DUE REPORT</button>
           <button className={`tab-btn ${activeTab === 'TRACKER' ? 'active' : ''}`} onClick={() => setActiveTab('TRACKER')}>🗓️ EMI TRACKER</button>
+          <button className={`tab-btn ${activeTab === 'LEDGER' ? 'active' : ''}`} onClick={() => setActiveTab('LEDGER')}>📜 LEDGER STATEMENT</button>
         </div>
       </div>
+
+      {/* 📜 TAB 5: LEDGER STATEMENT — start-to-end history of one loan, printable.
+          Rendered outside a glass-card on purpose: the component owns its own
+          frame because that frame is what gets printed, and wrapping it in the
+          dark chrome would put a border on the paper that nobody asked for. */}
+      {activeTab === 'LEDGER' && <LoanLedgerStatement loans={loans} />}
 
       {/* 🏦 TAB 1: LOAN MASTER */}
       {activeTab === 'LOANS' && (

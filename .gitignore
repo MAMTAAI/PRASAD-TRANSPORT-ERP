@@ -62,6 +62,7 @@ tools/iocl_recon/*_token.json
 tools/iocl_recon/*_credentials.json
 tools/iocl_recon/__pycache__/
 tools/fuel_recon/__pycache__/
+tools/loan_recon/__pycache__/
 uploads/iocl_bills/
 reports/iocl_recon/
 # Parsed fuel-pump rows: real litres, rates and vehicle numbers from 11 pumps'
@@ -69,6 +70,7 @@ reports/iocl_recon/
 # tracked, its output is not.
 reports/fuel_rows.json
 reports/fuel_recon/
+reports/loan_bills/tata_ledgers.json
 reports/fuel_rows_recovery.json
 # Hand-read scanned pump bills. ocr_bands/ is page images of the bills
 # themselves — the commercial paperwork, same rule as uploads/. ocr_bills/ and

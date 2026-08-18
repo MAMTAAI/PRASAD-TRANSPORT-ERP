@@ -28,9 +28,10 @@
 // are modelled — from its own instalments, at the rate that reproduces its own
 // contract value and interest to the rupee.
 // ─────────────────────────────────────────────────────────────────────────────
-import { query, isDegraded } from '../db/pool.js';
+import { query, isDegraded, withTransaction } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
 import { buildSchedule, positionAt, dueBetween } from '../lib/loanAmortiser.js';
+import { importLedgers } from '../lib/loanStatementImport.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -41,6 +42,11 @@ const LOAN_GROUP = 'Secured Loans';
 const INTEREST_LEDGER = 'Interest on Vehicle Loans';
 const INTEREST_GROUP = 'Finance Costs';
 const DEFAULT_BANK = 'SBI (8490)';
+
+// The cut-off the statements are struck at, in one place. The endpoints all take
+// `as_of` and this is only the default — a statement for the year before has to
+// be printable without editing code, the same rule the IOCL window follows.
+const OPENING_CUTOFF = '2026-04-01';
 
 /** 'AS26C9802' -> 'AS 26C 9802' if the fleet spells it that way; else as given. */
 async function fleetSpelling(norm) {
@@ -57,6 +63,63 @@ const toIso = (d) => {
   const m = String(d).match(/^(\d{2})\.(\d{2})\.(\d{4})$/);      // TATA prints dd.mm.yyyy
   return m ? `${m[3]}-${m[2]}-${m[1]}` : String(d).slice(0, 10);
 };
+
+/**
+ * Rewrite a loan's instalment tiers.
+ *
+ * IN ONE TRANSACTION, AND IT HAS TO BE. loan_emi_tiers carries a DEFERRABLE
+ * constraint trigger that checks the tiers cover instalments 1..N with no gap.
+ * Deferred means "at COMMIT", and every statement outside an explicit
+ * transaction commits on its own — so a delete-then-insert run statement by
+ * statement fires the check after tier 1 alone is in, and a perfectly good
+ * three-tier pattern is rejected because it was momentarily one tier long.
+ */
+async function syncTiers(loanId, slabs, printedIrr) {
+  const tiers = [...(slabs ?? [])]
+    .map((s) => ({ from: Number(s.from_month ?? s.from_instalment),
+                   to: Number(s.to_month ?? s.to_instalment),
+                   amount: Number(s.amount ?? s.emi_amount) }))
+    .sort((a, b) => a.from - b.from);
+  if (!tiers.length) return 0;
+
+  return withTransaction(async (client) => {
+    await client.query(`DELETE FROM loan_emi_tiers WHERE loan_id = $1::uuid`, [loanId]);
+    for (const t of tiers) {
+      await client.query(
+        `INSERT INTO loan_emi_tiers (loan_id, from_instalment, to_instalment, emi_amount,
+                printed_irr, source)
+         VALUES ($1::uuid,$2,$3,$4,$5,'LENDER_CONTRACT')`,
+        [loanId, t.from, t.to, t.amount, printedIrr]);
+    }
+    return tiers.length;
+  });
+}
+
+/**
+ * Write the modelled schedule out as rows.
+ *
+ * Modelled rows never overwrite one the lender has raised. The statement is the
+ * record of what actually happened and a fresh contract import must not quietly
+ * replace 47 real instalments — with their delay days and their late-payment
+ * interest — with a tidy schedule that says everything fell due on the 11th.
+ */
+async function syncModelledInstalments(loanId, rows) {
+  let n = 0;
+  for (const r of rows ?? []) {
+    const res = await query(
+      `INSERT INTO loan_instalments (loan_id, instalment_no, due_date, due_amount,
+              principal_part, interest_part, closing_principal, source)
+       VALUES ($1::uuid,$2,$3::date,$4,$5,$6,$7,'MODELLED')
+       ON CONFLICT (loan_id, instalment_no) DO UPDATE SET
+              due_date = EXCLUDED.due_date, due_amount = EXCLUDED.due_amount,
+              principal_part = EXCLUDED.principal_part, interest_part = EXCLUDED.interest_part,
+              closing_principal = EXCLUDED.closing_principal
+        WHERE loan_instalments.source = 'MODELLED'`,
+      [loanId, r.month_no, r.date, r.emi, r.principal, r.interest, r.balance]);
+    n += res.rowCount ?? 0;
+  }
+  return n;
+}
 
 export async function registerLoanImportRoutes(app) {
   // ── 1. load the contracts and their schedules ────────────────────────────
@@ -116,7 +179,8 @@ export async function registerLoanImportRoutes(app) {
                       total_interest: rows.reduce((a, r) => a + Number(r.interest), 0).toFixed(2),
                       closing_balance: '0.00' };
           } else {
-            sched = buildSchedule({ principal: c.finance_amt, slabs: c.emi_slabs, firstDue });
+            sched = buildSchedule({ principal: c.finance_amt, slabs: c.emi_slabs, firstDue,
+                                    disbursal: toIso(c.disbursal_date) });
             // The schedule must repay the principal and charge the interest the
             // lender printed. If it does not, the contract was misread and it must
             // not become a liability.
@@ -144,32 +208,52 @@ export async function registerLoanImportRoutes(app) {
             continue;
           }
 
+          // tenure_months is the TERM; instalment_count is how many instalments
+          // the lender collects. The two are not the same number and used to be
+          // the same column — TATA's "No.of Instls" went into a field IndusInd
+          // was filling with a 60-month term that collects 58. Migration 076
+          // untangled the 29 rows that already existed; this keeps the next
+          // import from putting them back.
+          const instalments = sched.rows.length;
+          const moratorium = c.moratorium_months ?? sched.moratorium_months ?? null;
           const args = [
             c.loan_no, vehicleNo, c.customer ?? null, c.customer ?? null, c.loan_type,
             c.financier, toIso(c.disbursal_date), sched.annual_rate, c.finance_amt,
-            c.tenure_months, c.emi_amount, c.moratorium_months ?? null, firstDue,
+            (moratorium ?? 0) + instalments, c.emi_amount, moratorium, firstDue,
             JSON.stringify(c.emi_slabs), JSON.stringify(sched.rows),
             loanLedgerName(c.financier, vehicleNo),
+            instalments, sched.lead_period_days, sched.moratorium_interest,
+            c.contract_value ?? null, c.interest_amt ?? null, c.printed_irr ?? null,
           ];
+          const COLS = `vehicle_no=$2, owner_name=$3, company_name=$4, loan_type=$5,
+                      bank_name=$6, sanction_date=$7::date, disbursal_date=$7::date,
+                      rate_of_interest=$8, principal_amt=$9,
+                      tenure_months=$10, emi_amount=$11, moratorium_months=$12,
+                      first_emi_date=$13::date, emi_slabs=$14::jsonb,
+                      repayment_schedule=$15::jsonb, financier_ledger=$16,
+                      instalment_count=$17, lead_period_days=$18, moratorium_interest=$19,
+                      contract_value=$20, interest_amt=$21, printed_irr=$22`;
+          let loanId;
           if (existing.rows.length) {
             await query(
-              `UPDATE loan_master SET vehicle_no=$2, owner_name=$3, company_name=$4, loan_type=$5,
-                      bank_name=$6, sanction_date=$7::date, rate_of_interest=$8, principal_amt=$9,
-                      tenure_months=$10, emi_amount=$11, moratorium_months=$12, first_emi_date=$13::date,
-                      emi_slabs=$14::jsonb, repayment_schedule=$15::jsonb, financier_ledger=$16,
-                      updated_at=now()
-                WHERE loan_account_no=$1`, args);
+              `UPDATE loan_master SET ${COLS}, updated_at=now() WHERE loan_account_no=$1`, args);
+            loanId = existing.rows[0].id;
             updated.push({ loan_no: c.loan_no, vehicle: vehicleNo, rate: sched.annual_rate });
           } else {
-            await query(
+            const ins = await query(
               `INSERT INTO loan_master (loan_account_no, vehicle_no, owner_name, company_name, loan_type,
-                      bank_name, sanction_date, rate_of_interest, principal_amt, tenure_months,
-                      emi_amount, moratorium_months, first_emi_date, emi_slabs, repayment_schedule,
-                      financier_ledger)
-               VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8,$9,$10,$11,$12,$13::date,$14::jsonb,$15::jsonb,$16)`,
-              args);
+                      bank_name, sanction_date, disbursal_date, rate_of_interest, principal_amt,
+                      tenure_months, emi_amount, moratorium_months, first_emi_date, emi_slabs,
+                      repayment_schedule, financier_ledger, instalment_count, lead_period_days,
+                      moratorium_interest, contract_value, interest_amt, printed_irr)
+               VALUES ($1,$2,$3,$4,$5,$6,$7::date,$7::date,$8,$9,$10,$11,$12,$13::date,$14::jsonb,
+                       $15::jsonb,$16,$17,$18,$19,$20,$21,$22)
+               RETURNING id`, args);
+            loanId = ins.rows[0].id;
             created.push({ loan_no: c.loan_no, vehicle: vehicleNo, rate: sched.annual_rate });
           }
+          await syncTiers(loanId, c.emi_slabs, c.printed_irr ?? null);
+          await syncModelledInstalments(loanId, sched.rows);
         } catch (e) {
           problems.push({ loan_no: c.loan_no, why: e.message });
         }
@@ -487,6 +571,111 @@ export async function registerLoanImportRoutes(app) {
         summary: { emis_posted: posted.length, skipped: skipped.length, problems: problems.length,
                    total_emi: sum('emi'), total_principal: sum('principal'), total_interest: sum('interest') },
         posted: posted.slice(0, 40), skipped: skipped.slice(0, 20), problems: problems.slice(0, 20) };
+    }
+  );
+
+  // ── 4. load a lender's own transaction ledger ────────────────────────────
+  app.post(
+    '/statement-import',
+    { schema: { body: { type: 'object', required: ['ledgers'], properties: {
+      ledgers: { type: 'array', maxItems: 500, items: { type: 'object' } },
+      commit: { type: 'boolean', default: false },
+      statement_as_of: { type: ['string', 'null'], format: 'date' },
+      created_by: { type: ['string', 'null'], maxLength: 60 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { ledgers = [], commit = false, statement_as_of = null } = req.body ?? {};
+      if (!ledgers.length) return reply.code(400).send({ error: 'NO_LEDGERS' });
+      const out = await importLedgers(query, ledgers,
+        { commit, statementAsOf: statement_as_of, createdBy: req.body.created_by });
+      return { ok: true, ...out };
+    }
+  );
+
+  // ── 5. the ledger statement ──────────────────────────────────────────────
+  // Start-to-end history of one loan, with the opening balance struck at a
+  // cut-off. This is what the printable statement renders and what an auditor
+  // reads, so everything it needs comes back in ONE response — a screen that
+  // has to make four calls to print a statement will print a half-built one the
+  // first time a request is slow.
+  app.get(
+    '/ledger',
+    { schema: { querystring: { type: 'object', properties: {
+      loan_no: { type: ['string', 'null'], maxLength: 40 },
+      vehicle_no: { type: ['string', 'null'], maxLength: 20 },
+      as_of: { type: ['string', 'null'], format: 'date' },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const asOf = req.query.as_of || OPENING_CUTOFF;
+      const loanNo = req.query.loan_no || null;
+      const vehicleNo = req.query.vehicle_no || null;
+      if (!loanNo && !vehicleNo) {
+        return reply.code(400).send({ error: 'NO_SELECTION',
+          detail: 'give a loan_no or a vehicle_no' });
+      }
+
+      const { rows: heads } = await query(
+        `SELECT * FROM v_loan_statement_header
+          WHERE ($1::text IS NULL OR loan_account_no = $1)
+            AND ($2::text IS NULL OR vehicle_no = $2)
+          ORDER BY loan_account_no`, [loanNo, vehicleNo]);
+      if (!heads.length) return reply.code(404).send({ error: 'NO_SUCH_LOAN' });
+
+      const ids = heads.map((h) => h.loan_id);
+      const [{ rows: ledger }, { rows: opening }, { rows: charges }, { rows: health }] =
+        await Promise.all([
+          query(`SELECT * FROM v_loan_ledger WHERE loan_id = ANY($1::uuid[])
+                  ORDER BY loan_account_no, instalment_no`, [ids]),
+          query(`SELECT * FROM loan_opening_balance($1::date)
+                  WHERE loan_id = ANY($2::uuid[])`, [asOf, ids]),
+          query(`SELECT loan_id, head, charge_date, charged, recovered, outstanding, is_penal
+                   FROM loan_charges WHERE loan_id = ANY($1::uuid[])
+                  ORDER BY is_penal DESC, head`, [ids]),
+          query(`SELECT * FROM v_loan_ledger_health WHERE loan_id = ANY($1::uuid[])`, [ids]),
+        ]);
+
+      const by = (rows) => rows.reduce((m, r) => {
+        (m[r.loan_id] ??= []).push(r); return m; }, {});
+      const ledgerBy = by(ledger), chargeBy = by(charges);
+      const openBy = Object.fromEntries(opening.map((o) => [o.loan_id, o]));
+      const healthBy = Object.fromEntries(health.map((h) => [h.loan_id, h]));
+
+      const loans = heads.map((h) => {
+        const rows = ledgerBy[h.loan_id] ?? [];
+        const open = openBy[h.loan_id] ?? null;
+        const ch = chargeBy[h.loan_id] ?? [];
+        // The statement's own arithmetic, so the page never has to add up money
+        // in JavaScript floats to fill in a total.
+        const since = rows.filter((r) => r.due_date >= asOf);
+        const num = (v) => Number(v ?? 0);
+        return {
+          ...h,
+          opening: open,
+          // Undated charges are reported BESIDE the opening balance, never
+          // inside it. They are real and they are owed; what the lender does not
+          // state is when they were raised, and a cut-off cannot be applied to a
+          // figure that has no date. Folding them in would make the balance look
+          // more precise than the paper it came from.
+          charges: ch,
+          totals: {
+            demanded: num(h.total_demanded),
+            received: num(h.total_received),
+            outstanding: Number((num(h.total_demanded) - num(h.total_received)).toFixed(2)),
+            due_since_cutoff: Number(since.reduce((a, r) => a + num(r.due_amount), 0).toFixed(2)),
+            instalments_since_cutoff: since.length,
+            overdue_interest_accrued:
+              Number(rows.reduce((a, r) => a + num(r.overdue_interest), 0).toFixed(2)),
+            paid_late: rows.filter((r) => r.status === 'PAID_LATE').length,
+            worst_delay_days: rows.reduce((a, r) => Math.max(a, r.delay_days ?? 0), 0),
+          },
+          health: healthBy[h.loan_id] ?? null,
+          rows,
+        };
+      });
+
+      return { as_of: asOf, loans: loans.length, statement: loans };
     }
   );
 }

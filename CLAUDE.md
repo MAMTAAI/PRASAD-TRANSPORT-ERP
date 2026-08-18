@@ -168,6 +168,131 @@ as the khata row.
 
 ---
 
+# Vehicle loans: step-up EMIs and the ledger statement (2026-08-18)
+
+29 loans, two lenders, and an EMI that is **never flat**. Every TATA contract
+steps up — a low run while the truck is being bodied, then the contractual
+instalment — and disbursal is not one month before the first EMI.
+
+## The shape of a loan
+
+```
+5004384745   AS 26C 9816   disbursed 14-07-2022   first EMI 11-09-2022 (59 days)
+  001-001     30,301        the odd first month
+  002-006     30,285        five low instalments
+  007-058    112,987        the contractual EMI
+```
+
+| table | what |
+|---|---|
+| `loan_emi_tiers` | the step-up pattern, one row per tier |
+| `loan_instalments` | every instalment, `MODELLED` or `LENDER_STATEMENT` |
+| `loan_receipts` | what the lender banked, on its dates — **not** `emi_payments` |
+| `loan_charges` | LPC, bounce, legal, repossession; `is_penal` separates arrears from fees |
+
+- **`tenure_months` is the TERM; `instalment_count` is the instalments.** They
+  are not the same number and they used to be the same column — TATA prints
+  "No.of Instls 058" while IndusInd runs a 60-month facility that collects 58
+  after a two-month moratorium. `tenure_months = moratorium_months +
+  instalment_count` on all 29; `v_loan_term_check` must stay empty.
+- **A deferred trigger enforces the tiers.** They must start at 1, not overlap,
+  leave no gap, and end on `instalment_count`. A gap means two months are never
+  billed and the total still looks plausible — the failure a jsonb array could
+  not catch. Rewrite tiers **inside a transaction** (`syncTiers`); statement-by-
+  statement the deferred check fires mid-rewrite.
+- **`loan_receipts` is the lender's book; `emi_payments` is ours.** They will
+  not agree row for row. The gap between them *is* the reconciliation — merging
+  them destroys the only evidence a payment went missing.
+
+## The moratorium
+
+`buildSchedule` takes `disbursal` and reports `lead_period_days` /
+`moratorium_months`. **The lead-period interest is NOT capitalised** — that was
+tested, not assumed: capitalising moves the solved rate *away* from the printed
+IRR on all three contracts that print both (10.8625% vs 10.5301% plain, 10.1836%
+capitalised). TATA discloses the lead period and amortises the raw finance
+amount from the first instalment date.
+
+Due dates are **clamped to month end**. A 31st due date used to roll to 3 March
+and 1 May, silently skipping two months. It never fired live — these loans
+collect on the 2nd, 7th, 11th and 24th — which is why it needed a test.
+
+```bash
+npm run loans:selftest        # 21 checks, no database
+```
+
+## Opening balance — strictly before, both sides
+
+```
+  instalments due  <  cut-off
+- payments cleared <  cut-off
++ penal charges raised < cut-off
+```
+
+`loan_opening_balance(p_as_of date DEFAULT '2026-04-01')` — a **function**, so
+the period is an argument, never an edit. Struck at 01-04-2026 it reproduces
+TATA's own printed "Overdue Installment" to the rupee (5004384745: ₹3,37,958.00).
+
+Two figures stay **outside** the total and are printed beside it:
+
+- **undated penal charges** — the lender states a balance and no date; a cut-off
+  cannot be applied to a figure that has none (₹4,17,240.90 across the fleet);
+- **accrued overdue interest** — TATA's per-instalment ODC is an accrual it
+  discloses, *not* a sum it has debited (₹1.65 lakh accrued against ₹13 of LPC
+  actually charged on one contract). Adding it would invent arrears.
+
+## Loading a lender statement
+
+```bash
+python tools/loan_recon/loan_ledger_parser.py --dir "<folder of PDFs>" \
+       --json reports/loan_bills/tata_ledgers.json
+node -r dotenv/config scripts/load-loan-statements.mjs              # dry run
+node -r dotenv/config scripts/load-loan-statements.mjs --commit
+```
+
+The parser reads **coordinates, not text**: a demand and a receipt are identical
+in flat text and differ only by which column the amount lands in. Read as text,
+every receipt becomes a demand and the account appears to owe twice what it
+does. It refuses any statement that does not reproduce the lender's own printed
+control totals — all 27 reconcile.
+
+Import is **idempotent by replacement**, one transaction per loan. `MODELLED`
+instalments the lender has not raised yet survive, so the statement still runs
+start to end.
+
+`v_loan_ledger_health.drift` must be 0 — the instalments the lender *raised*,
+less its receipts, must equal the closing balance it printed. It excludes future
+modelled instalments; comparing all of them reported 16 of 29 loans as broken
+when none were.
+
+## The statement
+
+`GET /api/v1/loans/ledger?loan_no=…&as_of=…` → header, opening balance, charges,
+health and all 58 rows in one response. `src/LoanLedgerStatement.tsx` renders it;
+**Loan & EMI Mgmt → 📜 LEDGER STATEMENT**.
+
+Printing uses `@media print` on the page itself, not `window.open` +
+`document.write` like the vouchers do. A 58-row statement written twice is two
+implementations that drift, and the page the auditor signs stops matching the
+one the operator checked. The shell is blanked with `visibility`, not
+`display:none` — the component cannot know how the sidebar is nested.
+
+Payments are allocated **FIFO**, because TATA does not allocate receipts to
+instalments at all (47 demands, 39 receipts, one running balance). Earlier
+arrears discharge first; that is what reproduces the lender's own balance.
+
+## What is NOT covered
+
+The three **IndusInd** loans (`SXB0040*`, ₹61.4 lakh) have **no instalment
+ledger**. They were restructured in January 2024, are classified NPA, and the
+bank sends photographs — the scanned statements carry no machine-readable text.
+Arrears cannot be struck for them, so the statement prints **NOT ON RECORD** and
+the book principal outstanding instead of a confident ₹0.00. `v_loan_statement_coverage`
+lists them. Contract `5003502544` (matured 10-2024, fully received) is in the
+PDFs but not in `loan_master`; the loader skips it rather than inventing a row.
+
+---
+
 # Shipping the phone apps (2026-08-17)
 
 **Android** goes to Google Play as `com.prasadtransport.erp`. **iPhone has no
