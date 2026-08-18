@@ -310,6 +310,41 @@ loan_emi_due(p_through date DEFAULT <end of current month>)
 - Red only when something is payable. A dashboard that is permanently red is a
   dashboard nobody reads.
 
+## EMI Payment History
+
+`GET /api/v1/assets/loans/payments` — every payment, **loan joined**. The screen
+printed empty Vehicle No and Bank / A/C No on all 150 rows because
+`emi_payments` carries `loan_id` and nothing else about the loan; the join is
+server-side so no consumer has to re-answer "which truck was this". Company and
+owner come from the loan, not from the copies frozen on the payment row (54
+nulls and two spellings of the same firm). It replaces 29 per-loan round trips —
+a bank block is one transfer covering seven trucks, so the screen needs the
+fleet at once anyway.
+
+Two data bugs the screen exposed, both fixed at the writer:
+
+- **`emi_month` had two spellings** — `2026-04` from `/post-emis`, `Apr-2026`
+  from the browser. The same month sorted apart, and the duplicate guard in
+  `/post-emis` had to test both, one forgotten `OR` away from charging an EMI
+  twice. Migration 081 unifies it to `YYYY-MM` and constrains the column;
+  `normaliseEmiMonth` accepts either shape at the API boundary so the edit
+  dialog still works. Display formats it back to `Apr-2026`.
+- **`months_paid` held the instalment serial.** `/post-emis` wrote
+  `months_paid = r.month_no`, so 96 payments claimed a single ₹1,12,987 transfer
+  settled 44–48 months ("Block: 48 Mth" on screen). Not cosmetic: the delete
+  path subtracts `months_paid` from `emis_completed`, so undoing one would have
+  wound the loan back forty-eight instalments. Migration 082 moves the serial to
+  `emi_payments.instalment_no` where the schedule corroborates it (all 150 did),
+  resets `months_paid` to 1, and `v_emi_payment_month_check` lists anything that
+  cannot be tied — a genuine multi-month settlement must not be rewritten.
+
+**Known, pre-existing:** `/post-emis` inserts payments without moving
+`loan_master.remaining_principal`, so `v_loan_reconciliation` reports drift on
+all 29 loans totalling ₹1,09,71,245.42 — exactly the principal those payments
+carry. The view is doing its job. Closing it means either posting the counter
+movements or restriking the opening balances, and that is a decision, not a
+cleanup: **do not silently overwrite either side.**
+
 ## What is NOT covered
 
 The three **IndusInd** loans (`SXB0040*`, ₹61.4 lakh) have **no instalment

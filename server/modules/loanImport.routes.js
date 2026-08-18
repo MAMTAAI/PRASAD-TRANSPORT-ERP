@@ -550,11 +550,19 @@ export async function registerLoanImportRoutes(app) {
                 { ledger: bank_ledger, dr_cr: 'CR', amount: emi, group: 'Bank Accounts' },
               ],
             });
+            // months_paid IS 1, AND THE SERIAL GOES IN instalment_no. This line
+            // used to put r.month_no in months_paid, so every posted EMI claimed
+            // to settle 44 to 48 months at once. It printed as "Block: 48 Mth"
+            // on the history screen, and — the part that mattered — the delete
+            // path subtracts months_paid from emis_completed, so undoing one
+            // payment would have wound the loan back forty-eight instalments.
+            // Migration 082 separated the two columns; this is the writer that
+            // conflated them.
             await query(
               `INSERT INTO emi_payments (loan_id, payment_date, emi_month, months_paid,
-                      principal_part, interest_part, total_paid, payment_mode, ref_no,
-                      paid_from_account, voucher_id, company, created_by)
-               VALUES ($1::uuid,$2::date,$3,$4,$5,$6,$7,'BANK',$8,$9,$10::uuid,$11,$12)`,
+                      instalment_no, principal_part, interest_part, total_paid, payment_mode,
+                      ref_no, paid_from_account, voucher_id, company, created_by)
+               VALUES ($1::uuid,$2::date,$3,1,$4,$5,$6,$7,'BANK',$8,$9,$10::uuid,$11,$12)`,
               [l.id, r.date, r.date.slice(0, 7), r.month_no, principal, interest, emi,
                `LOANEMI-${l.loan_account_no}-${r.date}`, bank_ledger,
                voucher?.voucher_id ?? null, l.company_name ?? null, req.body.created_by ?? 'loan-import']);

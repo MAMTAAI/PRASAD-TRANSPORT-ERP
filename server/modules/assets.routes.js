@@ -31,6 +31,70 @@ const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const money = (v) => Number(v ?? 0);
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
+                'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * The month an EMI is FOR, as YYYY-MM.
+ *
+ * NORMALISED HERE, AT THE BOUNDARY, and nowhere else. The column held two
+ * spellings for two years — '2026-04' from the posting job and 'Apr-2026' from
+ * the browser, which formats it with toLocaleString and offers "e.g. Mar-26" in
+ * the edit box. The same month under two labels sorted apart on the history
+ * screen and forced the duplicate guard in /post-emis to test both, one
+ * forgotten OR away from charging an EMI twice.
+ *
+ * Migration 081 unified the stored rows and constrains the column. Rejecting
+ * the browser's spelling outright would have been the easy half of that and
+ * would have broken the edit dialog the moment it shipped, so both shapes are
+ * accepted and one is stored. Anything else is refused rather than guessed —
+ * a month key that is wrong is worse than one that is missing, because it
+ * silently becomes a different instalment.
+ */
+export function normaliseEmiMonth(v) {
+  if (v == null || String(v).trim() === '') return null;
+  const s = String(v).trim();
+
+  if (/^\d{4}-(0[1-9]|1[0-2])$/.test(s)) return s;                   // already canonical
+
+  // 'Apr-2026', 'apr 2026', 'Mar-26'  ->  '2026-04'
+  const m = s.match(/^([A-Za-z]{3,9})[-\s/]?(\d{2}|\d{4})$/);
+  if (m) {
+    const idx = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (idx >= 0) {
+      const y = m[2].length === 2 ? 2000 + Number(m[2]) : Number(m[2]);
+      return `${y}-${String(idx + 1).padStart(2, '0')}`;
+    }
+  }
+  // '04-2026' / '04/2026'
+  const n = s.match(/^(0?[1-9]|1[0-2])[-\s/](\d{4})$/);
+  if (n) return `${n[2]}-${String(Number(n[1])).padStart(2, '0')}`;
+
+  throw Object.assign(new Error(`unreadable EMI month "${v}" — use YYYY-MM`),
+    { code: 'BAD_EMI_MONTH' });
+}
+
+/**
+ * A payment row with its loan resolved.
+ *
+ * emi_payments carries loan_id and nothing else about the loan, so the history
+ * screen printed empty Vehicle No and Bank / A/C No columns for every row —
+ * 150 payments that could not be told apart. The join belongs here rather than
+ * in the browser: any consumer of a payment needs to know which truck it was
+ * for, and there is no version of that question the client can answer on its own.
+ *
+ * Company and owner come from the loan too, NOT from the copies stored on the
+ * payment — those are 54 nulls and two spellings of the same firm, frozen at
+ * whatever the loan said on the day the row was written.
+ */
+const PAYMENT_SELECT = `
+  SELECT p.*,
+         l.vehicle_no, l.loan_account_no, l.bank_name, l.loan_type,
+         l.company_name AS loan_company, l.owner_name AS loan_owner,
+         l.financier_ledger
+    FROM emi_payments p
+    JOIN loan_master l ON l.id = p.loan_id`;
+
 const pgErr = (reply, err) => {
   if (err.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: err.detail ?? err.message });
   if (err.code === '23514') return reply.code(400).send({ error: 'CONSTRAINT', detail: err.message });
@@ -165,6 +229,17 @@ export async function registerAssetRoutes(app) {
       const { rows: [loan] } = await query('SELECT * FROM loan_master WHERE id = $1::uuid', [req.params.id]);
       if (!loan) return reply.code(404).send({ error: 'NOT_FOUND' });
 
+      // The month key is canonicalised before anything else touches it — the
+      // narration below quotes it, the row stores it, and the column now
+      // constrains it. Accepting "Mar-26" from the edit box and storing
+      // "2026-03" is the whole job; see normaliseEmiMonth.
+      let emiMonth;
+      try {
+        emiMonth = normaliseEmiMonth(b.emi_month);
+      } catch (e) {
+        return reply.code(400).send({ error: 'BAD_EMI_MONTH', detail: e.message });
+      }
+
       const total = r2(b.total_paid);
       // If the caller does not split it, the split is derived from the loan's
       // own rate on the CURRENT outstanding — never guessed as "all principal",
@@ -221,7 +296,7 @@ export async function registerAssetRoutes(app) {
           voucher = await postVoucher({
             type: 'JOURNAL',
             entry_date: date,
-            narration: `EMI ${loan.vehicle_no || loan.loan_account_no || ''} ${b.emi_month ? `(${b.emi_month})` : ''} — ${loan.bank_name || ''}`.trim(),
+            narration: `EMI ${loan.vehicle_no || loan.loan_account_no || ''} ${emiMonth ? `(${emiMonth})` : ''} — ${loan.bank_name || ''}`.trim(),
             source_type: 'LOAN_EMI',
             ref_no: b.ref_no || null,
             company: b.company ?? loan.company_name ?? null,
@@ -243,7 +318,7 @@ export async function registerAssetRoutes(app) {
                                        interest_part, total_paid, payment_mode, ref_no,
                                        paid_from_account, voucher_id, company, created_by)
              VALUES ($1::uuid,$2::date,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$12,$13) RETURNING *`,
-            [loan.id, date, b.emi_month ?? null, b.months_paid ?? 1, principal, interest, total,
+            [loan.id, date, emiMonth, b.months_paid ?? 1, principal, interest, total,
              b.payment_mode ?? null, b.ref_no || null, b.account ?? null,
              voucher?.voucher_id ?? null, b.company ?? loan.company_name ?? null, b.created_by ?? null]);
 
@@ -351,10 +426,51 @@ export async function registerAssetRoutes(app) {
   app.get('/loans/:id/payments', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
-      `SELECT * FROM emi_payments WHERE loan_id = $1::uuid ORDER BY payment_date DESC, created_at DESC`,
+      `${PAYMENT_SELECT} WHERE p.loan_id = $1::uuid
+        ORDER BY p.payment_date DESC, p.created_at DESC`,
       [req.params.id]);
     return { count: rows.length, payments: rows };
   });
+
+  // ── Every EMI payment, across every loan ─────────────────────────────────
+  // The history screen groups payments into BANK BLOCKS — one bank transfer
+  // covering seven trucks, keyed on date + account + UTR — so it needs every
+  // loan's payments at once to find the block. It was getting them by asking
+  // for one loan at a time: 29 round trips to draw one table, and a screen that
+  // renders in a different order depending on which of them answers first.
+  //
+  // Static segment, so it must be declared where Fastify will not read
+  // "payments" as a loan id. It sits beside /loans/:id/payments rather than
+  // replacing it — a caller that has one loan should not fetch the fleet.
+  app.get(
+    '/loans/payments',
+    { schema: { querystring: { type: 'object', properties: {
+      from: { type: ['string', 'null'], format: 'date' },
+      to: { type: ['string', 'null'], format: 'date' },
+      loan_no: { type: ['string', 'null'], maxLength: 40 },
+      vehicle_no: { type: ['string', 'null'], maxLength: 20 },
+      limit: { type: 'integer', minimum: 1, maximum: 5000, default: 2000 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { from = null, to = null, loan_no = null, vehicle_no = null, limit = 2000 } = req.query ?? {};
+      const { rows } = await query(
+        `${PAYMENT_SELECT}
+          WHERE ($1::date IS NULL OR p.payment_date >= $1::date)
+            AND ($2::date IS NULL OR p.payment_date <= $2::date)
+            AND ($3::text IS NULL OR l.loan_account_no = $3)
+            AND ($4::text IS NULL OR l.vehicle_no = $4)
+          ORDER BY p.payment_date DESC, l.vehicle_no, p.created_at DESC
+          LIMIT $5`,
+        [from, to, loan_no, vehicle_no, limit]);
+      return {
+        count: rows.length,
+        truncated: rows.length >= limit,
+        total_paid: rows.reduce((a, r) => a + money(r.total_paid), 0).toFixed(2),
+        payments: rows,
+      };
+    }
+  );
 
   // ═══ TYRES & BATTERIES ════════════════════════════════════════════════════
   // One shape, two components — the screens are near-identical and so is the

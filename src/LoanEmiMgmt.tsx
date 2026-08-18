@@ -82,18 +82,48 @@ const loanToApi = (f: any) => ({
   repayment_schedule: f.repayment_schedule ?? [],
 });
 
+// 'Apr-2026' reads better in a table than '2026-04'. The STORED value is
+// canonical YYYY-MM (migration 081 constrains it); this is presentation only,
+// and the API accepts either shape back, so nothing depends on what is shown.
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const emiMonthLabel = (m: any) => {
+  const s = String(m ?? '');
+  const hit = s.match(/^(\d{4})-(\d{2})$/);
+  return hit ? `${MONTH_SHORT[Number(hit[2]) - 1]}-${hit[1]}` : s;
+};
+
 const paymentFromApi = (pmt: any) => ({
   ...pmt,
   _collection: 'emi_payments',
   Date_of_Payment: pmt.payment_date ?? '',
   EMI_Month_Year: pmt.emi_month ?? '',
   Months_Paid: pmt.months_paid ?? 1,
+  // Which instalment of the contract this settles. Separate from
+  // Months_Paid, which is how many months one payment covers — the two
+  // were the same column until migration 082 and every posted EMI read
+  // "Block: 48 Mth".
+  Instalment_No: pmt.instalment_no ?? null,
   Principal_Part: pmt.principal_part ?? 0,
   Interest_Part: pmt.interest_part ?? 0,
   Total_EMI_Paid: pmt.total_paid ?? 0,
   Payment_Mode: pmt.payment_mode ?? '',
   Ref_No: pmt.ref_no ?? '',
   Payment_From_Account: pmt.paid_from_account ?? '',
+  // ── RESOLVED FROM THE LOAN, SERVER-SIDE ────────────────────────────────
+  // emi_payments stores loan_id and nothing else about the loan, so the
+  // history table printed empty Vehicle No and Bank / A/C No on all 150 rows —
+  // a page of payments with no way to tell which truck any of them was for.
+  // The API now joins loan_master; these are those columns.
+  //
+  // Company and owner come from the LOAN, not from the copies frozen onto the
+  // payment row — those are 54 nulls and two spellings of the same firm.
+  Vehicle_No: pmt.vehicle_no ?? '',
+  Loan_Account_No: pmt.loan_account_no ?? '',
+  Bank_Name: pmt.bank_name ?? '',
+  Loan_Type: pmt.loan_type ?? '',
+  Company_Name: pmt.loan_company ?? pmt.company ?? '',
+  Owner_Name: pmt.loan_owner ?? '',
 });
 
 // 🔥 UNIVERSAL AUTO-RECOVERY & PARSING HELPERS (100% CRASH-PROOF)
@@ -194,15 +224,14 @@ export default function LoanEmiMgmt() {
       const loanRows = (loanRes.loans ?? []).map(loanFromApi);
       setLoans(loanRows);
 
-      // Payments for every loan, newest first. The old code merged two Firestore
-      // collections (EMI_PAYMENTS and LOAN_PAYMENTS) that had drifted apart and
-      // then deleted from both on every removal — there is one table now.
-      const perLoan = await Promise.all(loanRows.map((l: any) =>
-        fetchJson(`${ASSETS}/loans/${l.id}/payments`)
-          .then(r => (r.payments ?? []).map(paymentFromApi))
-          .catch(() => [])));
-      setPayments(perLoan.flat().sort((a: any, b: any) =>
-        String(b.Date_of_Payment).localeCompare(String(a.Date_of_Payment))));
+      // Payments for every loan, newest first, in ONE call. The old code merged
+      // two Firestore collections (EMI_PAYMENTS and LOAN_PAYMENTS) that had
+      // drifted apart; there is one table now — but it was still asking for one
+      // loan at a time, 29 round trips to draw one table, and the history screen
+      // groups across loans anyway (a bank block is one transfer covering seven
+      // trucks). It wants the fleet, so it asks for the fleet.
+      const payRes = await fetchJson(`${ASSETS}/loans/payments`).catch(() => ({ payments: [] }));
+      setPayments((payRes.payments ?? []).map(paymentFromApi));
 
       // Bank/cash accounts come from the chart of accounts — the same list every
       // other payment screen uses, so an EMI cannot be paid from an account the
@@ -829,7 +858,7 @@ export default function LoanEmiMgmt() {
            const date = getVal(p, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date', 'emi_date'], '-');
            const vNo = getVal(p, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'], '-');
            const bName = getVal(p, ['Bank_Name', 'bank_name', 'financier_name'], '-');
-           const mYr = getVal(p, ['EMI_Month_Year', 'month_year', 'EMI_Month'], 'N/A');
+           const mYr = emiMonthLabel(getVal(p, ['EMI_Month_Year', 'month_year', 'EMI_Month'], 'N/A'));
            const totEmi = parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN');
            const prin = parseNum(getVal(p, ['Principal_Part', 'principal_part', 'principal'])).toLocaleString('en-IN');
            const intP = parseNum(getVal(p, ['Interest_Part', 'interest_part', 'interest'])).toLocaleString('en-IN');
@@ -1230,7 +1259,11 @@ export default function LoanEmiMgmt() {
                               <td style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🏢 {getRealCompany(p)}</td>
                               <td style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold' }}>👤 {getRealOwner(p)}</td>
                               <td>{getVal(p, ['Bank_Name', 'bank_name', 'financier_name'])} <br/><small style={{color:'#818cf8', fontWeight:'bold'}}>{getVal(p, ['Loan_Account_No', 'loan_account_no', 'account_no'])}</small></td>
-                              <td><span style={{ color: '#f59e0b', fontWeight: 'bold' }}>{getVal(p, ['EMI_Month_Year', 'month_year', 'month', 'EMI_Month'], 'N/A')}</span><br/><small style={{ color: '#cbd5e1' }}>Block: {getVal(p, ['Months_Paid', 'months_paid'], '1')} Mth</small></td>
+                              <td><span style={{ color: '#f59e0b', fontWeight: 'bold' }}>{emiMonthLabel(getVal(p, ['EMI_Month_Year', 'month_year', 'month', 'EMI_Month'], 'N/A'))}</span><br/><small style={{ color: '#cbd5e1' }}>
+                                {p.Instalment_No ? `EMI #${p.Instalment_No}` : ''}
+                                {Number(getVal(p, ['Months_Paid', 'months_paid'], '1')) > 1
+                                  ? `${p.Instalment_No ? ' · ' : ''}covers ${getVal(p, ['Months_Paid', 'months_paid'])} months` : ''}
+                              </small></td>
                               <td style={{ color: '#10b981', fontWeight: 'bold', fontSize: '14px' }}>₹{parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN')}</td>
                               <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Principal_Part', 'principal_part', 'principal'])).toLocaleString('en-IN')}</td>
                               <td style={{ color: '#ef4444', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Interest_Part', 'interest_part', 'interest'])).toLocaleString('en-IN')}</td>
@@ -1396,7 +1429,7 @@ export default function LoanEmiMgmt() {
                     {bankAccounts.map((b, i) => <option key={i} value={b}>{b}</option>)}
                  </select>
               </div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Mth/Year (e.g. Mar-26)</label><input type="text" className="modern-input" value={paymentEditData.EMI_Month_Year} onChange={e=>setPaymentEditData({...paymentEditData, EMI_Month_Year: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Mth/Year (Mar-26 or 2026-03)</label><input type="text" className="modern-input" value={paymentEditData.EMI_Month_Year} onChange={e=>setPaymentEditData({...paymentEditData, EMI_Month_Year: e.target.value})} /></div>
               <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Ref / UTR No</label><input type="text" className="modern-input" value={paymentEditData.Ref_No} onChange={e=>setPaymentEditData({...paymentEditData, Ref_No: e.target.value})} /></div>
             </div>
 
