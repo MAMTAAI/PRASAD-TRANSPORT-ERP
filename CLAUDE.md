@@ -168,6 +168,71 @@ as the khata row.
 
 ---
 
+# Exception Resolution — what the system refuses to guess (2026-08-18)
+
+**Finance Hub → 🛠️ Exception Resolution.** `exceptions` table, `/api/v1/exceptions`,
+`src/ExceptionResolution.tsx`.
+
+The ERP is careful about refusing rather than guessing, and that care was going
+nowhere. The AC5 loader rejects a file and writes a COUNT to a log. The IOCL
+matcher parks an AMBIGUOUS row in a view nobody opens. The loan importer skips a
+contract and returns it in an HTTP response read once. Every one is a decision
+waiting for a person, invisible until somebody goes looking.
+
+**The first scan found 10 bills where one consignment was charged twice —
+₹9,02,095.89**, none of it paid, the oldest since May. Worst: LR `1067034001` on
+`INV-BHA-0015` **ten times**, ₹4,36,436.19, and 8 of those lines are not linked
+to a trip at all.
+
+## What makes it not a log
+
+- **Deduplicated.** `dedupe_key` is unique, so a detector on the 15-minute cron
+  raises once and updates after. Without it the queue becomes the log it replaced.
+- **Carries the evidence.** `evidence` jsonb holds both trip codes, both drivers,
+  the bill, the amount — resolving does not start with reconstructing the query.
+- **Names the money.** `amount_at_risk` sorts the queue. Urgency is cost, not age.
+- **Offers specific choices.** `options` is what the button renders. A queue that
+  says "something is wrong" and leaves the operator to invent the fix is a log
+  with a nicer font.
+
+Not an approval queue — `expense_approvals` / `v_approval_queue` (061) are
+maker-checker, a *person* proposed something. This is the opposite: the *system*
+found something it will not decide.
+
+## The resolver
+
+`POST /:id/resolve` — guarded, because reading the queue should be open and
+acting on it moves money.
+
+**The button sends an intent, not a plan.** "Keep line 692"; the server decides
+how that becomes a bill total, a ledger reversal and a deleted trip. Two people
+clicking at once would otherwise each read the bill, each subtract, and one
+correction would vanish — the same reason 035 moved the loan counters server-side.
+
+Order is deliberate: **the GL reversal posts FIRST**, ref `EXCFIX-<exception_id>`.
+If the DB step then fails, the voucher exists and the bill is untouched — visible,
+and a retry is refused as `DUPLICATE_REF` instead of reversing twice. The opposite
+order leaves a corrected bill and a ledger still carrying the overcharge, which is
+the failure nobody notices.
+
+- **Preconditions are re-read at write time**, never trusted from detection —
+  days can pass. Refuses `BILL_LOCKED`, `BILL_PAID`, `ALREADY_RESOLVED`.
+- **Bill totals are recomputed from surviving lines**, never adjusted by
+  subtraction. A subtracted total is right once; a recomputed one is right every time.
+- **A trip is only deleted if nothing points at it** — fuel, tolls, settlements,
+  driver transactions, another bill. It reports what it kept and why.
+- **No default choice.** Where lines name different drivers only the physical LR
+  settles it; a default would be the system guessing under a staff login.
+- **Dismissal needs a reason** — otherwise it cannot be told from someone
+  clearing their inbox.
+
+## Open, awaiting a physical LR
+
+`PT00672` (ARUN YADAV) / `PT00688` (SADER RAHMAN) — same vehicle, date, quantity
+and LR `193660536` on `INV-IND-7B03-0012`, ₹1,28,664.29. **Do not resolve from
+the data**: the driver kept is the one whose khata carries any shortage on that
+load.
+
 # LPG moves in tonnes, and the AC5 parser could not read it (2026-08-18)
 
 `iocl_ac5_parser.py` took the dispatched quantity off the item line and accepted

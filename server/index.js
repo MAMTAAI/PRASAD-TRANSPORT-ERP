@@ -31,6 +31,7 @@ import { registerFileRoutes } from './modules/files.routes.js';
 import { registerTollRoutes } from './modules/toll.routes.js';
 import { registerTollImportRoutes } from './modules/tollImport.routes.js';
 import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
+import { registerExceptionRoutes } from './modules/exceptions.routes.js';
 import { registerFortnightBillingRoutes } from './modules/fortnightBilling.routes.js';
 import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
@@ -178,6 +179,7 @@ await app.register(registerTollImportRoutes, { prefix: '/api/v1/toll' });
 // mass-insert button. Exclusive per run -- two concurrent syncs would each
 // build a deduplication index blind to the other's uncommitted inserts.
 await app.register(registerIoclSyncRoutes, { prefix: '/api/v1/iocl' });
+await app.register(registerExceptionRoutes, { prefix: '/api/v1/exceptions' });
 // Vehicle loans: contract import, the opening liability at a cut-off, and EMIs
 // split into principal and interest. Kept apart from the loan CRUD screens for
 // the same reason as the toll importer — this is the only path that recognises

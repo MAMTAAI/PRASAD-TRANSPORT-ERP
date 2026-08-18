@@ -167,6 +167,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'EMAIL_PARSER', label: 'Email Bill Parser (Auto)', icon: '📧' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
         { id: 'LOAN', label: 'Loan & EMI Mgmt', icon: '💸' },
+        { id: 'EXCEPTIONS', label: 'Exception Resolution', icon: '🛠️' },
         { id: 'TOLL', label: 'Toll & Fastag', icon: '🛣️' },
         { id: 'GST', label: 'GST Management', icon: '🏛️' },
         { id: 'TDS', label: 'TDS Management', icon: '✂️' },
