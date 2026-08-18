@@ -435,6 +435,60 @@ not re-read from the PDFs: instalments summed = ₹60,57,050 and less the financ
 amount = ₹14,57,050, which is exactly what TATA prints. `v_loan_contract_check`
 is empty.
 
+### Accounting: the balance sheet carries the FIRM (088-090)
+
+Secured Loans resolved to sixteen accounts named after **registration plates**,
+and each held BOTH that truck's contracts netted together — neither per lender
+nor per contract, but per asset, which is the one thing a liability is not.
+
+The balance sheet now shows **one account per finance company**:
+
+```
+Vehicle Loans - TATA CAPITAL LIMITED   1,39,80,691.13
+Vehicle Loans - INDUSIND BANK            47,33,706.52
+```
+
+Not one row of history was rewritten. `ledger_entries` is append-only and TARA
+is its only writer, so the postings keep the names they were made under; what
+moved is the **alias** (`ledger_aliases`, the same mechanism 034's party dedup
+used). `loan_master.financier_ledger` still names the vehicle, TARA still finds
+it, and the alias lands it on the firm — so future EMI vouchers need no change.
+The vehicle detail is in `v_loan_gl_by_vehicle` and in the loan module.
+
+⚠️ **The ledger id is derived from the name** —
+`md5('prasad-erp/ledger/' || lower(btrim(name)))::uuid`. Minting a fresh uuid
+gives this database a different key for the same account than the replica
+computes, and autoSync upserts by id. Migrations 037–039 were that bug.
+
+**The GL was understating the loan liability by ₹15,64,269.36.** 21 payments are
+for Feb/Mar 2026 and each posted a JOURNAL debiting the loan — but the opening
+balance struck at 01-04-2026 already had those instalments inside it. The
+liability came down twice for the same money. Same double-count 083 fixed on the
+module's counters, one layer down. Corrected by **reversing JOURNAL through
+TARA** (`scripts/fix-loan-gl-double-count.mjs`, dry run by default, amount
+derived per ledger as module − GL so a re-run computes zero). GL and module now
+both read **₹1,87,14,397.65**.
+
+**Per-year accounting**: `v_loan_accounting_fy` gives opening liability →
+principal repaid → closing liability, with interest charged as a **separate**
+finance cost. That split is the point: FY 2022-23 on a 46-lakh chassis loan is
+₹2,94,713 of instalments of which **₹2,93,668 is interest**, because the six
+moratorium EMIs barely cover their own interest. Booked as principal, that
+year's profit is overstated by ₹2.9 lakh per truck.
+
+⚠️ `v_loan_interest_vs_gl` splits its gap into `postable_gap` and
+`borne_before_the_books`. FY 2022-23 to 2025-26 show ₹2.05 crore of contract
+interest with nothing posted — that is **not** a gap to journal. It was paid
+over four years before this system existed and is inside the opening balance;
+posting it would charge the P&L twice and break the balance sheet by the same
+amount. Only ₹4,09,580.72 of 2026-27 is genuinely postable.
+
+**FY filter, print and download** on the statement screen: pick a financial
+year, print just that year, or export the year summary / full ledger as CSV
+(filename carries the scope and the year). The CSV is built from the rows
+already on screen — a download that runs its own query is a second
+implementation that drifts.
+
 ## What is NOT covered
 
 The three **IndusInd** loans (`SXB0040*`, ₹61.4 lakh) have **no instalment

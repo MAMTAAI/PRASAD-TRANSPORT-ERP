@@ -692,14 +692,31 @@ export async function registerLoanImportRoutes(app) {
           // the browser: the closing arrears at each 31 March is a balance at a
           // date, not a running total, and re-deriving it from the row list is
           // how a printed statement stops matching the database.
-          query(`SELECT * FROM v_loan_ledger_fy WHERE loan_id = ANY($1::uuid[])
-                  ORDER BY loan_account_no, fy_start`, [ids]),
+          // The operational year (instalments, delays, arrears) and the
+          // ACCOUNTING year (opening liability, principal repaid, interest
+          // charged, closing liability) in one row. They answer different
+          // questions off the same instalments, and an accountant asked for
+          // both — sending them separately would leave the page to join two
+          // arrays on a compound key, which is where a statement stops
+          // matching the database.
+          query(`SELECT fy.*, a.opening_liability, a.principal_repaid,
+                        a.interest_charged, a.closing_liability,
+                        a.balance_sheet_account, a.finance_cost_account
+                   FROM v_loan_ledger_fy fy
+                   JOIN v_loan_accounting_fy a
+                     ON a.loan_id = fy.loan_id AND a.fy_start = fy.fy_start
+                  WHERE fy.loan_id = ANY($1::uuid[])
+                  ORDER BY fy.loan_account_no, fy.fy_start`, [ids]),
           financier
             ? query(`SELECT * FROM v_loan_financier_summary WHERE financier = $1`, [financier])
             : Promise.resolve({ rows: [] }),
           financier
-            ? query(`SELECT * FROM v_loan_fy_by_financier WHERE financier = $1 ORDER BY fy_start`,
-                    [financier])
+            ? query(`SELECT fy.*, a.opening_liability, a.principal_repaid,
+                            a.interest_charged, a.closing_liability
+                       FROM v_loan_fy_by_financier fy
+                       JOIN v_loan_accounting_fy_by_firm a
+                         ON a.financier = fy.financier AND a.fy_start = fy.fy_start
+                      WHERE fy.financier = $1 ORDER BY fy.fy_start`, [financier])
             : Promise.resolve({ rows: [] }),
         ]);
 

@@ -126,6 +126,55 @@ const PRINT_CSS = `
 .lls-print-only { display: none; }
 `;
 
+/**
+ * Download what is on the page as CSV.
+ *
+ * Built from the SAME rows the tables render, not re-fetched and not
+ * recomputed — a download that runs its own query is a second implementation
+ * that drifts, and the whole point of the file is that it agrees with the
+ * statement the operator just read.
+ *
+ * Quoting is not optional here: a lender's name carries commas
+ * ("TATA CAPITAL LIMITED, GUWAHATI") and a narration carries quotes. Excel
+ * reads RFC-4180, so a value is wrapped and its quotes doubled.
+ */
+function downloadCsv(filename: string, header: string[], rows: any[][]) {
+  const cell = (v: any) => {
+    const t = v == null ? '' : String(v);
+    return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const body = [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+  // The BOM is what makes Excel open a UTF-8 file as UTF-8. Without it the
+  // rupee sign and the en-dashes in the year labels arrive as mojibake.
+  const blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+const FY_HEADER = ['Financial year', 'From', 'To', 'Instalments', 'Opening liability',
+  'EMI due', 'Principal repaid', 'Interest charged', 'Closing liability',
+  'Cleared', 'Unpaid in year', 'Closing arrears'];
+
+const fyRow = (y: any) => [y.fy_label, y.fy_from, y.fy_to, y.instalments,
+  y.opening_liability, y.emi_due, y.principal_repaid ?? y.principal,
+  y.interest_charged ?? y.interest, y.closing_liability,
+  y.cleared, y.unpaid_in_year, y.closing_arrears];
+
+const LEDGER_HEADER = ['Loan', 'Vehicle', 'Financier', 'Instalment', 'FY', 'Due date',
+  'EMI due', 'Principal', 'Interest', 'Cleared on', 'Cleared amount', 'Delay days',
+  'LPC / ODC', 'Outstanding', 'Status'];
+
+const ledgerRow = (d: any, r: any) => [d.loan_account_no, d.vehicle_no, d.financier,
+  r.instalment_no, r.fy_start + '-' + String((r.fy_start + 1) % 100).padStart(2, '0'),
+  r.due_date, r.due_amount, r.principal_part, r.interest_part, r.cleared_date,
+  r.cleared_amount, r.delay_days, r.overdue_interest, r.outstanding_after, r.status];
+
 // The text colour is set explicitly rather than inherited. This screen sits
 // inside a dark shell whose headings are styled dark-on-light elsewhere, and
 // inheriting put a near-black opening balance on a near-black card — the one
@@ -158,9 +207,11 @@ function FyTable({ years, showLoanColumn = false }: any) {
           {showLoanColumn && <th>Loans</th>}
           <th style={{ textAlign: 'right' }}>EMIs</th>
           {!showLoanColumn && <th>Instalment #</th>}
+          <th style={{ textAlign: 'right' }}>Opening liability</th>
           <th style={{ textAlign: 'right' }}>EMI due</th>
-          <th style={{ textAlign: 'right' }}>Principal</th>
-          <th style={{ textAlign: 'right' }}>Interest</th>
+          <th style={{ textAlign: 'right' }}>Principal repaid</th>
+          <th style={{ textAlign: 'right' }}>Interest charged</th>
+          <th style={{ textAlign: 'right' }}>Closing liability</th>
           <th style={{ textAlign: 'right' }}>Cleared</th>
           <th style={{ textAlign: 'right' }}>Unpaid</th>
           <th style={{ textAlign: 'right' }}>Closing arrears</th>
@@ -179,9 +230,17 @@ function FyTable({ years, showLoanColumn = false }: any) {
                 ? `${String(y.first_instalment_no).padStart(3, '0')}–${String(y.last_instalment_no).padStart(3, '0')}`
                 : '—'}</td>
             )}
+            <td className="lls-num">{y.opening_liability == null ? '—' : inr(y.opening_liability)}</td>
             <td className="lls-num">{inr(y.emi_due)}</td>
-            <td className="lls-num">{inr(y.principal)}</td>
-            <td className="lls-num">{inr(y.interest)}</td>
+            {/* Principal reduces the liability; interest is a finance cost and
+                never touches it. Booking the moratorium year's 2,93,668 of
+                interest as principal would overstate that year's profit by the
+                same amount, per truck. */}
+            <td className="lls-num">{inr(y.principal_repaid ?? y.principal)}</td>
+            <td className="lls-num" style={{ color: '#f59e0b' }}>
+              {inr(y.interest_charged ?? y.interest)}
+            </td>
+            <td className="lls-num">{y.closing_liability == null ? '—' : inr(y.closing_liability)}</td>
             <td className="lls-num">{inr(y.cleared)}</td>
             <td className="lls-num" style={{ color: Number(y.unpaid_in_year) > 0 ? '#ef4444' : undefined }}>
               {Number(y.unpaid_in_year) > 0 ? inr(y.unpaid_in_year) : '—'}
@@ -194,9 +253,11 @@ function FyTable({ years, showLoanColumn = false }: any) {
       <tfoot>
         <tr style={{ fontWeight: 900, borderTop: '2px solid #475569' }}>
           <td colSpan={showLoanColumn ? 3 : 3}>Whole term — {sum('instalments')} instalments</td>
+          <td />
           <td className="lls-num">{inr(sum('emi_due'))}</td>
-          <td className="lls-num">{inr(sum('principal'))}</td>
-          <td className="lls-num">{inr(sum('interest'))}</td>
+          <td className="lls-num">{inr(sum('principal_repaid') || sum('principal'))}</td>
+          <td className="lls-num">{inr(sum('interest_charged') || sum('interest'))}</td>
+          <td />
           <td className="lls-num">{inr(sum('cleared'))}</td>
           <td className="lls-num">{inr(sum('unpaid_in_year'))}</td>
           <td colSpan={2} />
@@ -214,6 +275,10 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
   const [sel, setSel] = useState(initialLoanNo ? { kind: 'LOAN', value: initialLoanNo } : null);
   const [asOf, setAsOf] = useState('2026-04-01');
   const [view, setView] = useState('BOTH');          // YEARS | LEDGER | BOTH
+  // '' = the whole term. A year is picked to print or export ONE financial
+  // year, which is what a return or an audit actually asks for; the statement
+  // still holds every year so switching costs nothing.
+  const [fy, setFy] = useState('');
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -290,6 +355,59 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
   const isGroup = payload?.scope === 'FINANCIER';
   const data = statement[0] ?? null;
 
+  // Every year the selection spans, in order. Taken from the statement rather
+  // than assumed, because a body loan runs five years and the chassis loan
+  // beside it runs six.
+  const fyOptions = useMemo(() => {
+    const seen = new Map<number, string>();
+    for (const l of statement) {
+      for (const y of (l.financial_years ?? [])) seen.set(y.fy_start, y.fy_label);
+    }
+    return [...seen.entries()].sort((x, y) => x[0] - y[0])
+      .map(([start, labelText]) => ({ start, label: labelText }));
+  }, [statement]);
+
+  // A year that is no longer in range stops being selected, rather than
+  // silently filtering everything away and showing an empty statement.
+  useEffect(() => {
+    if (fy && !fyOptions.some((o) => String(o.start) === fy)) setFy('');
+  }, [fyOptions, fy]);
+
+  const scopeName = (isGroup ? (payload?.financier ?? 'group') : (data?.loan_account_no ?? 'loan'))
+    .replace(/[^A-Za-z0-9]+/g, '-');
+  const yearTag = fy ? '-' + (fyOptions.find((o) => String(o.start) === fy)?.label ?? fy) : '';
+  const keep = (y: any) => !fy || String(y.fy_start) === fy;
+
+  const downloadYears = () => {
+    const rows: any[][] = [];
+    // The group's own totals lead the file when a group is on screen, so the
+    // figure the balance sheet carries is the first thing in it.
+    if (isGroup) {
+      for (const y of (payload.group_financial_years ?? []).filter(keep)) {
+        rows.push([payload.financier + ' — ALL LOANS', ...fyRow(y).slice(0)]);
+      }
+    }
+    for (const l of statement) {
+      for (const y of (l.financial_years ?? []).filter(keep)) {
+        rows.push([l.vehicle_no + ' ' + l.loan_account_no + ' (' + (l.loan_type ?? '') + ')',
+          ...fyRow(y)]);
+      }
+    }
+    downloadCsv('loan-year-summary-' + scopeName + yearTag + '.csv',
+      ['Loan', ...FY_HEADER], rows);
+  };
+
+  const downloadLedger = () => {
+    const rows: any[][] = [];
+    for (const l of statement) {
+      for (const r of (l.rows ?? [])) {
+        if (fy && String(r.fy_start) !== fy) continue;
+        rows.push(ledgerRow(l, r));
+      }
+    }
+    downloadCsv('loan-ledger-' + scopeName + yearTag + '.csv', LEDGER_HEADER, rows);
+  };
+
   return (
     <div>
       <style>{PRINT_CSS}</style>
@@ -343,9 +461,27 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
             <option value="LEDGER">Full ledger only (start to end)</option>
           </select>
         </div>
+        <div>
+          <p style={label}>Financial year</p>
+          <select className="modern-input" value={fy} onChange={(e) => setFy(e.target.value)}
+            style={{ background: '#1e293b' }}>
+            <option value="">Whole term — every year</option>
+            {fyOptions.map((o) => (
+              <option key={o.start} value={String(o.start)}>{o.label}</option>
+            ))}
+          </select>
+        </div>
         <button className="glow-btn" onClick={() => window.print()}
           style={{ background: '#334155', border: '1px solid #475569' }}>
-          🖨️ Print List PDF
+          🖨️ Print {fy ? fyOptions.find((o) => String(o.start) === fy)?.label : 'PDF'}
+        </button>
+        <button className="glow-btn" onClick={downloadYears}
+          style={{ background: '#0f766e', border: '1px solid #14b8a6' }}>
+          ⬇️ Year summary CSV
+        </button>
+        <button className="glow-btn" onClick={downloadLedger}
+          style={{ background: '#0f766e', border: '1px solid #14b8a6' }}>
+          ⬇️ Full ledger CSV
         </button>
       </div>
 
@@ -411,15 +547,20 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
 
               {view !== 'LEDGER' && (
                 <>
-                  <p style={label}>Financial year summary — whole group</p>
-                  <FyTable years={payload.group_financial_years} showLoanColumn />
+                  <p style={label}>
+                    Financial year summary — whole group
+                    {fy ? ' — ' + (fyOptions.find((o) => String(o.start) === fy)?.label ?? '') : ''}
+                  </p>
+                  <FyTable showLoanColumn
+                    years={(payload.group_financial_years ?? [])
+                      .filter((y: any) => !fy || String(y.fy_start) === fy)} />
                 </>
               )}
             </div>
           )}
 
           {statement.map((d: any, idx: number) => (
-            <LoanBlock key={d.loan_id} data={d} asOf={asOf} view={view}
+            <LoanBlock key={d.loan_id} data={d} asOf={asOf} view={view} fy={fy}
               pageBreak={isGroup && idx > 0} />
           ))}
 
@@ -443,8 +584,15 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
 }
 
 /** One contract: its facts, its opening balance, its years and its instalments. */
-function LoanBlock({ data, asOf, view, pageBreak }: any) {
-  const rows = data?.rows ?? [];
+function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
+  // One year, or the whole term. Filtered here rather than at the fetch so the
+  // year can be changed without another round trip, and so the totals below
+  // are the totals OF WHAT IS SHOWN — a footer that sums rows the reader
+  // cannot see is worse than no footer.
+  const allRows = data?.rows ?? [];
+  const rows = fy ? allRows.filter((r: any) => String(r.fy_start) === fy) : allRows;
+  const years = (data?.financial_years ?? []).filter(
+    (y: any) => !fy || String(y.fy_start) === fy);
   const open = data?.opening ?? null;
   const tot = data?.totals ?? {};
 
@@ -588,14 +736,13 @@ function LoanBlock({ data, asOf, view, pageBreak }: any) {
       </div>
 
       {/* ── year by year ─────────────────────────────────────────── */}
-      {view !== 'LEDGER' && !!(data.financial_years ?? []).length && (
+      {view !== 'LEDGER' && !!years.length && (
         <div style={{ marginBottom: 18 }}>
           <p style={label}>
-            Financial year summary — {data.financial_years.length} years,{' '}
-            {dmy(data.financial_years[0].fy_from)} to{' '}
-            {dmy(data.financial_years[data.financial_years.length - 1].fy_to)}
+            Financial year summary — {years.length} year{years.length === 1 ? '' : 's'},{' '}
+            {dmy(years[0].fy_from)} to {dmy(years[years.length - 1].fy_to)}
           </p>
-          <FyTable years={data.financial_years} />
+          <FyTable years={years} />
         </div>
       )}
 
@@ -653,8 +800,12 @@ function LoanBlock({ data, asOf, view, pageBreak }: any) {
           </tbody>
           <tfoot>
             <tr style={{ fontWeight: 900, borderTop: '2px solid #475569' }}>
-              <td colSpan={3}>Total — {rows.length} instalments</td>
-              <td className="lls-num">{inr(tot.demanded)}</td>
+              <td colSpan={3}>
+                {fy ? 'Year' : 'Total'} — {rows.length} instalment{rows.length === 1 ? '' : 's'}
+              </td>
+              <td className="lls-num">
+                {inr(rows.reduce((a: number, r: any) => a + Number(r.due_amount ?? 0), 0))}
+              </td>
               <td className="lls-num">
                 {inr(rows.reduce((a: number, r: any) => a + Number(r.principal_part ?? 0), 0))}
               </td>
@@ -662,10 +813,16 @@ function LoanBlock({ data, asOf, view, pageBreak }: any) {
                 {inr(rows.reduce((a: number, r: any) => a + Number(r.interest_part ?? 0), 0))}
               </td>
               <td />
-              <td className="lls-num">{inr(tot.received)}</td>
+              <td className="lls-num">
+                {inr(rows.reduce((a: number, r: any) => a + Number(r.cleared_amount ?? 0), 0))}
+              </td>
               <td />
-              <td className="lls-num">{inr(tot.overdue_interest_accrued)}</td>
-              <td className="lls-num">{inr(tot.outstanding)}</td>
+              <td className="lls-num">
+                {inr(rows.reduce((a: number, r: any) => a + Number(r.overdue_interest ?? 0), 0))}
+              </td>
+              <td className="lls-num">
+                {rows.length ? inr(rows[rows.length - 1].outstanding_after) : inr(0)}
+              </td>
               <td />
             </tr>
           </tfoot>
