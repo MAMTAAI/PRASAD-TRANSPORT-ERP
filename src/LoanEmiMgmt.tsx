@@ -118,6 +118,8 @@ const paymentFromApi = (pmt: any) => ({
   //
   // Company and owner come from the LOAN, not from the copies frozen onto the
   // payment row — those are 54 nulls and two spellings of the same firm.
+  Batch_Key: pmt.batch_key ?? null,
+  Instrument_Ref: pmt.instrument_ref ?? null,
   Vehicle_No: pmt.vehicle_no ?? '',
   Loan_Account_No: pmt.loan_account_no ?? '',
   Bank_Name: pmt.bank_name ?? '',
@@ -657,11 +659,23 @@ export default function LoanEmiMgmt() {
   });
 
   const groupedHistoryPayments: any = {};
+  // ── ONE CHEQUE OR RTGS = ONE BLOCK ──────────────────────────────────────
+  // The block is the transfer that actually left the bank: one date, one
+  // finance company, one instrument. The key comes from the SERVER
+  // (emi_batch_key, migration 084) so a row and its block header can never
+  // disagree about which block the row is in.
+  //
+  // It used to key on ref_no, which held two different things. The six payments
+  // made through this screen carry a real UTR shared across seven trucks and
+  // grouped correctly; the 108 posted by /loans/post-emis carry a per-loan
+  // voucher reference, so thirteen trucks paid by one transfer on 11-08-2026
+  // came out as thirteen blocks of "1 Vehicles" — each quoting a reference no
+  // bank statement will ever show.
   filteredPayments.forEach(p => {
-      const date = getVal(p, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date', 'emi_date'], 'Unknown_Date');
-      const ref = getVal(p, ['Ref_No', 'ref_no', 'utr', 'transaction_id'], 'No_Ref');
-      const bank = getVal(p, ['Payment_From_Account'], 'Unknown_Bank');
-      const key = `${date}_${bank}_${ref}`;
+      const key = p.Batch_Key
+        || `${getVal(p, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date', 'emi_date'], 'Unknown_Date')}`
+           + `_${getVal(p, ['Bank_Name', 'bank_name'], 'Unknown_Financier')}`
+           + `_${getVal(p, ['Payment_From_Account'], 'Unknown_Bank')}`;
       if (!groupedHistoryPayments[key]) groupedHistoryPayments[key] = [];
       groupedHistoryPayments[key].push(p);
   });
@@ -1230,7 +1244,16 @@ export default function LoanEmiMgmt() {
                           📅 {getVal(first, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date', 'emi_date'])} 
                           <span className="badge" style={{ background: 'rgba(56,189,248,0.2)', color: '#38bdf8', fontSize: '12px' }}>{group.length} Vehicles</span>
                         </h3>
-                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>🏦 Paid From: <b style={{color: '#818cf8'}}>{getVal(first, ['Payment_From_Account'], 'N/A')}</b> | 🔖 Ref/UTR: <b style={{color: '#c084fc'}}>{getVal(first, ['Ref_No', 'ref_no', 'utr', 'transaction_id'], 'N/A')}</b></span>
+                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>
+                          🏢 To: <b style={{color: '#f59e0b'}}>{getVal(first, ['Bank_Name', 'bank_name'], 'N/A')}</b>
+                          {' '}| 🏦 Paid From: <b style={{color: '#818cf8'}}>{getVal(first, ['Payment_From_Account'], 'N/A')}</b>
+                          {/* The bank's own reference where it was recorded. Where it was
+                              not, say so rather than showing a voucher number that looks
+                              like a UTR and will not be found on any statement. */}
+                          {first.Instrument_Ref
+                            ? <> | 🔖 UTR/Cheque: <b style={{color: '#c084fc'}}>{first.Instrument_Ref}</b></>
+                            : <> | <span style={{ color: '#64748b' }}>no UTR/cheque recorded — grouped by date &amp; financier</span></>}
+                        </span>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '20px' }}>
                         <div>

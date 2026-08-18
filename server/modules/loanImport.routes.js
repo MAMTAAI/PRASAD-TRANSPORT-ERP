@@ -558,14 +558,53 @@ export async function registerLoanImportRoutes(app) {
             // payment would have wound the loan back forty-eight instalments.
             // Migration 082 separated the two columns; this is the writer that
             // conflated them.
-            await query(
-              `INSERT INTO emi_payments (loan_id, payment_date, emi_month, months_paid,
-                      instalment_no, principal_part, interest_part, total_paid, payment_mode,
-                      ref_no, paid_from_account, voucher_id, company, created_by)
-               VALUES ($1::uuid,$2::date,$3,1,$4,$5,$6,$7,'BANK',$8,$9,$10::uuid,$11,$12)`,
-              [l.id, r.date, r.date.slice(0, 7), r.month_no, principal, interest, emi,
-               `LOANEMI-${l.loan_account_no}-${r.date}`, bank_ledger,
-               voucher?.voucher_id ?? null, l.company_name ?? null, req.body.created_by ?? 'loan-import']);
+            //
+            // ── AND THE COUNTERS MOVE WITH IT ────────────────────────────────
+            // This route used to insert the payment and stop, leaving
+            // loan_master untouched. 108 payments carrying 83.2 lakh of
+            // principal went in without the liability ever coming down, and
+            // v_loan_reconciliation reported drift on all 29 loans until 083
+            // backfilled it. /loans/:id/emi has always moved the counters inside
+            // the insert's transaction — that is the rule 035 set — and this is
+            // the writer that was not following it.
+            //
+            // The instalment must be ON OR AFTER the opening cut-off to move
+            // anything. An EMI for a month before it is already inside
+            // opening_remaining_principal; subtracting it again charges the same
+            // repayment to the loan twice, and on the body loans that produced a
+            // balance of minus 27,689.
+            await withTransaction(async (t) => {
+              await t.query(
+                `INSERT INTO emi_payments (loan_id, payment_date, emi_month, months_paid,
+                        instalment_no, principal_part, interest_part, total_paid, payment_mode,
+                        ref_no, paid_from_account, voucher_id, company, created_by)
+                 VALUES ($1::uuid,$2::date,$3,1,$4,$5,$6,$7,'BANK',$8,$9,$10::uuid,$11,$12)`,
+                [l.id, r.date, r.date.slice(0, 7), r.month_no, principal, interest, emi,
+                 `LOANEMI-${l.loan_account_no}-${r.date}`, bank_ledger,
+                 voucher?.voucher_id ?? null, l.company_name ?? null,
+                 req.body.created_by ?? 'loan-import']);
+
+              // NO AUTO-CLOSE HERE. Closing a loan because the MODELLED
+              // principal reached zero is what 083 did and 085 had to undo: nine
+              // body loans were marked CLOSED while TATA was still demanding
+              // 4,32,645 of instalments and 83,367 of penal charges, and the
+              // dashboard's payable dropped by that much overnight. Principal
+              // exhausted is not debt discharged — the final instalments are
+              // mostly interest, and arrears sit outside the principal entirely.
+              //
+              // Closure is decided on the lender's own ledger; v_loan_closure_check
+              // shows the basis for every loan. A payment moves the counters and
+              // nothing else.
+              await t.query(
+                `UPDATE loan_master
+                    SET remaining_principal = GREATEST(0, COALESCE(remaining_principal,0) - $2),
+                        total_interest_paid = COALESCE(total_interest_paid,0) + $3,
+                        emis_completed      = COALESCE(emis_completed,0) + 1,
+                        updated_at = now()
+                  WHERE id = $1::uuid
+                    AND $4 >= to_char(COALESCE(opening_as_of, DATE '2026-04-01'), 'YYYY-MM')`,
+                [l.id, principal, interest, r.date.slice(0, 7)]);
+            });
             posted.push({ ...rec, voucher_id: voucher?.voucher_id ?? null });
           } catch (e) {
             if (e.code === 'DUPLICATE_REF') { skipped.push({ loan_no: l.loan_account_no, due: r.date, why: 'already posted' }); continue; }

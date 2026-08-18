@@ -91,7 +91,12 @@ const PAYMENT_SELECT = `
   SELECT p.*,
          l.vehicle_no, l.loan_account_no, l.bank_name, l.loan_type,
          l.company_name AS loan_company, l.owner_name AS loan_owner,
-         l.financier_ledger
+         l.financier_ledger,
+         -- Which transfer this payment was part of. Computed by the same
+         -- function the batch view uses, so a row and its block can never
+         -- disagree about which block it belongs to (084).
+         emi_batch_key(p.payment_date, l.bank_name, p.paid_from_account, p.instrument_ref)
+           AS batch_key
     FROM emi_payments p
     JOIN loan_master l ON l.id = p.loan_id`;
 
@@ -329,8 +334,17 @@ export async function registerAssetRoutes(app) {
                 SET remaining_principal = GREATEST(0, COALESCE(remaining_principal,0) - $2),
                     total_interest_paid = COALESCE(total_interest_paid,0) + $3,
                     emis_completed      = COALESCE(emis_completed,0) + $4,
-                    payment_status      = CASE WHEN COALESCE(remaining_principal,0) - $2 <= 10
-                                               THEN 'CLOSED' ELSE 'ACTIVE' END,
+                    -- CLOSED only where there is no lender ledger to consult.
+                    -- Where there is one, the modelled principal reaching zero
+                    -- proves nothing: nine body loans hit zero with TATA still
+                    -- demanding 4.32 lakh of instalments, and closing them took
+                    -- that straight off the dashboard (083, undone by 085).
+                    -- v_loan_closure_check carries the basis for each loan.
+                    payment_status      = CASE
+                      WHEN EXISTS (SELECT 1 FROM loan_receipts lr WHERE lr.loan_id = loan_master.id)
+                        THEN payment_status
+                      WHEN COALESCE(remaining_principal,0) - $2 <= 10 THEN 'CLOSED'
+                      ELSE 'ACTIVE' END,
                     updated_at = now()
               WHERE id = $1::uuid RETURNING *`,
             [loan.id, principal, interest, b.months_paid ?? 1]);
@@ -463,10 +477,22 @@ export async function registerAssetRoutes(app) {
           ORDER BY p.payment_date DESC, l.vehicle_no, p.created_at DESC
           LIMIT $5`,
         [from, to, loan_no, vehicle_no, limit]);
+      // The blocks the screen draws come back alongside the rows, computed by
+      // the view rather than re-derived in the browser. A block header that
+      // adds up its own rows and a block total that came from SQL will drift
+      // apart the first time a filter hides one of them.
+      const { rows: batches } = await query(
+        `SELECT * FROM v_emi_payment_batches
+          WHERE ($1::date IS NULL OR payment_date >= $1::date)
+            AND ($2::date IS NULL OR payment_date <= $2::date)
+          ORDER BY payment_date DESC, financier`,
+        [from, to]);
+
       return {
         count: rows.length,
         truncated: rows.length >= limit,
         total_paid: rows.reduce((a, r) => a + money(r.total_paid), 0).toFixed(2),
+        batches,
         payments: rows,
       };
     }

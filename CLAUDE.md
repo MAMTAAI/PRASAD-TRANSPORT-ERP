@@ -338,12 +338,67 @@ Two data bugs the screen exposed, both fixed at the writer:
   resets `months_paid` to 1, and `v_emi_payment_month_check` lists anything that
   cannot be tied — a genuine multi-month settlement must not be rewritten.
 
-**Known, pre-existing:** `/post-emis` inserts payments without moving
-`loan_master.remaining_principal`, so `v_loan_reconciliation` reports drift on
-all 29 loans totalling ₹1,09,71,245.42 — exactly the principal those payments
-carry. The view is doing its job. Closing it means either posting the counter
-movements or restriking the opening balances, and that is a decision, not a
-cleanup: **do not silently overwrite either side.**
+### Counters (083) — and the view that mis-measured them
+
+`/post-emis` inserted payments and never touched `loan_master`, so 108 payments
+carrying ₹83.2 lakh of principal went in without the liability coming down. The
+counters are now moved (083) and the route moves them in the insert's
+transaction, the rule 035 set.
+
+**Payments for months BEFORE the cut-off do not move anything.**
+`opening_remaining_principal` is the balance *at* 01-04-2026 — every instalment
+due before it is already inside that figure. `v_loan_reconciliation` was
+subtracting all 150 payments including the 21 for Feb/Mar 2026 (₹15.6 lakh),
+charging the same repayment twice; applied literally it drove seven body loans
+to **minus ₹27,689**. The rule is:
+
+```
+remaining = opening − Σ principal WHERE emi_month >= opening month
+```
+
+Three body loans still overshoot by ₹49 total — the modelled opening
+(₹1,12,891.27) against instalments that actually repay ₹1,12,940.51 on a loan at
+its 47th of 47. Floored at zero and reported as `overpaid_vs_model`, not absorbed.
+
+`total_interest_paid` had no frozen opening and held a partial figure on 17 loans
+and NULL on 12. `opening_total_interest_paid` is frozen at **0** and the column
+now means *interest paid since the cut-off* — pre-cut-off interest was paid on
+paper over four years and cannot be sourced.
+
+### CLOSED means the lender says so (085)
+
+083 closed nine loans whose modelled principal hit zero. All nine were wrong:
+TATA was still demanding **₹4,32,645 of instalments and ₹83,367 of penal
+charges**, and since `loan_emi_due` excludes CLOSED loans, that came straight off
+the dashboard. Principal exhausted ≠ debt discharged — the final instalments are
+mostly interest, and arrears sit outside the principal entirely.
+
+A loan closes on the lender's ledger (`raised − received <= 10`, no penal
+outstanding, every instalment raised), or on modelled principal only where there
+is **no** lender ledger — the three IndusInd NPAs. `v_loan_closure_check` shows
+the basis; a CLOSED loan whose basis is not `settled` is wrong. Neither payment
+path auto-closes any more.
+
+### Payment blocks (084) — one cheque or RTGS, one block
+
+`ref_no` held two things again: our per-payment voucher reference (the duplicate
+guard) and the bank's UTR. Split into `instrument_ref`, which is **shared** by
+every payment one transfer settled.
+
+```
+emi_batch_key(date, financier, paid_from_account, instrument_ref)
+```
+
+With an instrument, the instrument is the block; without one, the block is the
+day's transfer to that financier from that account. **Not** the amount and not a
+tolerance window — guessing from amounts would merge two genuine same-day
+transfers, and a block that silently combines two payments is worse than
+thirteen that were never combined.
+
+114 blocks became **19**: thirteen trucks paid to TATA on 11-08-2026 are one
+block of ₹14,68,831, and the six real UTRs still show their seven each.
+`missing_instrument` marks the ones with no UTR on record, and the header says
+so rather than showing a voucher number that looks like one.
 
 ## What is NOT covered
 
