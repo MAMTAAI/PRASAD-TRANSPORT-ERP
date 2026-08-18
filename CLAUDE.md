@@ -168,6 +168,42 @@ as the khata row.
 
 ---
 
+# The API must be running, or the loading register stops (2026-08-18)
+
+The 15-minute Gmail loading sync is a **node-cron inside the API process**
+(`server/lib/ioclSyncCron.js`, `*/15 9-21 * * *`). It sweeps both mailboxes —
+`prasadtransport699@gmail.com` → PT##### and `jaiswalenterprise2016@gmail.com`
+→ JE##### — and files AC5 dispatch invoices as loading entries.
+
+**Nothing on the office PC was starting the API.** `PrasadAI-Stack` runs
+`start-ai-stack.ps1`, which does not touch it; `PrasadERP-AutoHealer` runs the
+healer, which does not either. `START-PRASAD-LOCAL.ps1` does start it but no
+task ran that. So the cron only ticked while somebody happened to have the API
+up: on **17-08-2026 it ran ONCE instead of ~52 times** — the API came up at
+19:24, ticked at 19:30, pulled 3 Prasad invoices (120 KL), and the rest of the
+09:00–21:59 window never happened. `cron_sync.log` carries 30 `cron_started`
+lines: thirty restarts, each ticking only as long as it was left running.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-api-task.ps1
+powershell -ExecutionPolicy Bypass -File scripts/install-api-task.ps1 -Uninstall
+```
+
+`PrasadERP-API` — logon trigger, same shape as `PrasadERP-AutoHealer`. It runs
+`scripts/run-api-daemon.ps1`, a **supervisor loop**, not a bare `start node`: a
+scheduled task's own `RestartCount` gives up after a few tries, which is the
+wrong shape for something that must simply never stop.
+
+- **Already-listening guard.** If port 3300 is taken (someone started it by
+  hand) the supervisor logs that and exits rather than crash-looping on
+  EADDRINUSE.
+- **Pause without uninstalling:** create `ERP_API.KILL` in the repo root. Same
+  convention as `ERP_HEALER.KILL`.
+- It honours `LOG_DIR` from `.env` (F:), never `<repo>/logs`.
+- **ASCII only** — non-ASCII breaks the scheduled tasks.
+
+`GET /api/v1/iocl/sync-status` answers "is the scheduler actually on".
+
 # Vehicle loans: step-up EMIs and the ledger statement (2026-08-18)
 
 29 loans, two lenders, and an EMI that is **never flat**. Every TATA contract
