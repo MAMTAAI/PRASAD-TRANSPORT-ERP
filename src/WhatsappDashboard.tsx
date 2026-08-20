@@ -51,7 +51,12 @@ const WhatsappDashboard = () => {
   const erpUser = getErpUser();
   const [activeUser, setActiveUser] = useState(erpUser.name);
   const [tripQ, setTripQ] = useState('');   // 52 active trips is too many to scroll blind
-  const [waApi, setWaApi] = useState(WA_CLOUD); // switches to WA_LOCAL when reachable
+  // NOT WA_CLOUD. That default meant an unresolved engine still had a URL, and
+  // that URL was the onrender stub — so a send could quietly leave the company's
+  // WhatsApp through a service nobody here controls. null makes an unresolved
+  // engine refuse instead of guessing; checkServer sets the real one.
+  // (Routing sends through the ERP API with auth + audit is backlog #10.)
+  const [waApi, setWaApi] = useState(null);
   const [tab, setTab] = useState('TRIP CHAT'); 
   const [isWa, setIsWa] = useState(false);
   const [qr, setQr] = useState('');
@@ -275,6 +280,7 @@ const WhatsappDashboard = () => {
     logActivity(`Broadcasted to ${selPhones.length} contacts.`);
     for (const p of selPhones) {
         try {
+            if (!waApi) throw new Error('WhatsApp engine not resolved — nothing sent.');
             await fetch(`${waApi}/api/send-whatsapp`, { method:'POST', headers:{'Content-Type':'application/json', ...waHeaders()}, body:JSON.stringify({ userId: activeUser, number: p, message: msg, sentByUserId: erpUser.id, sentByUserName: activeUser }) });
             await new Promise(r => setTimeout(r, 2000));
         } catch(e) {}
@@ -305,6 +311,7 @@ const WhatsappDashboard = () => {
       const text = chatInput; 
       setChatInput(''); 
       try {
+        if (!waApi) throw new Error('WhatsApp engine not resolved — nothing sent.');
         const res = await fetch(`${waApi}/api/send-whatsapp`, {
             method:'POST', headers:{'Content-Type':'application/json', ...waHeaders()},
             body:JSON.stringify({ userId: activeUser, number: targetPhone, message: text, tripId: activeTrip.trip_id, role: chatRole, sentByUserId: erpUser.id, sentByUserName: activeUser })
