@@ -29,6 +29,44 @@ BRANCH=main
 
 say() { printf '\n=== %s\n' "$1"; }
 
+say "0/8 swap"
+# NOT OPTIONAL ON A SMALL BOX, AND THE FAILURES ARE ALL SILENT-ISH.
+#
+# The 20-08-2026 target is a t3.small: 2 GB. On it these run together —
+# Chromium under the WhatsApp engine (~700 MB alone), PostgreSQL, the Fastify
+# API and the static server. `vite build` in step 7 also peaks near a gigabyte
+# on its own, so a swapless 2 GB box can die during PROVISIONING and leave a
+# half-built tree that looks installed.
+#
+# Linux does not slow down when it runs out, it kills: the OOM killer takes the
+# largest RSS, which is Chromium, so the engine vanishes and driver OTP stops
+# with the API still reporting healthy. Swap turns that cliff into a slope.
+#
+# Sized from RAM, capped at 4 G. Idempotent: an existing swapfile is left alone.
+if [ -z "$(swapon --show --noheadings 2>/dev/null)" ]; then
+  mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+  if   [ "$mem_mb" -le 2600 ]; then swap_g=4
+  elif [ "$mem_mb" -le 5000 ]; then swap_g=2
+  else swap_g=0; fi
+  if [ "$swap_g" -gt 0 ]; then
+    echo "RAM ${mem_mb}MB -> creating ${swap_g}G swapfile"
+    sudo fallocate -l "${swap_g}G" /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=$((swap_g*1024))
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    # Default 60 evicts app pages too eagerly on a box this size; 10 keeps swap
+    # as the safety net it is meant to be rather than a first resort.
+    sudo sysctl -w vm.swappiness=10 >/dev/null
+    grep -q '^vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' | sudo tee -a /etc/sysctl.conf >/dev/null
+  else
+    echo "RAM ${mem_mb}MB -> swap not required"
+  fi
+else
+  echo "swap already present:"; swapon --show
+fi
+free -h | head -3
+
 say "1/8 system packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
