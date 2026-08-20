@@ -31,6 +31,10 @@ import { waHeaders, canUseLocalEngine } from './lib/waSend'; // 🔐 P0: X-PT-To
 // 🌐 Engine endpoints: the hardened LOCAL engine (this PC, persistent session)
 // is preferred; the legacy Render deploy stays as fallback for other machines.
 const WA_LOCAL = 'http://localhost:5001';
+// RETIRED FROM THE STATUS PATH — DO NOT WIRE THIS BACK IN.
+// prasad-api.onrender.com answers /api/status/<anything> with a hardcoded
+// {"connected":true}. It is a stub. Believing it is how a completely unlinked
+// system reported itself healthy for an entire evening.
 const WA_CLOUD = 'https://prasad-api.onrender.com';
 
 // 👣 Logged-in ERP user → mandatory footprint on every outbound message.
@@ -180,22 +184,23 @@ const WhatsappDashboard = () => {
 
     const checkServer = async () => {
       try {
-        let data;
-        try {
-          // Works local AND on AWS: the API is always same-origin with this page.
-          data = await probeErp();
-        } catch {
-          // Older path, kept for a box where the route is not deployed yet.
-          // Skip the loopback probe unless this page is itself served locally —
-          // from the public site it can only fail, once per poll, as a CORS error.
-          if (canUseLocalEngine()) {
-            try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
-            catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
-          } else {
-            data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD;
-          }
-          setWaApi(apiBase);
-        }
+        // ONE SOURCE OF TRUTH: the engine the ERP actually sends through.
+        //
+        // THE CLOUD FALLBACK LIED, AND IT COST AN EVENING. This used to fall
+        // through to WA_CLOUD (prasad-api.onrender.com) whenever the primary
+        // probe failed. That deploy answers `/api/status/<anything>` with a
+        // flat {"connected":true,"status":"CONNECTED"} for every user id it is
+        // ever given — it is a stub, not a linked engine. So on 20-08-2026 the
+        // screen showed a green "● Online" and "✅ Connected Successfully!"
+        // while the AWS engine sat in WAITING_FOR_SCAN and no WhatsApp account
+        // was linked anywhere. Every scan was reported as a success and nothing
+        // had happened.
+        //
+        // A status panel that reports a DIFFERENT engine's health is worse than
+        // one that reports nothing: it turns "did the scan work?" into an
+        // unanswerable question. If our engine cannot be reached, say so.
+        const data = await probeErp();
+        setWaApi(`${ERP_API}/api/v1`);
         setIsWa(data.connected);
         setQr(data.qr);
         setEngStatus(data.status || (data.connected ? 'ONLINE' : 'OFFLINE'));
@@ -208,7 +213,12 @@ const WhatsappDashboard = () => {
         // reports, so reaching this branch means genuinely not running.
         setIsWa(false);
         setEngStatus('OFFLINE');
-        setEngError('Engine not reachable. On this PC: npm start in whatsapp-server. On AWS: pm2 restart prasad-wa-engine (it listens on 5002).');
+        setEngError(
+          'Engine status nahi mil raha (' + (e?.message || 'unknown') + '). '
+          + 'Ye ERP ke apne engine ka status hai — kisi doosre engine se NAHI puchha jaata. '
+          + 'AWS par: pm2 restart prasad-wa-engine (5002). Is PC par: npm start in whatsapp-server (5001). '
+          + 'Admin login chahiye — ye route admin-only hai.',
+        );
       }
     };
     checkServer();
