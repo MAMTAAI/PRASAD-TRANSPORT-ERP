@@ -147,7 +147,6 @@ const WhatsappDashboard = () => {
     const poll = setInterval(() => { if (document.visibilityState === 'visible') loadAll(); }, 15000);
 
     // 🩺 Live health poll — LOCAL engine first (persistent 24/7), cloud fallback.
-    let apiBase = WA_CLOUD;
     const probe = async (base, ms = 2500) => {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), ms);
