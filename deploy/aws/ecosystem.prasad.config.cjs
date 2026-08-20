@@ -72,6 +72,11 @@ module.exports = {
         // than in .env because this block wins over dotenv, so the API and the
         // engine cannot drift apart on the one value they must agree on.
         WA_ENGINE_URL: 'http://127.0.0.1:5002',
+        // The IOCL sync shells out to Python. Ubuntu 24.04+ ships no `python`,
+        // and PEP 668 makes a system-wide pip install refuse, so the deploy
+        // builds a venv and points here at it. Without this the cron spawns
+        // ENOENT every fifteen minutes and the loading register quietly stops.
+        PYTHON_BIN: APP_DIR + '/.venv/bin/python',
         // The AWS box has no GPU: local-AI lane parks OCR tasks durably until
         // the Local PC engine is reachable again (or set OCR_LANE=either +
         // AI_ALLOW_CLOUD_FALLBACK=1 to use the cloud engine while PC is off).

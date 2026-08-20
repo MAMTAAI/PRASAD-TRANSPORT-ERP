@@ -9,7 +9,7 @@
 // deduplication index that cannot see the other's uncommitted inserts, and both
 // would insert the same invoice. The dedup is careful precisely so that cannot
 // happen; giving it two blind copies of itself would undo that.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { enrichTrips } from './tripEnrich.js';
 import path from 'node:path';
@@ -18,7 +18,20 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const SCRIPT = path.join(REPO, 'tools', 'iocl_recon', 'iocl_ac5_loading.py');
-const PYTHON = process.env.PYTHON_BIN || 'python';
+// `python` does not exist on Ubuntu 24.04+ — only `python3`. Defaulting to
+// `python` meant the AWS box spawned ENOENT on every tick: eight consecutive
+// cron runs logged an error, the loading register never moved, and the API went
+// on reporting itself healthy because the failure was in a child process nobody
+// was reading. Resolve it instead of assuming, and prefer an explicit
+// PYTHON_BIN (the deploy points it at a venv, since PEP 668 makes system pip
+// installs refuse on this release).
+const PYTHON = process.env.PYTHON_BIN
+  || ['python3', 'python'].find((bin) => {
+    try {
+      return spawnSync(bin, ['--version'], { stdio: 'ignore' }).status === 0;
+    } catch { return false; }
+  })
+  || 'python3';
 // Honour LOG_DIR. server/config/init_drives.js fills it in from
 // LOCAL_STORAGE_PATH at boot (F:/Prasad_Transport_Data/logs on the office PC),
 // so hardcoding <repo>/logs here meant the cron log was the one file still
