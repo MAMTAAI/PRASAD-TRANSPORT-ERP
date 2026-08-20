@@ -87,5 +87,49 @@ const drivers = { whatsapp, sms, log };
 const active = drivers[CHANNEL] ?? whatsapp;
 
 export const CHANNEL_NAME = CHANNEL;
+/**
+ * The engine's full link state, including the pairing QR when it is waiting.
+ *
+ * WHY THE QR COMES THROUGH THE ERP AND NOT A PUBLIC PORT. The engine binds
+ * loopback and its own API is unauthenticated, so it cannot be exposed; but
+ * somebody has to SEE the code to scan it, and on a cloud box there is no
+ * screen. This hands it to the ERP's admin-only route, which nginx already
+ * fronts, so the pairing string never leaves the machine except to an
+ * authenticated admin over TLS.
+ *
+ * THE STRING IS A CREDENTIAL. Anyone who renders that QR can link themselves as
+ * a device on the company's WhatsApp account and read every conversation. It
+ * must never be sent to a third-party QR image service — render it client-side.
+ */
+export async function linkStatus() {
+  if (CHANNEL !== 'whatsapp') {
+    return { channel: CHANNEL, supported: false, reason: `OTP_CHANNEL is ${CHANNEL}, not whatsapp` };
+  }
+  try {
+    const res = await withTimeout(`${WA_BASE}/api/status`);
+    if (!res.ok) return { channel: 'whatsapp', supported: true, reachable: false, reason: `engine returned ${res.status}` };
+    const j = await res.json();
+    return {
+      channel: 'whatsapp',
+      supported: true,
+      reachable: true,
+      connected: !!j?.connected,
+      status: j?.status ?? null,
+      // Only while WAITING_FOR_SCAN. Once linked the engine stops emitting one,
+      // and a stale QR shown after linking would be scanned and fail.
+      qr: j?.connected ? null : (j?.qr ?? null),
+      server: j?.server ?? null,
+      last_heartbeat: j?.lastHeartbeat ?? null,
+      engine_url: WA_BASE,
+    };
+  } catch (e) {
+    return {
+      channel: 'whatsapp', supported: true, reachable: false,
+      reason: e.name === 'AbortError' ? 'engine timeout' : e.message,
+      engine_url: WA_BASE,
+    };
+  }
+}
+
 export const available = () => active.available();
 export const send = (mobile, code) => active.send(mobile, code);

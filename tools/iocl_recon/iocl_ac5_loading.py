@@ -102,8 +102,13 @@ def fetch(window_from: date, window_to: date, out_dir: Path, limit: Optional[int
         n = len(res.get("downloaded", []))
         print(f"  {mb['label']:<20} {mb['address']:<32} {res.get('status')}  "
               f"downloaded {n}, already had {res.get('skipped_existing', 0)}")
+        # A mailbox that needs re-authorisation must be LOUD. It looks exactly like
+        # a quiet "0 new invoices" day otherwise, and that is how 18-08 -> 20-08 went
+        # missing without anyone noticing the register had stopped moving.
+        if res.get("status") not in ("ok", None):
+            print(f"  {'':<20} {'':<32} ^^ {res.get('reason', 'no detail')}")
         summary[mb["label"]] = {"status": res.get("status"), "downloaded": n,
-                                "dir": str(dest)}
+                                "reason": res.get("reason"), "dir": str(dest)}
     return summary
 
 

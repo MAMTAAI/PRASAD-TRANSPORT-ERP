@@ -27,6 +27,18 @@ PostgreSQL (`prasad_erp`), and a 10-agent swarm in `server/agents/`.
   SQL or a decimal library — never in JS floats.
 - **PowerShell scripts must be ASCII.** Non-ASCII breaks the scheduled tasks.
 
+- **The front end does not hand-write `Authorization` headers.**
+  `src/lib/authFetch.ts` wraps `window.fetch` once, in `main.tsx`, and signs any
+  call to our own `/api/v1/` origin with `prasad_token`. It never overwrites a
+  header the caller already set, which is what keeps the driver portal on its own
+  `prasad_driver_token`. Adding the header per call site is how this broke in the
+  first place: 64 guarded routes, ~200 fetch call sites, and Exception
+  Resolution's Resolve / Dismiss / Scan buttons answering 401 for months while
+  ten duplicate-billing exceptions worth Rs 9.02 L sat OPEN behind them. If a new
+  screen gets a 401, the cause is the token or the route prefix — not a missing
+  header. A **403** is different and is not a bug: `requireAdminRole` admits only
+  SUPER_ADMIN and ADMIN, so a VIEWER is meant to be refused.
+
 - **App data lives on `F:\Prasad_Transport_Data`, never in the repo.** `.env`
   sets `LOCAL_STORAGE_PATH` / `UPLOAD_DIR` / `LOG_DIR`, and
   `server/config/init_drives.js` lays the tree out at boot and refuses to start

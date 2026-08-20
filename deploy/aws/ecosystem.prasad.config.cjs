@@ -56,6 +56,13 @@ module.exports = {
         API_PORT: 3300,
         DB_TARGET: 'aws',
         NODE_ENV: 'production',
+        // THE OTP LANE. otpChannel.js defaults to 127.0.0.1:5001; the engine
+        // below listens on 5002. Nothing set this, so on AWS every driver OTP
+        // would have been posted to a dead port and every driver login would
+        // have failed with the engine sitting there healthy. Set HERE rather
+        // than in .env because this block wins over dotenv, so the API and the
+        // engine cannot drift apart on the one value they must agree on.
+        WA_ENGINE_URL: 'http://127.0.0.1:5002',
         // The AWS box has no GPU: local-AI lane parks OCR tasks durably until
         // the Local PC engine is reachable again (or set OCR_LANE=either +
         // AI_ALLOW_CLOUD_FALLBACK=1 to use the cloud engine while PC is off).
@@ -67,17 +74,25 @@ module.exports = {
     {
       // WhatsApp engine — OTP delivery and the CRM's send path.
       //
-      // OPTIONAL — NOT the default path, and off by default in practice.
+      // THE ACTIVE PATH as of 2026-08-20, by the owner's decision: engine and
+      // ERP on ONE cloud server, so a driver can log in whether or not the
+      // office PC is switched on.
       //
-      // Production reaches the WhatsApp engine on the OFFICE PC through a
-      // reverse SSH tunnel: WA_ENGINE_URL=127.0.0.1:5601, where 5601 is held
-      // by sshd. The linked session lives on that PC. This app exists only for
-      // the case where you want the engine ON the box instead.
+      // It used to be optional, and production reached the engine on the OFFICE
+      // PC through a reverse SSH tunnel (WA_ENGINE_URL=127.0.0.1:5601, 5601 held
+      // by sshd). That is now the fallback, not the default — and it is exactly
+      // why the warning below is not theoretical.
       //
       // NEVER run both linked at once. Two engines authenticated to the same
       // WhatsApp number both auto-reply, and every driver gets each message
-      // twice. Port 5002 because 5001 on the shared box belongs to the Jaiswal
-      // trading API (/home/ubuntu/Algo-Engine/api.py).
+      // twice. Before scanning the QR here, STOP the office PC engine — a
+      // WhatsApp account can hold several linked devices at once, so nothing
+      // will refuse the second link and the duplication is silent.
+      //
+      // Port 5002 is kept even on a dedicated box where 5001 is free: 5001 on
+      // the shared box belongs to the Jaiswal trading API
+      // (/home/ubuntu/Algo-Engine/api.py), and one port meaning one thing across
+      // both boxes is worth more than reclaiming a number.
       //
       // Binds loopback: the engine's API is unauthenticated unless
       // WA_ENGINE_TOKEN is set, so it must never face the internet.

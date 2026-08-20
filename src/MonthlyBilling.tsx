@@ -321,10 +321,18 @@ export default function MonthlyBilling() {
     // days counted inclusive. Best reporting source: driver's 🏭 plant stamp.
     setDetRows(picked.map(t => {
       const load = toISODate(t.start_date || t.Loading_Date || t.loading_date);
-      const report = toISODate(t.plant_reported_at) || (load ? addDays(load, 1) : '');
+      // NO FALLBACK. This used to read `plant_reported_at || loading_date + 1`,
+      // and since trips.plant_reported_at did not exist until migration 103 the
+      // fallback ran EVERY time. Loading date + 1 is not a reporting stamp — it
+      // carries the whole outbound run inside it — so the invented days billed
+      // as detention: June 2026, the one month where all 13 loads have an
+      // unloading date, came to Rs 1,20,000 against a signed Rs 45,000.
+      // A missing stamp now yields zero days and is surfaced for a human,
+      // because a detention day nobody measured is a line the customer rejects.
+      const report = toISODate(t.plant_reported_at);
       const end = toISODate(t.unloading_date || (t.completed_at || '').slice(0, 10)) || '';
       const start = report ? addDays(report, fd) : '';
-      const days = detDaysInclusive(start, end);
+      const days = report ? detDaysInclusive(start, end) : 0;
       return {
         tripId: t.id,
         company: tripCompany(t),
@@ -334,6 +342,7 @@ export default function MonthlyBilling() {
         loadDate: load, reportDate: report, unloadDate: end,
         startDate: days > 0 ? start : '', endDate: days > 0 ? end : '',
         days, include: days > 0,
+        missingReporting: !report,
       };
     }));
     setGenerated(true);
@@ -839,7 +848,12 @@ export default function MonthlyBilling() {
           {detentionApplicable && (
           <div style={S.card} className="pt-anim-up">
             <b style={{ color: '#f59e0b' }}>⏱️ Detention — {dRows.length} chargeable · rule: reporting + {freeDays} free days, days inclusive</b>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 8px' }}>Reporting = driver ka 🏭 plant stamp (fallback loading+1). Start/End/Days sab editable.</p>
+            <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 8px' }}>Reporting = driver ka 🏭 plant stamp (trips.plant_reported_at). Stamp na ho to detention 0 rehta hai — pehle koi fallback loading+1 maan leta tha, usse June 2026 ka detention ₹1,20,000 ban gaya tha jabki signed bill ₹45,000 ka hai. Start/End/Days sab editable.</p>
+            {visDetRows.some(r => r.missingReporting) && (
+              <div style={{ background: '#7c2d12', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', margin: '0 0 8px', fontSize: '12px', color: '#fed7aa' }}>
+                ⚠️ <b>{visDetRows.filter(r => r.missingReporting).length} trips</b> me plant reporting stamp nahi hai, is liye unka detention <b>0</b> hai. Sahi detention chahiye to un trips par 🏭 plant reporting date bharein (ya neeche Days column me haath se daalein) — warna bill kam banega.
+              </div>
+            )}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '860px' }}>
                 <thead><tr style={{ color: '#f59e0b', textAlign: 'left' }}>{['✓', 'Vehicle', 'CN', 'Reported', 'Unloaded', 'Det. Start', 'Det. End', 'Days', 'Amount'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #334155' }}>{h}</th>)}</tr></thead>
@@ -848,7 +862,7 @@ export default function MonthlyBilling() {
                     <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#f59e0b' }} checked={r.include} onChange={e => editDet(r.tripId, 'include', e.target.checked)} /></td>
                     <td style={{ padding: '4px', fontWeight: 'bold' }}>{r.vehicle}</td>
                     <td style={{ padding: '4px' }}>{r.cn}</td>
-                    <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.reportDate)}</td>
+                    <td style={{ padding: '4px', color: r.missingReporting ? '#f59e0b' : '#94a3b8', fontSize: '12px' }}>{r.missingReporting ? '— no stamp —' : dmy(r.reportDate)}</td>
                     <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.unloadDate)}</td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.startDate} onChange={e => editDet(r.tripId, 'startDate', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.endDate} onChange={e => editDet(r.tripId, 'endDate', e.target.value)} /></td>

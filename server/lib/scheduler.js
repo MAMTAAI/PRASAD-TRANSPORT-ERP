@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// scheduler.js — the two background checks that have to happen on a calendar
+// scheduler.js — the background checks that have to happen without being asked
 //
 // A CLOCK TICK IS NOT A CALENDAR. Both jobs run on a plain interval and then
 // decide for themselves whether today is a day they should act. That is
@@ -13,9 +13,13 @@
 // that moves money goes through an approval and TARA.
 // ═══════════════════════════════════════════════════════════════════════════
 import { query, isDegraded } from '../db/pool.js';
+import {
+  detectDuplicateBilling, detectBlankCustomer,
+  detectCompanyMasterGaps, detectEntityMismatch,
+} from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
-const state = { lastCycleRun: null, lastComplianceRun: null, timer: null };
+const state = { lastCycleRun: null, lastComplianceRun: null, lastExceptionScan: null, timer: null };
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -108,10 +112,48 @@ export async function runComplianceCheck({ force = false } = {}) {
   return { checked: rows.length, expired: expired.length, expiring: expiring.length };
 }
 
+/**
+ * Run every exception detector.
+ *
+ * WHY THIS IS ON THE CLOCK AND NOT ON A BUTTON. The Action Required board is
+ * only worth reading if it is current, and until now the detectors ran only
+ * when somebody opened the screen and pressed Re-scan. That is how the ten
+ * duplicate-billing exceptions sat undetected from May to 18-08-2026: nothing
+ * was broken, nothing had asked. A queue that fills only when observed is the
+ * log it was built to replace.
+ *
+ * Every detector is idempotent by dedupe_key, so running it quarter-hourly
+ * costs four inserts-that-become-no-ops and never re-opens anything a person
+ * has already resolved or dismissed.
+ */
+async function runExceptionScan() {
+  if (isDegraded()) return { skipped: true };
+  let found = 0; let fresh = 0;
+  for (const [name, fn] of [
+    ['duplicate_billing', detectDuplicateBilling],
+    ['blank_customer', detectBlankCustomer],
+    ['company_master_gaps', detectCompanyMasterGaps],
+    ['entity_mismatch', detectEntityMismatch],
+  ]) {
+    try {
+      const r = await fn();
+      found += r.length;
+      fresh += r.filter((x) => x.was_new).length;
+    } catch (err) {
+      // One broken detector must not silence the other three.
+      state.lastExceptionError = `${name}: ${err.message}`;
+    }
+  }
+  state.lastExceptionScan = new Date().toISOString();
+  // Quiet unless something is actually new — otherwise this logs 96 times a day
+  // to say nothing changed.
+  return fresh ? { open: found, new: fresh } : { skipped: true };
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);
@@ -134,6 +176,8 @@ export function schedulerState() {
     tick_minutes: TICK_MS / 60000,
     last_cycle_run: state.lastCycleRun,
     last_compliance_run: state.lastComplianceRun,
+    last_exception_scan: state.lastExceptionScan,
+    last_exception_error: state.lastExceptionError ?? null,
     today_is_boundary: cycleBoundary(),
     next_cycle_code: cycleCodeFor(),
   };

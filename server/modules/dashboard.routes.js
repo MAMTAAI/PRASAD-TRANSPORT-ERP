@@ -17,6 +17,7 @@
 import { query, isDegraded } from '../db/pool.js';
 import { tallyAlive } from '../lib/tallyAdapter.js';
 import { requireAdminRole } from './auth.routes.js';
+import * as otpChannel from '../lib/otpChannel.js';
 import { periodBounds, previousOf, PERIODS } from '../lib/periods.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
@@ -1226,5 +1227,126 @@ export function registerDashboardRoutes(app) {
     }, { online_now: 0, sessions_open: 0, writes_window: 0, rejected_window: 0 });
 
     return { ok: true, generated_at: new Date().toISOString(), window_minutes: minutes, totals, sessions, actions, errors };
+  });
+
+  // ── GET /api/v1/monitoring/connected ────────────────────────────────────
+  // "Who is connected to us right now, and what are they doing?"
+  //
+  // /monitoring/live answers this for STAFF. It cannot answer it for the outside
+  // world, because v_user_sessions resolves a session to a NAME and not to a
+  // PARTY: a VENDOR login showed the person and never which firm they speak for.
+  // v_connected_parties (migration 105) makes the join the boards were missing —
+  // driver, customer, partner or staff; which app; what they are carrying; and
+  // the last real GPS fix if it is a driver.
+  //
+  // IT ALSO RETURNS WHO IS *NOT* HERE. A presence board that lists only the
+  // connected cannot distinguish "nobody is working" from "nobody was ever given
+  // a login", and those need opposite responses. 54 drivers can sign in with the
+  // mobile already on their record and not one ever has; without `reach` the
+  // driver app simply looks idle.
+  //
+  // Admin-only, like /monitoring/live: this names people, gives their mobile
+  // number and puts them on a map.
+  app.get('/monitoring/connected', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) {
+      return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+    }
+    const errors = [];
+
+    const parties = await safe(errors, 'parties', async () => {
+      const { rows } = await query(`
+        SELECT party_kind, party_id, party_name, person_name, mobile, role,
+               app, device, ip, signed_in_at, last_seen_at, is_online, idle_seconds,
+               trip_id, trip_code, vehicle_no, loading_point, unloading_location, activity,
+               last_lat, last_lng, last_speed_kmh, last_fix_at, fix_age_seconds
+          FROM v_connected_parties
+         ORDER BY is_online DESC, last_seen_at DESC`);
+      return rows.map((r) => ({
+        kind: r.party_kind,
+        id: r.party_id,
+        // The organisation, and the human holding the phone when they differ.
+        name: r.party_name,
+        person: r.person_name && r.person_name !== r.party_name ? r.person_name : null,
+        mobile: r.mobile,
+        role: r.role,
+        app: r.app,
+        device: r.device,
+        ip: r.ip,
+        since: r.signed_in_at,
+        last_seen: r.last_seen_at,
+        online: r.is_online,
+        idle_seconds: r.idle_seconds,
+        activity: r.activity,
+        trip: r.trip_code ? {
+          id: r.trip_id, code: r.trip_code, vehicle: r.vehicle_no,
+          from: r.loading_point, to: r.unloading_location,
+        } : null,
+        // Absent for everyone but the driver app, and absent for a driver whose
+        // device has not reported. Never substituted with anything.
+        position: r.last_lat != null && r.last_lng != null ? {
+          lat: Number(r.last_lat), lng: Number(r.last_lng),
+          speed_kmh: r.last_speed_kmh == null ? null : Number(r.last_speed_kmh),
+          at: r.last_fix_at, age_seconds: r.fix_age_seconds,
+        } : null,
+      }));
+    }, []);
+
+    const reach = await safe(errors, 'reach', async () => {
+      const { rows } = await query('SELECT * FROM v_portal_reach ORDER BY party_kind');
+      return rows.map((r) => ({
+        kind: r.party_kind,
+        eligible: num(r.eligible),
+        can_sign_in: num(r.can_sign_in),
+        ever_signed_in: num(r.ever_signed_in),
+        // The number worth acting on: people with a way in who have never used it.
+        never_used: Math.max(num(r.can_sign_in) - num(r.ever_signed_in), 0),
+      }));
+    }, []);
+
+    const totals = {
+      connected: parties.length,
+      online_now: parties.filter((p) => p.online).length,
+      by_app: parties.reduce((a, p) => ({ ...a, [p.app]: (a[p.app] ?? 0) + 1 }), {}),
+      tracking: parties.filter((p) => p.position).length,
+    };
+
+    // WHY the driver app is empty, not just THAT it is.
+    //
+    // A driver signs in with an OTP, and the OTP goes over WhatsApp. When that
+    // engine is unlinked every driver login fails at /auth/otp/request with a
+    // 503 before a code is ever sent — so "0 drivers connected" is not a fact
+    // about drivers, it is a fact about the phone in the office. The board must
+    // say which, because the two need completely different responses and look
+    // identical from the outside.
+    const login_channel = await safe(errors, 'login_channel', async () => {
+      const ch = await otpChannel.available();
+      return {
+        name: ch.name ?? 'otp',
+        ok: !!ch.ok,
+        reason: ch.reason ?? null,
+        // Drivers have no password path at all — OTP is their only door.
+        blocks_driver_login: !ch.ok,
+      };
+    }, { name: 'otp', ok: false, reason: 'channel probe failed', blocks_driver_login: true });
+
+    return { ok: true, generated_at: new Date().toISOString(), totals, parties, reach, login_channel, errors };
+  });
+
+  // ── GET /api/v1/monitoring/whatsapp ─────────────────────────────────────
+  // The pairing screen for the OTP engine.
+  //
+  // On the office PC somebody could open the engine's own page. On a cloud box
+  // there is no screen and the engine binds loopback with an unauthenticated
+  // API, so it can never be published. This route is the only way to see the
+  // code: admin-only, behind the same nginx TLS as the rest of the ERP.
+  //
+  // THE QR IS A CREDENTIAL, NOT A PICTURE. Whoever scans it becomes a linked
+  // device on the company's WhatsApp account and can read every chat. So it is
+  // returned as the raw string and rendered client-side by qrcode.react — never
+  // handed to an external QR image service, which is how PublicWebsite draws
+  // its (public, harmless) wa.me code and would be a giveaway here.
+  app.get('/monitoring/whatsapp', { preHandler: requireAdminRole }, async (req, reply) => {
+    const state = await otpChannel.linkStatus();
+    return { ok: true, generated_at: new Date().toISOString(), ...state };
   });
 }

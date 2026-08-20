@@ -67,6 +67,17 @@ export async function raiseException(e, exec = query) {
                                   THEN EXCLUDED.amount_at_risk ELSE exceptions.amount_at_risk END,
             detail         = CASE WHEN exceptions.status IN ('OPEN','IN_REVIEW')
                                   THEN EXCLUDED.detail ELSE exceptions.detail END,
+            -- Title and severity refresh too, for the same reason and under the
+            -- same guard. They did not, and a detector that had narrowed its
+            -- finding still announced the old one: after the company-master
+            -- conflict test stopped counting "State Bank of India" vs "State
+            -- Bank Of India", the evidence correctly held one conflict while the
+            -- headline still read "2 conflicts". The headline is the only part
+            -- most readers see.
+            title          = CASE WHEN exceptions.status IN ('OPEN','IN_REVIEW')
+                                  THEN EXCLUDED.title ELSE exceptions.title END,
+            severity       = CASE WHEN exceptions.status IN ('OPEN','IN_REVIEW')
+                                  THEN EXCLUDED.severity ELSE exceptions.severity END,
             updated_at = now()
      RETURNING id, status, seen_count, (xmax = 0) AS was_new`,
     [e.kind, e.severity ?? 'MEDIUM', e.title, e.detail ?? null,
@@ -285,8 +296,463 @@ async function resolveDuplicateBilling(exc, params, actor) {
   };
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// STAFF PENDING TASKS — three faults the 20-08-2026 loading import surfaced.
+//
+// The owner's instruction was that none of these may be auto-fixed. Each needs
+// somebody who knows the business to state the right value, so each detector
+// states the problem and offers an EDIT action, and the resolver re-reads the
+// world before it writes. Migration 104 carries the reasoning in full.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Fields a tax invoice cannot practically go out without. */
+const INVOICE_CRITICAL_FIELDS = [
+  ['gstin', 'GSTIN'],
+  ['pan_no', 'PAN'],
+  ['account_no', 'Bank A/c No.'],
+  ['ifsc_code', 'IFSC'],
+  ['bank_name', 'Bank Name'],
+  ['address', 'Address'],
+];
+
+// Values READ OFF THE OWNER'S SIGNED INVOICES on 20-08-2026. This is document
+// evidence, not something the database can derive, so it is written down here
+// where it is visible rather than buried in a detector's logic. It is only ever
+// used to ASK a staff member to check — nothing is ever written from it.
+const OBSERVED_ON_SIGNED_DOCS = {
+  'M/S PRASAD TRANSPORT': {
+    source: 'Aadhar Green Tax Invoice PT/26-27/0002 dated 30-Apr-26',
+    gstin: '18AAKFP2339R2ZG',
+    account_no: '41365145913',
+    ifsc_code: 'SBIN0007171',
+    bank_name: 'State Bank Of India',
+    pan_no: 'AAKFP2339R',
+  },
+};
+
+/** dd-mm-yyyy for prose, tolerant of a Date or an ISO string. */
+function dmyish(d) {
+  if (!d) return '?';
+  const s = (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10);
+  const [y, m, dd] = s.split('-');
+  return y && m && dd ? `${dd}-${m}-${y}` : s;
+}
+
+/**
+ * Detector: trips with no customer.
+ *
+ * customer_name is a grouping key for every invoice this ERP raises, so a trip
+ * without one is not "missing a label" — it is a load no bill will ever pick
+ * up. Grouped by operating company and by whether an IOCL invoice number is
+ * present, because those two facts are what narrow the answer, and a staff
+ * member fixing 44 IOCL loads should do it as one act rather than 44.
+ *
+ * It does NOT fill in IOCL for the ones carrying an IOCL invoice number. That
+ * is a very good guess, and a guess is exactly what must not be written into
+ * the field that decides who gets billed.
+ */
+export async function detectBlankCustomer(exec = query) {
+  const { rows } = await exec(`
+    SELECT COALESCE(btrim(t.operating_company), '(no company)')   AS company,
+           (t.iocl_invoice_no IS NOT NULL)                        AS has_iocl_invoice,
+           count(*)::int                                          AS trips,
+           min(t.loading_date)                                    AS first_load,
+           max(t.loading_date)                                    AS last_load,
+           count(*) FILTER (WHERE bt.trip_id IS NOT NULL)::int    AS already_billed,
+           array_agg(t.id::text ORDER BY t.loading_date)          AS trip_ids,
+           (array_agg(COALESCE(NULLIF(btrim(t.trip_code), ''), t.challan_no, t.id::text)
+                      ORDER BY t.loading_date))[1:25]             AS sample_trip_codes
+      FROM trips t
+      LEFT JOIN company_bill_trips bt ON bt.trip_id = t.id
+     WHERE t.customer_name IS NULL OR btrim(t.customer_name) = ''
+     GROUP BY 1, 2
+     ORDER BY 3 DESC`);
+
+  const raised = [];
+  for (const g of rows) {
+    const hint = g.has_iocl_invoice
+      ? 'Every trip in this group carries an IOCL invoice number, so the customer is almost certainly INDIAN OIL CORPORATION LTD — confirm and apply.'
+      : 'None of these carry an IOCL invoice number, so the customer has to come from the loading paperwork.';
+    const detail =
+      `${g.trips} trips under ${g.company} have no customer name `
+      + `(${dmyish(g.first_load)} to ${dmyish(g.last_load)}). Customer is the grouping key for every `
+      + `invoice, so these loads are invisible to fortnightly and monthly billing alike — they will never `
+      + `appear on a bill until this is filled in. ${hint}`
+      + (g.already_billed ? ` ${g.already_billed} of them are already attached to a raised bill and will be skipped.` : '');
+
+    const r = await raiseException({
+      kind: 'BLANK_CUSTOMER',
+      severity: g.trips >= 40 ? 'HIGH' : g.trips >= 10 ? 'MEDIUM' : 'LOW',
+      title: `${g.trips} trips with no customer — ${g.company}${g.has_iocl_invoice ? ' (carry IOCL invoice no.)' : ''}`,
+      detail,
+      subject_type: 'trips',
+      subject_id: null,
+      company: g.company,
+      dedupe_key: `BLANK_CUSTOMER:${g.company}:${g.has_iocl_invoice ? 'iocl' : 'no-iocl'}`,
+      evidence: {
+        company: g.company,
+        has_iocl_invoice: g.has_iocl_invoice,
+        trips: g.trips,
+        already_billed: g.already_billed,
+        first_load: g.first_load,
+        last_load: g.last_load,
+        trip_ids: g.trip_ids,
+        sample_trip_codes: g.sample_trip_codes,
+        suggested_customer: g.has_iocl_invoice ? 'INDIAN OIL CORPORATION LTD' : null,
+      },
+      options: [{
+        action: 'SET_CUSTOMER',
+        label: 'Set the customer on these trips',
+        destructive: false,
+        params_required: ['customer_name'],
+        params_optional: ['trip_ids'],
+      }],
+      detected_by: 'detector:blank_customer',
+    }, exec);
+    raised.push({ ...r, company: g.company, trips: g.trips });
+  }
+  return raised;
+}
+
+/**
+ * Detector: company master fields an invoice cannot go out without.
+ *
+ * The bill templates print the seller block straight from `companies`. GSTIN is
+ * blank on all three firms while the owner's own signed invoice prints one, so
+ * every auto-generated invoice would carry no GSTIN at all — a document the
+ * customer's GST return cannot accept and will send back.
+ */
+export async function detectCompanyMasterGaps(exec = query) {
+  const { rows } = await exec(`
+    SELECT c.id, btrim(c.company_name) AS company_name,
+           c.gstin, c.pan_no, c.account_no, c.ifsc_code, c.bank_name, c.address,
+           (SELECT count(*)::int FROM trips t
+             WHERE btrim(COALESCE(t.operating_company, '')) = btrim(c.company_name)) AS trips
+      FROM companies c
+     WHERE COALESCE(c.status, 'ACTIVE') <> 'INACTIVE'
+     ORDER BY 2`);
+
+  const raised = [];
+  for (const c of rows) {
+    const missing = INVOICE_CRITICAL_FIELDS
+      .filter(([col]) => !String(c[col] ?? '').trim())
+      .map(([col, label]) => ({ field: col, label }));
+
+    const seen = OBSERVED_ON_SIGNED_DOCS[c.company_name] ?? null;
+    // A field the master HAS but the signed document contradicts. Reported, not
+    // corrected: only the firm knows which account is the live one today.
+    // Compared case- and spacing-insensitively. "State Bank of India" versus
+    // "State Bank Of India" is not a conflict, and showing it as one trains the
+    // reader to skim past the line that IS one -- the account number.
+    const same = (a, b) => String(a ?? '').trim().replace(/\s+/g, ' ').toUpperCase()
+                        === String(b ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+    const conflicts = seen
+      ? Object.entries(seen)
+        .filter(([k]) => k !== 'source')
+        .filter(([k, v]) => String(c[k] ?? '').trim() && !same(c[k], v))
+        .map(([field, on_document]) => ({ field, in_master: String(c[field]).trim(), on_document }))
+      : [];
+
+    if (!missing.length && !conflicts.length) continue;
+
+    const bits = [];
+    if (missing.length) {
+      bits.push(`${missing.map((m) => m.label).join(', ')} ${missing.length === 1 ? 'is' : 'are'} blank`);
+    }
+    if (conflicts.length) {
+      bits.push(conflicts.map((x) =>
+        `${x.field} is "${x.in_master}" here but "${x.on_document}" on ${seen.source}`).join('; '));
+    }
+    const detail =
+      `The bill template prints the seller block from the company master, so whatever is missing or wrong `
+      + `here goes out on every invoice raised under ${c.company_name}. ${bits.join('. ')}. `
+      + `${c.trips} trips are booked to this firm.`
+      + (conflicts.length
+        ? ' A conflicting bank account is the one that costs money: the customer pays where the invoice tells them to.'
+        : '');
+
+    const r = await raiseException({
+      kind: 'MASTER_DATA_GAP',
+      severity: conflicts.some((x) => x.field === 'account_no') ? 'CRITICAL'
+        : missing.some((m) => m.field === 'gstin') ? 'HIGH' : 'MEDIUM',
+      title: `${c.company_name}: ${[
+        missing.length ? `${missing.length} invoice field${missing.length === 1 ? '' : 's'} blank` : null,
+        conflicts.length ? `${conflicts.length} conflict${conflicts.length === 1 ? '' : 's'} with the signed invoice` : null,
+      ].filter(Boolean).join(', ')}`,
+      detail,
+      subject_type: 'company',
+      subject_id: String(c.id),
+      company: c.company_name,
+      // Keyed on the company, not the field list: as fields get filled the same
+      // exception narrows, rather than a new one appearing on every run.
+      dedupe_key: `MASTER_DATA_GAP:${c.id}`,
+      evidence: {
+        company_id: c.id,
+        company_name: c.company_name,
+        trips: c.trips,
+        missing,
+        conflicts,
+        observed_source: seen ? seen.source : null,
+        current: {
+          gstin: c.gstin, pan_no: c.pan_no, account_no: c.account_no,
+          ifsc_code: c.ifsc_code, bank_name: c.bank_name, address: c.address,
+        },
+      },
+      options: [{
+        action: 'UPDATE_COMPANY',
+        label: 'Fill in / correct the company master',
+        destructive: false,
+        params_required: ['fields'],
+        params_optional: [],
+      }],
+      detected_by: 'detector:company_master_gaps',
+    }, exec);
+    raised.push({ ...r, company: c.company_name, missing: missing.length, conflicts: conflicts.length });
+  }
+  return raised;
+}
+
+/**
+ * Detector: trips booked to a firm that does not bill that customer.
+ *
+ * operating_company decides GSTIN, letterhead, bank account and invoice series.
+ * A trip under the wrong one is the wrong legal entity invoicing the customer,
+ * which is a tax position rather than a typo. The expected firm comes from
+ * customer_billing_entity — a table staff can edit — so this detector holds no
+ * opinion of its own and stops being right the moment a contract moves.
+ */
+export async function detectEntityMismatch(exec = query) {
+  const { rows } = await exec(`
+    SELECT r.customer_label, r.expected_company, r.vendor_code, r.source,
+           COALESCE(btrim(t.operating_company), '(no company)')  AS actual_company,
+           count(*)::int                                         AS trips,
+           min(t.loading_date)                                   AS first_load,
+           max(t.loading_date)                                   AS last_load,
+           count(*) FILTER (WHERE bt.trip_id IS NOT NULL)::int   AS already_billed,
+           array_agg(t.id::text ORDER BY t.loading_date)         AS trip_ids,
+           (array_agg(COALESCE(NULLIF(btrim(t.trip_code), ''), t.challan_no, t.id::text)
+                      ORDER BY t.loading_date))[1:25]            AS sample_trip_codes
+      FROM customer_billing_entity r
+      JOIN trips t ON t.customer_name ~* r.customer_pattern
+      LEFT JOIN company_bill_trips bt ON bt.trip_id = t.id
+     WHERE r.active
+       AND btrim(COALESCE(t.operating_company, '')) IS DISTINCT FROM r.expected_company
+     GROUP BY 1, 2, 3, 4, 5
+     ORDER BY 6 DESC`);
+
+  const raised = [];
+  for (const g of rows) {
+    const detail =
+      `${g.trips} ${g.customer_label} trips are booked to ${g.actual_company}, but ${g.customer_label} is `
+      + `billed by ${g.expected_company}${g.vendor_code ? ` (vendor ${g.vendor_code})` : ''}. `
+      + `Loads ran ${dmyish(g.first_load)} to ${dmyish(g.last_load)}. The operating company decides the GSTIN, `
+      + `letterhead, bank account and invoice series on the bill, so this is the wrong legal entity invoicing `
+      + `the customer — not a label. Basis: ${g.source}`
+      + (g.already_billed
+        ? ` WARNING: ${g.already_billed} of these are already on a raised bill. Moving a billed trip changes an `
+          + `invoice the customer has been sent, so those are refused here and need the bill cancelled first.`
+        : ' None are on a raised bill yet, so moving them changes nothing a customer has already seen.');
+
+    const r = await raiseException({
+      kind: 'ENTITY_MISMATCH',
+      severity: g.already_billed > 0 ? 'CRITICAL' : g.trips >= 20 ? 'HIGH' : 'MEDIUM',
+      title: `${g.trips} ${g.customer_label} trips under ${g.actual_company}, should be ${g.expected_company}`,
+      detail,
+      subject_type: 'trips',
+      subject_id: null,
+      company: g.actual_company,
+      dedupe_key: `ENTITY_MISMATCH:${g.customer_label}:${g.actual_company}`,
+      evidence: {
+        customer_label: g.customer_label,
+        expected_company: g.expected_company,
+        actual_company: g.actual_company,
+        vendor_code: g.vendor_code,
+        rule_source: g.source,
+        trips: g.trips,
+        already_billed: g.already_billed,
+        first_load: g.first_load,
+        last_load: g.last_load,
+        trip_ids: g.trip_ids,
+        sample_trip_codes: g.sample_trip_codes,
+      },
+      options: [{
+        action: 'SET_OPERATING_COMPANY',
+        label: `Move these trips to ${g.expected_company}`,
+        destructive: false,
+        params_required: ['company'],
+        params_optional: ['trip_ids'],
+      }],
+      detected_by: 'detector:entity_mismatch',
+    }, exec);
+    raised.push({ ...r, customer: g.customer_label, trips: g.trips });
+  }
+  return raised;
+}
+
+/** The set of trips an action applies to: the caller's subset, or all of them. */
+function scopeTripIds(exc, params) {
+  const all = ((exc.evidence && exc.evidence.trip_ids) || []).map(String);
+  const asked = Array.isArray(params && params.trip_ids) ? params.trip_ids.map(String) : null;
+  if (!asked) return all;
+  const allowed = new Set(all);
+  const bad = asked.filter((id) => !allowed.has(id));
+  if (bad.length) {
+    const e = new Error(`${bad.length} of the trip ids are not part of this exception`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+  return asked;
+}
+
+/** Staff fills in the customer. Refuses a customer that is not in the master. */
+async function resolveBlankCustomer(exc, params, actor) {
+  const name = String((params && params.customer_name) ?? '').trim();
+  if (!name) {
+    const e = new Error('customer_name is required — the ERP will not guess who to bill');
+    e.code = 'CHOICE_REQUIRED'; throw e;
+  }
+  const ids = scopeTripIds(exc, params);
+  if (!ids.length) { const e = new Error('no trips left in this exception'); e.code = 'GONE'; throw e; }
+
+  // Master check. Free text here is how one customer becomes three spellings and
+  // three invoices — the mistake operating_company already made in this database.
+  const { rows: [cust] } = await query(
+    `SELECT id, customer_name FROM customers
+      WHERE lower(regexp_replace(customer_name, '[^a-zA-Z0-9]+', ' ', 'g'))
+          = lower(regexp_replace($1,            '[^a-zA-Z0-9]+', ' ', 'g'))
+      LIMIT 1`, [name]);
+  if (!cust) {
+    const e = new Error(`"${name}" is not in the customer master — add it there first so every bill spells it the same way`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+
+  return withTransaction(async (tx) => {
+    // Re-read: only trips STILL blank and NOT already billed.
+    const { rows: upd } = await tx(
+      `UPDATE trips t
+          SET customer_id = $2::uuid, customer_name = $3, updated_at = now()
+        WHERE t.id = ANY($1::uuid[])
+          AND (t.customer_name IS NULL OR btrim(t.customer_name) = '')
+          AND NOT EXISTS (SELECT 1 FROM company_bill_trips bt WHERE bt.trip_id = t.id)
+        RETURNING t.id, t.trip_code`,
+      [ids, cust.id, cust.customer_name]);
+    const skipped = ids.length - upd.length;
+    return {
+      customer_id: cust.id,
+      customer_name: cust.customer_name,
+      requested: ids.length,
+      updated: upd.length,
+      skipped,
+      skipped_reason: skipped ? 'already had a customer, or are attached to a raised bill' : null,
+      actor,
+    };
+  });
+}
+
+/** Staff corrects the company master. Only the invoice-critical fields. */
+async function resolveCompanyMasterGap(exc, params, actor) {
+  const EDITABLE = new Set(
+    INVOICE_CRITICAL_FIELDS.map(([c]) => c).concat(['email', 'phone', 'city', 'state', 'pincode']),
+  );
+  const fields = params && params.fields && typeof params.fields === 'object' ? params.fields : null;
+  if (!fields || !Object.keys(fields).length) {
+    const e = new Error('fields is required — send the values to write, e.g. { "gstin": "18AAKFP2339R2ZG" }');
+    e.code = 'CHOICE_REQUIRED'; throw e;
+  }
+  const bad = Object.keys(fields).filter((k) => !EDITABLE.has(k));
+  if (bad.length) {
+    const e = new Error(`not editable here: ${bad.join(', ')}`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+  // A GSTIN that is not a GSTIN prints on every invoice until somebody notices.
+  const gstin = String(fields.gstin ?? '').trim().toUpperCase();
+  if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/.test(gstin)) {
+    const e = new Error(`"${gstin}" is not a valid GSTIN (15 chars: 2 state digits, PAN, entity code, Z, check digit)`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+  const pan = String(fields.pan_no ?? '').trim().toUpperCase();
+  if (pan && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+    const e = new Error(`"${pan}" is not a valid PAN`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+
+  const companyId = (exc.evidence && exc.evidence.company_id) || exc.subject_id;
+  const { rows: [before] } = await query('SELECT * FROM companies WHERE id = $1::uuid', [companyId]);
+  if (!before) { const e = new Error('company no longer exists'); e.code = 'GONE'; throw e; }
+
+  const cols = Object.keys(fields);
+  const sets = cols.map((c, i) => `${c} = $${i + 2}`).join(', ');
+  const vals = cols.map((c) => {
+    const v = String(fields[c] ?? '').trim();
+    return (c === 'gstin' || c === 'pan_no' || c === 'ifsc_code') ? v.toUpperCase() : v;
+  });
+  const { rows: [after] } = await query(
+    `UPDATE companies SET ${sets}, updated_at = now() WHERE id = $1::uuid RETURNING *`,
+    [companyId, ...vals]);
+
+  return {
+    company_id: companyId,
+    company_name: after.company_name,
+    changed: cols.map((c) => ({ field: c, from: before[c] ?? null, to: after[c] ?? null })),
+    actor,
+  };
+}
+
+/** Staff moves trips to the firm that actually bills the customer. */
+async function resolveEntityMismatch(exc, params, actor) {
+  const wanted = String((params && params.company) ?? '').trim();
+  if (!wanted) {
+    const e = new Error('company is required — say which firm these trips belong to');
+    e.code = 'CHOICE_REQUIRED'; throw e;
+  }
+  const { rows: [co] } = await query(
+    `SELECT id, btrim(company_name) AS company_name FROM companies
+      WHERE lower(regexp_replace(btrim(company_name), '[^a-zA-Z0-9]+', ' ', 'g'))
+          = lower(regexp_replace($1,                  '[^a-zA-Z0-9]+', ' ', 'g'))
+      LIMIT 1`, [wanted]);
+  if (!co) {
+    const e = new Error(`"${wanted}" is not one of the transport companies in the master`);
+    e.code = 'BAD_CHOICE'; throw e;
+  }
+  const ids = scopeTripIds(exc, params);
+  if (!ids.length) { const e = new Error('no trips left in this exception'); e.code = 'GONE'; throw e; }
+
+  return withTransaction(async (tx) => {
+    // A trip on a raised bill is refused, not moved: the invoice the customer
+    // holds names a different company, and changing the trip under it would make
+    // the bill and the ledger disagree about who earned the money.
+    const { rows: billed } = await tx(
+      `SELECT DISTINCT b.bill_no
+         FROM company_bill_trips bt JOIN company_bills b ON b.id = bt.bill_id
+        WHERE bt.trip_id = ANY($1::uuid[]) AND b.status <> 'CANCELLED'`, [ids]);
+
+    const { rows: upd } = await tx(
+      `UPDATE trips t
+          SET operating_company = $2, company_id = $3::uuid, updated_at = now()
+        WHERE t.id = ANY($1::uuid[])
+          AND NOT EXISTS (SELECT 1 FROM company_bill_trips bt
+                            JOIN company_bills b ON b.id = bt.bill_id
+                           WHERE bt.trip_id = t.id AND b.status <> 'CANCELLED')
+        RETURNING t.id, t.trip_code`,
+      [ids, co.company_name, co.id]);
+
+    return {
+      moved_to: co.company_name,
+      company_id: co.id,
+      requested: ids.length,
+      updated: upd.length,
+      refused_billed: ids.length - upd.length,
+      blocking_bills: billed.map((b) => b.bill_no),
+      actor,
+    };
+  });
+}
+
 const RESOLVERS = {
   DUPLICATE_BILLING: { KEEP_ONE_LINE: resolveDuplicateBilling },
+  BLANK_CUSTOMER:    { SET_CUSTOMER: resolveBlankCustomer },
+  MASTER_DATA_GAP:   { UPDATE_COMPANY: resolveCompanyMasterGap },
+  ENTITY_MISMATCH:   { SET_OPERATING_COMPANY: resolveEntityMismatch },
 };
 
 export async function registerExceptionRoutes(app, opts = {}) {
@@ -327,13 +793,31 @@ export async function registerExceptionRoutes(app, opts = {}) {
   // dedupe key is what makes that true.
   app.post('/scan', { preHandler: guard }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
-    const dup = await detectDuplicateBilling();
+    // Each detector is independent, so one that throws must not hide the others'
+    // findings. A scan that reports three of four queues is useful; a scan that
+    // 500s because one query broke leaves the whole board looking empty.
+    const run = async (kind, fn) => {
+      try {
+        const found = await fn();
+        return { kind, found: found.length, new: found.filter((d) => d.was_new).length, raised: found };
+      } catch (e) {
+        req.log?.error({ err: e.message, detector: kind }, 'detector failed');
+        return { kind, found: 0, new: 0, raised: [], error: String(e.message).slice(0, 200) };
+      }
+    };
+
+    const [dup, blank, master, entity] = await Promise.all([
+      run('DUPLICATE_BILLING', detectDuplicateBilling),
+      run('BLANK_CUSTOMER', detectBlankCustomer),
+      run('MASTER_DATA_GAP', detectCompanyMasterGaps),
+      run('ENTITY_MISMATCH', detectEntityMismatch),
+    ]);
+    dup.amount_at_risk = r2(dup.raised.reduce((a, d) => a + money(d.overcharge), 0));
+
     return {
       ok: true,
-      detectors: [{ kind: 'DUPLICATE_BILLING', found: dup.length,
-                    new: dup.filter((d) => d.was_new).length,
-                    amount_at_risk: r2(dup.reduce((a, d) => a + money(d.overcharge), 0)) }],
-      raised: dup,
+      detectors: [dup, blank, master, entity].map(({ raised, ...rest }) => rest),
+      raised: [...dup.raised, ...blank.raised, ...master.raised, ...entity.raised],
     };
   });
 

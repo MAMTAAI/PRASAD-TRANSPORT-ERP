@@ -129,3 +129,10 @@ scripts/drive-separation-*.log
 # on the data volume, not source. It was never ignored, so a `git add -A` would
 # have pulled 26 MB of generated reports into the code history.
 reports/
+
+# Runtime logs written INTO the repo by a writer that ignored LOG_DIR.
+# 22 MB of them accumulated by 20-08-2026. This is the failure CLAUDE.md
+# describes: a writer hardcodes a repo-relative path, survives the drive move
+# unnoticed, and leaves a second live log directory nobody is watching. Ignored
+# so it can never reach git or a deploy; the writer itself still needs fixing.
+Prasad_Transport_Datalogs/

@@ -153,18 +153,49 @@ const WhatsappDashboard = () => {
         return await res.json();
       } finally { clearTimeout(t); }
     };
+    // ── status via the ERP API, which is the only path that works on AWS ────
+    //
+    // WA_LOCAL is `http://localhost:5001`, and on a cloud deployment `localhost`
+    // is the ADMIN'S OWN LAPTOP — the same mistake apiBase.ts documents at
+    // length. The engine on the box binds loopback on 5002 and can never be
+    // published, so from a browser it is unreachable by definition. Without
+    // this the screen silently falls through to the onrender cloud engine and
+    // shows ITS pairing QR: scan that and you have linked a completely
+    // different engine while the box's own stays in WAITING_FOR_SCAN.
+    //
+    // GET /api/v1/monitoring/whatsapp is admin-only and runs server-side, next
+    // to the engine. Status and the QR only — sending still goes direct, so
+    // waApi is deliberately left alone below.
+    const probeErp = async (ms = 4000) => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), ms);
+      try {
+        const res = await fetch(`${ERP_API}/api/v1/monitoring/whatsapp`, { signal: ctl.signal });
+        if (!res.ok) throw new Error(`erp ${res.status}`);
+        const j = await res.json();
+        if (!j.reachable) throw new Error(j.reason || 'engine unreachable');
+        return { connected: !!j.connected, qr: j.qr, status: j.status, lastError: j.reason ?? null };
+      } finally { clearTimeout(t); }
+    };
+
     const checkServer = async () => {
       try {
         let data;
-        // Skip the loopback probe unless this page is itself served locally —
-        // from the public site it can only fail, once per poll, as a CORS error.
-        if (canUseLocalEngine()) {
-          try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
-          catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
-        } else {
-          data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD;
+        try {
+          // Works local AND on AWS: the API is always same-origin with this page.
+          data = await probeErp();
+        } catch {
+          // Older path, kept for a box where the route is not deployed yet.
+          // Skip the loopback probe unless this page is itself served locally —
+          // from the public site it can only fail, once per poll, as a CORS error.
+          if (canUseLocalEngine()) {
+            try { data = await probe(WA_LOCAL); apiBase = WA_LOCAL; }
+            catch { data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD; }
+          } else {
+            data = await probe(WA_CLOUD, 8000); apiBase = WA_CLOUD;
+          }
+          setWaApi(apiBase);
         }
-        setWaApi(apiBase);
         setIsWa(data.connected);
         setQr(data.qr);
         setEngStatus(data.status || (data.connected ? 'ONLINE' : 'OFFLINE'));
@@ -177,7 +208,7 @@ const WhatsappDashboard = () => {
         // reports, so reaching this branch means genuinely not running.
         setIsWa(false);
         setEngStatus('OFFLINE');
-        setEngError('Engine not reachable on :5001 — start it with: npm start (in whatsapp-server)');
+        setEngError('Engine not reachable. On this PC: npm start in whatsapp-server. On AWS: pm2 restart prasad-wa-engine (it listens on 5002).');
       }
     };
     checkServer();

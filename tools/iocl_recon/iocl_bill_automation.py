@@ -240,6 +240,7 @@ def fetch_bills_from_gmail(bill_dir: Path, *, creds_path: Path, token_path: Path
     out = {"stage": "fetch", "downloaded": [], "skipped_existing": 0, "status": "ok"}
 
     try:
+        from google.auth.exceptions import RefreshError
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -255,7 +256,23 @@ def fetch_bills_from_gmail(bill_dir: Path, *, creds_path: Path, token_path: Path
         creds = Credentials.from_authorized_user_file(str(token_path), GMAIL_SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            # A revoked -- or 7-day Testing-mode expired -- refresh token raises
+            # RefreshError here. That is a SETUP state, not a pipeline failure, and
+            # this function's contract is to report those, not raise them. It used
+            # to raise, and the exception unwound past the per-mailbox loop in
+            # iocl_ac5_loading.fetch(): on 18-08-2026 the Prasad token was revoked
+            # and silently stopped JAISWAL ENTERPRISE importing as well, because
+            # Prasad is simply first in MAILBOXES. One dead mailbox must never be
+            # able to stop the others.
+            try:
+                creds.refresh(Request())
+            except RefreshError as exc:
+                out["status"] = "reauth_required"
+                out["reason"] = (
+                    f"{token_path.name}: {exc}. Re-authorise with: "
+                    f"python tools/iocl_recon/gmail_setup.py --token {token_path.name}"
+                )
+                return out
         elif creds_path.exists():
             creds = InstalledAppFlow.from_client_secrets_file(
                 str(creds_path), GMAIL_SCOPES).run_local_server(port=0)

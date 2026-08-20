@@ -20,6 +20,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import SecurityRadar from './SecurityRadar';
+import ActionRequired from './components/ActionRequired';
+import ConnectedApps from './components/ConnectedApps';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -208,6 +210,17 @@ export default function Dashboard({ currentUser }: DashboardProps) {
           </button>
         </div>
       </div>
+
+      {/* ── Staff pending tasks ────────────────────────────────────────── */}
+      {/* Above the money on purpose. These are the rows that make the money
+          wrong, and a board nobody scrolls to is the log it replaced. */}
+      <ActionRequired />
+
+      {/* ── Connected apps ─────────────────────────────────────────────── */}
+      {/* Who is on the driver / customer / partner app right now, and what they
+          are carrying. Admin-only server-side; renders a "restricted" note for
+          anyone else rather than an error. */}
+      <ConnectedApps />
 
       {/* ── Ledger health ──────────────────────────────────────────────── */}
       <div style={{ ...card, borderLeft: `4px solid ${healthFailures.length ? C.ruby : C.emerald}`,
