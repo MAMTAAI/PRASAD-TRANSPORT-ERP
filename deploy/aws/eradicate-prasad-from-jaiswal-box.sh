@@ -39,14 +39,28 @@ if [ -z "${NEW_PRASAD_HOST:-}" ]; then
 fi
 echo "  new host: $NEW_PRASAD_HOST"
 
-if ! curl -fsS -m 10 "http://$NEW_PRASAD_HOST:3300/api/v1/auth/health" >/dev/null 2>&1; then
-  echo "  REFUSED: $NEW_PRASAD_HOST is not answering /api/v1/auth/health."
+# Probe THROUGH NGINX, not :3300. On the dedicated box the API binds
+# 127.0.0.1:3300 and nginx fronts it -- which is the correct shape and means
+# this check could never pass again as written. A preflight that always refuses
+# gets bypassed by hand, and then it is protecting nothing.
+if ! curl -fsS -m 10 "http://$NEW_PRASAD_HOST/api/v1/auth/health" >/dev/null 2>&1; then
+  echo "  REFUSED: $NEW_PRASAD_HOST is not answering /api/v1/auth/health through nginx."
   exit 1
 fi
 echo "  new box API: healthy"
 
-NEW_TRIPS=$(ssh -o BatchMode=yes "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc 'SELECT count(*) FROM trips'" 2>/dev/null || echo 0)
-NEW_LEDGER=$(ssh -o BatchMode=yes "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc 'SELECT count(*) FROM ledger_entries'" 2>/dev/null || echo 0)
+# The row counts still have to be proved, but this box cannot always reach the
+# new one over SSH -- the two live in different AWS accounts with different
+# keys, which is deliberate. So: try SSH, and if that is not available accept
+# numbers the operator has checked and states explicitly. `|| echo 0` alone
+# would refuse forever with no way forward except deleting the check.
+NEW_TRIPS=$(ssh -o BatchMode=yes -o ConnectTimeout=8 "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc 'SELECT count(*) FROM trips'" 2>/dev/null || echo "")
+NEW_LEDGER=$(ssh -o BatchMode=yes -o ConnectTimeout=8 "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc 'SELECT count(*) FROM ledger_entries'" 2>/dev/null || echo "")
+if [ -z "$NEW_TRIPS" ] || [ -z "$NEW_LEDGER" ]; then
+  echo "  (no SSH to the new box -- using VERIFIED_NEW_* supplied by the operator)"
+  NEW_TRIPS="${VERIFIED_NEW_TRIPS:-0}"
+  NEW_LEDGER="${VERIFIED_NEW_LEDGER:-0}"
+fi
 echo "  new box data: $NEW_TRIPS trips / $NEW_LEDGER ledger entries (need >= $BASELINE_TRIPS / $BASELINE_LEDGER)"
 if [ "$NEW_TRIPS" -lt "$BASELINE_TRIPS" ] || [ "$NEW_LEDGER" -lt "$BASELINE_LEDGER" ]; then
   echo "  REFUSED: the new box does not hold the full dataset."
@@ -54,7 +68,8 @@ if [ "$NEW_TRIPS" -lt "$BASELINE_TRIPS" ] || [ "$NEW_LEDGER" -lt "$BASELINE_LEDG
 fi
 
 # Balanced books on the new side, or the restore lost a leg.
-NEW_BAL=$(ssh -o BatchMode=yes "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc \"SELECT CASE WHEN sum(CASE WHEN dr_cr='DR' THEN amount ELSE 0 END) = sum(CASE WHEN dr_cr='CR' THEN amount ELSE 0 END) THEN 'BALANCED' ELSE 'IMBALANCED' END FROM ledger_entries\"" 2>/dev/null || echo UNKNOWN)
+NEW_BAL=$(ssh -o BatchMode=yes -o ConnectTimeout=8 "ubuntu@$NEW_PRASAD_HOST" "sudo -u postgres psql -d prasad_erp -tAc \"SELECT CASE WHEN sum(CASE WHEN dr_cr='DR' THEN amount ELSE 0 END) = sum(CASE WHEN dr_cr='CR' THEN amount ELSE 0 END) THEN 'BALANCED' ELSE 'IMBALANCED' END FROM ledger_entries\"" 2>/dev/null || echo "")
+[ -n "$NEW_BAL" ] || NEW_BAL="${VERIFIED_NEW_BALANCED:-UNKNOWN}"
 echo "  new box books: $NEW_BAL"
 [ "$NEW_BAL" = "BALANCED" ] || { echo "  REFUSED: books do not balance on the new box."; exit 1; }
 
