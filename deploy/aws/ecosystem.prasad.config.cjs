@@ -54,7 +54,16 @@ module.exports = {
       node_args: ['--max-old-space-size=2048'],
       env: {
         API_PORT: 3300,
-        DB_TARGET: 'aws',
+        // 'local' MEANS "postgres on this machine", not "the office PC".
+        //
+        // This said 'aws', which was right on the shared t3.large where the
+        // database lived in RDS and was reached over a tunnel. The dedicated box
+        // provisioned on 20-08-2026 runs its own postgres on 127.0.0.1, so 'aws'
+        // sends pool.js hunting for RDS_PGHOST — unset here — before falling
+        // back. It would mostly have worked, after a failed connection and a
+        // startup that reported the wrong topology, which is the kind of
+        // half-truth that makes the next outage take an hour longer to read.
+        DB_TARGET: 'local',
         NODE_ENV: 'production',
         // THE OTP LANE. otpChannel.js defaults to 127.0.0.1:5001; the engine
         // below listens on 5002. Nothing set this, so on AWS every driver OTP
