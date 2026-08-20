@@ -81,11 +81,18 @@ command -v pm2 >/dev/null 2>&1 || sudo npm install -g pm2 serve
 node -v; pm2 -v
 
 say "3/8 chrome libraries for the WhatsApp engine"
-# Puppeteer ships its own Chromium but not these 8 leaf libs. Without them
-# Chrome exits 127 and the engine can never link.
+# Puppeteer ships its own Chromium but not these leaf libs. Without them Chrome
+# exits 127 and the engine can never link -- it cycles RECONNECTING forever while
+# the API reports the OTP channel down and every driver login fails.
+#
+# The first eight sufficed on Ubuntu 24.04. On 26.04 (20-08-2026) Chrome still
+# died on libXcomposite, libXfixes, libXrandr and libgbm. A hardcoded list rots
+# every time the base image moves, so the check before step 7 asks the binary
+# instead of trusting this line.
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   libxdamage1 libasound2t64 libatk1.0-0t64 libatk-bridge2.0-0t64 \
-  libatspi2.0-0t64 libcairo2 libcups2t64 libpango-1.0-0
+  libatspi2.0-0t64 libcairo2 libcups2t64 libpango-1.0-0 \
+  libxcomposite1 libxfixes3 libxrandr2 libgbm1
 
 say "4/8 code"
 sudo mkdir -p "$APP_DIR"
@@ -123,6 +130,24 @@ echo "    sudo -u postgres pg_dump -Fc prasad_erp > /tmp/prasad_erp.dump"
 echo "  then on THIS box:"
 echo "    sudo -u postgres pg_restore -d prasad_erp --clean --if-exists /tmp/prasad_erp.dump"
 echo "  and only then stop the old box's API, so one copy is ever writable."
+
+say "chrome sanity check"
+# AFTER npm install has pulled Puppeteer's Chromium. Better to stop here with a
+# clear message than hand over a box whose OTP lane is dead and whose API says
+# only "engine RECONNECTING".
+CHROME="$(ls -d "$HOME"/.cache/puppeteer/chrome/*/chrome-linux64/chrome 2>/dev/null | head -1 || true)"
+if [ -n "$CHROME" ]; then
+  MISSING="$(ldd "$CHROME" 2>/dev/null | awk '/not found/ {print $1}' | sort -u | tr '
+' ' ')"
+  if [ -n "$MISSING" ]; then
+    echo "  Chrome cannot start, missing: $MISSING"
+    echo "  apt-get install the providers and re-run -- the engine cannot link without Chrome."
+    exit 1
+  fi
+  echo "  chrome: all shared libraries resolved"
+else
+  echo "  chrome not downloaded yet (whatsapp-server npm install pulls it)"
+fi
 
 say "7/8 build + migrate + pm2"
 npm run build
