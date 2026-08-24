@@ -12,38 +12,37 @@ Owner tooling lives in `tools/iocl_recon/`. Full reference: `tools/iocl_recon/RE
 
 The user says **"Claude, run the IOCL Bill Automation"** (or any close variant).
 
-## Run it
+## WHERE IT RUNS: the production box, over SSH (since 2026-08-24)
 
-Always dry-run first, show the user the result, then commit.
+The office PC is retired as a writer (ERP_API.KILL — the local API refuses to
+boot, so a local run cannot post vouchers and would reconcile against a frozen
+archive). The pipeline runs ON the AWS box, where the live database and API
+are both loopback-local:
 
 ```bash
+SSH='ssh -i ~/.ssh/prasad-key.pem ubuntu@65.0.27.161'
+
 # 1. DRY RUN — read-only, prints the full report
-python tools/iocl_recon/iocl_bill_automation.py
+$SSH 'cd /var/www/prasad-erp && .venv/bin/python tools/iocl_recon/iocl_bill_automation.py'
 
 # 2. LIVE — only after the dry run looks right
-python tools/iocl_recon/iocl_bill_automation.py --live
+$SSH 'cd /var/www/prasad-erp && .venv/bin/python tools/iocl_recon/iocl_bill_automation.py --live'
 ```
+
+Box facts (verified 2026-08-24): `.venv` has every dependency; both Gmail
+tokens sit in `tools/iocl_recon/`; `ERP_SERVICE_TOKEN` and the PG credentials
+are in the box's `.env`, which the Python reads itself; historical bills live
+in `/var/lib/prasad/uploads/iocl_bills` and the repo's `uploads/iocl_bills`
+is a symlink to it.
 
 Add `--no-fetch` to skip Gmail and use whatever is already in
 `uploads/iocl_bills/`. The Gmail stage needs an OAuth client; when absent it
 *skips*, it does not fail.
 
-If the user has not saved the bills yet, `--import-from` collects them from
-Downloads/Desktop — including Gmail's "Download all attachments" ZIPs:
+If the user has fresh bill PDFs only on the PC, scp them into the box first:
 
 ```bash
-python tools/iocl_recon/iocl_bill_automation.py --live --no-fetch --import-from
-```
-
-To enable automatic fetching, point the user at
-`python tools/iocl_recon/gmail_setup.py` (guided, one-time). The Google Cloud
-Console half needs *their* account — you cannot do it for them; say so plainly
-rather than implying otherwise.
-
-The API server must be up for voucher posting:
-
-```bash
-curl -s http://127.0.0.1:3300/readyz || node server/index.js &
+scp -i ~/.ssh/prasad-key.pem <files> ubuntu@65.0.27.161:/var/lib/prasad/uploads/iocl_bills/
 ```
 
 ## Report back
@@ -60,8 +59,8 @@ Defaults to **01-04-2026 .. 21-08-2026**, both inclusive. If the user names a
 different range, pass it — do not edit the constants:
 
 ```bash
-python tools/iocl_recon/iocl_bill_automation.py --live \
-  --window-from 2026-04-01 --window-to 2026-08-12
+$SSH 'cd /var/www/prasad-erp && .venv/bin/python tools/iocl_recon/iocl_bill_automation.py --live \
+  --window-from 2026-04-01 --window-to 2026-08-12'
 ```
 
 Accepts `YYYY-MM-DD` or `DD-MM-YYYY`. One override binds all three consumers of

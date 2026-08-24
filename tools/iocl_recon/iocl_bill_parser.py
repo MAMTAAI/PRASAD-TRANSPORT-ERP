@@ -972,7 +972,12 @@ def expand_inputs(patterns: Iterable[str]) -> list[Path]:
     for p in patterns:
         path = Path(p)
         if path.is_dir():
-            out.extend(sorted(path.glob("*.pdf")))
+            # Both cases, deliberately: IOCL names depot transportation bills
+            # `...06.2026.PDF` and Linux glob is case-sensitive. On Windows the
+            # two patterns match the same files and the resolve() de-dupe below
+            # collapses them. Same lesson iocl_ac5_loading.py already carries —
+            # on the AWS box a single-case glob silently parsed 0 of 252 bills.
+            out.extend(sorted([*path.glob("*.pdf"), *path.glob("*.PDF")]))
         elif any(ch in p for ch in "*?["):
             out.extend(sorted(Path(m) for m in glob.glob(p)))
         elif path.exists():
