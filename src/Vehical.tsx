@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { extractDocument } from './lib/aiScanner';
+import { uploadMedia, slug } from './lib/uploadMedia';
 import { scopeCurrent } from './lib/rbac';
 
 import { API_BASE } from './lib/apiBase';
@@ -209,10 +210,27 @@ export default function Vehical() {
   };
 
   // 🌍 LIVE SERVER LINK & MAMTA AI AUTO-FILL
+  // The RC file is STORED first (POST /api/v1/files via uploadMedia) and its
+  // permanent URL kept in rc_photo_url — this button used to run only the OCR
+  // and discard the file, which is why almost no vehicle had an RC on record.
+  // OCR stays a best-effort bonus: a dead Ollama must not lose the document.
   const handleRCUpload = async () => {
     if (!rcFile) return alert("⚠️ Please select an RC photo first!");
-    
+
     setUploadingRC(true);
+    const vKey = slug(formData.vehicle_no || 'new-vehicle');
+    const uploadPromise = uploadMedia(rcFile, `vehicle-docs/${vKey}/rc_${Date.now()}.jpg`);
+
+    try {
+      const { url } = await uploadPromise;
+      setFormData(prev => ({ ...prev, rc_photo_url: url }));
+    } catch (err) {
+      console.error(err);
+      alert('❌ RC upload nahi hui — network check karke dobara try karein.');
+      setUploadingRC(false);
+      return;
+    }
+
     try {
       // 🤖 100% LOCAL extraction via Gemma 4 vision (no cloud).
       const ex = await extractDocument(rcFile, 'Vehicle Registration Certificate (RC)');
@@ -221,10 +239,10 @@ export default function Vehical() {
         vehicle_no: (ex.document_number || '').toUpperCase().replace(/\s+/g, '') || prev.vehicle_no,
         reg_date: ex.issue_date || prev.reg_date,
       }));
-      alert("✅ RC ko Mamta AI (local Gemma 4) ne padh liya. Vehicle No & Reg date auto-fill — verify karein.");
+      alert("✅ RC file save ho gayi + Mamta AI (local Gemma 4) ne padh liya. Vehicle No & Reg date auto-fill — verify karke SAVE dabayen.");
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
-      alert(offline ? '❌ Local AI engine (Ollama) band hai. Use chalu karke try karein.' : '❌ RC padhi nahi gayi. Saaf photo se try karein.');
+      alert(`✅ RC file save ho gayi.\n${offline ? '⚠️ Local AI engine (Ollama) band hai — scan nahi hua, fields manually bharein.' : '⚠️ RC scan nahi ho payi (file phir bhi save hai) — fields manually bharein.'}\n\nSAVE dabana na bhulein.`);
     }
     setUploadingRC(false);
   };

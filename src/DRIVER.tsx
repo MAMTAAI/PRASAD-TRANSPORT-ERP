@@ -8,10 +8,9 @@
 // could not see an advance issued from Trip Command Center, and an entry made
 // here was invisible to Master Trip Settlement. Both now read the same table.
 //
-// ⚠️ STILL ON FIREBASE: document photos. uploadMedia() writes to Firebase
-// STORAGE, which is a different service from Firestore and a separate migration
-// — the server has multipart support and the S3 config exists in .env.example,
-// but no upload endpoint yet. Uploads keep working; see the notes for the plan.
+// Document photos upload through uploadMedia() → POST /api/v1/files (the ERP's
+// own document store on UPLOAD_DIR). Firebase Storage is gone with the rest of
+// Firebase; the stored value is the permanent /api/v1/files/<key> URL.
 import React, { useState, useEffect } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { extractDocument } from './lib/aiScanner';
