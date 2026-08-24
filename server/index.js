@@ -10,6 +10,28 @@
 // user request.
 // ─────────────────────────────────────────────────────────────────────────────
 import 'dotenv/config';
+
+// ── RETIREMENT KILL-SWITCH ──────────────────────────────────────────────────
+// Owner decision 2026-08-24: production (the AWS box behind
+// www.prasadtransport.com) is the ONE writer of the books. The office PC's
+// API used to be the master and its Gmail cron kept writing trips locally,
+// so the two databases diverged. ERP_API.KILL at the repo root marks a
+// retired copy; the check lives HERE — not only in the daemon supervisor —
+// because START-PRASAD-LOCAL.ps1 and a bare `node server/index.js` both
+// bypass the supervisor. Delete the file only if the owner reverses the
+// decision.
+{
+  const { existsSync, readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, join } = await import('node:path');
+  const killFile = join(dirname(dirname(fileURLToPath(import.meta.url))), 'ERP_API.KILL');
+  if (existsSync(killFile)) {
+    console.error('REFUSING TO START: ERP_API.KILL is present — this copy of the ERP is retired.');
+    console.error(readFileSync(killFile, 'utf8'));
+    process.exit(1);
+  }
+}
+
 // Storage isolation MUST run before any module that captures UPLOAD_DIR /
 // OCR_UPLOAD_DIR / LOG_DIR at load time (storage.js, ocrAutoFiler.js).
 import './config/init_drives.js';

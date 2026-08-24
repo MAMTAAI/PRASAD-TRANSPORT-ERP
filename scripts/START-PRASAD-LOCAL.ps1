@@ -16,6 +16,15 @@ param([switch]$Status)
 
 $ErrorActionPreference = 'Continue'
 $Root   = Split-Path -Parent $PSScriptRoot
+
+# RETIRED (owner decision 2026-08-24): production is the master. ERP_API.KILL
+# marks this copy retired; server/index.js refuses to boot while it exists,
+# so starting anything here would only print errors. Point people at the site.
+if (Test-Path (Join-Path $Root 'ERP_API.KILL')) {
+  Write-Host 'THIS COPY IS RETIRED - the ERP now runs at https://www.prasadtransport.com' -ForegroundColor Yellow
+  Write-Host 'Owner decision 2026-08-24: production (AWS) is the one writer. Delete ERP_API.KILL only if that decision is reversed.' -ForegroundColor Yellow
+  exit 1
+}
 $LogDir = 'F:\Prasad_Transport_Data\logs'
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
