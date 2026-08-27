@@ -346,8 +346,39 @@ const OLLAMA_FALLBACK_MODEL = process.env.OLLAMA_FALLBACK_MODEL || '';
 const ollamaHeaders = () => (OLLAMA_AUTH_TOKEN ? { 'X-PT-Token': OLLAMA_AUTH_TOKEN } : {});
 const engineLabel = (url) => (/localhost|127\.0\.0\.1/.test(url) ? 'aws-local' : 'rtx3060');
 
+// ── ⚖️ HYBRID TASK ROUTING (God 2026-08-22) ───────────────────
+// Light/routine work stays on the on-box gemma (fast, always available).
+// Heavy reasoning escalates to the Local Power PC (RTX 3060, DeepSeek-R1)
+// through the token-gated Cloudflare tunnel. If the PC is off, heavy work
+// degrades to the on-box engine instead of dying.
+const OLLAMA_HEAVY_URL = (process.env.OLLAMA_HEAVY_URL || '').replace(/\/+$/, '');
+const OLLAMA_HEAVY_MODEL = process.env.OLLAMA_HEAVY_MODEL || '';
+const OLLAMA_HEAVY_TOKEN = process.env.OLLAMA_HEAVY_TOKEN || '';
+const OLLAMA_LIGHT_MODEL = process.env.OLLAMA_LIGHT_MODEL || '';
+const HEAVY_CHAR_THRESHOLD = Number(process.env.OLLAMA_HEAVY_CHAR_THRESHOLD || 1500);
+const HEAVY_RX = /analy[sz]|reconcil|audit|forecast|balance\s*sheet|profit\s*(and|&)?\s*loss|p&l|ledger\s*review|financial|hisaab|vishleshan|deep\s*(think|reason)|strategy|likho.*code|write.*code|समीक्षा|विश्लेषण/i;
+function isHeavyTask(body) {
+  if (body && body.options && body.options.heavy === true) return true;
+  const msgs = (body && body.messages) || [];
+  const text = msgs.map(m => String((m && m.content) || '')).join(' ');
+  if (text.length > HEAVY_CHAR_THRESHOLD) return true;
+  return HEAVY_RX.test(text);
+}
+
 async function ollamaPost(pathname, body, axiosOpts = {}) {
-  const primaryBody = OLLAMA_MODEL_OVERRIDE ? { ...body, model: OLLAMA_MODEL_OVERRIDE } : body;
+  // HEAVY path: Local Power PC (DeepSeek-R1) via tunnel, on-box fallback.
+  if (OLLAMA_HEAVY_URL && isHeavyTask(body)) {
+    const heavyBody = OLLAMA_HEAVY_MODEL ? { ...body, model: OLLAMA_HEAVY_MODEL } : body;
+    try {
+      const resp = await axios.post(`${OLLAMA_HEAVY_URL}${pathname}`, heavyBody, { ...axiosOpts, headers: { ...(axiosOpts.headers || {}), ...(OLLAMA_HEAVY_TOKEN ? { 'X-PT-Token': OLLAMA_HEAVY_TOKEN } : {}) } });
+      return { resp, engine: OLLAMA_HEAVY_URL };
+    } catch (err) {
+      console.warn(`⚠️  Heavy engine (RTX3060) unreachable (${err.message}) — degrading to on-box gemma`);
+    }
+  }
+  // LIGHT path (or heavy degraded): on-box gemma.
+  const lightModel = OLLAMA_MODEL_OVERRIDE || OLLAMA_LIGHT_MODEL;
+  const primaryBody = lightModel ? { ...body, model: lightModel } : body;
   try {
     const resp = await axios.post(`${OLLAMA_URL}${pathname}`, primaryBody, { ...axiosOpts, headers: { ...(axiosOpts.headers || {}), ...ollamaHeaders() } });
     return { resp, engine: OLLAMA_URL };
@@ -455,8 +486,8 @@ app.post('/api/ai/chat', requireToken, async (req, res) => {
       ...(options.format ? { format: options.format } : {}),
       ...(options.think === false ? { think: false } : {}),
     };
-    const { resp: r, engine } = await ollamaPost('/api/chat', ollamaBody, { timeout: 300000 });
-    return res.json({ success: true, engine: 'local', ai_engine: engineLabel(engine), model: r.data?.model, content: r.data?.message?.content || '' });
+    const { resp: r, engine: usedEngine } = await ollamaPost('/api/chat', ollamaBody, { timeout: 300000 });
+    return res.json({ success: true, engine: 'local', ai_engine: engineLabel(usedEngine), model: r.data?.model, content: r.data?.message?.content || '' });
   } catch (error) {
     // Typed Anthropic errors -> clean status + message for the frontend
     if (Anthropic && error instanceof Anthropic.APIError) {
