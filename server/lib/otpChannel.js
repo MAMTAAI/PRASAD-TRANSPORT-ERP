@@ -131,7 +131,18 @@ export async function userSessionStatus(sessionId) {
     // presence is what distinguishes the two. Reported rather than guessed, so
     // the UI can say "the engine has not been restarted yet" instead of
     // rendering a confident lie.
-    const multiSession = typeof j?.session === 'string' && j.session.length > 0;
+    //
+    // THE KEY, NOT ITS VALUE. This first read the value and required a non-empty
+    // string, which is wrong in exactly the case the screen is for: a staff
+    // member who has never linked. The registry answers /api/status/:userId for
+    // an unstarted session with `session: null` — correctly, there is no session
+    // — and the old check read that null as "no registry" and told a perfectly
+    // healthy engine it was out of date. Verified against the running engine:
+    // /api/status returns session "company", /api/status/<nobody> returns
+    // session null, and both come from the build that has the registry.
+    // The single-session engine omits the key altogether, so presence is the
+    // signal and `null` is a legitimate value of it.
+    const multiSession = !!j && typeof j === 'object' && 'session' in j;
 
     return {
       reachable: true,
