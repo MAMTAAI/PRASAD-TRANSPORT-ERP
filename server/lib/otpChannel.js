@@ -116,13 +116,33 @@ export async function userSessionStatus(sessionId) {
     const res = await withTimeout(`${WA_BASE}/api/status/${encodeURIComponent(sessionId)}`);
     if (!res.ok) return { reachable: false, reason: `engine returned ${res.status}` };
     const j = await res.json();
+
+    // IS THE ENGINE ON THE OTHER END ACTUALLY THE MULTI-SESSION ONE?
+    //
+    // This matters more than it looks. The single-session engine ALSO answers
+    // /api/status/:userId — it accepts the id and throws it away, and returns
+    // the COMPANY session's state (the old comment on that line read "frontend
+    // contract"). So against an old engine a staff member who has never
+    // scanned anything is told they are linked, because the company number is
+    // online. They would then send from a number they do not have, or wait for
+    // a QR that is never coming.
+    //
+    // Only the session registry stamps `session` into the payload, so its
+    // presence is what distinguishes the two. Reported rather than guessed, so
+    // the UI can say "the engine has not been restarted yet" instead of
+    // rendering a confident lie.
+    const multiSession = typeof j?.session === 'string' && j.session.length > 0;
+
     return {
       reachable: true,
-      linked: !!j?.connected,
+      multi_session: multiSession,
+      // An old engine's `connected` describes the COMPANY line, never this
+      // person's, so it must not be reported as their link.
+      linked: multiSession ? !!j?.connected : false,
       status: j?.status ?? null,
       // Only while a scan is pending. Once linked the engine stops emitting one,
       // and a stale QR shown after linking would be scanned and fail.
-      qr: j?.connected ? null : (j?.qr ?? null),
+      qr: multiSession && !j?.connected ? (j?.qr ?? null) : null,
       last_heartbeat: j?.lastHeartbeat ?? null,
       session: j?.session ?? null,
     };
@@ -135,6 +155,18 @@ export async function linkUserSession(sessionId) {
   const res = await withTimeout(`${WA_BASE}/api/link/${encodeURIComponent(sessionId)}`, { method: 'POST' });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // 404 HAS EXACTLY ONE MEANING HERE, AND IT IS WORTH SAYING OUT LOUD.
+    // /api/link/:userId exists only in the session-registry engine, so a 404 is
+    // not "linking failed" — it is "the process on :5001 is still the old
+    // build". That is a live footgun rather than a hypothetical: ci-deploy.sh
+    // restarts the API, the web app and the AI bridge and did NOT restart
+    // prasad-wa-engine, so whatsapp-server/ can be on disk for hours while the
+    // running engine predates it. Reported as its own code so the screen can
+    // say what to do instead of showing a shrug.
+    if (res.status === 404) {
+      throw new OtpChannelError('ENGINE_OUTDATED',
+        'WhatsApp engine abhi purana version chala raha hai — box par `pm2 restart prasad-wa-engine` chalana padega.');
+    }
     throw new OtpChannelError(j.code === 'SESSION_LIMIT' ? 'SESSION_LIMIT' : 'LINK_FAILED',
       j.message || `engine returned ${res.status}`);
   }

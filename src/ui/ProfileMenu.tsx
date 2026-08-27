@@ -15,6 +15,7 @@
 // not whatever proxy forwarded the current request.
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { API_BASE } from '../lib/apiBase';
 import { QRCodeSVG } from 'qrcode.react';
 import { isAdmin } from '../lib/rbac';
@@ -60,25 +61,28 @@ const Row = ({ label, value, mono }) => (
   </div>
 );
 
-/** My WhatsApp — link this staff member's own number to the dispatch line.
+/** My WhatsApp.
  *
- *  IN THE PROFILE MENU BECAUSE IT IS A PROPERTY OF THE PERSON, NOT OF A SCREEN.
- *  It also means it reaches every role: a VIEWER who never sees the CRM module
- *  still needs to be able to link, and the module tabs are now filtered by
- *  permission so anywhere else would have hidden it from exactly the people who
- *  do the dispatching.
+ *  IN THE PROFILE MENU BECAUSE IT IS A PROPERTY OF THE PERSON, NOT A SCREEN.
+ *  That also means it reaches every role: a VIEWER who never sees the CRM
+ *  module still needs to link, and the module tabs are filtered by permission,
+ *  so anywhere else would have hidden it from the people who do the dispatching.
  *
- *  THE QR IS A CREDENTIAL. Whoever scans it becomes a linked device on that
- *  WhatsApp account and can read every chat on it, so it is fetched from the
- *  ERP (which derives the session from the caller's own token — no id travels
- *  in the request) and drawn client-side by qrcode.react. It is never handed to
- *  an external QR image service, which is how PublicWebsite draws its public
- *  wa.me code and would be a giveaway here.
+ *  THE QR IS NOT IN THE MENU, AND THAT IS THE WHOLE LAYOUT DECISION. A 168px
+ *  code plus its instructions inside a 296px dropdown pushed the card past the
+ *  height of a laptop viewport — identity block, three detail rows, a QR and
+ *  LOG OUT stacked in a column that had to scroll to reach its own primary
+ *  action. A dropdown should be glanceable. So the menu carries one status line
+ *  and one button, and the code opens in a dialog with room to be scanned.
  *
- *  Polled only while a scan is pending — the engine stops emitting a QR once
- *  the device is linked, and there is nothing to watch after that. */
+ *  A QR IS A CREDENTIAL: whoever scans it becomes a linked device that can read
+ *  every chat on that account. It is fetched from the ERP (which derives the
+ *  session from the caller's own token — no id travels in the request) and drawn
+ *  client-side by qrcode.react, never handed to an external QR image service.
+ */
 function MyWhatsApp() {
   const [state, setState] = useState({ loading: true });
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const read = useCallback(async () => {
@@ -89,19 +93,23 @@ function MyWhatsApp() {
       });
       const j = await res.json().catch(() => ({}));
       setState({ loading: false, ...j });
-    } catch (e) {
+      return j;
+    } catch {
       setState({ loading: false, reachable: false, reason: 'network' });
+      return null;
     }
   }, []);
 
   useEffect(() => { read(); }, [read]);
 
-  // Only while a code is on screen waiting to be scanned.
+  // Polled ONLY while a code is on screen waiting to be scanned. The engine
+  // stops emitting a QR once the device is linked, so there is nothing to watch
+  // after that and a timer left running is just load.
   useEffect(() => {
-    if (!state.qr || state.linked) return;
+    if (!open || !state.qr || state.linked) return;
     const t = setInterval(read, 4000);
     return () => clearInterval(t);
-  }, [state.qr, state.linked, read]);
+  }, [open, state.qr, state.linked, read]);
 
   const link = async () => {
     setBusy(true);
@@ -111,13 +119,13 @@ function MyWhatsApp() {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) alert(j.detail || 'WhatsApp link nahi ho paya.');
-      else setState({ loading: false, ...j });
+      if (!res.ok) setState((s) => ({ ...s, error: j.error, reason: j.detail }));
+      else setState({ loading: false, ...j, multi_session: true });
     } finally { setBusy(false); }
   };
 
   const unlink = async () => {
-    if (!window.confirm('Apna WhatsApp ERP se hata dein? Aapke bheje messages company number se jayenge.')) return;
+    if (!window.confirm('Apna WhatsApp ERP se hata dein?\n\nUske baad aapke bheje messages company number se jayenge.')) return;
     setBusy(true);
     try {
       const token = localStorage.getItem('prasad_token');
@@ -128,58 +136,152 @@ function MyWhatsApp() {
     } finally { setBusy(false); }
   };
 
-  const box = { padding: '12px 16px', borderTop: '1px solid #1e293b' };
-  const label = { fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: 6 };
+  // One line, in the menu. Everything else lives in the dialog.
+  let dot = '#64748b';
+  let line = 'checking…';
+  let action = null;
 
-  if (state.loading) return <div style={box}><div style={label}>My WhatsApp</div><span style={{ fontSize: 12, color: '#475569' }}>checking…</span></div>;
-
-  if (state.reachable === false) {
-    return (
-      <div style={box}>
-        <div style={label}>My WhatsApp</div>
-        <span style={{ fontSize: 11.5, color: '#f59e0b', fontWeight: 600 }}>
-          Engine abhi offline hai{state.reason ? ` (${state.reason})` : ''}.
-        </span>
-      </div>
-    );
+  if (!state.loading) {
+    // Every settled state gets a way into the dialog, including the broken
+    // ones. A row that says "Engine offline" and offers nothing to click is a
+    // dead end: the person can see that something is wrong and has no way to
+    // find out what, which is the state this whole panel was reported in.
+    action = 'VIEW';
+    if (state.reachable === false) {
+      dot = '#f59e0b';
+      line = 'Engine offline';
+    } else if (state.multi_session === false) {
+      // The single-session engine answers /api/status/:userId by ignoring the
+      // id and returning the COMPANY line's state. Saying "linked" there would
+      // be a confident lie, so it is named for what it is.
+      dot = '#f59e0b';
+      line = 'Engine purana — restart chahiye';
+    } else if (state.linked) {
+      dot = '#34d399';
+      line = 'Juda hua';
+      action = 'MANAGE';
+    } else {
+      dot = '#64748b';
+      line = 'Juda nahi';
+      action = 'LINK';
+    }
   }
 
   return (
-    <div style={box}>
-      <div style={label}>My WhatsApp</div>
-      {state.linked ? (
-        <>
-          <div style={{ fontSize: 12.5, color: '#6ee7b7', fontWeight: 700, marginBottom: 8 }}>
-            ● Juda hua — aapke messages aapke apne number se jayenge
+    <>
+      <div style={{ padding: '10px 16px', borderTop: '1px solid #1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
+            My WhatsApp
           </div>
-          <button onClick={unlink} disabled={busy}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1px solid #7f1d1d',
-                     background: 'transparent', color: '#fca5a5', fontWeight: 800, fontSize: 11.5, cursor: 'pointer' }}>
-            {busy ? '…' : 'WhatsApp hataayein'}
+          <div style={{ fontSize: 12, color: '#cbd5e1', fontWeight: 600, overflowWrap: 'anywhere' }}>{line}</div>
+        </div>
+        {action && (
+          <button onClick={() => setOpen(true)}
+            style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 8, border: '1px solid #334155',
+                     background: 'transparent', color: '#7dd3fc', fontWeight: 800, fontSize: 10.5, cursor: 'pointer' }}>
+            {action === 'LINK' ? 'JODEIN' : 'DEKHEIN'}
+
           </button>
-        </>
-      ) : state.qr ? (
-        <>
-          <div style={{ background: '#fff', padding: 10, borderRadius: 12, display: 'grid', placeItems: 'center' }}>
-            <QRCodeSVG value={state.qr} size={168} />
+        )}
+      </div>
+
+      {/* PORTALLED TO document.body, AND IT HAS TO BE.
+          `position: fixed` is normally relative to the viewport — but an
+          ancestor with a transform, a filter or a BACKDROP-FILTER becomes its
+          containing block instead, and the shell header carries
+          backdrop-filter: blur(10px). Rendered in place, this overlay resolved
+          `inset: 0` against the header and came out 2034x75: a thin strip
+          across the top bar with the dialog squashed inside it, measured in the
+          browser rather than guessed at. A portal leaves that subtree entirely,
+          which also frees it from the dropdown's own z-index and its
+          overflow: hidden. */}
+      {open && createPortal(
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.82)', zIndex: 1400,
+            display: 'grid', placeItems: 'center', padding: 20,
+          }}
+        >
+          {/* 1400 clears the header's 100 and every in-page layer, and stays
+              under the portal previews at 9999. */}
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(340px, 100%)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
+                     background: '#0f172a', border: '1px solid #1e293b', borderRadius: 18, padding: 20,
+                     boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#f1f5f9' }}>My WhatsApp</span>
+              <button onClick={() => setOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+
+            {state.linked ? (
+              <>
+                <p style={{ fontSize: 12.5, color: '#6ee7b7', fontWeight: 700, marginBottom: 6 }}>● Juda hua</p>
+                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5, marginBottom: 14 }}>
+                  Aapke bheje dispatch messages aapke apne WhatsApp number se jayenge, company number se nahi.
+                </p>
+                <button onClick={unlink} disabled={busy}
+                  style={{ width: '100%', padding: '10px', borderRadius: 10, border: '1px solid #7f1d1d',
+                           background: 'transparent', color: '#fca5a5', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
+                  {busy ? '…' : 'WhatsApp hataayein'}
+                </button>
+              </>
+            ) : state.qr ? (
+              <>
+                <div style={{ background: '#fff', padding: 12, borderRadius: 14, display: 'grid', placeItems: 'center' }}>
+                  <QRCodeSVG value={state.qr} size={220} />
+                </div>
+                <ol style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
+                  <li>Apne phone par WhatsApp kholein</li>
+                  <li><b style={{ color: '#cbd5e1' }}>Settings → Linked devices</b></li>
+                  <li><b style={{ color: '#cbd5e1' }}>Link a device</b> dabayein</li>
+                  <li>Ye code scan karein</li>
+                </ol>
+                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
+                  Scan hote hi ye screen apne aap badal jayegi.
+                </p>
+              </>
+            ) : state.error === 'ENGINE_OUTDATED' || state.multi_session === false ? (
+              <>
+                <p style={{ fontSize: 12.5, color: '#fcd34d', fontWeight: 700, marginBottom: 8 }}>
+                  Engine abhi purana version chala raha hai
+                </p>
+                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
+                  Per-user WhatsApp ka code server par pahunch chuka hai, par WhatsApp engine ka process
+                  restart nahi hua — isliye woh abhi bhi sirf company number jaanta hai.
+                </p>
+                <pre style={{ fontSize: 11, color: '#7dd3fc', background: '#020617', border: '1px solid #1e293b',
+                              borderRadius: 10, padding: 10, marginTop: 12, overflowX: 'auto' }}>
+pm2 restart prasad-wa-engine</pre>
+              </>
+            ) : state.reachable === false ? (
+              <p style={{ fontSize: 12, color: '#fcd34d', lineHeight: 1.55 }}>
+                WhatsApp engine se sampark nahi ho pa raha{state.reason ? ` (${state.reason})` : ''}.
+              </p>
+            ) : (
+              <>
+                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55, marginBottom: 14 }}>
+                  Abhi aapke messages company number se jate hain. Apna number jodein to driver ko
+                  seedhe aapke naam aur number se message jayega.
+                </p>
+                <button onClick={link} disabled={busy}
+                  style={{ width: '100%', padding: '11px', borderRadius: 10, border: 'none',
+                           background: '#059669', color: '#fff', fontWeight: 800, fontSize: 12.5, cursor: 'pointer' }}>
+                  {busy ? 'QR la rahe hain…' : 'Apna WhatsApp jodein'}
+                </button>
+                {state.reason && (
+                  <p style={{ fontSize: 11, color: '#fca5a5', marginTop: 10, lineHeight: 1.5 }}>{state.reason}</p>
+                )}
+              </>
+            )}
           </div>
-          <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.45 }}>
-            WhatsApp → <b>Linked devices</b> → <b>Link a device</b> — phir ye code scan karein.
-          </p>
-        </>
-      ) : (
-        <>
-          <p style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8, lineHeight: 1.45 }}>
-            Abhi aapke messages company number se jate hain. Apna number jodein to driver ko aapke naam se message jayega.
-          </p>
-          <button onClick={link} disabled={busy}
-            style={{ width: '100%', padding: '9px 10px', borderRadius: 9, border: 'none',
-                     background: '#059669', color: '#fff', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
-            {busy ? 'QR la rahe hain…' : 'Apna WhatsApp jodein'}
-          </button>
-        </>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 

@@ -572,6 +572,9 @@ export async function registerAuthRoutes(app) {
       // The cap is not an error the operator can fix by retrying, so it is
       // reported as its own thing rather than a generic failure.
       if (e.code === 'SESSION_LIMIT') return reply.code(429).send({ error: 'SESSION_LIMIT', detail: e.message });
+      // Not a failure to link — the engine simply predates the feature. Kept
+      // distinct so the screen can name the one action that fixes it.
+      if (e.code === 'ENGINE_OUTDATED') return reply.code(503).send({ error: 'ENGINE_OUTDATED', detail: e.message });
       return reply.code(502).send({ error: 'LINK_FAILED', detail: e.message });
     }
   });
