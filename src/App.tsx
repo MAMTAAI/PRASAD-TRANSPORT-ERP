@@ -341,6 +341,42 @@ function AppShell() {
     return false;
   };
 
+  // ── which top-level modules may this person enter ───────────────────────
+  // The three module tabs were rendered unconditionally, so a data-entry
+  // clerk with nothing but Operations ticked still saw ACCOUNTS & ADMIN and
+  // CRM, could open them, and got "You do not have permission to view this
+  // module" — a dead end presented as a destination. The tick boxes in User
+  // & Role already say who may see what; they just were not consulted this
+  // far up.
+  //
+  // DERIVED FROM hasPermission, NOT FROM A SECOND LIST OF NAMES. Writing out
+  // which permissions belong to which module here would be a copy of the
+  // mapping above, and the two would drift the first time a screen moved
+  // module. Instead each module names the screens it owns and asks the same
+  // function the sidebar and the router ask.
+  //
+  // The ids below deliberately EXCLUDE the always-allowed set (DASHBOARD,
+  // MASTER_CONTROL_V5, SUPER_APP, AI_DOCS, WHATSAPP, the portal previews):
+  // hasPermission returns true for those whatever the module, so including
+  // one would make every tab visible to everybody and quietly undo this.
+  const MODULE_SCREENS = {
+    OPERATION: ['BAZAAR_ADMIN', 'VEHICLE', 'VEHICLE_DRIVER_LINK', 'MARKET_VEHICLE', 'DRIVER', 'TRIP', 'LOCATION_RTKM', 'FUEL', 'MAINTENANCE', 'TYRE', 'DOCS', 'LOADING', 'UNLOADING', 'SETTLEMENT'],
+    ACCOUNTS:  ['BANK', 'LEDGER', 'PNL', 'LOAN', 'EXCEPTIONS', 'BILLING', 'AI_SCANNER', 'AUTO_BILLING', 'RATE_MASTER', 'EXPENSE_APPROVALS', 'CUST_LEDGER', 'OWNER_STATEMENT', 'FUEL_REVIEW', 'CA_PNL', 'FLEET_CARD', 'GST', 'TDS', 'TOLL', 'VENDOR'],
+    CRM:       ['CUSTOMER', 'ONBOARDING', 'INBOX', 'AI_SETTINGS'],
+  };
+  const canEnterModule = (mod) =>
+    isAdmin(user) || (MODULE_SCREENS[mod] ?? []).some((id) => hasPermission(id, mod));
+  const visibleModules = ['OPERATION', 'ACCOUNTS', 'CRM'].filter(canEnterModule);
+
+  // A module can stop being permitted between renders — a URL pasted from
+  // somebody with more access, or an admin editing the ticks while the
+  // person is signed in. Land them on one they can actually use instead of
+  // leaving them staring at the permission notice with no way out.
+  useEffect(() => {
+    if (!user || !visibleModules.length) return;
+    if (!visibleModules.includes(activeModule)) setActiveModule(visibleModules[0]);
+  }, [user, activeModule, visibleModules.join(",")]);
+
   // ==========================================
   // 🌟 NATIVE SPLASH SCREEN (Swiggy / Uber Style)
   // ==========================================
@@ -591,12 +627,14 @@ function AppShell() {
                 {/* Persistent on every screen — the shell header renders on all of
                     them. Switching module never touches the global filter, so the
                     Company/Branch/Owner scope carries straight across. */}
-                <GlobalHeaderNav activeModule={activeModule} onChange={handleModuleChange} />
+                <GlobalHeaderNav activeModule={activeModule} onChange={handleModuleChange} allowed={visibleModules} />
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '10px', paddingLeft: '15px', borderLeft: '1px solid #334155' }}>
+                  {visibleModules.includes('CRM') && (
                   <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WHATSAPP'); }} title="WhatsApp Master Dashboard" style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #128C7E, #25D366)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
                     <span style={{color:'white', fontWeight:'bold', fontSize:'12px'}}>CRM PANEL</span>
                   </button>
+                  )}
                   
                   {isAdmin(user) && (
                     <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WEB_SETTINGS'); }} style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
@@ -629,20 +667,26 @@ function AppShell() {
         {isMobile && (
           <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '65px', background: '#0f172a', borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 50, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -4px 15px rgba(0,0,0,0.5)' }}>
             
+            {visibleModules.includes('OPERATION') && (
             <button onClick={() => handleModuleChange('OPERATION')} style={{ background: 'none', border: 'none', color: activeModule === 'OPERATION' ? '#38bdf8' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
               <span style={{ fontSize: activeModule === 'OPERATION' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'OPERATION' ? 'drop-shadow(0 0 5px rgba(56,189,248,0.5))' : 'none' }}>🚛</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'OPERATION' ? '900' : 'normal' }}>Ops</span>
             </button>
+            )}
 
+            {visibleModules.includes('ACCOUNTS') && (
             <button onClick={() => handleModuleChange('ACCOUNTS')} style={{ background: 'none', border: 'none', color: activeModule === 'ACCOUNTS' ? '#10b981' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
               <span style={{ fontSize: activeModule === 'ACCOUNTS' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'ACCOUNTS' ? 'drop-shadow(0 0 5px rgba(16,185,129,0.5))' : 'none' }}>💰</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'ACCOUNTS' ? '900' : 'normal' }}>Accounts</span>
             </button>
+            )}
 
+            {visibleModules.includes('CRM') && (
             <button onClick={() => handleModuleChange('CRM')} style={{ background: 'none', border: 'none', color: activeModule === 'CRM' ? '#f59e0b' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
               <span style={{ fontSize: activeModule === 'CRM' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'CRM' ? 'drop-shadow(0 0 5px rgba(245,158,11,0.5))' : 'none' }}>🤝</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'CRM' ? '900' : 'normal' }}>CRM</span>
             </button>
+            )}
 
           </div>
         )}

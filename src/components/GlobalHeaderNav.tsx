@@ -21,7 +21,19 @@ export const MODULES = [
   { id: 'CRM',       label: 'CRM (MAMTA AI)',   icon: '🤝', from: '#f59e0b', to: '#d97706', rgb: '245,158,11' },
 ];
 
-export default function GlobalHeaderNav({ activeModule, onChange, compact = false }) {
+// `allowed` is the list of module ids this user may enter. Undefined means
+// "no filter" so any caller that has not been taught about permissions yet
+// keeps its old behaviour rather than silently rendering an empty header.
+//
+// A tab that is only DISABLED still tells a data-entry clerk that a books
+// module exists and that they are not trusted with it. The tabs are the
+// coarsest thing on the screen; the honest treatment is to not draw one at
+// all for somebody who cannot open anything behind it.
+export default function GlobalHeaderNav({ activeModule, onChange, compact = false, allowed }) {
+  const visible = allowed ? MODULES.filter((m) => allowed.includes(m.id)) : MODULES;
+  // One module left is a label, not a choice — but it still says which set
+  // of books is open, so it is kept rather than hidden.
+  if (!visible.length) return null;
   return (
     <div style={{ display: 'flex', gap: compact ? 6 : 10, alignItems: 'center', flexWrap: 'wrap' }}>
       <style>{`
@@ -43,7 +55,7 @@ export default function GlobalHeaderNav({ activeModule, onChange, compact = fals
         }
       `}</style>
 
-      {MODULES.map((m) => {
+      {visible.map((m) => {
         const on = activeModule === m.id;
         return (
           <button
