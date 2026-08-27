@@ -45,8 +45,25 @@ console.log(`origin/${WORK_BRANCH} ${workSha}`);
 console.log(`last released   ${git('log', '-1', '--format=%ad', '--date=format:%d %b %Y %H:%M', 'origin/main')}`);
 console.log('');
 
-if (!list.length) {
+// COMMITTED HERE BUT NOT PUSHED ANYWHERE.
+//
+// The comparison above is remote-to-remote, so work that exists only in this
+// checkout is invisible to it — and it reported "nothing waiting" while two
+// finished commits sat on the local branch. That is the same blind spot this
+// tool was written to close, one step earlier in the chain: the gauge has to
+// cover the whole path from `git commit` to the box, not just the last leg.
+const unpushed = git('log', '--oneline', `origin/${WORK_BRANCH}..HEAD`);
+const unpushedList = unpushed ? unpushed.split('\n') : [];
+if (unpushedList.length) {
+  console.log(`⚠  ${unpushedList.length} commit(s) not pushed anywhere yet:\n`);
+  for (const line of unpushedList) console.log('   ' + line);
+  console.log(`\n   git push origin ${here}\n`);
+}
+
+if (!list.length && !unpushedList.length) {
   console.log('✅ Nothing waiting — production is running everything on ' + WORK_BRANCH + '.');
+} else if (!list.length) {
+  console.log('Nothing released is missing, but the commits above are only on this machine.');
 } else {
   console.log(`⚠  ${list.length} commit(s) finished but NOT on production:\n`);
   for (const line of list) console.log('   ' + line);
