@@ -24,7 +24,9 @@
     "sync:tunnel:status": "node scripts/sync-tunnel.cjs --status",
     "db:migrate:cloud": "node server/db/migrate-cloud.js",
     "system:clean": "node scripts/tempPurge.cjs && node scripts/processCleaner.cjs",
-    "system:kill-ghosts": "node scripts/sweepGhostApps.cjs"
+    "system:kill-ghosts": "node scripts/sweepGhostApps.cjs",
+    "ship": "node scripts/ship.mjs",
+    "ship:release": "node scripts/ship.mjs --release"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
