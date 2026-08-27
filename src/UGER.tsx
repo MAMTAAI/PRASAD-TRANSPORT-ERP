@@ -21,6 +21,39 @@ const authed = async (path: string, opts: RequestInit = {}) => {
   return json;
 };
 
+// SYSTEM ROLES — these strings are written straight into users.role, whose
+// Postgres type is the `user_role` enum (migrations 001 + 047). A value that
+// is not in that enum is rejected by the insert with 22P02, which the API
+// returns as 400 BAD_ENUM and this screen shows as "Error saving data".
+//
+// WHAT THIS LIST USED TO BE, AND WHY NOBODY COULD BE ONBOARDED. The dropdown
+// offered MANAGER, OPERATOR and DATA ENTRY STAFF — none of which exist in the
+// enum — and a new profile DEFAULTED to 'DATA ENTRY STAFF'. So the ordinary
+// path (open the form, fill it in, save) could not create a staff account at
+// all: the save failed before a password was ever set, which is why accounts
+// added this way were never able to log in.
+//
+// It also OMITTED VIEWER, SUPER_ADMIN and DISPATCH. Editing someone who holds
+// one of those matched no <option>, so the select fell back to showing its
+// first entry — ADMIN — reporting far more access than the person actually
+// had.
+//
+// Labels are what the office calls the job; values are what the database
+// accepts. Keep this in step with the enum, not with the job titles.
+const ROLE_OPTIONS = [
+  { value: 'SUPER_ADMIN', label: 'SUPER ADMIN (full control)' },
+  { value: 'ADMIN',       label: 'ADMIN' },
+  { value: 'ACCOUNTS',    label: 'ACCOUNTS' },
+  { value: 'DISPATCH',    label: 'DISPATCH / OPERATIONS' },
+  { value: 'VIEWER',      label: 'DATA ENTRY / VIEWER' },
+  { value: 'VENDOR',      label: 'VENDOR (fleet partner)' },
+  { value: 'CUSTOMER',    label: 'CUSTOMER (load provider)' },
+  { value: 'DRIVER',      label: 'DRIVER' },
+];
+
+// Least privilege for a brand-new profile — the admin raises it deliberately.
+const DEFAULT_ROLE = 'VIEWER';
+
 export default function UGER() {
   // 🔥 NEW: TAB SYSTEM STATE
   const [activeMainTab, setActiveMainTab] = useState('PROFILES'); // 'PROFILES' or 'LOGS'
@@ -33,7 +66,7 @@ export default function UGER() {
   // 📝 FULL IDENTITY & COMPANY STATE
   const [formData, setFormData] = useState({
     full_name: '', company_name: 'PRASAD TRANSPORT', mobile: '', email: '', password: '', 
-    role: 'DATA ENTRY STAFF', status: 'ACTIVE', branch: 'BONGAIGAON (HO)', 
+    role: DEFAULT_ROLE, status: 'ACTIVE', branch: 'BONGAIGAON (HO)', 
     city: 'Bongaigaon', state: 'ASSAM', gst_no: '', scope: 'LOCAL' 
   });
 
@@ -241,7 +274,7 @@ export default function UGER() {
           </div>
         </div>
         {activeMainTab === 'PROFILES' && (
-          <button onClick={() => { setEditingId(null); setFormData({full_name:'', company_name:'PRASAD TRANSPORT', mobile:'', email:'', password:'', role:'DATA ENTRY STAFF', status:'ACTIVE', branch:'BONGAIGAON (HO)', city:'Bongaigaon', state:'ASSAM', gst_no:'', scope:'LOCAL'}); setModules(getAppModulesList()); setIsModalOpen(true); }} style={{ background: '#3b82f6', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>+ Add New Profile</button>
+          <button onClick={() => { setEditingId(null); setFormData({full_name:'', company_name:'PRASAD TRANSPORT', mobile:'', email:'', password:'', role:DEFAULT_ROLE, status:'ACTIVE', branch:'BONGAIGAON (HO)', city:'Bongaigaon', state:'ASSAM', gst_no:'', scope:'LOCAL'}); setModules(getAppModulesList()); setIsModalOpen(true); }} style={{ background: '#3b82f6', color: 'white', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', marginBottom: '10px' }}>+ Add New Profile</button>
         )}
       </div>
 
@@ -377,7 +410,7 @@ export default function UGER() {
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>PASSWORD</label><input className="input-box" type="password" placeholder={editingId ? 'Leave blank to keep current password' : 'Set a password'} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#f59e0b'}}>SYSTEM ROLE (RBAC)</label>
                   <select className="input-box" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
-                    <option>ADMIN</option><option>MANAGER</option><option>OPERATOR</option><option>ACCOUNTS</option><option>DATA ENTRY STAFF</option><option>VENDOR</option><option>CUSTOMER</option><option>DRIVER</option>
+                    {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
                 </div>
                 {/* 🔐 RBAC data scope — for external roles, restrict their data to this party. */}
