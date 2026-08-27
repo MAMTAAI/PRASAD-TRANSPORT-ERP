@@ -190,9 +190,26 @@ export async function registerAuthRoutes(app) {
     // The approval gate, before the password is even checked. Telling a PENDING
     // user "wrong password" would send them to reset a password that is fine.
     if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
-    if (u.locked_until && new Date(u.locked_until) > new Date()) {
-      return reply.code(429).send({ error: 'ACCOUNT_LOCKED', detail: `try again after ${new Date(u.locked_until).toLocaleTimeString()}` });
+    const lockedUntil = u.locked_until ? new Date(u.locked_until) : null;
+    if (lockedUntil && lockedUntil > new Date()) {
+      return reply.code(429).send({ error: 'ACCOUNT_LOCKED', detail: `try again after ${lockedUntil.toLocaleTimeString()}` });
     }
+    // AN EXPIRED LOCK HAS TO CLEAR THE COUNT IT WAS RAISED FROM.
+    //
+    // failed_logins was only ever reset by a successful login or by an admin
+    // setting a password. Neither can happen while somebody is locked out, so
+    // the counter was still sitting at the threshold once the fifteen minutes
+    // elapsed — and the next wrong guess was attempt SIX, which is already
+    // >= LOCK_AFTER, so it re-locked instantly for another fifteen minutes.
+    // Serving the wait bought exactly ONE attempt; getting that one wrong cost
+    // another quarter of an hour, with no way out. An account whose owner does
+    // not know the password could never climb back out of that on its own —
+    // which is precisely the account most likely to be locked in the first
+    // place.
+    //
+    // Serving the wait is the whole of what the lockout asks for. Once it is
+    // served the window starts over.
+    const priorFailures = lockedUntil ? 0 : u.failed_logins;
     // The cutover signal. Distinguishable on purpose — see the header.
     //
     // Gate on "there is no password to check", NOT on must_change_password.
@@ -210,7 +227,7 @@ export async function registerAuthRoutes(app) {
       });
     }
     if (!verifyPassword(password, u.password_salt, u.password_hash)) {
-      const n = u.failed_logins + 1;
+      const n = priorFailures + 1;
       // Every parameter is cast explicitly: $2 appears both as an assignment to
       // a smallint column and inside a comparison, and without the casts
       // Postgres cannot deduce one type for both uses ("inconsistent types
@@ -220,8 +237,15 @@ export async function registerAuthRoutes(app) {
         `UPDATE users SET failed_logins = $2::smallint,
                           locked_until = CASE WHEN $2::smallint >= $3::smallint
                                               THEN now() + ($4::text || ' minutes')::interval
-                                              ELSE locked_until END
+                                              ELSE NULL END
           WHERE id = $1::uuid`, [u.id, n, LOCK_AFTER, String(LOCK_MINUTES)]);
+      // ELSE NULL, not ELSE locked_until. Below the threshold there is no
+      // live lock to preserve — this path is only reachable once any previous
+      // one has expired, and carrying the stale timestamp forward would make
+      // priorFailures above read it as 'just expired' on every subsequent
+      // request. The count would reset to zero each time, climb to one, and
+      // never reach LOCK_AFTER again: the lockout would quietly stop working
+      // altogether, which is a worse failure than the one being fixed.
       return deny();
     }
 
