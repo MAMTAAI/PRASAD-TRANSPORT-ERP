@@ -1,0 +1,39 @@
+#!/bin/sh
+# .githooks/post-commit
+# ---------------------------------------------------------------------------
+# SAY, AT THE MOMENT OF THE COMMIT, THAT THE COMMIT IS NOT A RELEASE.
+#
+# pre-push stops `main` being pushed by accident. It guards one direction, and
+# on 27-08-2026 the other one bit: main had not moved since 24-08, six finished
+# commits sat on upgrade-2026, and the report from the office was "we commit and
+# the system never updates". Production was serving exactly what origin/main
+# said, to the bundle hash. Nothing was broken. Nobody had released.
+#
+# The confusion happens HERE — the moment somebody commits and believes they
+# have shipped — so this is where it gets answered.
+#
+# Deliberately does NOT fetch: a hook that goes to the network runs on every
+# single commit and would make committing feel slow, which is how hooks end up
+# disabled. It compares against the last-known origin/main, which is right in
+# the case that matters (you have just committed, so your remote ref is fresh
+# enough to know you are ahead). `npm run ship` fetches and is authoritative.
+#
+# Never fails the commit: the commit already happened, and a hook that can
+# refuse after the fact is only a way to lose work.
+# ---------------------------------------------------------------------------
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+[ "$branch" = "main" ] && exit 0
+
+git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || exit 0
+
+ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null) || exit 0
+[ -z "$ahead" ] && exit 0
+[ "$ahead" -eq 0 ] && exit 0
+
+printf '\n  \033[33m●\033[0m committed on \033[1m%s\033[0m — NOT on production.\n' "$branch"
+printf '    \033[2m%s commit(s) finished but not released.\033[0m\n' "$ahead"
+printf '    See what is waiting:  \033[1mnpm run ship\033[0m\n'
+printf '    Release it:           \033[1mnpm run ship:release\033[0m\n\n'
+
+exit 0

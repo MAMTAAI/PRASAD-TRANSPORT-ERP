@@ -50,8 +50,28 @@ npm run build
 node --env-file=.env.api server/db/migrate.js
 
 # ⚠️ Shared box with the Jaiswal Capital trading engine — NEVER 'pm2 restart
-# all'. Only the three prasad-* apps (deploy/aws/ecosystem.prasad.config.cjs).
+# all'. Only the prasad-* apps (deploy/aws/ecosystem.prasad.config.cjs).
 pm2 restart prasad-erp-api prasad-erp-web prasad-ai-bridge
+
+# THE ENGINE IS RESTARTED ONLY WHEN ITS OWN CODE MOVED.
+#
+# prasad-wa-engine is in the ecosystem file but was missing from the line
+# above, so whatsapp-server/ shipped to the box and then went on running the
+# previous build — for as long as nobody restarted it by hand. Code that
+# deploys and never runs is the worst of both: the repo says one thing and
+# production does another, with nothing on screen to say so.
+#
+# It is NOT restarted unconditionally, because a restart re-launches Chromium
+# and re-attaches the WhatsApp session — a minute during which no OTP and no
+# password-reset code can be sent. That is worth paying when the engine
+# changed and pure cost when it did not.
+if git diff --name-only "$LOCAL" "$REMOTE" | grep -q "^whatsapp-server/"; then
+  echo "whatsapp-server/ changed -> restarting prasad-wa-engine (OTP pauses ~1 min)"
+  pm2 restart prasad-wa-engine
+else
+  echo "whatsapp-server/ unchanged -> leaving prasad-wa-engine alone"
+fi
+
 pm2 save
 
 echo "=== deploy OK $(date -u) : now at $(git rev-parse --short HEAD) ==="

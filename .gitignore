@@ -136,3 +136,16 @@ reports/
 # unnoticed, and leaves a second live log directory nobody is watching. Ignored
 # so it can never reach git or a deploy; the writer itself still needs fixing.
 Prasad_Transport_Datalogs/
+
+# ── Machine-local kill switches ─────────────────────────────────────────────
+# ERP_API.KILL and ERP_HEALER.KILL pause the OFFICE PC's API daemon and its
+# auto-healer (scripts/run-api-daemon.ps1, scripts/erp_auto_healer.cjs). They
+# are how the office box was retired as a writer of the books on 24-08-2026,
+# when it and AWS were both accepting writes and the two copies diverged.
+#
+# They are deliberately NOT tracked. Committing one would carry a "stop" from
+# one machine to every other checkout, which is the opposite of what a local
+# pause means. Until now they were merely untracked, which left them sitting in
+# `git status` forever — one `git add .` away from being shipped.
+ERP_API.KILL
+ERP_HEALER.KILL
