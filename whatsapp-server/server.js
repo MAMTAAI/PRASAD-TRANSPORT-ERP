@@ -95,13 +95,27 @@ app.use('/upload-to-drive', requireWaToken);
 const ERP_API = process.env.ERP_API_URL || 'http://127.0.0.1:3300';
 const CRM_API = `${ERP_API}/api/v1/crm`;
 
+// The ERP closed its API by default (server/index.js). This engine is not a
+// person and has no session, so it identifies as a machine with the shared
+// service secret — the same door POST /finance/vouchers already uses for the
+// unattended IOCL reconciler.
+//
+// Sent only when configured. The ERP keeps these two ingest routes open while
+// no ERP_SERVICE_TOKEN is set precisely so that an engine deployed before the
+// secret exists keeps recording rather than silently dropping every message;
+// setting it on both sides is what closes them.
+const SERVICE_TOKEN = process.env.ERP_SERVICE_TOKEN || '';
+
 const postCrm = async (path, body) => {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), 5000);
     try {
         const res = await fetch(`${CRM_API}${path}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                ...(SERVICE_TOKEN ? { Authorization: `Bearer ${SERVICE_TOKEN}`, 'X-Service-Name': 'whatsapp-engine' } : {}),
+            },
             body: JSON.stringify(body),
             signal: ctl.signal,
         });

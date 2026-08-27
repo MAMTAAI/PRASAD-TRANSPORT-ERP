@@ -26,7 +26,8 @@
     "system:clean": "node scripts/tempPurge.cjs && node scripts/processCleaner.cjs",
     "system:kill-ghosts": "node scripts/sweepGhostApps.cjs",
     "ship": "node scripts/ship.mjs",
-    "ship:release": "node scripts/ship.mjs --release"
+    "ship:release": "node scripts/ship.mjs --release",
+    "auth:selftest": "node server/lib/apiGuard.selftest.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

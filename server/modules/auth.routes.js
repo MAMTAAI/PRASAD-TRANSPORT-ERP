@@ -60,6 +60,15 @@ const permsIn = (v) => JSON.stringify(Array.isArray(v) ? { grants: v } : (v && t
  *  not been revoked — a JWT alone cannot be withdrawn, which is what
  *  auth_sessions exists for. */
 export async function requireAuth(req, reply) {
+  // Already established for this request, so do not establish it twice.
+  //
+  // The global onRequest guard in server/index.js now runs this for every
+  // /api/ route, and 69 routes still name it as their own preHandler — as they
+  // should, because a route must be safe on its own terms and not because of
+  // something registered elsewhere. Without this line each of those pays a
+  // second session lookup per request, for an answer it already has.
+  if (req.user) return;
+
   const claims = verifyToken(bearer(req));
   if (!claims) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
   // One query answers both questions: is the session still valid, and is the

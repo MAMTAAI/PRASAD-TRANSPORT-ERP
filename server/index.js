@@ -36,6 +36,7 @@ import 'dotenv/config';
 // OCR_UPLOAD_DIR / LOG_DIR at load time (storage.js, ocrAutoFiler.js).
 import './config/init_drives.js';
 import Fastify from 'fastify';
+import { makeApiGuard } from './lib/apiGuard.js';
 import cors from '@fastify/cors';
 import { healthCheck, initDb, closePool, isDegraded, DB_TARGET } from './db/pool.js';
 import { registerVehicleRoutes } from './modules/vehicles.routes.js';
@@ -65,7 +66,7 @@ import { zeroGapPlugin } from './lib/zeroGap.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
-import { registerAuthRoutes } from './modules/auth.routes.js';
+import { registerAuthRoutes, requireAuth } from './modules/auth.routes.js';
 import { registerQueueRoutes } from './modules/queues.routes.js';
 import { registerDashboardRoutes } from './modules/dashboard.routes.js';
 import { registerDrilldownRoutes } from './modules/drilldown.routes.js';
@@ -169,6 +170,27 @@ registerAuditLogger(app);
 // the owning department's queue instead of a line in a console. Registered
 // before the routes so it covers every scope below.
 zeroGapPlugin(app);
+
+// ── THE API IS CLOSED BY DEFAULT ───────────────────────────────────────────
+// The boundary itself, the list of exceptions and the reasoning all live in
+// server/lib/apiGuard.js, next to the selftest that exercises every branch of
+// it. Only the wiring is here.
+const SERVICE_TOKEN = process.env.ERP_SERVICE_TOKEN;
+
+// WRONG-LOUD RATHER THAN WRONG-QUIET, the same call apiBase.ts makes. With no
+// service token configured the engine cannot present one, and enforcing it
+// would silently stop WhatsApp messages being recorded — data loss nobody
+// notices for days. Those two ingest routes therefore stay open in that case,
+// and the process says so at boot, every boot, until somebody sets it.
+if (!SERVICE_TOKEN || SERVICE_TOKEN.length < 24) {
+  app.log.warn(
+    'ERP_SERVICE_TOKEN is not set (or is under 24 chars) — POST /api/v1/crm/chats and ' +
+    '/crm/logs remain OPEN so the WhatsApp engine keeps recording. Set it here and in ' +
+    'whatsapp-server/.env to close them.',
+  );
+}
+
+app.addHook('onRequest', makeApiGuard({ requireAuth, serviceToken: SERVICE_TOKEN }));
 
 await app.register(registerVehicleRoutes, { prefix: '/api/vehicles' });
 await app.register(registerAgentRoutes,   { prefix: '/api/agents' });
