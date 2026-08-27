@@ -143,6 +143,10 @@ export async function userSessionStatus(sessionId) {
       // Only while a scan is pending. Once linked the engine stops emitting one,
       // and a stale QR shown after linking would be scanned and fail.
       qr: multiSession && !j?.connected ? (j?.qr ?? null) : null,
+      // Present only when this session was started with a phone number. An
+      // engine that predates pairing simply omits it and the screen falls back
+      // to the QR, which still works.
+      pairing_code: multiSession && !j?.connected ? (j?.pairingCode || null) : null,
       last_heartbeat: j?.lastHeartbeat ?? null,
       session: j?.session ?? null,
     };
@@ -151,8 +155,21 @@ export async function userSessionStatus(sessionId) {
   }
 }
 
-export async function linkUserSession(sessionId) {
-  const res = await withTimeout(`${WA_BASE}/api/link/${encodeURIComponent(sessionId)}`, { method: 'POST' });
+/** `phone` is the caller's OWN registered mobile, read from their user row by
+ *  the route — never accepted from the request, for the same reason the session
+ *  id is not. With it the engine asks WhatsApp for a pairing code instead of a
+ *  QR; without it nothing changes and a QR comes back as before.
+ *
+ *  It is a routing hint, not a credential: the code still has to be typed into
+ *  WhatsApp on the handset that owns that number, so passing somebody else's
+ *  number yields a code that only they could use. There is no server-side way
+ *  to link an account without its owner acting, and this does not invent one. */
+export async function linkUserSession(sessionId, phone) {
+  const res = await withTimeout(`${WA_BASE}/api/link/${encodeURIComponent(sessionId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(phone ? { phone } : {}),
+  });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) {
     // 404 HAS EXACTLY ONE MEANING HERE, AND IT IS WORTH SAYING OUT LOUD.
@@ -170,7 +187,15 @@ export async function linkUserSession(sessionId) {
     throw new OtpChannelError(j.code === 'SESSION_LIMIT' ? 'SESSION_LIMIT' : 'LINK_FAILED',
       j.message || `engine returned ${res.status}`);
   }
-  return { linked: !!j.connected, status: j.status ?? null, qr: j.connected ? null : (j.qr ?? null) };
+  return {
+    linked: !!j.connected,
+    status: j.status ?? null,
+    qr: j.connected ? null : (j.qr ?? null),
+    // Same rule as the QR: a link credential is only live while the link is
+    // pending. Handing one back for a session already ONLINE gets it typed in
+    // and rejected, which reads as a broken link rather than a finished one.
+    pairing_code: j.connected ? null : (j.pairingCode || null),
+  };
 }
 
 export async function unlinkUserSession(sessionId, actorName) {

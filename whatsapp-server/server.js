@@ -202,6 +202,8 @@ function newSession(id) {
         kind: isCompany(id) ? 'company' : 'user',
         authId: authIdFor(id),
         qr: '',
+        pairingCode: '',
+        pairPhone: '',
         connected: false,
         status: 'STARTING',           // STARTING | WAITING_FOR_SCAN | ONLINE | RECONNECTING | OFFLINE
         lastHeartbeat: null,
@@ -278,6 +280,35 @@ function wireSession(s) {
         s.connected = false;
         s.status = 'WAITING_FOR_SCAN';
         console.log(`📲 [${s.id}] New QR generated.`);
+
+        // ── PAIRING CODE — THE ONLY "NO QR" LINK WHATSAPP ACTUALLY ALLOWS ──
+        //
+        // A number matching a staff row proves nothing to WhatsApp. Only the
+        // account holder approving from their own handset is authentication,
+        // and no server-side API skips that — not an official one, not this
+        // library. What CAN be skipped is the CAMERA: requestPairingCode
+        // returns an 8-character code the person types into WhatsApp → Link a
+        // device → "Link with phone number instead".
+        //
+        // On a phone that is the only workable flow anyway: you cannot scan a
+        // QR that is being drawn on the same screen you are holding.
+        //
+        // Requested HERE, not at link time, because the client can only issue
+        // one once it has reached the auth screen — which is precisely what
+        // this event means. And requested ONCE per pending session: asking
+        // again invalidates the code already sitting on the operator's screen,
+        // and the link endpoint is polled.
+        if (s.pairPhone && !s.pairingCode) {
+            s.client.requestPairingCode(s.pairPhone)
+                .then((code) => {
+                    s.pairingCode = String(code || '');
+                    console.log(`🔢 [${s.id}] Pairing code issued for ${s.pairPhone}.`);
+                })
+                .catch((e) => {
+                    s.lastError = `pairing code failed: ${e.message}`;
+                    console.error(`[${s.id}] requestPairingCode failed:`, e.message);
+                });
+        }
     });
 
     s.client.on('authenticated', () => { console.log(`🔐 [${s.id}] Session authenticated.`); });
@@ -285,6 +316,11 @@ function wireSession(s) {
     s.client.on('ready', () => {
         s.connected = true;
         s.qr = '';
+        // Both link credentials die with the link. A pairing code left on a
+        // screen after the session is ONLINE gets typed in and fails, which
+        // reads as "the link broke" when it actually worked.
+        s.pairingCode = '';
+        s.pairPhone = '';
         s.status = 'ONLINE';
         s.reconnectAttempts = 0;
         s.lastHeartbeat = new Date().toISOString();
@@ -420,6 +456,7 @@ process.on('uncaughtException', (err) => {
 const statusPayload = (s) => ({
     connected: s ? s.connected : false,
     qr: s ? s.qr : '',
+    pairingCode: s ? s.pairingCode : '',
     status: s ? s.status : 'OFFLINE',
     lastHeartbeat: s ? s.lastHeartbeat : null,
     reconnectAttempts: s ? s.reconnectAttempts : 0,
@@ -462,14 +499,43 @@ app.get('/api/sessions', (req, res) => {
 app.post('/api/link/:userId', async (req, res) => {
     const id = req.params.userId;
     try {
+        // OPTIONAL `phone` — ask for a pairing code instead of a QR.
+        //
+        // The ERP sends the caller's OWN registered mobile, read from their
+        // user row, never from the browser. It is a routing hint for WhatsApp,
+        // not a claim of identity: the person still has to type the code into
+        // the app on the handset that owns the number, so a wrong or forged
+        // number produces a code nobody can use rather than somebody else's
+        // account. Absent, the session behaves exactly as before and shows a QR.
+        let phone = String(req.body?.phone || '').replace(/\D/g, '');
+        if (phone.length === 10) phone = `91${phone}`;
+        if (phone && phone.length < 11) {
+            return res.status(400).json({ success: false, message: 'Invalid phone number', code: 'BAD_PHONE' });
+        }
+
         let s = getSession(id);
         if (!s) {
             s = ensureSession(id);
+            if (phone) s.pairPhone = phone;
             s.client.initialize().catch((e) => {
                 s.lastError = e.message;
                 console.error(`[${id}] Initial launch failed:`, e.message);
                 scheduleReinit(s, 'initial launch failed');
             });
+        } else if (phone && !s.connected && !s.pairingCode) {
+            // Session already up and waiting. It has passed the 'qr' event, so
+            // nothing will re-fire to trigger the request — do it here. Still
+            // guarded on !pairingCode: this endpoint is POLLED, and a second
+            // request would invalidate the code already on screen.
+            s.pairPhone = phone;
+            if (s.status === 'WAITING_FOR_SCAN') {
+                s.client.requestPairingCode(phone)
+                    .then((code) => { s.pairingCode = String(code || ''); })
+                    .catch((e) => {
+                        s.lastError = `pairing code failed: ${e.message}`;
+                        console.error(`[${id}] requestPairingCode failed:`, e.message);
+                    });
+            }
         }
         s.lastActivity = Date.now();
         res.json({ success: true, ...statusPayload(s) });

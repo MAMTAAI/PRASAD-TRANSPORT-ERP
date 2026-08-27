@@ -28,6 +28,7 @@ import { query, isDegraded } from '../db/pool.js';
 import { hashPassword, verifyPassword, issueToken, verifyToken, bearer, hashCode, verifyCode, newOtp, ALGO } from '../lib/auth.js';
 import * as otp from '../lib/otpChannel.js';
 import * as mail from '../lib/mailChannel.js';
+import { makeWaLinkGuard } from '../lib/waLinkGuard.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const last10 = (p) => String(p ?? '').replace(/\D/g, '').slice(-10);
@@ -561,13 +562,25 @@ export async function registerAuthRoutes(app) {
   // deliberate act than this endpoint should make routine.
   const mySession = (req) => `u${String(req.user.sub).replace(/-/g, '')}`;
 
-  app.get('/whatsapp/my-session', { preHandler: requireAuth }, async (req) => {
+  // Only the wiring. The boundary, the role list and why OTP is deliberately
+  // NOT gated the same way all live in server/lib/waLinkGuard.js, beside the
+  // selftest that exercises every branch of it.
+  const requireInternal = makeWaLinkGuard(requireAuth);
+
+  app.get('/whatsapp/my-session', { preHandler: requireInternal }, async (req) => {
     return { ok: true, ...(await otp.userSessionStatus(mySession(req))) };
   });
 
-  app.post('/whatsapp/my-session/link', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/whatsapp/my-session/link', { preHandler: requireInternal }, async (req, reply) => {
     try {
-      return { ok: true, ...(await otp.linkUserSession(mySession(req))) };
+      // READ THE NUMBER HERE, FROM THEIR OWN ROW. Same rule as the session id:
+      // never from the request. It lets the engine ask WhatsApp for a pairing
+      // code — an 8-character code typed into WhatsApp → Link a device → "Link
+      // with phone number instead" — rather than a QR, which is unusable on a
+      // phone that is displaying it. No mobile on file is not an error: the
+      // engine falls back to the QR and the screen still works.
+      const { rows: me } = await query('SELECT mobile FROM users WHERE id = $1::uuid', [req.user.sub]);
+      return { ok: true, ...(await otp.linkUserSession(mySession(req), me[0]?.mobile || null)) };
     } catch (e) {
       // The cap is not an error the operator can fix by retrying, so it is
       // reported as its own thing rather than a generic failure.
@@ -579,7 +592,7 @@ export async function registerAuthRoutes(app) {
     }
   });
 
-  app.post('/whatsapp/my-session/unlink', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/whatsapp/my-session/unlink', { preHandler: requireInternal }, async (req, reply) => {
     try {
       await otp.unlinkUserSession(mySession(req), req.user.name);
       return { ok: true };

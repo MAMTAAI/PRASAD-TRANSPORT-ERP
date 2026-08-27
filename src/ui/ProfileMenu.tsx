@@ -61,12 +61,24 @@ const Row = ({ label, value, mono }) => (
   </div>
 );
 
+/** Mirrors INTERNAL_ROLES in server/lib/waLinkGuard.js. A courtesy only — so
+ *  the row is not offered to someone the server is going to refuse. The server
+ *  is the boundary; if these two ever drift, the server wins and the worst case
+ *  is a button that answers 403 with a sentence explaining itself. */
+const WA_LINK_ROLES = ['SUPER_ADMIN', 'ADMIN', 'ACCOUNTS', 'DISPATCH'];
+
 /** My WhatsApp.
  *
  *  IN THE PROFILE MENU BECAUSE IT IS A PROPERTY OF THE PERSON, NOT A SCREEN.
- *  That also means it reaches every role: a VIEWER who never sees the CRM
- *  module still needs to link, and the module tabs are filtered by permission,
- *  so anywhere else would have hidden it from the people who do the dispatching.
+ *  The module tabs are filtered by permission, so anywhere else would have
+ *  hidden it from the people who actually do the dispatching.
+ *
+ *  IT NO LONGER REACHES EVERY ROLE, AND THAT IS A REVERSAL. The note here used
+ *  to say a VIEWER still needs to link, and the route behind it asked only for
+ *  a token — which drivers hold too, since /otp/verify issues them. Linking is
+ *  now the internal set only (server/lib/waLinkGuard.js). The row is hidden for
+ *  everyone else rather than offering a button that answers 403, but the server
+ *  is the authority: the check below is a courtesy, not the boundary.
  *
  *  THE QR IS NOT IN THE MENU, AND THAT IS THE WHOLE LAYOUT DECISION. A 168px
  *  code plus its instructions inside a 296px dropdown pushed the card past the
@@ -102,14 +114,20 @@ function MyWhatsApp() {
 
   useEffect(() => { read(); }, [read]);
 
-  // Polled ONLY while a code is on screen waiting to be scanned. The engine
-  // stops emitting a QR once the device is linked, so there is nothing to watch
+  // Polled ONLY while a credential is on screen waiting to be used. The engine
+  // stops emitting both once the device is linked, so there is nothing to watch
   // after that and a timer left running is just load.
+  //
+  // Watches the pairing code as well as the QR, and it has to: the code is
+  // requested asynchronously when the client reaches its auth screen, so there
+  // is a window where the QR is present and the code is not yet. Polling only
+  // on `qr` would still cover that window — but not a session that comes back
+  // with a code and no QR at all.
   useEffect(() => {
-    if (!open || !state.qr || state.linked) return;
+    if (!open || state.linked || !(state.qr || state.pairing_code)) return;
     const t = setInterval(read, 4000);
     return () => clearInterval(t);
-  }, [open, state.qr, state.linked, read]);
+  }, [open, state.qr, state.pairing_code, state.linked, read]);
 
   const link = async () => {
     setBusy(true);
@@ -228,6 +246,36 @@ function MyWhatsApp() {
                            background: 'transparent', color: '#fca5a5', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
                   {busy ? '…' : 'WhatsApp hataayein'}
                 </button>
+              </>
+            ) : state.pairing_code ? (
+              <>
+                {/* THE CODE, NOT A QR — AND ON THE MOBILE APP THAT IS THE ONLY
+                    FLOW THAT WORKS. A phone cannot photograph its own screen,
+                    so the QR branch below is unreachable in practice there.
+                    WhatsApp takes this under "Link with phone number instead".
+
+                    It is not an auto-link and cannot be: matching a number
+                    against a staff row proves nothing to WhatsApp: only the
+                    account holder acting on their own handset is
+                    authentication. What this removes is the second device, not
+                    the person. */}
+                <div style={{ background: '#020617', border: '1px solid #1e293b', borderRadius: 14,
+                              padding: '20px 12px', display: 'grid', placeItems: 'center' }}>
+                  <div style={{ fontSize: 27, fontWeight: 900, letterSpacing: '0.26em',
+                                color: '#7dd3fc', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
+                    {state.pairing_code}
+                  </div>
+                </div>
+                <ol style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
+                  <li>Apne phone par WhatsApp kholein</li>
+                  <li><b style={{ color: '#cbd5e1' }}>Settings → Linked devices</b></li>
+                  <li><b style={{ color: '#cbd5e1' }}>Link a device</b> dabayein</li>
+                  <li><b style={{ color: '#cbd5e1' }}>Link with phone number instead</b> chunein</li>
+                  <li>Ye code daalein</li>
+                </ol>
+                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
+                  Code daalte hi ye screen apne aap badal jayegi.
+                </p>
               </>
             ) : state.qr ? (
               <>
@@ -393,7 +441,7 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
             <Row label="Session" value={session?.ip} mono />
           </div>
 
-          <MyWhatsApp />
+          {WA_LINK_ROLES.includes(role) && <MyWhatsApp />}
 
           <div style={{ padding: '12px 12px 12px' }}>
             <button
