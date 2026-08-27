@@ -37,6 +37,28 @@ echo "=== deploy start $(date -u) : ${LOCAL:0:7} -> ${REMOTE:0:7} ==="
 # ff-only: the box never invents history; a diverged main is a human problem.
 git merge --ff-only origin/main
 
+# RE-EXEC IF THIS SCRIPT IS PART OF WHAT JUST LANDED.
+#
+# bash does not read a script whole — it reads it lazily, by byte offset. The
+# merge above can therefore rewrite THIS FILE underneath the interpreter, and
+# everything after that point is read from the new bytes at the old offset:
+# usually a half-line, which under `set -e` kills the run.
+#
+# The damage is not the failed run, it is the next one. The merge already
+# happened, so --if-changed sees LOCAL == REMOTE and exits silently, and the
+# build, the migration and the restart are simply never done. A deploy that
+# half-happened and then reported nothing is exactly the "we shipped it and the
+# system never updated" the rest of this file is being edited to stop.
+#
+# Re-exec deliberately drops --if-changed: the work still has to be done, and a
+# fresh run would otherwise decide there was nothing to do. It cannot loop — by
+# then LOCAL is REMOTE, so this diff is empty on the second pass.
+if git diff --name-only "$LOCAL" "$REMOTE" | grep -q '^deploy/aws/ci-deploy\.sh$'; then
+  echo "ci-deploy.sh itself changed -- restarting with the new version"
+  exec bash "$APP_DIR/deploy/aws/ci-deploy.sh"
+fi
+
+
 # Full install (Vite is a devDependency and the SPA is served from dist/);
 # Playwright browsers are never needed on the box.
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1

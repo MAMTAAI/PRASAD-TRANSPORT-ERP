@@ -75,5 +75,4 @@ execFileSync('git', ['push', 'origin', 'main'], {
 
 console.log('\n✅ Pushed. The AWS box pulls every 3 minutes, then migrates and restarts.');
 console.log('   Watch it land:  node scripts/ship.mjs');
-console.log('   NOTE: ci-deploy.sh restarts prasad-erp-api, -web and -ai-bridge only.');
-console.log('   The WhatsApp engine is NOT in that list — restart it yourself if it changed.');
+console.log('   prasad-wa-engine restarts too, but only when whatsapp-server/ changed.');
