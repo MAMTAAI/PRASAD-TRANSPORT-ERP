@@ -77,11 +77,26 @@ export function MyWhatsApp({ variant = 'menu' }) {
   // is a window where the QR is present and the code is not yet. Polling only
   // on `qr` would still cover that window — but not a session that comes back
   // with a code and no QR at all.
+  // ...AND WHILE ONE IS STILL BEING MADE, WHICH IS THE PART THIS MISSED.
+  //
+  // The condition used to require a QR or a code to already be present, so it
+  // refused to poll during the one window where polling is the whole point.
+  // Pressing "jodein" returns status STARTING with both fields empty — Chromium
+  // has not launched yet and the code is fifteen-odd seconds away — so nothing
+  // ever asked again and the dialog sat on its spinner for ever. It was waiting
+  // for the thing it was supposed to be waiting FOR.
+  //
+  // A session is pending whenever the engine reports a live status. OFFLINE with
+  // no credential means nothing has been started, and that is the one state that
+  // should not hold a timer open.
+  const pending = !!(state.qr || state.pairing_code
+    || ['STARTING', 'WAITING_FOR_SCAN', 'RECONNECTING'].includes(state.status));
+
   useEffect(() => {
-    if (!open || state.linked || !(state.qr || state.pairing_code)) return;
-    const t = setInterval(read, 4000);
+    if (!open || state.linked || !pending) return;
+    const t = setInterval(read, 3000);
     return () => clearInterval(t);
-  }, [open, state.qr, state.pairing_code, state.linked, read]);
+  }, [open, pending, state.linked, read]);
 
   const link = async () => {
     setBusy(true);
@@ -253,6 +268,27 @@ export function MyWhatsApp({ variant = 'menu' }) {
                 <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
                   Scan hote hi ye screen apne aap badal jayegi.
                 </p>
+              </>
+            ) : pending ? (
+              /* THE WINDOW BETWEEN PRESSING THE BUTTON AND THE CODE ARRIVING.
+                 The engine answers the link request in milliseconds with status
+                 STARTING and nothing to show: Chromium has yet to launch and the
+                 code is fifteen-odd seconds out. Without a branch of its own
+                 this fell through to the "jodein" button, so the screen offered
+                 to start a session that was already starting. Now it says what
+                 is happening and how long it takes, and the poll above replaces
+                 it with the code the moment there is one. */
+              <>
+                <p style={{ fontSize: 12.5, color: '#7dd3fc', fontWeight: 700, marginBottom: 8 }}>
+                  Code banaya ja raha hai…
+                </p>
+                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
+                  WhatsApp se code mangwa rahe hain. Isme aam taur par <b style={{ color: '#cbd5e1' }}>15–30 second</b> lagte
+                  hain — ye screen khuli rehne dein, code aate hi apne aap dikh jayega.
+                </p>
+                {state.reason && (
+                  <p style={{ fontSize: 11, color: '#fca5a5', marginTop: 10, lineHeight: 1.5 }}>{state.reason}</p>
+                )}
               </>
             ) : state.error === 'ENGINE_OUTDATED' || state.multi_session === false ? (
               <>

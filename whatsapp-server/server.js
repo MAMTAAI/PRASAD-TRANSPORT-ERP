@@ -185,7 +185,21 @@ const Signature = mongoose.model('Signature', new mongoose.Schema({ title: Strin
 // the company number and completely wrong on a staff member's personal one,
 // where the sender is as likely to be their family as a driver.
 const COMPANY_SESSION = 'company';
-const MAX_USER_SESSIONS = Number.parseInt(process.env.WA_MAX_USER_SESSIONS || '4', 10);
+// ONE, NOT FOUR, AND THE NUMBER WAS MEASURED.
+//
+// This defaulted to 4 on the guess that a session was "about 300MB". On the
+// production box it is closer to 10 Chromium processes and ~200-250MB EACH, and
+// that box is a t3.small: 1905MB total, with the API, the SPA server, the AI
+// bridge and Postgres already on it. With the company session plus two stray
+// user sessions alive it sat at 158MB free and 34 Chromium processes, and
+// Chromium started losing tabs under the pressure — which surfaces as
+// "Target closed" and "Execution context was destroyed", and is why
+// requestPairingCode was failing. Four would have taken the box down.
+//
+// One user session at a time is what 2GB actually holds. Raise
+// WA_MAX_USER_SESSIONS on a bigger host; the default has to be the number that
+// is safe on the smallest one it runs on.
+const MAX_USER_SESSIONS = Number.parseInt(process.env.WA_MAX_USER_SESSIONS || '1', 10);
 // A staff session with no traffic is memory nobody is using. Stopped, not
 // unlinked: the auth profile stays on disk so re-linking needs no new QR scan.
 const USER_SESSION_IDLE_MS = Number.parseInt(process.env.WA_USER_IDLE_MS || String(6 * 60 * 60 * 1000), 10);
@@ -226,7 +240,32 @@ function newSession(id) {
         // for the same reason, and so one staff member's corrupted session
         // cannot take the company number down with it.
         authStrategy: new LocalAuth({ dataPath: path.join(__dirname, '.wwebjs_auth'), clientId: s.authId }),
-        puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-extensions', '--disable-gpu'] },
+        // LEAN FLAGS, BECAUSE THE BOX HAS 2GB AND CHROMIUM DOES NOT CARE.
+        //
+        // --disable-dev-shm-usage is the one everybody reaches for first. It is
+        // kept because it is free insurance, but it was NOT the fault here:
+        // /dev/shm on this host is 953M with 1.1M in use. The pressure was plain
+        // RAM. The rest of these turn off subsystems a headless WhatsApp session
+        // never uses and which each cost memory and wakeups.
+        puppeteer: {
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-extensions',
+                '--disable-gpu',
+                '--disable-software-rasterizer',
+                '--disable-accelerated-2d-canvas',
+                '--disable-background-networking',
+                '--disable-background-timer-throttling',
+                '--disable-breakpad',
+                '--disable-sync',
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--mute-audio',
+            ],
+        },
     });
     wireSession(s);
     sessions.set(id, s);
@@ -274,6 +313,46 @@ function scheduleReinit(s, reason) {
     }, delay);
 }
 
+/** Ask WhatsApp for an 8-character pairing code, and keep asking for a bit.
+ *
+ *  THE 'qr' EVENT IS NOT THE SAME AS "READY TO ISSUE A CODE". requestPairingCode
+ *  calls into a hook — window.onCodeReceivedEvent — that whatsapp-web.js installs
+ *  during its own page injection. Firing once on 'qr' races that injection, and
+ *  the box logged exactly what losing the race looks like:
+ *
+ *      requestPairingCode failed: window.onCodeReceivedEvent is not a function
+ *      requestPairingCode failed: t
+ *
+ *  Both are transient. So this retries on a short backoff instead of giving up
+ *  on the first miss, and stops the moment a code arrives, the session links, or
+ *  the session is gone.
+ *
+ *  Bounded on purpose. An unbounded retry against a Chromium that is genuinely
+ *  dead — the "Target closed" case, which on this box came from memory pressure
+ *  rather than from timing — is a loop that never ends and never says why. Six
+ *  attempts over ~30s either wins or leaves a real error on the screen. */
+function askForPairingCode(s, attempt = 0) {
+    if (!s || s.pairingCode || s.connected || !s.pairPhone) return;
+    if (!sessions.has(s.id)) return;                 // logged out while waiting
+    if (attempt >= 6) {
+        s.lastError = 'pairing code nahi mil paya — dobara koshish karein';
+        console.error(`[${s.id}] pairing code gave up after ${attempt} attempts`);
+        return;
+    }
+    s.client.requestPairingCode(s.pairPhone)
+        .then((code) => {
+            s.pairingCode = String(code || '');
+            s.lastError = null;
+            console.log(`🔢 [${s.id}] Pairing code issued for ${s.pairPhone} (attempt ${attempt + 1}).`);
+        })
+        .catch((e) => {
+            const msg = e && e.message ? e.message : String(e);
+            console.error(`[${s.id}] requestPairingCode attempt ${attempt + 1} failed:`, msg);
+            s.lastError = `pairing code failed: ${msg}`;
+            setTimeout(() => askForPairingCode(s, attempt + 1), 3000 + attempt * 2000);
+        });
+}
+
 function wireSession(s) {
     s.client.on('qr', (qr) => {
         s.qr = qr;
@@ -299,15 +378,7 @@ function wireSession(s) {
         // again invalidates the code already sitting on the operator's screen,
         // and the link endpoint is polled.
         if (s.pairPhone && !s.pairingCode) {
-            s.client.requestPairingCode(s.pairPhone)
-                .then((code) => {
-                    s.pairingCode = String(code || '');
-                    console.log(`🔢 [${s.id}] Pairing code issued for ${s.pairPhone}.`);
-                })
-                .catch((e) => {
-                    s.lastError = `pairing code failed: ${e.message}`;
-                    console.error(`[${s.id}] requestPairingCode failed:`, e.message);
-                });
+            askForPairingCode(s);
         }
     });
 
@@ -408,15 +479,26 @@ setInterval(async () => {
 // profile on disk, so the next link resumes without another QR scan. The
 // company session is never reaped — the OTP channel has to be reachable at
 // three in the morning without anybody having warmed it up first.
+// A session that never LINKED is reaped far sooner than one that did. Somebody
+// who opened the dialog, saw the code and wandered off leaves a full Chromium
+// pinned at WAITING_FOR_SCAN — and on a 2GB box that is a quarter of the RAM
+// held for six hours by a link that is not going to happen. It also occupies the
+// single user slot, so the next person to try is told the limit is reached
+// because of somebody else's abandoned tab. Ten minutes is longer than any real
+// person takes to type eight characters into their phone.
+const PENDING_LINK_TIMEOUT_MS = Number.parseInt(process.env.WA_PENDING_TIMEOUT_MS || String(10 * 60 * 1000), 10);
+
 setInterval(() => {
     for (const s of [...sessions.values()]) {
         if (s.kind === 'company') continue;
-        if (Date.now() - s.lastActivity < USER_SESSION_IDLE_MS) continue;
-        console.log(`💤 [${s.id}] idle — stopping session to free memory`);
+        const idle = Date.now() - s.lastActivity;
+        const limit = s.connected ? USER_SESSION_IDLE_MS : PENDING_LINK_TIMEOUT_MS;
+        if (idle < limit) continue;
+        console.log(`💤 [${s.id}] ${s.connected ? 'idle' : 'never linked'} for ${Math.round(idle / 60000)}m — stopping session to free memory`);
         s.client.destroy().catch(() => {});
         sessions.delete(s.id);
     }
-}, 15 * 60 * 1000);
+}, 2 * 60 * 1000);
 
 // BOOT. Only the company session. Puppeteer fails here more often than anywhere
 // else — a half-written session directory, a Chrome that vanished mid-launch, a
@@ -528,14 +610,9 @@ app.post('/api/link/:userId', async (req, res) => {
             // guarded on !pairingCode: this endpoint is POLLED, and a second
             // request would invalidate the code already on screen.
             s.pairPhone = phone;
-            if (s.status === 'WAITING_FOR_SCAN') {
-                s.client.requestPairingCode(phone)
-                    .then((code) => { s.pairingCode = String(code || ''); })
-                    .catch((e) => {
-                        s.lastError = `pairing code failed: ${e.message}`;
-                        console.error(`[${id}] requestPairingCode failed:`, e.message);
-                    });
-            }
+            // Same retrying helper as the 'qr' path — a single shot here loses
+            // the same race against the library's injection.
+            if (s.status === 'WAITING_FOR_SCAN') askForPairingCode(s);
         }
         s.lastActivity = Date.now();
         res.json({ success: true, ...statusPayload(s) });
