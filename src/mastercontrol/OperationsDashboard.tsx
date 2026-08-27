@@ -56,25 +56,36 @@ const liveFleet = [
   { vehicle: 'AS 01K 3345', route: 'Guwahati → Silchar', status: 'En Route', tone: 'green', location: 'Meghalaya Border' },
 ];
 
-const chatList = [
-  { id: 'PT00409', name: 'Sanjiv Yadav', time: '1m ago', active: true, unread: 3 },
-  { id: 'PT00404', name: 'Nazrul Islam', time: '1h ago', active: false, unread: 0 },
-  { id: 'PT00404B', name: 'Nazrul Islam', time: '1h ago', active: false, unread: 0 },
-  { id: 'PT00403', name: 'Ajay Kumar', time: '1h ago', active: false, unread: 0 },
-  { id: 'PT00402', name: 'Rohit Verma', time: '1h ago', active: false, unread: 0 },
-  { id: 'PT00401', name: 'Vikram Das', time: '2h ago', active: false, unread: 0 },
-];
+// The dispatch chat used to be six invented drivers and a four-message
+// conversation written into this file. It read as a working dispatch line on
+// a system where no driver has ever sent a message — the exact thing the
+// honesty contract in useDashboardData was written to prevent. It now comes
+// from ops.dispatch_chats, which is wa_chats joined to the driver master.
 
-const chatThread = [
-  { from: 'driver', who: 'Driver Vijay', time: '10:20', text: 'Just starting Patgaon run.' },
-  { from: 'admin', who: 'Admin', time: '10:22', text: 'Safe travels. Update ETA.' },
-  { from: 'driver', who: 'Driver Vijay', time: '10:24', text: 'AS25C9807 status = Loading 🚛. Correct?' },
-  { from: 'admin', who: 'Admin', time: '10:25', text: 'Yes. ETA Patgaon ≈ 2h. Safe travels.' },
-];
+/** "1m ago" / "3h ago" / "12 Aug" — relative while it is still today's
+ *  traffic, absolute once it is old enough that a duration stops meaning
+ *  anything to somebody scanning the list. */
+function ago(ts) {
+  if (!ts) return '';
+  const then = new Date(ts).getTime();
+  if (Number.isNaN(then)) return '';
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  if (mins < 1440) return Math.floor(mins / 60) + 'h ago';
+  return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
+const clock = (ts) => (ts
+  ? new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
+  : '');
 
 // ---------------------------------------------------------------------------
 export default function OperationsDashboard({ live, filter }) {
   const [message, setMessage] = useState('');
+  // Which conversation is open. Null means "the newest one", so the panel
+  // opens on whoever messaged last without needing an effect to pick it.
+  const [activeChatId, setActiveChatId] = useState(null);
 
   // LIVE from GET /api/v1/dashboard/v5 (server/modules/dashboard.routes.js).
   const ops = live?.data?.ops ?? null;
@@ -94,6 +105,16 @@ export default function OperationsDashboard({ live, filter }) {
   // it is where the "14 pending unloading" that nobody could reconcile came
   // from: it was never a query result, it was a constant from the design mock.
   ] : kpis.map((k) => ({ ...k, value: '--', sub: offline ? 'API unreachable' : 'no data', metric: null, raw: null }));
+
+  // Dispatch chat: wa_chats joined to the driver master, server-side. An empty
+  // list is a real answer here — no driver has messaged the company number —
+  // and the panel says so rather than falling back to the constants that used
+  // to live at the top of this file.
+  const dispatchChats = ops?.dispatch_chats ?? [];
+  // Ordered newest-first by the query, so index 0 is whoever spoke last. That
+  // is the right default to open on, and it means no effect has to reach in
+  // and pick one after the fetch lands.
+  const activeChat = dispatchChats.find((c) => c.driver_id === activeChatId) ?? dispatchChats[0] ?? null;
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
   const driverRows = ops?.drivers?.length ? ops.drivers : [];
@@ -286,23 +307,31 @@ export default function OperationsDashboard({ live, filter }) {
             <div className="md:w-1/3 lg:w-full border-b md:border-b-0 md:border-r lg:border-r-0 lg:border-b border-slate-700/50">
               <p className="px-4 pt-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Chat List</p>
               <div className="px-2 pb-2 max-h-44 overflow-y-auto flex flex-col gap-1">
-                {chatList.map((c) => (
+                {dispatchChats.length === 0 ? (
+                  <EmptyNote>
+                    {offline
+                      ? 'Live data unavailable — API not reachable.'
+                      : 'Abhi kisi driver ki WhatsApp chat nahi hai. Jaise hi koi driver company ke WhatsApp number par message karega, uski baat-cheet yahan apne aap aa jayegi.'}
+                  </EmptyNote>
+                ) : dispatchChats.map((c) => (
                   <div
-                    key={c.id}
+                    key={c.driver_id}
+                    onClick={() => setActiveChatId(c.driver_id)}
                     className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 cursor-pointer transition-colors
-                      ${c.active
+                      ${c.driver_id === activeChat?.driver_id
                         ? 'bg-emerald-500/10 border border-emerald-500/40'
                         : 'hover:bg-white/5 border border-transparent'}`}
                   >
-                    <Avatar name={c.name} size="w-8 h-8" textSize="text-[10px]" ring={c.active ? 'ring-emerald-500/60' : 'ring-slate-700/60'} />
+                    <Avatar name={c.driver_name} size="w-8 h-8" textSize="text-[10px]" ring={c.driver_id === activeChat?.driver_id ? 'ring-emerald-500/60' : 'ring-slate-700/60'} />
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] font-bold text-slate-200 truncate">
-                        {c.id} {c.active && <span className="text-emerald-400 font-semibold">(Active)</span>}
+                        {c.trip_code || c.driver_name}
+                        {c.trip_status && <span className="text-emerald-400 font-semibold"> ({c.trip_status})</span>}
                       </p>
-                      <p className="text-[10px] text-slate-500 truncate">{c.name}</p>
+                      <p className="text-[10px] text-slate-500 truncate">{c.trip_code ? c.driver_name : c.phone}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[9px] text-slate-600">{c.time}</span>
+                      <span className="text-[9px] text-slate-600">{ago(c.last_ts)}</span>
                       {c.unread > 0 && (
                         <span className="grid place-items-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-black text-white">{c.unread}</span>
                       )}
@@ -314,32 +343,45 @@ export default function OperationsDashboard({ live, filter }) {
 
             {/* Active conversation */}
             <div className="flex-1 flex flex-col min-h-0">
-              <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-700/50 bg-white/5">
-                <Avatar name="Vijay Singh" size="w-9 h-9" ring="ring-emerald-500/60" />
-                <div className="min-w-0">
-                  <p className="text-[12px] font-black text-slate-100 flex items-center gap-1.5 truncate">
-                    Driver Vijay Singh <Dot color="bg-emerald-400" pulse size="w-1.5 h-1.5" />
-                  </p>
-                  <p className="text-[10px] text-emerald-400 font-semibold">Active · PT00409</p>
+              {activeChat && (
+                <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-700/50 bg-white/5">
+                  <Avatar name={activeChat.driver_name} size="w-9 h-9" ring="ring-emerald-500/60" />
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-black text-slate-100 flex items-center gap-1.5 truncate">
+                      {activeChat.driver_name} <Dot color="bg-emerald-400" pulse size="w-1.5 h-1.5" />
+                    </p>
+                    <p className="text-[10px] text-emerald-400 font-semibold">
+                      {activeChat.trip_code
+                        ? `${activeChat.trip_status} · ${activeChat.trip_code}${activeChat.vehicle_no ? ' · ' + activeChat.vehicle_no : ''}`
+                        : `+91 ${activeChat.phone} · koi chalu trip nahi`}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 min-h-[220px]">
-                {chatThread.map((m, i) => (
-                  <div key={i} className={`flex ${m.from === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[85%] rounded-2xl px-3 py-2 border
-                        ${m.from === 'admin'
-                          ? 'bg-slate-800/80 border-slate-700/60 rounded-br-sm'
-                          : 'bg-emerald-600/25 border-emerald-500/40 rounded-bl-sm'}`}
-                    >
-                      <p className={`text-[9px] font-bold mb-0.5 ${m.from === 'admin' ? 'text-slate-500' : 'text-emerald-400'}`}>
-                        [{m.who}] <span className="font-normal text-slate-600">{m.time}</span>
-                      </p>
-                      <p className="text-[12px] text-slate-100 leading-snug">{m.text}</p>
+                {!activeChat ? (
+                  <EmptyNote>
+                    Jab koi driver chat aayegi, yahan uski poori baat-cheet dikhegi.
+                  </EmptyNote>
+                ) : (activeChat.messages ?? []).map((m, i) => {
+                  const outgoing = m.direction === 'outgoing';
+                  return (
+                    <div key={i} className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-3 py-2 border
+                          ${outgoing
+                            ? 'bg-slate-800/80 border-slate-700/60 rounded-br-sm'
+                            : 'bg-emerald-600/25 border-emerald-500/40 rounded-bl-sm'}`}
+                      >
+                        <p className={`text-[9px] font-bold mb-0.5 ${outgoing ? 'text-slate-500' : 'text-emerald-400'}`}>
+                          [{outgoing ? 'Office' : activeChat.driver_name}] <span className="font-normal text-slate-600">{clock(m.ts)}</span>
+                        </p>
+                        <p className="text-[12px] text-slate-100 leading-snug whitespace-pre-wrap break-words">{m.text}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Quick actions */}

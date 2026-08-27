@@ -1126,6 +1126,77 @@ export function registerDashboardRoutes(app) {
       }));
     }, []);
 
+    // LIVE DISPATCH CHAT. The panel that shows this was hard-coded — six named
+    // drivers and a four-message conversation written into the component — so
+    // it read as a working dispatch line on a system where no driver has ever
+    // sent a message. That is the one thing useDashboardData's honesty contract
+    // exists to prevent, and it was being broken by the widget the contract was
+    // written next to.
+    //
+    // MATCHED TO THE DRIVER MASTER, NOT SHOWN RAW. wa_chats currently holds 150
+    // messages from 9 senders and not one of them is a driver: six are WhatsApp
+    // GROUP ids (last10() of a group jid leaves something that is not a phone
+    // number at all) and the rest are forwards. Piping that straight into a
+    // panel titled "Live Dispatch Chat" would replace invented dispatch traffic
+    // with real traffic that is not dispatch — worse, because it looks
+    // authoritative. The join to drivers IS the filter, and today it correctly
+    // returns nothing.
+    //
+    // Unread means "incoming since we last replied", which is the only
+    // definition available without a read-receipt column, and it is the one the
+    // operator actually cares about: who is waiting on the office.
+    const dispatch_chats = await safe(errors, 'dispatch_chats', async () => {
+      const { rows } = await query(`
+        WITH dm AS (
+          SELECT c.phone, c.text, c.direction, c.ts,
+                 d.id AS driver_id, d.name AS driver_name
+            FROM wa_chats c
+            JOIN drivers d
+              ON right(regexp_replace(d.mobile, '[^0-9]', '', 'g'), 10) = c.phone
+        ),
+        latest AS (
+          SELECT DISTINCT ON (driver_id) driver_id, driver_name, phone, text, direction, ts
+            FROM dm ORDER BY driver_id, ts DESC
+        )
+        SELECT l.driver_id, l.driver_name, l.phone,
+               l.text AS last_text, l.direction AS last_direction, l.ts AS last_ts,
+               t.id AS trip_id, t.trip_code, t.status AS trip_status, t.vehicle_no,
+               (SELECT count(*)::int FROM dm m
+                 WHERE m.driver_id = l.driver_id AND m.direction = 'incoming'
+                   AND m.ts > COALESCE((SELECT max(o.ts) FROM dm o
+                                         WHERE o.driver_id = l.driver_id
+                                           AND o.direction = 'outgoing'),
+                                       '-infinity'::timestamptz)) AS unread,
+               COALESCE((SELECT json_agg(x ORDER BY x.ts)
+                           FROM (SELECT m.text, m.direction, m.ts
+                                   FROM dm m WHERE m.driver_id = l.driver_id
+                                  ORDER BY m.ts DESC LIMIT 20) x), '[]'::json) AS messages
+          FROM latest l
+          LEFT JOIN LATERAL (
+                 SELECT id, trip_code, status, vehicle_no
+                   FROM trips
+                  WHERE driver_id = l.driver_id
+                    AND status IN ('LOADED','IN_TRANSIT','UNLOADING')
+                  ORDER BY updated_at DESC
+                  LIMIT 1) t ON true
+         ORDER BY l.ts DESC
+         LIMIT 12`);
+      return rows.map((r) => ({
+        driver_id: r.driver_id,
+        driver_name: r.driver_name,
+        phone: r.phone,
+        trip_id: r.trip_id,
+        trip_code: r.trip_code,
+        trip_status: r.trip_status,
+        vehicle_no: r.vehicle_no,
+        last_text: r.last_text,
+        last_direction: r.last_direction,
+        last_ts: r.last_ts,
+        unread: num(r.unread),
+        messages: r.messages ?? [],
+      }));
+    }, []);
+
     return {
       ok: true,
       generated_at: new Date().toISOString(),
@@ -1134,7 +1205,7 @@ export function registerDashboardRoutes(app) {
       // rather than with what the user believes they selected.
       filter: F,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
-             vehicle_rtkm, shortage_recovery, compliance_alerts },
+             vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.
