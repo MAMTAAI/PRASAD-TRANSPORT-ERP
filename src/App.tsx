@@ -606,7 +606,7 @@ function AppShell() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', width: isMobile ? '100%' : 'calc(100% - 260px)' }}>
         
         {/* 📱 HEADER NAVBAR (SMART UI) */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', padding: isMobile ? '10px 15px' : '15px 20px', background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #1e293b', zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', padding: isMobile ? '10px 15px' : '15px 20px', background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #1e293b', position: 'relative', zIndex: 100 }}>
           
           {isMobile ? (
             // 📱 MOBILE TOP BAR (Clean & Native App Look)
