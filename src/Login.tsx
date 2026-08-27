@@ -32,6 +32,14 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // 🔑 SELF-SERVICE PASSWORD (OTP). null = not in the flow; the two stages are
+  // 'ask for a code' and 'enter it with the password you want'.
+  const [resetStage, setResetStage] = useState<null | 'REQUEST' | 'CONFIRM'>(null);
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPassword2, setNewPassword2] = useState('');
+  const [resetInfo, setResetInfo] = useState<string | null>(null);
   
   // 📱 STATES FOR OTP LOGIN
   const [mobile, setMobile] = useState('');
@@ -88,6 +96,82 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
       } else {
         alert("❌ Login failed! Check your internet connection.");
       }
+    }
+    setLoading(false);
+  };
+
+  // ==========================================
+  // 🔑 1b. APNA PASSWORD KHUD SET KAREIN (OTP)
+  // ==========================================
+  // WHY THIS EXISTS. Until now a password could only be created by an admin
+  // typing one into the User & Role screen and then telling the person what it
+  // was. That box reads "Leave blank to keep current password", so saving a
+  // profile without filling it in sets nothing while still reporting success —
+  // and the staff member is handed a password that was never created, fails
+  // five times, and is locked out. The code comes to them instead, on both
+  // channels the firm already runs, and they pick the password themselves.
+  const handleResetRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const addr = email.trim().toLowerCase();
+    if (!addr) return alert('⚠️ Apna registered email ID daalein.');
+    setLoading(true);
+    try {
+      const r = await authFetch('/password-reset/request', { email: addr });
+      // The server answers the same way whether or not the address belongs to
+      // an account, so this cannot promise delivery — only say where to look.
+      const where = (r.delivered ?? []).map((d: any) => `${d.channel === 'email' ? '📧' : '💬'} ${d.to}`).join('   ');
+      setResetInfo(where
+        ? `Code bhej diya gaya: ${where}`
+        : `Agar ye email registered hai to code aapke email aur WhatsApp par bhej diya gaya hai.`);
+      setResetStage('CONFIRM');
+      setResetCode('');
+    } catch (err: any) {
+      console.error(err?.code);
+      if (err?.code === 'OTP_SEND_FAILED') {
+        // Both lanes dead. Said plainly — the alternative is somebody waiting
+        // on a code that was never going to arrive, which is the exact failure
+        // this flow was built to end.
+        alert('🚨 Code kisi bhi channel par nahi bheja ja saka.\n\nOffice se sampark karein.');
+      } else if (err?.code === 'ACCOUNT_PENDING_APPROVAL' || err?.code === 'ACCOUNT_SUSPENDED') {
+        onAccountHold?.({
+          status: err.code === 'ACCOUNT_SUSPENDED' ? 'SUSPENDED' : 'PENDING',
+          user: { full_name: addr, email: addr },
+        });
+      } else if (err?.code === 'DB_UNAVAILABLE') {
+        alert('🚨 Server database se connect nahi ho pa raha — thodi der baad try karein.');
+      } else {
+        alert('❌ Code bhejne me dikkat aayi — internet check karein.');
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleResetConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(resetCode)) return alert('⚠️ 6-digit code daalein.');
+    if (newPassword.length < 8) return alert('⚠️ Password kam se kam 8 akshar ka hona chahiye.');
+    // Checked here rather than server-side: the server only ever receives one
+    // password, and a typo in a password you cannot see is not something it
+    // could detect on your behalf.
+    if (newPassword !== newPassword2) return alert('⚠️ Dono password ek jaise nahi hain.');
+    setLoading(true);
+    try {
+      await authFetch('/password-reset/confirm', {
+        email: email.trim().toLowerCase(), code: resetCode, password: newPassword,
+      });
+      alert('✅ Password set ho gaya!\n\nAb isi password se login karein.');
+      // Straight back to the login form with the address still filled in —
+      // the next thing they need to do is sign in.
+      setResetStage(null);
+      setResetCode(''); setNewPassword(''); setNewPassword2('');
+      setPassword('');
+    } catch (err: any) {
+      console.error(err?.code);
+      if (err?.code === 'OTP_EXPIRED') alert('⌛ Code expire ho gaya — naya code mangwayein.');
+      else if (err?.code === 'OTP_ATTEMPTS_EXCEEDED') alert('🚨 Bahut zyada galat attempts — naya code mangwayein.');
+      else if (err?.code === 'WEAK_PASSWORD') alert('⚠️ Password kam se kam 8 akshar ka hona chahiye.');
+      else if (err?.code === 'OTP_INVALID') alert('❌ Code galat hai — dobara dekhein.');
+      else alert('❌ Password set nahi ho paya — dobara try karein.');
     }
     setLoading(false);
   };
@@ -159,7 +243,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
 
       <button 
         onClick={() => {
-          if (loginMode !== 'SELECT') setLoginMode('SELECT'); 
+          if (loginMode !== 'SELECT') { setLoginMode('SELECT'); setResetStage(null); setResetCode(''); } 
           else onBackToWeb(); 
         }} 
         className="absolute top-4 left-4 md:top-8 md:left-8 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 px-5 py-2.5 rounded-full flex items-center gap-2 font-bold text-sm backdrop-blur-md transition-all z-20 shadow-lg"
@@ -223,7 +307,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
           )}
 
           {/* 🔐 ADMIN / OFFICE STAFF LOGIN FORM */}
-          {loginMode === 'ADMIN' && (
+          {loginMode === 'ADMIN' && resetStage === null && (
             <div className="bg-slate-900/80 backdrop-blur-xl p-6 md:p-8 rounded-[32px] border border-slate-800 shadow-2xl relative overflow-hidden animate-fade-in-up w-full">
               <div className="absolute top-0 left-0 w-full h-2 bg-red-600"></div>
               
@@ -260,9 +344,94 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
                 <button type="submit" disabled={loading} className="w-full bg-red-600 hover:bg-red-500 text-white font-black text-sm py-4 rounded-xl shadow-[0_5px_15px_rgba(220,38,38,0.3)] transition-transform hover:-translate-y-0.5 mt-2">
                   {loading ? 'Authenticating...' : 'SECURE ERP LOGIN ➔'}
                 </button>
+
+                {/* The way out of the loop this whole flow exists for. Someone
+                    who has never been given a password, or who has just locked
+                    themselves out guessing, has nothing to type above — and
+                    until now nothing to click either. */}
+                <button type="button" onClick={() => { setResetStage('REQUEST'); setResetInfo(null); }}
+                  className="w-full text-center text-xs text-slate-400 hover:text-red-400 font-bold pt-1 transition-colors">
+                  Password bhool gaye / pehli baar login kar rahe hain?
+                </button>
               </form>
             </div>
           )}
+
+          {/* 🔑 OTP SE APNA PASSWORD KHUD SET KAREIN */}
+          {loginMode === 'ADMIN' && resetStage !== null && (
+            <div className="bg-slate-900/80 backdrop-blur-xl p-6 md:p-8 rounded-[32px] border border-slate-800 shadow-2xl relative overflow-hidden animate-fade-in-up w-full">
+              <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
+
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-3xl mb-3 shadow-inner bg-emerald-900 text-white border-2 border-emerald-500">🔑</div>
+                <h2 className="text-xl md:text-2xl font-black text-white">Apna Password Set Karein</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  {resetStage === 'REQUEST'
+                    ? 'Code aapke email aur WhatsApp dono par jayega'
+                    : 'Code daalein aur naya password chunein'}
+                </p>
+              </div>
+
+              {resetStage === 'REQUEST' ? (
+                <form onSubmit={handleResetRequest} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Registered Email ID</label>
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="aapka office email"
+                      className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm font-bold text-white outline-none focus:border-emerald-500 transition-colors shadow-inner" required />
+                  </div>
+                  <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm py-4 rounded-xl shadow-[0_5px_15px_rgba(16,185,129,0.3)] transition-transform hover:-translate-y-0.5">
+                    {loading ? 'Bhej rahe hain...' : 'CODE BHEJEIN 📩'}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetConfirm} className="space-y-4">
+                  {/* Where the code actually went. Someone who does not know
+                      which of their two channels to check will sit waiting on
+                      the wrong one. */}
+                  {resetInfo && (
+                    <div className="bg-emerald-950/60 border border-emerald-800 rounded-xl p-3 text-[11px] text-emerald-200 font-semibold text-center">
+                      {resetInfo}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1 text-center">6-Digit Code</label>
+                    <input type="text" inputMode="numeric" maxLength={6} value={resetCode}
+                      onChange={(e) => setResetCode(e.target.value.replace(/[^\d]/g, ''))} placeholder="••••••"
+                      className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white text-3xl tracking-[1em] font-black text-center outline-none focus:border-emerald-500 transition-colors" required />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Naya Password (kam se kam 8 akshar)</label>
+                    <div className="relative">
+                      <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 p-4 pr-14 rounded-xl text-sm font-bold text-white outline-none focus:border-emerald-500 transition-colors shadow-inner" required />
+                      <button type="button" tabIndex={-1} onClick={() => setShowPassword((s) => !s)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xl px-2 py-1 rounded-lg hover:bg-slate-800 transition-colors select-none">
+                        {showPassword ? '🙈' : '👁️'}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1">Password Dobara</label>
+                    <input type={showPassword ? 'text' : 'password'} value={newPassword2} onChange={(e) => setNewPassword2(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-sm font-bold text-white outline-none focus:border-emerald-500 transition-colors shadow-inner" required />
+                  </div>
+                  <button type="submit" disabled={loading} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm py-4 rounded-xl shadow-[0_5px_15px_rgba(16,185,129,0.3)] transition-transform hover:-translate-y-0.5">
+                    {loading ? 'Set kar rahe hain...' : 'PASSWORD SET KAREIN ✅'}
+                  </button>
+                  <button type="button" onClick={() => { setResetStage('REQUEST'); setResetCode(''); }}
+                    className="w-full text-center text-xs text-slate-400 hover:text-emerald-400 font-bold transition-colors">
+                    Code nahi mila? Dobara bhejein
+                  </button>
+                </form>
+              )}
+
+              <button type="button" onClick={() => { setResetStage(null); setResetCode(''); setNewPassword(''); setNewPassword2(''); }}
+                className="w-full text-center text-xs text-slate-500 hover:text-white font-bold pt-4 transition-colors">
+                ⬅ Wapas login par
+              </button>
+            </div>
+          )}
+
 
           {/* 📱 CUSTOMER & PARTNER OTP LOGIN FORM */}
           {(loginMode === 'CUSTOMER' || loginMode === 'PARTNER') && (

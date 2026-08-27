@@ -27,6 +27,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
 import { hashPassword, verifyPassword, issueToken, verifyToken, bearer, hashCode, verifyCode, newOtp, ALGO } from '../lib/auth.js';
 import * as otp from '../lib/otpChannel.js';
+import * as mail from '../lib/mailChannel.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const last10 = (p) => String(p ?? '').replace(/\D/g, '').slice(-10);
@@ -288,10 +289,11 @@ export async function registerAuthRoutes(app) {
       }
       const code = newOtp();
       const { saltHex, hashHex } = hashCode(code);
-      await query('UPDATE auth_otp SET consumed_at = now() WHERE mobile = $1 AND consumed_at IS NULL', [mobile]);
+      await query(`UPDATE auth_otp SET consumed_at = now()
+                    WHERE mobile = $1 AND consumed_at IS NULL AND purpose = 'LOGIN'`, [mobile]);
       await query(
-        `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, expires_at)
-         VALUES ($1,$2,$3,$4, now() + ($5 || ' minutes')::interval)`,
+        `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, purpose, expires_at)
+         VALUES ($1,$2,$3,$4,'LOGIN', now() + ($5 || ' minutes')::interval)`,
         [mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
       try { await otp.send(mobile, code); }
       catch (e) {
@@ -311,6 +313,7 @@ export async function registerAuthRoutes(app) {
     const { rows } = await query(
       `SELECT * FROM auth_otp
         WHERE mobile = $1 AND consumed_at IS NULL AND expires_at > now()
+          AND purpose = 'LOGIN'
         ORDER BY created_at DESC LIMIT 1`, [mobile]);
     const rec = rows[0];
     if (!rec) return reply.code(401).send({ error: 'OTP_EXPIRED' });
@@ -363,6 +366,155 @@ export async function registerAuthRoutes(app) {
     // auth_sessions.issued_at already records every login with more detail.
 
     return { token, expires_at: expiresAt, driver: drv[0], role: 'DRIVER' };
+  });
+
+  // ── Self-service password set / reset ────────────────────────────────────
+  // THE PROBLEM THIS REPLACES. The only way an account got a password was an
+  // admin typing one into the User & Role screen and then telling the person
+  // what it was. That screen's password box reads "Leave blank to keep current
+  // password", so saving a profile without filling it in sets nothing — and
+  // still reports "Data Saved Successfully". The staff member is handed a
+  // password that was never set, fails five times, and is locked out. The code
+  // goes to the PERSON now, and they choose the password themselves; nobody
+  // has to speak a password aloud or type it into a chat message.
+  //
+  // BOTH LANES, EITHER ONE IS ENOUGH. WhatsApp reaches someone whose engine is
+  // linked and whose number is on file; email reaches everyone, because
+  // users.email IS the login identifier. Sending on both and requiring only one
+  // to succeed is what stops a single offline channel from blocking a reset.
+
+  /** Mask a destination so a response can say WHERE a code went without
+   *  reprinting the address in full to whoever asked. */
+  const maskEmail = (e) => {
+    const [name, domain] = String(e).split('@');
+    if (!domain) return '***';
+    return `${name.slice(0, 2)}${'*'.repeat(Math.max(1, name.length - 2))}@${domain}`;
+  };
+  const maskMobile = (m) => `******${String(m).slice(-4)}`;
+
+  app.post('/password-reset/request', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (!email) return reply.code(400).send({ error: 'MISSING_FIELDS' });
+
+    const { rows } = await query(
+      `SELECT id, full_name, email::text AS email, mobile, account_status::text AS account_status
+         FROM users WHERE lower(email::text) = $1`, [email]);
+    const u = rows[0];
+
+    // The same 200 whether or not the address belongs to an account — an
+    // endpoint that answers "no such user" is a free directory of who works
+    // here. This mirrors /otp/request, deliberately.
+    const neutral = { sent: true, expires_in_minutes: OTP_TTL_MIN };
+    if (!u) return neutral;
+
+    // A held account must not be handed a route back in. Same codes as login,
+    // so the SPA renders the same explanation rather than a silent no-op.
+    if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
+
+    const code = newOtp();
+    const { saltHex, hashHex } = hashCode(code);
+    // One live reset code per account: re-requesting retires the previous one,
+    // so an attacker cannot keep several guessable codes alive at once.
+    await query(
+      `UPDATE auth_otp SET consumed_at = now()
+        WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'PASSWORD_RESET'`, [u.id]);
+    await query(
+      `INSERT INTO auth_otp (user_id, mobile, code_hash, code_salt, channel, purpose, expires_at)
+       VALUES ($1::uuid,$2,$3,$4,$5,'PASSWORD_RESET', now() + ($6 || ' minutes')::interval)`,
+      [u.id, u.mobile ?? null, hashHex, saltHex, 'email+whatsapp', String(OTP_TTL_MIN)]);
+
+    const body = [
+      `${code} — Prasad Transport ERP password code.`,
+      '',
+      `Namaste ${u.full_name || ''}`.trim() + ',',
+      `Is code se aap apna naya password khud set kar sakte hain. Ye code ${OTP_TTL_MIN} minute me expire ho jayega.`,
+      'Kisi ko na batayein. Agar aapne ye code nahi manga tha to ise ignore karein aur office ko bata dein.',
+    ].join('\n');
+
+    // Sent side by side; one success is enough. Failures are COLLECTED rather
+    // than thrown, so a dead channel cannot mask a live one.
+    const delivered = [];
+    const failed = [];
+    await Promise.all([
+      mail.send(u.email, 'Prasad Transport ERP — password set karne ka code', body)
+        .then(() => delivered.push({ channel: 'email', to: maskEmail(u.email) }))
+        .catch((e) => { req.log.error({ err: e }, 'reset mail failed'); failed.push(`email: ${e.message}`); }),
+      u.mobile
+        ? otp.send(u.mobile, code)
+            .then(() => delivered.push({ channel: 'whatsapp', to: maskMobile(u.mobile) }))
+            .catch((e) => { req.log.error({ err: e }, 'reset whatsapp failed'); failed.push(`whatsapp: ${e.message}`); })
+        : Promise.resolve(failed.push('whatsapp: no mobile on file')),
+    ]);
+
+    // Both lanes dead is the one case worth breaking neutrality for. Reporting
+    // success here would recreate precisely the failure this feature exists to
+    // remove: somebody waiting for a code that was never going to arrive. The
+    // unusable code is retired so it cannot be guessed at later.
+    if (!delivered.length) {
+      await query(`UPDATE auth_otp SET consumed_at = now()
+                    WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'PASSWORD_RESET'`, [u.id]);
+      return reply.code(502).send({
+        error: 'OTP_SEND_FAILED',
+        detail: 'Code kisi bhi channel par nahi bheja ja saka. Office se sampark karein.',
+        channels: failed,
+      });
+    }
+    return { ...neutral, delivered };
+  });
+
+  app.post('/password-reset/confirm', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const code = String(req.body?.code ?? '').replace(/\D/g, '');
+    const password = String(req.body?.password ?? '');
+    if (!email || code.length !== 6) return reply.code(400).send({ error: 'BAD_INPUT' });
+    if (password.length < 8) return reply.code(400).send({ error: 'WEAK_PASSWORD', detail: 'minimum 8 characters' });
+
+    const { rows } = await query(
+      `SELECT id, account_status::text AS account_status FROM users WHERE lower(email::text) = $1`, [email]);
+    const u = rows[0];
+    // A wrong address and a wrong code answer identically: the PAIR is the
+    // credential here, and saying which half failed narrows the guess.
+    const bad = () => reply.code(401).send({ error: 'OTP_INVALID' });
+    if (!u) return bad();
+    if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
+
+    const { rows: otps } = await query(
+      `SELECT * FROM auth_otp
+        WHERE user_id = $1::uuid AND consumed_at IS NULL AND expires_at > now()
+          AND purpose = 'PASSWORD_RESET'
+        ORDER BY created_at DESC LIMIT 1`, [u.id]);
+    const rec = otps[0];
+    if (!rec) return reply.code(401).send({ error: 'OTP_EXPIRED' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) {
+      await query('UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid', [rec.id]);
+      return reply.code(429).send({ error: 'OTP_ATTEMPTS_EXCEEDED' });
+    }
+    if (!verifyCode(code, rec.code_salt, rec.code_hash)) {
+      await query('UPDATE auth_otp SET attempts = attempts + 1 WHERE id = $1::uuid', [rec.id]);
+      return bad();
+    }
+    // Burn before writing the password: a code must be usable exactly once even
+    // if two requests arrive together.
+    const { rowCount } = await query(
+      'UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL', [rec.id]);
+    if (!rowCount) return bad();
+
+    const { saltHex, hashHex } = hashPassword(password);
+    // failed_logins and locked_until are cleared by the same write. Someone
+    // resetting a password is very often someone who has just locked
+    // themselves out; leaving the lock standing would mean the reset appears to
+    // work and the very next login still refuses them.
+    await query(
+      `UPDATE users SET password_hash = $2, password_salt = $3, password_algo = $4,
+                        must_change_password = false, failed_logins = 0, locked_until = NULL,
+                        updated_at = now()
+        WHERE id = $1::uuid`, [u.id, hashHex, saltHex, ALGO]);
+    // Every existing session dies with the change — the point of a reset is
+    // that whatever held access before it no longer does.
+    await query('DELETE FROM auth_sessions WHERE user_id = $1::uuid', [u.id]);
+    return { ok: true, sessions_revoked: true };
   });
 
   // ── Session ──────────────────────────────────────────────────────────────
