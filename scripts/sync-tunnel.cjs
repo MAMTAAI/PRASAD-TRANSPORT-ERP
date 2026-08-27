@@ -12,6 +12,13 @@
 // Supervised like the WhatsApp engine: if ssh dies (sleep, network drop, AWS
 // reboot) it relaunches with backoff. The sync engine tolerates the gap — its
 // watermark cursor simply holds until the tunnel answers again.
+//
+// ⚠️ THIS IS A WINDOW, NOT A DOOR BACK IN. Production is the single writer of
+// these books (see ERP_API.KILL at the repo root). The tunnel exists so someone
+// at this desk can READ production — psql, a report, a data question — without
+// opening 5432 to the internet. It is not a route for the office PC to start
+// writing again: that decision was made on 24-08-2026 after the two copies
+// diverged, and reviving it needs the owner, not a convenient port.
 const { spawn, execSync } = require('node:child_process');
 const { existsSync, mkdirSync, appendFileSync } = require('node:fs');
 const { join } = require('node:path');
@@ -19,10 +26,18 @@ const os = require('node:os');
 const net = require('node:net');
 
 const LOCAL_PORT = Number(process.env.SYNC_TUNNEL_PORT ?? 15432);
-const OTP_LOCAL_PORT = Number(process.env.OTP_TUNNEL_LOCAL_PORT ?? 5001);   // WhatsApp engine here
-const OTP_REMOTE_PORT = Number(process.env.OTP_TUNNEL_REMOTE_PORT ?? 5601); // where the box sees it
-const REMOTE = process.env.SYNC_TUNNEL_HOST ?? 'ubuntu@api.jaiswalcapital.com';
-const KEY = process.env.SYNC_TUNNEL_KEY ?? join(os.homedir(), '.ssh', 'jaiswal_claude_ed25519');
+
+// PRASAD'S BOX, AND PRASAD'S KEY.
+//
+// These defaulted to ubuntu@api.jaiswalcapital.com with the jaiswal_claude key
+// — correct before 20-08-2026, when this ERP ran on the shared Jaiswal box, and
+// wrong every day since the cutover. `npm run sync:tunnel` in the PRASAD repo
+// opened a tunnel to another company's server, and did it quietly, because a
+// working SSH connection looks identical whichever host answers.
+//
+// Overridable for a staging box, but the default has to be this firm's own.
+const REMOTE = process.env.SYNC_TUNNEL_HOST ?? 'ubuntu@65.0.27.161';
+const KEY = process.env.SYNC_TUNNEL_KEY ?? join(os.homedir(), '.ssh', 'prasad-key.pem');
 const LOG_DIR = process.env.LOG_DIR || join(__dirname, '..', 'logs'); // F: isolation when set
 const LOG = join(LOG_DIR, 'sync-tunnel.log');
 
@@ -62,11 +77,14 @@ function launch() {
     '-o', 'ExitOnForwardFailure=yes', // …and refuse to sit on a broken forward
     '-N',
     '-L', `127.0.0.1:${LOCAL_PORT}:127.0.0.1:5432`,
-    // Reverse lane: the AWS API's WhatsApp OTP channel reaches THIS PC's
-    // engine (:5001) at 127.0.0.1:5601 on the box (5001 there is taken by a
-    // python service). Loopback→loopback over SSH — the engine is never
-    // exposed publicly. WA_ENGINE_URL on the box points at :5601.
-    '-R', `127.0.0.1:${OTP_REMOTE_PORT}:127.0.0.1:${OTP_LOCAL_PORT}`,
+    // THE REVERSE LANE IS GONE, ON PURPOSE.
+    //
+    // It used to publish this PC's WhatsApp engine (:5001) to the box at :5601,
+    // because the engine ran here. It runs on the box now — pm2 app
+    // prasad-wa-engine, and WA_ENGINE_URL there reads http://127.0.0.1:5002.
+    // Keeping the lane would offer the box a second engine on a port nothing
+    // reads, and would fail the whole tunnel under ExitOnForwardFailure the
+    // moment :5601 was already bound.
     REMOTE,
   ];
   log(`tunnel starting → ${REMOTE} (local :${LOCAL_PORT})`);
