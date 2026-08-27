@@ -27,8 +27,23 @@ git fetch origin main --quiet
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse origin/main)
 
-if [ "${1:-}" = "--if-changed" ] && [ "$LOCAL" = "$REMOTE" ]; then
-  exit 0   # nothing new — stay silent so the cron log is signal, not noise
+# "NOTHING NEW" MEANS THE LAST DEPLOY FINISHED, NOT THAT THE MERGE HAPPENED.
+#
+# This used to compare git HEAD against origin/main, which quietly made every
+# partial failure permanent. The merge is the FIRST step; the build, the
+# migration and the pm2 restart all come after it. So a run that died anywhere
+# in between left HEAD already equal to origin/main, and the next cron pass
+# concluded there was nothing to do — for ever, while the box went on serving
+# the previous build. Nothing in the log, nothing on screen, and from the office
+# it looks exactly like "we shipped it and the system never updated".
+#
+# The marker is written only by a run that reached the end, so an interrupted
+# deploy is retried three minutes later instead of being skipped.
+STAMP="$APP_DIR/.last-deployed-sha"
+LAST_OK=$(cat "$STAMP" 2>/dev/null || echo "")
+
+if [ "${1:-}" = "--if-changed" ] && [ "$REMOTE" = "$LAST_OK" ]; then
+  exit 0   # last completed deploy is current — stay silent, keep the cron log signal
 fi
 
 exec > >(tee "$LOG") 2>&1
@@ -95,5 +110,12 @@ else
 fi
 
 pm2 save
+
+# THE LAST LINE THAT RUNS, AND THAT IS THE POINT. Everything above had to
+# succeed to reach it — set -euo pipefail means any failure exits before this —
+# so the marker records a deploy that actually FINISHED. --if-changed reads it
+# at the top, which is what makes an interrupted run retry rather than be
+# skipped for ever.
+echo "$REMOTE" > "$STAMP"
 
 echo "=== deploy OK $(date -u) : now at $(git rev-parse --short HEAD) ==="

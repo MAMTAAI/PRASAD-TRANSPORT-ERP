@@ -149,3 +149,9 @@ Prasad_Transport_Datalogs/
 # `git status` forever — one `git add .` away from being shipped.
 ERP_API.KILL
 ERP_HEALER.KILL
+
+# Written by deploy/aws/ci-deploy.sh on the AWS box when a deploy REACHES THE
+# END. It is per-machine state, not source: committing it would carry one
+# box's deploy position to every other checkout and to the box itself, which
+# is how --if-changed would start skipping real deploys again.
+.last-deployed-sha
