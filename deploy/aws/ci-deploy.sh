@@ -20,7 +20,36 @@ LOCK=/tmp/prasad-deploy.lock
 LOG=/tmp/ci-deploy.log
 
 exec 9>"$LOCK"
-flock -n 9 || { echo "another deploy is running — skipped"; exit 0; }
+if ! flock -n 9; then
+  # A SKIPPED DEPLOY MUST NOT BE A SILENT ONE.
+  #
+  # Giving up immediately is right when a deploy is genuinely running, and
+  # catastrophic when one has HUNG: the holder never exits, every later cron
+  # pass lands here, and the box serves the old build for ever while every push
+  # reports success. On 27-08-2026 that ran for four hours — an API lockdown
+  # among the things that never arrived — and the only trace was this line, in
+  # a cron log nobody reads.
+  #
+  # The lock's mtime is when the current holder took it, so its age is how long
+  # the deploy has been running. Past twenty minutes that is not a deploy, it is
+  # a wedge, and it gets written into the log people actually tail — with the
+  # command that clears it.
+  HELD_FOR=$(( $(date +%s) - $(stat -c %Y "$LOCK" 2>/dev/null || date +%s) ))
+  echo "another deploy is running — skipped (holding the lock ${HELD_FOR}s)"
+  if [ "$HELD_FOR" -gt 1200 ]; then
+    {
+      echo "=== STUCK $(date -u) ==="
+      echo "The deploy lock has been held for ${HELD_FOR}s. That is not a running deploy."
+      echo "Nothing has shipped since it wedged. To clear it:"
+      echo "    pkill -f ci-deploy.sh ; rm -f $LOCK"
+      echo "    bash $APP_DIR/deploy/aws/ci-deploy.sh"
+    } | tee -a "$LOG"
+  fi
+  exit 0
+fi
+# Stamp the acquisition so the age above measures THIS holder, not the file's
+# original creation.
+touch "$LOCK"
 
 cd "$APP_DIR"
 git fetch origin main --quiet

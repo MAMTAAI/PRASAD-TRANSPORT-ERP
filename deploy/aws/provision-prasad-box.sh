@@ -165,8 +165,24 @@ sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
 sudo ufw --force enable
 
 say "deploy cron (pull-based, every 3 min -- no secrets held off-box)"
+# `timeout 1800` IS LOAD-BEARING, NOT TIDINESS.
+#
+# ci-deploy.sh takes an flock so two triggers cannot deploy on top of each
+# other, and gives up immediately when it cannot get it. That is right for a
+# deploy that is genuinely running and catastrophic for one that has HUNG: the
+# holder never exits, every later cron pass prints "another deploy is running --
+# skipped" into a log nobody reads, and the box serves the old build for ever.
+#
+# Exactly that happened on 27-08-2026. A deploy died inside the version of this
+# script that still rewrote itself under bash, hung holding the lock, and four
+# hours of releases -- an API lockdown among them -- never reached the box while
+# every push reported success.
+#
+# A dead process releases an flock by itself; only a live, wedged one holds it.
+# So the deploy is bounded instead: thirty minutes is far longer than a real run
+# (npm install, build, migrate, restart) and far shorter than a working day.
 ( crontab -l 2>/dev/null | grep -v ci-deploy.sh; \
-  echo "*/3 * * * * bash $APP_DIR/deploy/aws/ci-deploy.sh --if-changed >> /tmp/ci-deploy-cron.log 2>&1" ) | crontab -
+  echo "*/3 * * * * timeout 1800 bash $APP_DIR/deploy/aws/ci-deploy.sh --if-changed >> /tmp/ci-deploy-cron.log 2>&1" ) | crontab -
 
 say "done"
 pm2 list
