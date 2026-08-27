@@ -538,6 +538,44 @@ export async function registerAuthRoutes(app) {
     return { user: permsOut(rows[0]), session: sess[0] ?? null };
   });
 
+  // ── My WhatsApp ──────────────────────────────────────────────────────────
+  // Staff link their OWN number so dispatch messages leave from the person who
+  // sent them instead of everything going out on the company line.
+  //
+  // THE SESSION ID IS TAKEN FROM THE TOKEN, NEVER FROM THE REQUEST. A QR is a
+  // credential: whoever scans it becomes a linked device that can read every
+  // chat on that account. A route that accepted an id in the path or the body
+  // would let any signed-in user pull a QR for a colleague — or for the company
+  // number — and quietly attach their own phone to it. There is deliberately no
+  // way to ask for anybody else's, not even for an admin: an admin needing a
+  // colleague unlinked can do it from the engine, and that is a rarer and more
+  // deliberate act than this endpoint should make routine.
+  const mySession = (req) => `u${String(req.user.sub).replace(/-/g, '')}`;
+
+  app.get('/whatsapp/my-session', { preHandler: requireAuth }, async (req) => {
+    return { ok: true, ...(await otp.userSessionStatus(mySession(req))) };
+  });
+
+  app.post('/whatsapp/my-session/link', { preHandler: requireAuth }, async (req, reply) => {
+    try {
+      return { ok: true, ...(await otp.linkUserSession(mySession(req))) };
+    } catch (e) {
+      // The cap is not an error the operator can fix by retrying, so it is
+      // reported as its own thing rather than a generic failure.
+      if (e.code === 'SESSION_LIMIT') return reply.code(429).send({ error: 'SESSION_LIMIT', detail: e.message });
+      return reply.code(502).send({ error: 'LINK_FAILED', detail: e.message });
+    }
+  });
+
+  app.post('/whatsapp/my-session/unlink', { preHandler: requireAuth }, async (req, reply) => {
+    try {
+      await otp.unlinkUserSession(mySession(req), req.user.name);
+      return { ok: true };
+    } catch (e) {
+      return reply.code(502).send({ error: 'UNLINK_FAILED', detail: e.message });
+    }
+  });
+
   // ── User administration ──────────────────────────────────────────────────
   const requireAdmin = async (req, reply) => {
     const done = await requireAuth(req, reply);

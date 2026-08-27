@@ -16,6 +16,7 @@
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
+import { QRCodeSVG } from 'qrcode.react';
 import { isAdmin } from '../lib/rbac';
 
 const ROLE_TONE = {
@@ -58,6 +59,129 @@ const Row = ({ label, value, mono }) => (
     </div>
   </div>
 );
+
+/** My WhatsApp — link this staff member's own number to the dispatch line.
+ *
+ *  IN THE PROFILE MENU BECAUSE IT IS A PROPERTY OF THE PERSON, NOT OF A SCREEN.
+ *  It also means it reaches every role: a VIEWER who never sees the CRM module
+ *  still needs to be able to link, and the module tabs are now filtered by
+ *  permission so anywhere else would have hidden it from exactly the people who
+ *  do the dispatching.
+ *
+ *  THE QR IS A CREDENTIAL. Whoever scans it becomes a linked device on that
+ *  WhatsApp account and can read every chat on it, so it is fetched from the
+ *  ERP (which derives the session from the caller's own token — no id travels
+ *  in the request) and drawn client-side by qrcode.react. It is never handed to
+ *  an external QR image service, which is how PublicWebsite draws its public
+ *  wa.me code and would be a giveaway here.
+ *
+ *  Polled only while a scan is pending — the engine stops emitting a QR once
+ *  the device is linked, and there is nothing to watch after that. */
+function MyWhatsApp() {
+  const [state, setState] = useState({ loading: true });
+  const [busy, setBusy] = useState(false);
+
+  const read = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const res = await fetch(`${API_BASE}/api/v1/auth/whatsapp/my-session`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json().catch(() => ({}));
+      setState({ loading: false, ...j });
+    } catch (e) {
+      setState({ loading: false, reachable: false, reason: 'network' });
+    }
+  }, []);
+
+  useEffect(() => { read(); }, [read]);
+
+  // Only while a code is on screen waiting to be scanned.
+  useEffect(() => {
+    if (!state.qr || state.linked) return;
+    const t = setInterval(read, 4000);
+    return () => clearInterval(t);
+  }, [state.qr, state.linked, read]);
+
+  const link = async () => {
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const res = await fetch(`${API_BASE}/api/v1/auth/whatsapp/my-session/link`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) alert(j.detail || 'WhatsApp link nahi ho paya.');
+      else setState({ loading: false, ...j });
+    } finally { setBusy(false); }
+  };
+
+  const unlink = async () => {
+    if (!window.confirm('Apna WhatsApp ERP se hata dein? Aapke bheje messages company number se jayenge.')) return;
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('prasad_token');
+      await fetch(`${API_BASE}/api/v1/auth/whatsapp/my-session/unlink`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      await read();
+    } finally { setBusy(false); }
+  };
+
+  const box = { padding: '12px 16px', borderTop: '1px solid #1e293b' };
+  const label = { fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: 6 };
+
+  if (state.loading) return <div style={box}><div style={label}>My WhatsApp</div><span style={{ fontSize: 12, color: '#475569' }}>checking…</span></div>;
+
+  if (state.reachable === false) {
+    return (
+      <div style={box}>
+        <div style={label}>My WhatsApp</div>
+        <span style={{ fontSize: 11.5, color: '#f59e0b', fontWeight: 600 }}>
+          Engine abhi offline hai{state.reason ? ` (${state.reason})` : ''}.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div style={box}>
+      <div style={label}>My WhatsApp</div>
+      {state.linked ? (
+        <>
+          <div style={{ fontSize: 12.5, color: '#6ee7b7', fontWeight: 700, marginBottom: 8 }}>
+            ● Juda hua — aapke messages aapke apne number se jayenge
+          </div>
+          <button onClick={unlink} disabled={busy}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 9, border: '1px solid #7f1d1d',
+                     background: 'transparent', color: '#fca5a5', fontWeight: 800, fontSize: 11.5, cursor: 'pointer' }}>
+            {busy ? '…' : 'WhatsApp hataayein'}
+          </button>
+        </>
+      ) : state.qr ? (
+        <>
+          <div style={{ background: '#fff', padding: 10, borderRadius: 12, display: 'grid', placeItems: 'center' }}>
+            <QRCodeSVG value={state.qr} size={168} />
+          </div>
+          <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 8, lineHeight: 1.45 }}>
+            WhatsApp → <b>Linked devices</b> → <b>Link a device</b> — phir ye code scan karein.
+          </p>
+        </>
+      ) : (
+        <>
+          <p style={{ fontSize: 11.5, color: '#94a3b8', marginBottom: 8, lineHeight: 1.45 }}>
+            Abhi aapke messages company number se jate hain. Apna number jodein to driver ko aapke naam se message jayega.
+          </p>
+          <button onClick={link} disabled={busy}
+            style={{ width: '100%', padding: '9px 10px', borderRadius: 9, border: 'none',
+                     background: '#059669', color: '#fff', fontWeight: 800, fontSize: 12, cursor: 'pointer' }}>
+            {busy ? 'QR la rahe hain…' : 'Apna WhatsApp jodein'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function ProfileMenu({ user, onLogout, compact = false }) {
   const [open, setOpen] = useState(false);
@@ -167,7 +291,9 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
             <Row label="Session" value={session?.ip} mono />
           </div>
 
-          <div style={{ padding: '0 12px 12px' }}>
+          <MyWhatsApp />
+
+          <div style={{ padding: '12px 12px 12px' }}>
             <button
               onClick={logout}
               className="pm-logout"

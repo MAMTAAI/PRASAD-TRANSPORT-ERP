@@ -125,16 +125,58 @@ export async function registerCrmRoutes(app) {
     if (!b.phone || !b.text || !['incoming', 'outgoing'].includes(direction)) {
       return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'phone, text and direction (incoming|outgoing) are required' });
     }
+    const phone = last10(b.phone);
+    const waSession = String(b.wa_session ?? b.waSession ?? 'company');
+    const waKind = b.wa_session_kind === 'user' ? 'user' : 'company';
+
+    // ── THE PRIVACY GATE ────────────────────────────────────────────────────
+    // A staff member who links their own WhatsApp turns this endpoint into a
+    // firehose of their private life: the engine's message handler posts every
+    // message the linked device sees, and it has no idea which of them are work.
+    // Storing that would put a staff member's family chats in the company books
+    // — readable by anyone who can read wa_chats.
+    //
+    // So a USER session may only write conversations with a number the ERP
+    // already knows: a driver, a customer or a vendor. Anything else is
+    // acknowledged and dropped, here, before it touches the table.
+    //
+    // THE FILTER LIVES IN THE ERP, NOT THE ENGINE, because answering "is this
+    // one of ours" needs the drivers, customers and vendors tables and the
+    // engine has none of them. It also means the rule cannot be bypassed by an
+    // engine that is out of date.
+    //
+    // The company number is NOT filtered: it is a business line, its traffic is
+    // business record, and filtering it would silently discard a first message
+    // from a driver phoning in on a number nobody has entered yet.
+    if (waKind === 'user') {
+      const { rows: known } = await query(`
+        SELECT 1 FROM drivers
+          WHERE right(regexp_replace(mobile, '[^0-9]', '', 'g'), 10) = $1
+        UNION ALL
+        SELECT 1 FROM customers
+          WHERE right(regexp_replace(COALESCE(mobile_no, ''), '[^0-9]', '', 'g'), 10) = $1
+        UNION ALL
+        SELECT 1 FROM vendors
+          WHERE right(regexp_replace(COALESCE(mobile_no, ''), '[^0-9]', '', 'g'), 10) = $1
+        LIMIT 1`, [phone]);
+      if (!known.length) {
+        // 200, not an error: nothing went wrong, and an engine that treated
+        // this as a failure would retry a message it must never store.
+        return { chat: null, skipped: 'NOT_A_KNOWN_PARTY' };
+      }
+    }
+
     const { rows } = await query(`
       INSERT INTO wa_chats (phone, text, direction, user_id, sent_by_user_id, sent_by_user_name,
-        trip_id, role, wa_from, wa_msg_id, ts)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz, now()))
+        trip_id, role, wa_from, wa_msg_id, wa_session, wa_session_kind, ts)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13::timestamptz, now()))
       ON CONFLICT (wa_msg_id) DO NOTHING
       RETURNING *`,
-      [last10(b.phone), b.text, direction, b.userId ?? b.user_id ?? null,
+      [phone, b.text, direction, b.userId ?? b.user_id ?? null,
        b.sentByUserId ?? b.sent_by_user_id ?? null, b.sentByUserName ?? b.sent_by_user_name ?? null,
        UUID_RE.test(String(b.tripId ?? b.trip_id ?? '')) ? (b.tripId ?? b.trip_id) : null,
-       b.role ?? null, b.wa_from ?? null, b.wa_msg_id ?? null, b.timestamp ?? b.ts ?? null]);
+       b.role ?? null, b.wa_from ?? null, b.wa_msg_id ?? null, waSession, waKind,
+       b.timestamp ?? b.ts ?? null]);
     // DO NOTHING returns no row on a replayed send — report the existing one.
     if (!rows.length) {
       const { rows: existing } = await query('SELECT * FROM wa_chats WHERE wa_msg_id = $1', [b.wa_msg_id]);

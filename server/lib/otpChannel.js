@@ -101,6 +101,58 @@ export const CHANNEL_NAME = CHANNEL;
  * a device on the company's WhatsApp account and read every conversation. It
  * must never be sent to a third-party QR image service — render it client-side.
  */
+/** Per-user sessions. The engine gained a session registry so staff can link
+ *  their own number instead of everything leaving the company line; these are
+ *  the three calls the SPA needs, kept here beside linkStatus() so every route
+ *  to the engine goes through one module with one timeout policy.
+ *
+ *  The session id is ALWAYS the caller's own user id, chosen by the route from
+ *  the verified token and never taken from the request. A QR is a credential —
+ *  scanning one links a device that can read every chat on that account — so an
+ *  endpoint that accepted an arbitrary id would let any signed-in user request
+ *  a QR that hijacks a colleague's WhatsApp. */
+export async function userSessionStatus(sessionId) {
+  try {
+    const res = await withTimeout(`${WA_BASE}/api/status/${encodeURIComponent(sessionId)}`);
+    if (!res.ok) return { reachable: false, reason: `engine returned ${res.status}` };
+    const j = await res.json();
+    return {
+      reachable: true,
+      linked: !!j?.connected,
+      status: j?.status ?? null,
+      // Only while a scan is pending. Once linked the engine stops emitting one,
+      // and a stale QR shown after linking would be scanned and fail.
+      qr: j?.connected ? null : (j?.qr ?? null),
+      last_heartbeat: j?.lastHeartbeat ?? null,
+      session: j?.session ?? null,
+    };
+  } catch (e) {
+    return { reachable: false, reason: e.name === 'AbortError' ? 'engine timeout' : e.message };
+  }
+}
+
+export async function linkUserSession(sessionId) {
+  const res = await withTimeout(`${WA_BASE}/api/link/${encodeURIComponent(sessionId)}`, { method: 'POST' });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new OtpChannelError(j.code === 'SESSION_LIMIT' ? 'SESSION_LIMIT' : 'LINK_FAILED',
+      j.message || `engine returned ${res.status}`);
+  }
+  return { linked: !!j.connected, status: j.status ?? null, qr: j.connected ? null : (j.qr ?? null) };
+}
+
+export async function unlinkUserSession(sessionId, actorName) {
+  const res = await withTimeout(`${WA_BASE}/api/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, userId: actorName || 'ERP' }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new OtpChannelError('UNLINK_FAILED', j.message || `engine returned ${res.status}`);
+  return { ok: true };
+}
+
+
 export async function linkStatus() {
   if (CHANNEL !== 'whatsapp') {
     return { channel: CHANNEL, supported: false, reason: `OTP_CHANNEL is ${CHANNEL}, not whatsapp` };
