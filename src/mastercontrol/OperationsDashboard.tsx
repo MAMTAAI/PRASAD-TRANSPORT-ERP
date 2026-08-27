@@ -332,7 +332,18 @@ export default function OperationsDashboard({ live, filter }) {
 
       {/* ══════════════ RIGHT PANEL — LIVE DISPATCH CHAT ══════════════ */}
       <div className="lg:col-span-3 min-w-0">
-        <GlassPanel className="flex flex-col lg:h-full border-emerald-500/30 shadow-[0_0_30px_rgba(52,211,153,0.08)]">
+        {/* HEIGHT-CAPPED, AND THE CAP IS THE POINT.
+            This panel had `lg:h-full` and nothing else, so it grew to whatever
+            the grid row was and then grew the row: a chat list capped at 240px,
+            a thread with min-h-[220px], quick actions and a composer stacked
+            underneath added to well over 600px and dragged the dashboard's
+            right column past its neighbours. Every one of those pieces was
+            individually reasonable; the column had no ceiling.
+            500px is the ceiling. `lg:h-full` stays so it still aligns with the
+            cards beside it when the row is shorter — it fills the row UP TO the
+            cap, never past it. overflow-hidden keeps the rounded corner from
+            being cut by the panes inside. */}
+        <GlassPanel className="flex flex-col overflow-hidden max-h-[500px] lg:h-full lg:max-h-[500px] border-emerald-500/30 shadow-[0_0_30px_rgba(52,211,153,0.08)]">
           <PanelHeader
             icon={MessageSquareText}
             title="Live Dispatch Chat"
@@ -360,7 +371,11 @@ export default function OperationsDashboard({ live, filter }) {
                   "there is nothing here" without making somebody click to find
                   out — and it makes an empty Vendor tab read as an answer
                   rather than as a screen that failed to load. */}
-              <div className="flex items-center gap-1 px-3 pt-1.5 pb-2 overflow-x-auto">
+              {/* The tab strip is a header, so it gets header height — one row
+                  of chips and no more. It scrolls sideways rather than wrapping
+                  to a second line, because a wrap here shifts every pane below
+                  it and knocks the panel out of line with the cards beside it. */}
+              <div className="flex items-center gap-1 px-2.5 pt-1 pb-1.5 overflow-x-auto mc-hide-scrollbar shrink-0">
                 {CHAT_TABS.concat(unknownCount ? [{ key: 'UNKNOWN', label: 'Anjaan' }] : []).map((t) => {
                   const n = t.key === 'ALL' ? dispatchChats.length : (chatCounts[t.key] || 0);
                   const on = chatTab === t.key;
@@ -368,18 +383,21 @@ export default function OperationsDashboard({ live, filter }) {
                     <button
                       key={t.key}
                       onClick={() => { setChatTab(t.key); setActiveChatId(null); }}
-                      className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-black transition-colors border
+                      className={`shrink-0 rounded-md px-2 py-0.5 text-[10px] font-black transition-colors border
                         ${on ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
                              : 'bg-transparent border-slate-700/50 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
                     >
                       {t.label}
-                      <span className={`ml-1.5 font-bold ${on ? 'text-emerald-400/80' : 'text-slate-600'}`}>{n}</span>
+                      <span className={`ml-1 font-bold ${on ? 'text-emerald-400/80' : 'text-slate-600'}`}>{n}</span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="px-2 pb-2 max-h-60 overflow-y-auto flex flex-col gap-1">
+              {/* 140px is about three rows. The list is the INDEX, not the
+                  content — past three the thread below it starts losing the
+                  space that actually shows the conversation. */}
+              <div className="px-2 pb-1.5 max-h-[140px] overflow-y-auto mc-thin-scrollbar flex flex-col gap-0.5">
                 {visibleChats.length === 0 ? (
                   <EmptyNote>
                     {offline
@@ -394,11 +412,11 @@ export default function OperationsDashboard({ live, filter }) {
                     <div
                       key={c.phone}
                       onClick={() => setActiveChatId(c.phone)}
-                      className={`flex items-start gap-2.5 rounded-xl px-2.5 py-2 cursor-pointer transition-colors
+                      className={`flex items-start gap-2 rounded-lg px-2 py-1.5 cursor-pointer transition-colors
                         ${on ? 'bg-emerald-500/10 border border-emerald-500/40'
                              : 'hover:bg-white/5 border border-transparent'}`}
                     >
-                      <Avatar name={chatName(c)} size="w-8 h-8" textSize="text-[10px]"
+                      <Avatar name={chatName(c)} size="w-7 h-7" textSize="text-[9px]"
                               ring={on ? 'ring-emerald-500/60' : 'ring-slate-700/60'} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -441,8 +459,8 @@ export default function OperationsDashboard({ live, filter }) {
             {/* Active conversation */}
             <div className="flex-1 flex flex-col min-h-0">
               {activeChat && (
-                <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-700/50 bg-white/5">
-                  <Avatar name={chatName(activeChat)} size="w-9 h-9" ring="ring-emerald-500/60" />
+                <div className="flex items-center gap-2 px-3 py-1.5 border-b border-slate-700/50 bg-white/5 shrink-0">
+                  <Avatar name={chatName(activeChat)} size="w-7 h-7" ring="ring-emerald-500/60" />
                   <div className="min-w-0 flex-1">
                     <p className="text-[12px] font-black text-slate-100 flex items-center gap-1.5 truncate">
                       {chatName(activeChat)} <Dot color="bg-emerald-400" pulse size="w-1.5 h-1.5" />
@@ -466,7 +484,14 @@ export default function OperationsDashboard({ live, filter }) {
                 </div>
               )}
 
-              <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 min-h-[220px]">
+              {/* THE ONLY PANE THAT MAY GROW, AND IT GROWS INWARDS.
+                  flex-1 with min-h-0 is what makes overflow-y-auto actually
+                  scroll instead of expanding: without min-h-0 a flex child
+                  refuses to shrink below its content, so the scroll container
+                  never engages and the whole panel stretches — which is exactly
+                  what a long conversation did to this dashboard. min-h-[110px]
+                  keeps a couple of bubbles visible when the row is short. */}
+              <div className="flex-1 min-h-[110px] overflow-y-auto mc-thin-scrollbar px-2.5 py-2 flex flex-col gap-1.5">
                 {!activeChat ? (
                   <EmptyNote>
                     Jab koi chat aayegi, yahan uski poori baat-cheet dikhegi.
@@ -476,44 +501,46 @@ export default function OperationsDashboard({ live, filter }) {
                   return (
                     <div key={i} className={`flex ${outgoing ? 'justify-end' : 'justify-start'}`}>
                       <div
-                        className={`max-w-[85%] rounded-2xl px-3 py-2 border
+                        className={`max-w-[88%] rounded-xl px-2.5 py-1.5 border
                           ${outgoing
                             ? 'bg-slate-800/80 border-slate-700/60 rounded-br-sm'
                             : 'bg-emerald-600/25 border-emerald-500/40 rounded-bl-sm'}`}
                       >
-                        <p className={`text-[9px] font-bold mb-0.5 ${outgoing ? 'text-slate-500' : 'text-emerald-400'}`}>
+                        <p className={`text-[9px] font-bold mb-px ${outgoing ? 'text-slate-500' : 'text-emerald-400'}`}>
                           [{outgoing ? (m.sent_by_user_name || 'Office') : chatName(activeChat)}] <span className="font-normal text-slate-600">{clock(m.ts)}</span>
                         </p>
-                        <p className="text-[12px] text-slate-100 leading-snug whitespace-pre-wrap break-words">{m.text}</p>
+                        <p className="text-[11.5px] text-slate-100 leading-[1.35] whitespace-pre-wrap break-words">{m.text}</p>
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Quick actions */}
-              <div className="px-3 py-2 grid grid-cols-2 gap-2 border-t border-slate-700/50">
-                <button className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-2 py-2 text-[10px] font-black text-cyan-300 hover:bg-cyan-500/20 transition-colors">
-                  <FileText size={13} /> SEND LR COPY
+              {/* Quick actions and composer are FIXED FURNITURE — shrink-0 so
+                  the thread above gives up space first. A composer that gets
+                  squeezed to nothing is worse than a shorter message list. */}
+              <div className="px-2.5 py-1.5 grid grid-cols-2 gap-1.5 border-t border-slate-700/50 shrink-0">
+                <button className="flex items-center justify-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-1 text-[9.5px] font-black text-cyan-300 hover:bg-cyan-500/20 transition-colors">
+                  <FileText size={12} /> SEND LR COPY
                 </button>
-                <button className="flex items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-2 py-2 text-[10px] font-black text-emerald-300 hover:bg-emerald-500/20 transition-colors">
-                  <ScanLine size={13} /> SCAN FUEL SLIP OCR
+                <button className="flex items-center justify-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-1 text-[9.5px] font-black text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+                  <ScanLine size={12} /> SCAN FUEL SLIP OCR
                 </button>
               </div>
 
               {/* Composer */}
-              <div className="flex items-center gap-2 px-3 pb-3">
+              <div className="flex items-center gap-1.5 px-2.5 pb-2 pt-1.5 shrink-0">
                 <input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Type a message…"
-                  className="flex-1 min-w-0 rounded-xl bg-slate-950/70 border border-slate-700/50 px-3 py-2 text-[12px] text-slate-200 placeholder-slate-600 outline-none focus:border-emerald-500/60"
+                  className="flex-1 min-w-0 rounded-lg bg-slate-950/70 border border-slate-700/50 px-2.5 py-1.5 text-[11.5px] text-slate-200 placeholder-slate-600 outline-none focus:border-emerald-500/60"
                 />
-                <button className="grid place-items-center w-9 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0">
-                  <Send size={15} />
+                <button className="grid place-items-center w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shrink-0">
+                  <Send size={14} />
                 </button>
-                <button className="grid place-items-center w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors shrink-0">
-                  <Mic size={15} />
+                <button className="grid place-items-center w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors shrink-0">
+                  <Mic size={14} />
                 </button>
               </div>
             </div>

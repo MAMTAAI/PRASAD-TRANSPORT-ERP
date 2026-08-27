@@ -96,6 +96,18 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
         .mc-node-pulse { animation: mcNodePulse 2s ease-in-out infinite; }
         .mc-hide-scrollbar::-webkit-scrollbar { display: none; }
         .mc-hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* THIN, NOT HIDDEN. mc-hide-scrollbar above is right for a horizontal
+           tab strip, where the overflow is obvious from the cut-off chip. It is
+           wrong for the dispatch chat: that pane is now height-capped, so the
+           scrollbar is the only thing on screen saying there is more
+           conversation above. Narrow enough not to eat the bubble width,
+           visible enough to be found. */
+        .mc-thin-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+        .mc-thin-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .mc-thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .mc-thin-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .mc-thin-scrollbar:hover::-webkit-scrollbar-thumb { background: #475569; }
         @keyframes mcFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .mc-fade-in { animation: mcFadeIn 0.35s ease-out; }
 
