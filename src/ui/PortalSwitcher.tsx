@@ -9,7 +9,19 @@
 // ============================================================================
 import React, { useEffect, useRef, useState } from 'react';
 
+// The login screen offers FOUR doors — Admin & Staff, Customer, Fleet Partner,
+// Driver App — but this menu listed only the three partner-facing ones. The
+// admin's own view was missing, and it is the one most needed: a preview
+// renders fixed at inset 0 over the entire shell, so once you are inside one
+// the ONLY way back is that portal's own Back button. Miss it and the ERP
+// looks gone.
+//
+// `home: true` marks the way back rather than a preview. It is excluded from
+// the "which preview am I in" lookup below, so the button keeps reading
+// "View As" while you are in the ERP instead of renaming itself to the screen
+// you are already looking at.
 const PORTALS = [
+  { id: 'MASTER_CONTROL_V5',       label: 'Admin & Staff',   hint: 'The ERP itself',       icon: '🔐', tint: '#22c55e', home: true },
   { id: 'CUSTOMER_PORTAL_PREVIEW', label: 'Customer Portal', hint: 'What a customer sees', icon: '🏢', tint: '#ec4899' },
   { id: 'PARTNER_PORTAL_PREVIEW',  label: 'Vendor Portal',   hint: 'Fleet partner view',   icon: '🚚', tint: '#f97316' },
   { id: 'DRIVER_PORTAL_PREVIEW',   label: 'Driver App',      hint: 'Duty screen preview',  icon: '👨‍✈️', tint: '#3b82f6' },
@@ -18,7 +30,9 @@ const PORTALS = [
 export default function PortalSwitcher({ onOpen, activeComponent }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
-  const activePortal = PORTALS.find((p) => p.id === activeComponent);
+  // Only a real preview renames the button; the home entry never does.
+  const activePortal = PORTALS.find((p) => p.id === activeComponent && !p.home);
+  const inPortal = Boolean(activePortal);
 
   useEffect(() => {
     if (!open) return;
@@ -75,7 +89,7 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
               style={{
                 display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left',
                 padding: '9px 10px', borderRadius: 9, border: 'none', cursor: 'pointer',
-                background: activeComponent === p.id ? 'rgba(56,189,248,0.12)' : 'transparent',
+                background: (p.home ? !inPortal : activeComponent === p.id) ? 'rgba(56,189,248,0.12)' : 'transparent',
                 transition: 'background .12s',
               }}
             >
@@ -88,7 +102,9 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
                 <span style={{ display: 'block', color: '#64748b', fontSize: 10.5 }}>{p.hint}</span>
               </span>
             </button>
-          ))}
+          )).flatMap((el, i) => (i === 0
+            ? [el, <div key="ps-sep" style={{ height: 1, background: '#1e293b', margin: '6px 8px' }} />]
+            : [el]))}
         </div>
       )}
     </div>

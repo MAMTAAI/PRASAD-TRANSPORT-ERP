@@ -38,17 +38,24 @@ function initials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// LABEL ABOVE THE VALUE, NOT BESIDE IT. Side by side, a 62px label column left
+// about 178px for the value — narrower than either of the two things this card
+// actually shows. A gmail address broke as "sandeepkrprasad03@gmail" / ".com"
+// and an IPv6 session address split mid-group, so the card read as damaged
+// rather than merely wrapped. Stacking gives the value the card's full width,
+// which fits both on one line; `anywhere` still wraps something genuinely
+// longer, but now as the exception instead of the rule.
 const Row = ({ label, value, mono }) => (
-  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '7px 0' }}>
-    <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', minWidth: 62, fontWeight: 700 }}>
+  <div style={{ padding: '6px 0' }}>
+    <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: 3 }}>
       {label}
-    </span>
-    <span style={{
-      fontSize: 12.5, color: '#e2e8f0', fontWeight: 600, wordBreak: 'break-word',
+    </div>
+    <div style={{
+      fontSize: 12.5, color: '#e2e8f0', fontWeight: 600, overflowWrap: 'anywhere', lineHeight: 1.35,
       fontFamily: mono ? "ui-monospace, 'Cascadia Mono', Menlo, monospace" : 'inherit',
     }}>
       {value ?? <span style={{ color: '#475569', fontWeight: 500 }}>not set</span>}
-    </span>
+    </div>
   </div>
 );
 
@@ -125,7 +132,10 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
         <div
           role="menu"
           style={{
-            position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 268,
+            position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 296,
+            // A short laptop viewport must not leave LOG OUT below the fold
+            // with no way to scroll to it.
+            maxHeight: 'calc(100vh - 88px)', overflowY: 'auto',
             background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
             // Material elevation: a tight contact shadow plus a wide ambient one.
             boxShadow: '0 1px 3px rgba(0,0,0,0.6), 0 10px 34px rgba(0,0,0,0.55)',
