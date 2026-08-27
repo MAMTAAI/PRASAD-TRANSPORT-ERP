@@ -20,6 +20,37 @@ import OwnerFleetMatrix from './OwnerFleetMatrix';
 import LiveFleetMap from './LiveFleetMap';
 import { UnloadingQueue } from './OpsWidgets';
 import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from './FleetProductivity';
+import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
+
+// The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
+// these four: it is a real state — a number that has written in and sits on no
+// master — and it appears in ALL with its own badge, plus a fifth tab that
+// materialises only when there is something in it. A number nobody recognises
+// is exactly the one worth seeing, so it is never filtered into invisibility.
+const CHAT_TABS = [
+  { key: 'ALL', label: 'All' },
+  { key: 'DRIVER', label: 'Driver' },
+  { key: 'VENDOR', label: 'Vendor' },
+  { key: 'CUSTOMER', label: 'Customer' },
+];
+const KIND_TONE = {
+  DRIVER:   'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
+  VENDOR:   'text-amber-300 border-amber-500/40 bg-amber-500/10',
+  CUSTOMER: 'text-cyan-300 border-cyan-500/40 bg-cyan-500/10',
+  UNKNOWN:  'text-slate-400 border-slate-600/50 bg-slate-700/20',
+};
+const KIND_LABEL = { DRIVER: 'Driver', VENDOR: 'Vendor', CUSTOMER: 'Customer', UNKNOWN: 'Anjaan' };
+
+/** Named where the ERP knows the number, and plainly the number where it does
+ *  not. Never a placeholder that reads like a name. */
+const chatName = (c) => c?.contact_name || c?.driver_name || (c?.phone ? `+91 ${c.phone}` : '');
+
+/** Role as the app stored it at login. Only used where the mounting component
+ *  has no user prop; the server is the boundary either way. */
+function storedRole() {
+  try { return String(JSON.parse(localStorage.getItem('prasad_user') || '{}')?.role || '').toUpperCase(); }
+  catch { return ''; }
+}
 
 // Shown wherever the ERP genuinely holds no rows yet — never faked with a
 // plausible-looking number.
@@ -86,6 +117,7 @@ export default function OperationsDashboard({ live, filter }) {
   // Which conversation is open. Null means "the newest one", so the panel
   // opens on whoever messaged last without needing an effect to pick it.
   const [activeChatId, setActiveChatId] = useState(null);
+  const [chatTab, setChatTab] = useState('ALL');
 
   // LIVE from GET /api/v1/dashboard/v5 (server/modules/dashboard.routes.js).
   const ops = live?.data?.ops ?? null;
@@ -114,7 +146,18 @@ export default function OperationsDashboard({ live, filter }) {
   // Ordered newest-first by the query, so index 0 is whoever spoke last. That
   // is the right default to open on, and it means no effect has to reach in
   // and pick one after the fetch lands.
-  const activeChat = dispatchChats.find((c) => c.driver_id === activeChatId) ?? dispatchChats[0] ?? null;
+  //
+  // KEYED ON PHONE, NOT driver_id. The list is no longer drivers only — the
+  // query returns customers, vendors and unrecognised numbers too, and
+  // driver_id is null for all three. The phone is the WhatsApp identity and the
+  // only key every row actually has.
+  const chatCounts = dispatchChats.reduce((a, c) => { a[c.kind] = (a[c.kind] || 0) + 1; return a; }, {});
+  const unknownCount = chatCounts.UNKNOWN || 0;
+  const visibleChats = chatTab === 'ALL' ? dispatchChats : dispatchChats.filter((c) => c.kind === chatTab);
+  // Resolved against the VISIBLE list so switching tabs moves the open
+  // conversation with it, instead of leaving a thread on screen whose row is
+  // no longer in the list above it.
+  const activeChat = visibleChats.find((c) => c.phone === activeChatId) ?? visibleChats[0] ?? null;
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
   const driverRows = ops?.drivers?.length ? ops.drivers : [];
@@ -302,42 +345,96 @@ export default function OperationsDashboard({ live, filter }) {
             }
           />
 
+          {/* WHATSAPP, WHERE THE CHATS ARE — not three screens away.
+              An empty chat list has two very different causes: nobody has
+              written in, or this desk's WhatsApp is not connected at all. The
+              panel used to render the first message for both, which is a
+              confident lie in the second case. This row says which, and offers
+              the link right here when the answer is the second one. */}
+          {WA_LINK_ROLES.includes(storedRole()) && <MyWhatsApp variant="panel" />}
+
           <div className="flex flex-col md:flex-row lg:flex-col flex-1 min-h-0">
             {/* Chat list */}
             <div className="md:w-1/3 lg:w-full border-b md:border-b-0 md:border-r lg:border-r-0 lg:border-b border-slate-700/50">
-              <p className="px-4 pt-1 pb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Chat List</p>
-              <div className="px-2 pb-2 max-h-44 overflow-y-auto flex flex-col gap-1">
-                {dispatchChats.length === 0 ? (
+              {/* Tabs, with counts. A count on a tab is the cheapest way to say
+                  "there is nothing here" without making somebody click to find
+                  out — and it makes an empty Vendor tab read as an answer
+                  rather than as a screen that failed to load. */}
+              <div className="flex items-center gap-1 px-3 pt-1.5 pb-2 overflow-x-auto">
+                {CHAT_TABS.concat(unknownCount ? [{ key: 'UNKNOWN', label: 'Anjaan' }] : []).map((t) => {
+                  const n = t.key === 'ALL' ? dispatchChats.length : (chatCounts[t.key] || 0);
+                  const on = chatTab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => { setChatTab(t.key); setActiveChatId(null); }}
+                      className={`shrink-0 rounded-lg px-2.5 py-1 text-[10px] font-black transition-colors border
+                        ${on ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-300'
+                             : 'bg-transparent border-slate-700/50 text-slate-400 hover:text-slate-200 hover:border-slate-600'}`}
+                    >
+                      {t.label}
+                      <span className={`ml-1.5 font-bold ${on ? 'text-emerald-400/80' : 'text-slate-600'}`}>{n}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="px-2 pb-2 max-h-60 overflow-y-auto flex flex-col gap-1">
+                {visibleChats.length === 0 ? (
                   <EmptyNote>
                     {offline
                       ? 'Live data unavailable — API not reachable.'
-                      : 'Abhi kisi driver ki WhatsApp chat nahi hai. Jaise hi koi driver company ke WhatsApp number par message karega, uski baat-cheet yahan apne aap aa jayegi.'}
+                      : dispatchChats.length === 0
+                        ? 'Abhi kisi ne company ke WhatsApp number par message nahi kiya. Jaise hi koi driver, vendor ya customer likhega, uski baat-cheet yahan apne aap aa jayegi.'
+                        : `Is tab (${(CHAT_TABS.find((t) => t.key === chatTab) || {}).label || 'Anjaan'}) mein abhi koi chat nahi — baaki ${dispatchChats.length} All mein hain.`}
                   </EmptyNote>
-                ) : dispatchChats.map((c) => (
-                  <div
-                    key={c.driver_id}
-                    onClick={() => setActiveChatId(c.driver_id)}
-                    className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2 cursor-pointer transition-colors
-                      ${c.driver_id === activeChat?.driver_id
-                        ? 'bg-emerald-500/10 border border-emerald-500/40'
-                        : 'hover:bg-white/5 border border-transparent'}`}
-                  >
-                    <Avatar name={c.driver_name} size="w-8 h-8" textSize="text-[10px]" ring={c.driver_id === activeChat?.driver_id ? 'ring-emerald-500/60' : 'ring-slate-700/60'} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-bold text-slate-200 truncate">
-                        {c.trip_code || c.driver_name}
-                        {c.trip_status && <span className="text-emerald-400 font-semibold"> ({c.trip_status})</span>}
-                      </p>
-                      <p className="text-[10px] text-slate-500 truncate">{c.trip_code ? c.driver_name : c.phone}</p>
+                ) : visibleChats.map((c) => {
+                  const on = c.phone === activeChat?.phone;
+                  return (
+                    <div
+                      key={c.phone}
+                      onClick={() => setActiveChatId(c.phone)}
+                      className={`flex items-start gap-2.5 rounded-xl px-2.5 py-2 cursor-pointer transition-colors
+                        ${on ? 'bg-emerald-500/10 border border-emerald-500/40'
+                             : 'hover:bg-white/5 border border-transparent'}`}
+                    >
+                      <Avatar name={chatName(c)} size="w-8 h-8" textSize="text-[10px]"
+                              ring={on ? 'ring-emerald-500/60' : 'ring-slate-700/60'} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <p className="text-[11px] font-bold text-slate-200 truncate">{chatName(c)}</p>
+                          <span className={`shrink-0 rounded px-1 py-[1px] text-[8px] font-black uppercase tracking-wide border ${KIND_TONE[c.kind] || KIND_TONE.UNKNOWN}`}>
+                            {KIND_LABEL[c.kind] || c.kind}
+                          </span>
+                        </div>
+                        {/* Trip line only where there IS a trip — a vendor has
+                            no trip and gets their number instead, rather than an
+                            empty label sitting there looking broken. */}
+                        <p className="text-[10px] text-slate-500 truncate">
+                          {c.trip_code
+                            ? <>
+                                <span className="text-slate-400 font-semibold">{c.trip_code}</span>
+                                {c.trip_status && <span className="text-emerald-400"> · {c.trip_status}</span>}
+                                {c.vehicle_no && <span> · {c.vehicle_no}</span>}
+                              </>
+                            : `+91 ${c.phone}`}
+                        </p>
+                        {c.last_text && (
+                          <p className="text-[10px] text-slate-600 truncate mt-0.5">
+                            {c.last_direction === 'outgoing' && <span className="text-slate-500">Aap: </span>}
+                            {c.last_text}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span className="text-[9px] text-slate-600">{ago(c.last_ts)}</span>
+                        {c.unread > 0 && (
+                          <span className="grid place-items-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-black text-white">{c.unread}</span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[9px] text-slate-600">{ago(c.last_ts)}</span>
-                      {c.unread > 0 && (
-                        <span className="grid place-items-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-black text-white">{c.unread}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -345,15 +442,25 @@ export default function OperationsDashboard({ live, filter }) {
             <div className="flex-1 flex flex-col min-h-0">
               {activeChat && (
                 <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-700/50 bg-white/5">
-                  <Avatar name={activeChat.driver_name} size="w-9 h-9" ring="ring-emerald-500/60" />
-                  <div className="min-w-0">
+                  <Avatar name={chatName(activeChat)} size="w-9 h-9" ring="ring-emerald-500/60" />
+                  <div className="min-w-0 flex-1">
                     <p className="text-[12px] font-black text-slate-100 flex items-center gap-1.5 truncate">
-                      {activeChat.driver_name} <Dot color="bg-emerald-400" pulse size="w-1.5 h-1.5" />
+                      {chatName(activeChat)} <Dot color="bg-emerald-400" pulse size="w-1.5 h-1.5" />
+                      <span className={`shrink-0 rounded px-1 py-[1px] text-[8px] font-black uppercase tracking-wide border ${KIND_TONE[activeChat.kind] || KIND_TONE.UNKNOWN}`}>
+                        {KIND_LABEL[activeChat.kind] || activeChat.kind}
+                      </span>
                     </p>
-                    <p className="text-[10px] text-emerald-400 font-semibold">
+                    {/* "koi chalu trip nahi" is a DRIVER sentence. Said to a
+                        vendor it reads as a fault on a record that was never
+                        going to have a trip, so each kind gets its own line. */}
+                    <p className="text-[10px] text-emerald-400 font-semibold truncate">
                       {activeChat.trip_code
                         ? `${activeChat.trip_status} · ${activeChat.trip_code}${activeChat.vehicle_no ? ' · ' + activeChat.vehicle_no : ''}`
-                        : `+91 ${activeChat.phone} · koi chalu trip nahi`}
+                        : activeChat.kind === 'DRIVER'
+                          ? `+91 ${activeChat.phone} · koi chalu trip nahi`
+                          : activeChat.kind === 'UNKNOWN'
+                            ? `+91 ${activeChat.phone} · kisi master mein nahi mila`
+                            : `+91 ${activeChat.phone}`}
                     </p>
                   </div>
                 </div>
@@ -362,7 +469,7 @@ export default function OperationsDashboard({ live, filter }) {
               <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-2.5 min-h-[220px]">
                 {!activeChat ? (
                   <EmptyNote>
-                    Jab koi driver chat aayegi, yahan uski poori baat-cheet dikhegi.
+                    Jab koi chat aayegi, yahan uski poori baat-cheet dikhegi.
                   </EmptyNote>
                 ) : (activeChat.messages ?? []).map((m, i) => {
                   const outgoing = m.direction === 'outgoing';
@@ -375,7 +482,7 @@ export default function OperationsDashboard({ live, filter }) {
                             : 'bg-emerald-600/25 border-emerald-500/40 rounded-bl-sm'}`}
                       >
                         <p className={`text-[9px] font-bold mb-0.5 ${outgoing ? 'text-slate-500' : 'text-emerald-400'}`}>
-                          [{outgoing ? 'Office' : activeChat.driver_name}] <span className="font-normal text-slate-600">{clock(m.ts)}</span>
+                          [{outgoing ? (m.sent_by_user_name || 'Office') : chatName(activeChat)}] <span className="font-normal text-slate-600">{clock(m.ts)}</span>
                         </p>
                         <p className="text-[12px] text-slate-100 leading-snug whitespace-pre-wrap break-words">{m.text}</p>
                       </div>

@@ -1145,46 +1145,95 @@ export function registerDashboardRoutes(app) {
     // Unread means "incoming since we last replied", which is the only
     // definition available without a read-receipt column, and it is the one the
     // operator actually cares about: who is waiting on the office.
+    // EVERY NUMBER THAT WRITES IN, NOT JUST THE ONES IN THE DRIVER MASTER.
+    //
+    // This used to be `wa_chats JOIN drivers` — an INNER join — so a message
+    // from a customer, a vendor, or any number not yet on a driver record was
+    // dropped on the floor. Not shown as unknown: dropped. The panel then said
+    // "no chats yet" while the company number had actually been written to, and
+    // there was nothing on screen to suggest anything was missing. That is the
+    // failure this dashboard's honesty contract exists to prevent.
+    //
+    // The directory below is drivers ∪ customers ∪ vendors matched on the last
+    // ten digits, and the join to it is a LEFT one, so an unrecognised number
+    // arrives labelled UNKNOWN and can be answered — which is exactly when
+    // somebody wants to see it. `kind` is what makes the All/Driver/Vendor/
+    // Customer tabs mean something rather than being three empty lists.
+    //
+    // Keyed on PHONE, not driver_id. The phone is the WhatsApp identity and the
+    // only key every one of these rows actually has; driver_id is null for
+    // three of the four kinds.
     const dispatch_chats = await safe(errors, 'dispatch_chats', async () => {
       const { rows } = await query(`
-        WITH dm AS (
-          SELECT c.phone, c.text, c.direction, c.ts,
-                 d.id AS driver_id, d.name AS driver_name
-            FROM wa_chats c
-            JOIN drivers d
-              ON right(regexp_replace(d.mobile, '[^0-9]', '', 'g'), 10) = c.phone
+        WITH directory AS (
+          SELECT right(regexp_replace(mobile, '[^0-9]', '', 'g'), 10) AS phone,
+                 'DRIVER'::text AS kind, id AS driver_id, name AS contact_name, 1 AS rank
+            FROM drivers
+           WHERE mobile IS NOT NULL
+             AND length(regexp_replace(mobile, '[^0-9]', '', 'g')) >= 10
+          UNION ALL
+          SELECT right(regexp_replace(mobile_no, '[^0-9]', '', 'g'), 10),
+                 'CUSTOMER', NULL::uuid, customer_name, 2
+            FROM customers
+           WHERE mobile_no IS NOT NULL AND status = 'ACTIVE'
+             AND length(regexp_replace(mobile_no, '[^0-9]', '', 'g')) >= 10
+          UNION ALL
+          SELECT right(regexp_replace(mobile_no, '[^0-9]', '', 'g'), 10),
+                 'VENDOR', NULL::uuid, vendor_name, 3
+            FROM vendors
+           WHERE mobile_no IS NOT NULL AND status = 'ACTIVE'
+             AND length(regexp_replace(mobile_no, '[^0-9]', '', 'g')) >= 10
+        ),
+        -- One row per number. A phone on two masters (an owner-driver who is
+        -- also a vendor, say) resolves by rank rather than at random, so the
+        -- same contact does not change tab between refreshes.
+        dir AS (
+          SELECT DISTINCT ON (phone) phone, kind, driver_id, contact_name
+            FROM directory ORDER BY phone, rank
         ),
         latest AS (
-          SELECT DISTINCT ON (driver_id) driver_id, driver_name, phone, text, direction, ts
-            FROM dm ORDER BY driver_id, ts DESC
+          SELECT DISTINCT ON (phone) phone, text, direction, ts
+            FROM wa_chats ORDER BY phone, ts DESC
         )
-        SELECT l.driver_id, l.driver_name, l.phone,
+        SELECT l.phone,
+               COALESCE(d.kind, 'UNKNOWN') AS kind,
+               d.driver_id,
+               d.contact_name,
                l.text AS last_text, l.direction AS last_direction, l.ts AS last_ts,
                t.id AS trip_id, t.trip_code, t.status AS trip_status, t.vehicle_no,
-               (SELECT count(*)::int FROM dm m
-                 WHERE m.driver_id = l.driver_id AND m.direction = 'incoming'
-                   AND m.ts > COALESCE((SELECT max(o.ts) FROM dm o
-                                         WHERE o.driver_id = l.driver_id
-                                           AND o.direction = 'outgoing'),
+               (SELECT count(*)::int FROM wa_chats m
+                 WHERE m.phone = l.phone AND m.direction = 'incoming'
+                   AND m.ts > COALESCE((SELECT max(o.ts) FROM wa_chats o
+                                         WHERE o.phone = l.phone AND o.direction = 'outgoing'),
                                        '-infinity'::timestamptz)) AS unread,
                COALESCE((SELECT json_agg(x ORDER BY x.ts)
-                           FROM (SELECT m.text, m.direction, m.ts
-                                   FROM dm m WHERE m.driver_id = l.driver_id
+                           FROM (SELECT m.text, m.direction, m.ts, m.sent_by_user_name
+                                   FROM wa_chats m WHERE m.phone = l.phone
                                   ORDER BY m.ts DESC LIMIT 20) x), '[]'::json) AS messages
           FROM latest l
+          LEFT JOIN dir d ON d.phone = l.phone
+          -- Trips belong to drivers. For the other kinds this stays null rather
+          -- than matching something coincidental.
           LEFT JOIN LATERAL (
                  SELECT id, trip_code, status, vehicle_no
                    FROM trips
-                  WHERE driver_id = l.driver_id
+                  WHERE d.driver_id IS NOT NULL
+                    AND driver_id = d.driver_id
                     AND status IN ('LOADED','IN_TRANSIT','UNLOADING')
                   ORDER BY updated_at DESC
                   LIMIT 1) t ON true
          ORDER BY l.ts DESC
-         LIMIT 12`);
+         LIMIT 24`);
       return rows.map((r) => ({
-        driver_id: r.driver_id,
-        driver_name: r.driver_name,
+        // Stable key for the UI. driver_id is kept for the callers that still
+        // use it, but it is null for CUSTOMER, VENDOR and UNKNOWN.
         phone: r.phone,
+        kind: r.kind,
+        driver_id: r.driver_id,
+        // Named where the ERP knows the number, and honestly unnamed where it
+        // does not — never a plausible-looking placeholder.
+        contact_name: r.contact_name || null,
+        driver_name: r.contact_name || null,   // legacy field name, same value
         trip_id: r.trip_id,
         trip_code: r.trip_code,
         trip_status: r.trip_status,

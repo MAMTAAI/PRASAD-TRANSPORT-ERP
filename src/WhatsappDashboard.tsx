@@ -446,8 +446,25 @@ const WhatsappDashboard = () => {
                                  </span>
                                )}
                              </div>
-                             <div style={{fontSize:'12px', color:'white', marginTop:'5px'}}>🚛 Vehicle: {t.vehicle_no}</div>
-                             <div style={{fontSize:'11px', color:theme.sub, marginTop:'3px'}}>Driver: {t.driver_name} <br/>Cust: {t.consignee_name}</div>
+                             <div style={{fontSize:'12px', color:'white', marginTop:'5px'}}>🚛 Vehicle: {t.vehicle_no || <i style={{color:theme.sub}}>darj nahi</i>}</div>
+                             {/* A LABEL WITH NOTHING AFTER IT READS AS A BROKEN
+                                 SCREEN, not as missing data. Both of these are
+                                 real columns on `trips` and the API does return
+                                 them (SELECT t.*), so a blank here means the
+                                 trip RECORD is incomplete — not that the fetch
+                                 failed. Consignee falls back to the customer,
+                                 which is what the search box above already
+                                 treats as interchangeable.
+
+                                 Deliberately NOT corrected here. Filling these
+                                 in belongs in Trip Management, where somebody
+                                 can check what the value should be; a screen
+                                 that quietly invents one is how a wrong
+                                 consignee ends up on a bill. */}
+                             <div style={{fontSize:'11px', color:theme.sub, marginTop:'3px'}}>
+                               Driver: {t.driver_name || <i style={{color:'#64748b'}}>darj nahi</i>}<br/>
+                               Cust: {t.consignee_name || t.customer_name || <i style={{color:'#64748b'}}>darj nahi</i>}
+                             </div>
                           </div>
                         ));
                       })()}
