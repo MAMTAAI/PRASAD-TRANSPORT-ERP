@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { installAuthFetch } from './lib/authFetch'
 import { installDataChangeBus } from './lib/dataChangeBus'
+import { installPwaAutoUpdate } from './lib/pwaUpdate'
 import './tailwind.css'
 import './design-system.css'
 import './App.css'
@@ -19,6 +20,11 @@ installAuthFetch()
 // Every successful write to /api/v1 now emits 'erp:data-changed', which the
 // live panels listen for. Installed before render so no early save is missed.
 installDataChangeBus()
+
+// Take over from the bare registration vite-plugin-pwa injects when nothing
+// imports the virtual module. Without this a deployed build reached the browser
+// one reload LATE, which reads as the deploy having failed — see the file.
+installPwaAutoUpdate()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

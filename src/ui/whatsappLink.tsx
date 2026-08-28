@@ -10,7 +10,7 @@
 // "stop showing it once linked" rule wrong, and a stale credential on screen
 // gets used and fails, which reads as a broken link rather than a finished one.
 // ─────────────────────────────────────────────────────────────────────────────
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { API_BASE } from '../lib/apiBase';
 import { QRCodeSVG } from 'qrcode.react';
@@ -20,6 +20,34 @@ import { QRCodeSVG } from 'qrcode.react';
  *  is the boundary; if these two ever drift, the server wins and the worst case
  *  is a button that answers 403 with a sentence explaining itself. */
 export const WA_LINK_ROLES = ['SUPER_ADMIN', 'ADMIN', 'ACCOUNTS', 'DISPATCH'];
+
+/** What GET /auth/whatsapp/my-session answers with, plus the two fields the
+ *  dialog adds locally.
+ *
+ *  WRITTEN OUT BECAUSE THE INFERENCE WAS WRONG AND LOUD. `useState({ loading:
+ *  true })` types the state as `{ loading: boolean }`, so every other property
+ *  this component reads — qr, linked, reason, pairing_code — was a compile
+ *  error: 24 of them before today, and the file has been shipping anyway.
+ *  `npm run typecheck` is wired to VS Code's pre-save guard, and a guard that
+ *  is always red is a guard nobody reads. Everything here is optional because
+ *  the first render genuinely has none of it. */
+interface WaSessionState {
+  loading: boolean;
+  ok?: boolean;
+  reachable?: boolean;
+  multi_session?: boolean;
+  linked?: boolean;
+  status?: string | null;
+  qr?: string | null;
+  pairing_code?: string | null;
+  pairing_error?: string | null;
+  pairing_retry_in_sec?: number;
+  last_heartbeat?: string | null;
+  session?: string | null;
+  /** Set from a failed link/unlink reply, or 'network' when the fetch threw. */
+  reason?: string | null;
+  error?: string | null;
+}
 
 /** My WhatsApp.
  *
@@ -47,7 +75,7 @@ export const WA_LINK_ROLES = ['SUPER_ADMIN', 'ADMIN', 'ACCOUNTS', 'DISPATCH'];
  *  client-side by qrcode.react, never handed to an external QR image service.
  */
 export function MyWhatsApp({ variant = 'menu' }) {
-  const [state, setState] = useState({ loading: true });
+  const [state, setState] = useState<WaSessionState>({ loading: true });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -90,7 +118,7 @@ export function MyWhatsApp({ variant = 'menu' }) {
   // no credential means nothing has been started, and that is the one state that
   // should not hold a timer open.
   const pending = !!(state.qr || state.pairing_code
-    || ['STARTING', 'WAITING_FOR_SCAN', 'RECONNECTING'].includes(state.status));
+    || ['STARTING', 'WAITING_FOR_SCAN', 'RECONNECTING'].includes(state.status ?? ''));
 
   useEffect(() => {
     if (!open || state.linked || !pending) return;
@@ -150,9 +178,9 @@ export function MyWhatsApp({ variant = 'menu' }) {
         Code nahi mil paya
       </div>
       <div style={{ fontSize: 11, color: '#fde68a', lineHeight: 1.5 }}>{state.pairing_error}</div>
-      {state.pairing_retry_in_sec > 0 && (
+      {(state.pairing_retry_in_sec ?? 0) > 0 && (
         <div style={{ fontSize: 10.5, color: '#d97706', marginTop: 6, fontWeight: 700 }}>
-          Dobara koshish ~{Math.max(1, Math.round(state.pairing_retry_in_sec / 60))} minute baad
+          Dobara koshish ~{Math.max(1, Math.round((state.pairing_retry_in_sec ?? 0) / 60))} minute baad
         </div>
       )}
     </div>
