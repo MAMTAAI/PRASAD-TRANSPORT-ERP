@@ -362,6 +362,46 @@ export default function TripManagment() {
 
   useEffect(() => { fetchData(); }, []);
 
+  // ── ARRIVING FROM THE DASHBOARD WITH A TRIP ALREADY CHOSEN ────────────────
+  //
+  // The Unloading Activity panel on Master Control lists pending trips
+  // oldest-first, and its "Unload" button dispatches pt:navigate with
+  // focusId = trip id. App.tsx puts that in the URL as ?focus=. This is the
+  // half that reads it — nothing did until now, which is why the mechanism
+  // was safe to dispatch but had no effect.
+  //
+  // IT OPENS THE SAME BOTTOM SHEET the Unload button on this screen opens,
+  // from the same setUnloadData call. A second unloading form living on the
+  // dashboard would be a second way to write the same closing entry, with its
+  // own idea of how shortage and penalty are derived; this adds a DOOR to the
+  // one that exists rather than another one beside it.
+  //
+  // The param is consumed once and cleared immediately, so a refresh — or a
+  // Back into this screen — does not reopen a sheet the operator just
+  // cancelled. A trip that is already closed only gets selected, not reopened:
+  // arriving with a stale link must never look like an invitation to
+  // double-enter an unloading.
+  useEffect(() => {
+    if (!trips.length) return;
+    const url = new URL(window.location.href);
+    const focus = url.searchParams.get('focus');
+    if (!focus) return;
+    url.searchParams.delete('focus');
+    window.history.replaceState(null, '', url.toString());
+
+    const t = trips.find((x: any) => String(x.id) === String(focus));
+    if (!t) return;
+    setActiveTrip(t);
+    if (t.unloading_date || t.trip_status === 'COMPLETED') return;
+    setUnloadData({
+      unloading_date: new Date().toISOString().split('T')[0],
+      loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''),
+      unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '',
+      unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '',
+    });
+    setShowUnloadModal(true);
+  }, [trips]);
+
   // 🛣️ Bulk-load the last toll for every ACTIVE trip (keyed on the id set so
   // history pagination doesn't re-trigger it). Parallel single-trip queries.
   const activeTripIdKey = useMemo(

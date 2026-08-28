@@ -65,6 +65,24 @@ const dayLabel = (d) => (d
 
 const kl = (n) => `${Number(n || 0).toFixed(1)} KL`;
 
+/** Open Trip Management on this trip with the Final Unloading sheet already up.
+ *
+ *  THE DASHBOARD DOES NOT LEARN HOW THE SHELL ROUTES — it fires the same
+ *  `pt:navigate` event the drill-down drawer uses, and App.tsx decides what that
+ *  means. focusId rides along as ?focus=, which TripManagment reads to preselect
+ *  the trip and open the sheet.
+ *
+ *  AND IT DOES NOT WRITE THE UNLOADING ITSELF. A form here would be a second
+ *  path that closes a trip, with its own idea of how shortage and penalty are
+ *  derived from loaded-minus-unloaded — the same "two doors into one register"
+ *  that this dashboard already spent a week untangling on the loading side.
+ *  One place closes a trip; this is a door to it. */
+const openUnload = (tripId) => {
+  window.dispatchEvent(new CustomEvent('pt:navigate', {
+    detail: { module: 'OPERATION', screen: 'TRIP', focusId: tripId },
+  }));
+};
+
 export default function UnloadingActivity({ activity, offline }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('pending');
@@ -233,9 +251,16 @@ export default function UnloadingActivity({ activity, offline }) {
                   {t.from || '—'} <span className="text-amber-500/70">→</span> {t.to || '—'}
                 </p>
               </div>
-              <span className={`shrink-0 text-[10px] font-black tabular-nums ${hot ? 'text-red-300' : 'text-amber-300'}`}>
-                {t.age_days}d
-              </span>
+              <div className="shrink-0 flex flex-col items-end gap-1">
+                <span className={`text-[10px] font-black tabular-nums ${hot ? 'text-red-300' : 'text-amber-300'}`}>
+                  {t.age_days}d
+                </span>
+                <button onClick={() => openUnload(t.id)}
+                  title="Is trip ki unloading yahin se bharein"
+                  className="rounded-md border border-emerald-500/45 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-black text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+                  UNLOAD
+                </button>
+              </div>
             </div>
           );
         })}
@@ -325,11 +350,20 @@ export default function UnloadingActivity({ activity, offline }) {
                             <span className="mx-1 text-amber-500/70">→</span>
                             <span className="text-slate-500">to</span> {t.to || '—'}
                           </p>
-                          <p className="text-[9.5px] text-slate-500 tabular-nums">
-                            loaded {dayLabel(t.loading_date)}
-                            {t.rtkm != null && <><span className="mx-1 text-slate-700">|</span>RTKM {t.rtkm.toFixed(0)}</>}
-                            {t.driver_name && <><span className="mx-1 text-slate-700">|</span>{t.driver_name}</>}
-                          </p>
+                          <div className="mt-1 flex items-end justify-between gap-2">
+                            <p className="text-[9.5px] text-slate-500 tabular-nums min-w-0 truncate">
+                              loaded {dayLabel(t.loading_date)}
+                              {t.rtkm != null && <><span className="mx-1 text-slate-700">|</span>RTKM {t.rtkm.toFixed(0)}</>}
+                              {t.driver_name && <><span className="mx-1 text-slate-700">|</span>{t.driver_name}</>}
+                            </p>
+                            {/* The dialog closes itself on the way out: leaving
+                                it stacked over Trip Management would hide the
+                                sheet it just opened. */}
+                            <button onClick={() => { setOpen(false); openUnload(t.id); }}
+                              className="shrink-0 rounded-md border border-emerald-500/45 bg-emerald-500/10 px-2 py-0.5 text-[9.5px] font-black text-emerald-300 hover:bg-emerald-500/20 transition-colors">
+                              ✅ UNLOAD KAREIN
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
