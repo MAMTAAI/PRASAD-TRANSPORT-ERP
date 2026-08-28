@@ -24,10 +24,11 @@
 // surfacing a 409 the engine would have to special-case.
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
+import { listDirectory, resolveContact, last10 } from '../lib/contactDirectory.js';
+import { WA_BASE } from '../lib/otpChannel.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const last10 = (p) => String(p ?? '').replace(/\D/g, '').slice(-10);
 const clamp = (v, d, max) => Math.min(Number.parseInt(v ?? d, 10) || d, max);
 
 const pgErr = (reply, err) => {
@@ -100,6 +101,96 @@ export async function registerCrmRoutes(app) {
       transform: (b) => ({ ...b, phone: b.phone === undefined ? undefined : last10(b.phone),
                                  send_at: b.send_at ?? b.datetime }) });
 
+  // ═══ DIRECTORY ════════════════════════════════════════════════════════════
+  // EVERY NUMBER THE ERP CAN REACH, IN ONE CALL.
+  //
+  // Live Dispatch Chat could only ever show numbers that had already written
+  // in — it is an inbox, and an inbox cannot start a conversation. So dispatch
+  // could see 11 strangers and none of the 54 drivers, 11 fuel pumps or the
+  // customers whose numbers are sitting in the masters. To message a pump you
+  // left the ERP, found the number somewhere else and typed it into a phone.
+  //
+  // The Broadcast Center already had this list, but assembled in the browser
+  // from four separate fetches, which is why it could not be reused anywhere
+  // and why it and the dispatch tabs disagreed about who exists.
+  app.get('/directory', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { q, kind, limit } = req.query ?? {};
+    const contacts = await listDirectory({ q, kind, limit });
+    // Counts are over the FILTERED set on purpose: they label the tabs the
+    // operator is looking at, so they have to move when the search does.
+    const counts = contacts.reduce((a, c) => { a[c.kind] = (a[c.kind] || 0) + 1; return a; }, {});
+    return { contacts, counts, total: contacts.length };
+  });
+
+  // ═══ SEND ═════════════════════════════════════════════════════════════════
+  // THE ROUTE THAT WAS NEVER THERE.
+  //
+  // The SPA has been posting to `${ERP_API}/api/v1/api/send-whatsapp` — note
+  // the doubled segment — from the Broadcast Center and Trip Chat since they
+  // were written. Nothing has ever answered it. `wa_chats` holds 165 incoming
+  // messages and ZERO outgoing, across the whole system, which is the shape of
+  // that 404: every send silently failed, and the broadcast path did not even
+  // read the response.
+  //
+  // THE FOOTPRINT COMES FROM THE TOKEN, NOT THE BODY. The old callers passed
+  // `sentByUserId` and `sentByUserName` up from browser state, so the audit
+  // trail recorded whoever the client claimed to be. Here it is taken from the
+  // session, which is the only version of that answer worth storing.
+  //
+  // THE ROW IS WRITTEN BY THE ENGINE, NOT HERE. doSend() already inserts
+  // through POST /chats with the message id, the session and its kind — things
+  // only it knows. A second insert on this side would be a second insert path
+  // for the same event, which is exactly what the note at the top of this file
+  // says was removed.
+  app.post('/send', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const phone = last10(b.phone ?? b.number);
+    const text = String(b.text ?? b.message ?? '').trim();
+    if (phone.length < 10) return reply.code(400).send({ error: 'BAD_PHONE', detail: 'phone must have at least 10 digits' });
+    if (!text) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'text is required' });
+
+    // Recorded so the stored row carries the relationship, not just a number —
+    // null for a stranger, which is legitimate and must not block the send:
+    // the first message to a new pump is exactly when you have no record yet.
+    const contact = await resolveContact(phone);
+
+    // The sender's OWN session when they have linked one, so the driver sees
+    // the name of the person who is actually talking to them. The engine falls
+    // back to the company line when it is not connected, so this is a
+    // preference rather than a requirement — see doSend().
+    const sessionId = req.user?.sub ? `u${String(req.user.sub).replace(/-/g, '')}` : undefined;
+
+    let res;
+    try {
+      res = await fetch(`${WA_BASE}/api/send-whatsapp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          number: phone,
+          message: text,
+          sessionId,
+          userId: req.user?.name ?? 'ERP',
+          sentByUserId: req.user?.sub ?? null,
+          sentByUserName: req.user?.name ?? 'ERP',
+          tripId: UUID_RE.test(String(b.trip_id ?? b.tripId ?? '')) ? (b.trip_id ?? b.tripId) : null,
+          role: contact?.kind ?? null,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (e) {
+      // Unreachable engine is not a 500 on the ERP: nothing here is broken, and
+      // the operator needs to be told which half is down.
+      return reply.code(502).send({ error: 'ENGINE_UNREACHABLE', detail: e.name === 'TimeoutError' ? 'engine timeout' : e.message });
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.success === false) {
+      return reply.code(502).send({ error: 'SEND_FAILED', detail: j.message || `engine returned ${res.status}` });
+    }
+    return { ok: true, phone, contact };
+  });
+
   // ═══ CHATS ════════════════════════════════════════════════════════════════
   app.get('/chats', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -148,18 +239,31 @@ export async function registerCrmRoutes(app) {
     // The company number is NOT filtered: it is a business line, its traffic is
     // business record, and filtering it would silently discard a first message
     // from a driver phoning in on a number nobody has entered yet.
-    if (waKind === 'user') {
-      const { rows: known } = await query(`
-        SELECT 1 FROM drivers
-          WHERE right(regexp_replace(mobile, '[^0-9]', '', 'g'), 10) = $1
-        UNION ALL
-        SELECT 1 FROM customers
-          WHERE right(regexp_replace(COALESCE(mobile_no, ''), '[^0-9]', '', 'g'), 10) = $1
-        UNION ALL
-        SELECT 1 FROM vendors
-          WHERE right(regexp_replace(COALESCE(mobile_no, ''), '[^0-9]', '', 'g'), 10) = $1
-        LIMIT 1`, [phone]);
-      if (!known.length) {
+    //
+    // "One of ours" is now answered by server/lib/contactDirectory.js rather
+    // than by a third copy of the union living here. The copy this replaces had
+    // already drifted: it knew nothing of wa_contacts, so a number somebody had
+    // deliberately typed into the System Directory was treated as a stranger.
+    //
+    // OUTGOING IS NEVER FILTERED, AND THAT IS NOT A HOLE IN THE GATE.
+    //
+    // The gate above is about traffic the linked handset merely WITNESSES. But
+    // the engine subscribes to `message`, not `message_create` — it is only
+    // ever told about INCOMING messages, so a staff member's private outgoing
+    // chats do not reach this endpoint at all and there is nothing here to
+    // leak. Every outgoing row that does arrive was composed inside the ERP
+    // (POST /crm/send) or by the bot, which makes it business record by
+    // construction.
+    //
+    // Filtering it cost real records: a message sent from a staff member's own
+    // linked number to a pump or a driver not yet on a master went out over
+    // WhatsApp and was then dropped here — the reply would be kept once that
+    // contact existed, but the message that started it never was. A footprint
+    // with the first half missing is worse than none, because it reads as if
+    // the office never wrote.
+    if (waKind === 'user' && direction === 'incoming') {
+      const known = await resolveContact(phone);
+      if (!known) {
         // 200, not an error: nothing went wrong, and an engine that treated
         // this as a failure would retry a message it must never store.
         return { chat: null, skipped: 'NOT_A_KNOWN_PARTY' };

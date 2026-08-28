@@ -19,6 +19,7 @@ import { tallyAlive } from '../lib/tallyAdapter.js';
 import { requireAdminRole } from './auth.routes.js';
 import * as otpChannel from '../lib/otpChannel.js';
 import { periodBounds, previousOf, PERIODS } from '../lib/periods.js';
+import { DIRECTORY_CTE } from '../lib/contactDirectory.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
@@ -1164,33 +1165,15 @@ export function registerDashboardRoutes(app) {
     // only key every one of these rows actually has; driver_id is null for
     // three of the four kinds.
     const dispatch_chats = await safe(errors, 'dispatch_chats', async () => {
+      // The union that used to be written out here now lives in
+      // server/lib/contactDirectory.js, shared with the picker in the chat
+      // panel and with the privacy gate on POST /crm/chats. The copy it
+      // replaces knew nothing of fuel pumps (11 of them, sitting in `vendors`
+      // under vendor_type='Fuel Pump') or of hand-added wa_contacts, so both
+      // arrived here labelled UNKNOWN — "Anjaan" on a screen, for numbers the
+      // Broadcast Center two tabs away was listing by name.
       const { rows } = await query(`
-        WITH directory AS (
-          SELECT right(regexp_replace(mobile, '[^0-9]', '', 'g'), 10) AS phone,
-                 'DRIVER'::text AS kind, id AS driver_id, name AS contact_name, 1 AS rank
-            FROM drivers
-           WHERE mobile IS NOT NULL
-             AND length(regexp_replace(mobile, '[^0-9]', '', 'g')) >= 10
-          UNION ALL
-          SELECT right(regexp_replace(mobile_no, '[^0-9]', '', 'g'), 10),
-                 'CUSTOMER', NULL::uuid, customer_name, 2
-            FROM customers
-           WHERE mobile_no IS NOT NULL AND status = 'ACTIVE'
-             AND length(regexp_replace(mobile_no, '[^0-9]', '', 'g')) >= 10
-          UNION ALL
-          SELECT right(regexp_replace(mobile_no, '[^0-9]', '', 'g'), 10),
-                 'VENDOR', NULL::uuid, vendor_name, 3
-            FROM vendors
-           WHERE mobile_no IS NOT NULL AND status = 'ACTIVE'
-             AND length(regexp_replace(mobile_no, '[^0-9]', '', 'g')) >= 10
-        ),
-        -- One row per number. A phone on two masters (an owner-driver who is
-        -- also a vendor, say) resolves by rank rather than at random, so the
-        -- same contact does not change tab between refreshes.
-        dir AS (
-          SELECT DISTINCT ON (phone) phone, kind, driver_id, contact_name
-            FROM directory ORDER BY phone, rank
-        ),
+        WITH ${DIRECTORY_CTE},
         latest AS (
           SELECT DISTINCT ON (phone) phone, text, direction, ts
             FROM wa_chats ORDER BY phone, ts DESC
@@ -1199,6 +1182,7 @@ export function registerDashboardRoutes(app) {
                COALESCE(d.kind, 'UNKNOWN') AS kind,
                d.driver_id,
                d.contact_name,
+               d.sub AS contact_sub,
                l.text AS last_text, l.direction AS last_direction, l.ts AS last_ts,
                t.id AS trip_id, t.trip_code, t.status AS trip_status, t.vehicle_no,
                (SELECT count(*)::int FROM wa_chats m
@@ -1234,6 +1218,9 @@ export function registerDashboardRoutes(app) {
         // does not — never a plausible-looking placeholder.
         contact_name: r.contact_name || null,
         driver_name: r.contact_name || null,   // legacy field name, same value
+        // The vendor_type behind a PUMP or VENDOR ("Fuel Pump", "Spare Parts"),
+        // so the panel can say which kind of vendor without a second lookup.
+        contact_sub: r.contact_sub || null,
         trip_id: r.trip_id,
         trip_code: r.trip_code,
         trip_status: r.trip_status,

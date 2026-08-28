@@ -21,7 +21,10 @@
 // route can say "OTP channel is offline" rather than silently never arriving.
 // ─────────────────────────────────────────────────────────────────────────────
 const CHANNEL = (process.env.OTP_CHANNEL || 'whatsapp').toLowerCase();
-const WA_BASE = process.env.WA_ENGINE_URL || 'http://127.0.0.1:5001';
+// Exported because the CRM's send route talks to the same engine, and two
+// modules each carrying their own default is how one of them ends up pointing
+// at a port nothing is listening on. (It has moved once already: 5001 → 5002.)
+export const WA_BASE = process.env.WA_ENGINE_URL || 'http://127.0.0.1:5001';
 const TIMEOUT_MS = Number.parseInt(process.env.OTP_SEND_TIMEOUT_MS ?? '6000', 10);
 
 export class OtpChannelError extends Error {
