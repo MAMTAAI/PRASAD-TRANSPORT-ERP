@@ -38,6 +38,14 @@ whatsapp-server/.wwebjs_cache/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+# tasks.json IS THE PIPELINE, NOT A PREFERENCE. It carries the three terminals
+# and the release action — the wiring from this editor to the AWS box — and it
+# holds no secret: npm script names and nothing else. Ignored, it lived on
+# exactly one disk, so a second machine (or this one after a reinstall) came up
+# with no tunnel, no live status and no release anybody could find.
+# settings.json and sftp.json stay ignored on purpose: the first is personal
+# taste, the second names a private key path and is deliberately machine-local.
+!.vscode/tasks.json
 .idea
 .DS_Store
 *.suo

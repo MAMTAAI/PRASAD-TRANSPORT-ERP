@@ -1,0 +1,120 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Terminal A — Claude Code / Dev Server",
+      "detail": "Vite dev server on :5173. Long-running; leave it open.",
+      "type": "shell",
+      "command": "npm run dev",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "group": "erp",
+        "showReuseMessage": false,
+        "clear": false
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Terminal B — AWS Live Tunnel (Prasad box)",
+      "detail": "Supervised SSH tunnel to 65.0.27.161. Local :15432 → production Postgres :5432. Read-only window; deploys go through git.",
+      "type": "shell",
+      "command": "npm run sync:tunnel",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "group": "erp",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Pre-Save Guard Task",
+      "detail": "tsc against tsconfig.app.json — the only config that checks anything.",
+      "type": "shell",
+      "command": "npm run typecheck",
+      "problemMatcher": ["$tsc"],
+      "presentation": {
+        "echo": false,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Terminal C — Production status (live)",
+      "detail": "F: -> git -> AWS, refreshed every 30s: what is committed, what is released, and what the box is ACTUALLY running. Long-running; leave it open. It ran once at folderOpen before, which meant it went stale within minutes while still looking current.",
+      "type": "shell",
+      "command": "npm run ship:watch",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated",
+        "group": "erp",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Release to production (DEPLOYS)",
+      "detail": "Fast-forwards main to upgrade-2026 and pushes it. The AWS box picks it up within 3 minutes, migrates and restarts. Deliberately NOT run on folderOpen: this is the approval gate, and a gate that opens by itself is a door.",
+      "type": "shell",
+      "command": "npm run ship:release",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "group": "erp",
+        "showReuseMessage": false,
+        "clear": true
+      },
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Open Terminals A + B + C",
+      "detail": "Dev server, the AWS tunnel and live production status, side by side in one go.",
+      "dependsOn": [
+        "Terminal A — Claude Code / Dev Server",
+        "Terminal B — AWS Live Tunnel (Prasad box)",
+        "Terminal C — Production status (live)"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    }
+  ]
+}

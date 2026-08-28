@@ -26,6 +26,7 @@
     "system:clean": "node scripts/tempPurge.cjs && node scripts/processCleaner.cjs",
     "system:kill-ghosts": "node scripts/sweepGhostApps.cjs",
     "ship": "node scripts/ship.mjs",
+    "ship:watch": "node scripts/ship.mjs --watch",
     "ship:release": "node scripts/ship.mjs --release",
     "auth:selftest": "node server/lib/apiGuard.selftest.js"
   },

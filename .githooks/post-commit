@@ -25,6 +25,34 @@
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
 [ "$branch" = "main" ] && exit 0
 
+# ── AND PUSH THE WORK BRANCH, SO NOTHING SITS ONLY ON THIS PC ───────────────
+#
+# The blind spot has two halves. The first is believing a commit deployed; the
+# note below answers that. The second is work that never leaves F: at all —
+# `npm run ship` compares remote to remote, so a finished commit sitting
+# unpushed is invisible to the gauge AND to the box, and from the office it
+# reads as the same "we commit and the system never updates".
+#
+# Pushing the WORK branch is not a release and cannot become one: pre-push
+# still refuses main without PRASAD_DEPLOY_APPROVED=1, and that is untouched.
+# The gate stays exactly where it is; what goes away is work stranded on one
+# disk.
+#
+# FOREGROUND, AND LOUD WHEN IT FAILS. The note above says this hook avoids the
+# network because a slow commit is a disabled hook, and that is right about a
+# fetch on every commit. A push of one commit is a second or two, and the
+# alternative — backgrounding it — buys that second by making a failed push
+# silent, which is the exact failure mode this repo keeps getting bitten by.
+# PRASAD_NO_AUTOPUSH=1 turns it off.
+if [ "$PRASAD_NO_AUTOPUSH" != "1" ]; then
+  if git push --quiet origin "$branch" 2>/dev/null; then
+    printf '\n  \033[32m●\033[0m pushed \033[1m%s\033[0m to origin.\n' "$branch"
+  else
+    printf '\n  \033[31m●\033[0m could NOT push %s — it is still only on this PC.\n' "$branch"
+    printf '    \033[2mRetry:\033[0m  git push origin %s\n' "$branch"
+  fi
+fi
+
 git rev-parse --verify --quiet origin/main >/dev/null 2>&1 || exit 0
 
 ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null) || exit 0
