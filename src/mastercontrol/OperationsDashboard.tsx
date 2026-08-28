@@ -25,6 +25,7 @@ import { UnloadingQueue } from './OpsWidgets';
 import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from './FleetProductivity';
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
+import UnloadingActivity from './UnloadingActivity';
 
 // The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
 // these four: it is a real state — a number that has written in and sits on no
@@ -739,6 +740,12 @@ export default function OperationsDashboard({ live, filter }) {
             today's loadings come in" is the same kind of question as "has
             anybody written in". */}
         <LoadingActivity activity={ops?.loading_activity ?? null} offline={offline} />
+
+        {/* AND UNLOADING DIRECTLY UNDER IT, because a trip is the pair and the
+            two questions are asked in the same breath: what came in, and what
+            is still out. The header's "PENDING UNLOADING 137" was the whole of
+            the second answer until now — a number with nothing behind it. */}
+        <UnloadingActivity activity={ops?.unloading_activity ?? null} offline={offline} />
 
         {/* ── CONTACT PICKER ────────────────────────────────────────────────
             PORTALLED, for the same reason the My WhatsApp dialog is: the shell

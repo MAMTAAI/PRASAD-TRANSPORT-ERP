@@ -1533,6 +1533,146 @@ export function registerDashboardRoutes(app) {
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
                  insert_failed: 0, insert_errors: [] } });
 
+    // ── UNLOADING, THE OTHER HALF OF THE TRIP ────────────────────────────────
+    //
+    // Loading had a panel and unloading had a number: "PENDING UNLOADING 137",
+    // with no way to ask what those 137 are or how long they have been that
+    // way. The answer turns out to matter more than the count. Of the 137, 80
+    // were loaded MORE THAN THIRTY DAYS ago and the oldest is 01-04; the newest
+    // unloading recorded anywhere in the table is 30-07. Trucks are not sitting
+    // full for four months — unloading ENTRY stopped, and the trips stayed
+    // IN_TRANSIT because nothing closes them.
+    //
+    // So this panel leads with age, not with a total. A count of 137 reads as
+    // busy; "80 trips over 30 days, 2088 KL" reads as what it is.
+    //
+    // Unscoped, like loading_activity beside it: both answer "what is the state
+    // of the register", not "what is this branch doing".
+    const unloading_activity = await safe(errors, 'unloading_activity', async () => {
+      const { rows } = await query(`
+        WITH t AS (
+          SELECT id, trip_code, vehicle_no, loading_date, unloading_date,
+                 loading_point, unloading_location, consignee_name, product_type,
+                 loaded_qty, unloaded_qty, shortage_qty, rtkm, driver_name, status,
+                 COALESCE(operating_company, '(unassigned)') AS operating_company
+            FROM trips
+        ),
+        pending AS (
+          SELECT *, (CURRENT_DATE - loading_date) AS age_days
+            FROM t WHERE status = 'IN_TRANSIT' AND unloading_date IS NULL
+        ),
+        -- Same fallback the loading week uses: anchor on the last day that had
+        -- an unloading, because a window ending today is empty whenever entry
+        -- has stopped -- and "empty" is exactly the state worth showing clearly.
+        unload_target AS (
+          SELECT COALESCE((SELECT max(unloading_date)::date FROM t WHERE unloading_date IS NOT NULL),
+                          (now() AT TIME ZONE 'Asia/Kolkata')::date) AS day
+        )
+        SELECT
+          (SELECT count(*)::int FROM pending)                              AS pending_count,
+          (SELECT COALESCE(sum(loaded_qty), 0) FROM pending)               AS pending_qty,
+          (SELECT max(unloading_date)::date FROM t)                        AS last_unload_day,
+          (SELECT CURRENT_DATE - max(unloading_date)::date FROM t)         AS days_since_unload,
+          (SELECT day FROM unload_target)                                  AS week_to,
+          ((SELECT day FROM unload_target) - 6)                            AS week_from,
+
+          -- Age buckets. Fixed edges rather than quantiles so the same trip does
+          -- not change bucket because a different one was closed.
+          COALESCE((SELECT json_agg(b ORDER BY b.sort)
+                      FROM (SELECT CASE WHEN age_days <= 2 THEN 1 WHEN age_days <= 7 THEN 2
+                                        WHEN age_days <= 15 THEN 3 WHEN age_days <= 30 THEN 4
+                                        ELSE 5 END AS sort,
+                                   CASE WHEN age_days <= 2 THEN '0-2 din' WHEN age_days <= 7 THEN '3-7 din'
+                                        WHEN age_days <= 15 THEN '8-15 din' WHEN age_days <= 30 THEN '16-30 din'
+                                        ELSE '30+ din' END AS label,
+                                   count(*)::int AS trips,
+                                   COALESCE(sum(loaded_qty), 0) AS qty
+                              FROM pending GROUP BY 1, 2) b), '[]'::json)  AS pending_buckets,
+
+          COALESCE((SELECT json_agg(c ORDER BY c.trips DESC)
+                      FROM (SELECT operating_company AS company, count(*)::int AS trips,
+                                   COALESCE(sum(loaded_qty), 0) AS qty,
+                                   min(loading_date)::date AS oldest,
+                                   max(age_days)::int AS oldest_days
+                              FROM pending GROUP BY 1) c), '[]'::json)     AS pending_by_company,
+
+          -- Oldest first: the top of this list is the work. Capped at 60 — the
+          -- backlog is 137 today and an uncapped agg on a 30s poll is a bill
+          -- nobody agreed to.
+          COALESCE((SELECT json_agg(p ORDER BY p.age_days DESC, p.trip_code)
+                      FROM (SELECT id, trip_code, vehicle_no, loading_date, loading_point,
+                                   unloading_location, consignee_name, product_type,
+                                   loaded_qty, rtkm, driver_name, operating_company, age_days
+                              FROM pending ORDER BY age_days DESC, trip_code LIMIT 60) p),
+                   '[]'::json)                                             AS pending_rows,
+
+          -- The unloading week, on the unloading-date axis.
+          COALESCE((SELECT json_agg(d ORDER BY d.day)
+                      FROM (SELECT g::date AS day, count(x.id)::int AS trips,
+                                   COALESCE(sum(x.unloaded_qty), 0) AS qty,
+                                   COALESCE(sum(x.shortage_qty), 0) AS shortage
+                              FROM unload_target,
+                                   generate_series(unload_target.day - 6, unload_target.day,
+                                                   interval '1 day') g
+                              LEFT JOIN t x ON x.unloading_date::date = g::date
+                             GROUP BY g::date) d), '[]'::json)             AS last7_unloading,
+
+          COALESCE((SELECT json_agg(u ORDER BY u.unloading_date DESC, u.trip_code)
+                      FROM (SELECT x.id, x.trip_code, x.vehicle_no, x.loading_date, x.unloading_date,
+                                   x.loading_point, x.unloading_location, x.consignee_name,
+                                   x.product_type, x.loaded_qty, x.unloaded_qty, x.shortage_qty,
+                                   x.rtkm, x.driver_name, x.operating_company,
+                                   (x.unloading_date - x.loading_date) AS transit_days
+                              FROM t x, unload_target
+                             WHERE x.unloading_date::date
+                                   BETWEEN unload_target.day - 6 AND unload_target.day
+                             ORDER BY x.unloading_date DESC, x.trip_code
+                             LIMIT 200) u), '[]'::json)                    AS week_unloads`);
+
+      const r = rows[0] || {};
+      const mapTrip = (x) => ({
+        id: x.id,
+        trip_code: x.trip_code,
+        vehicle_no: x.vehicle_no,
+        loading_date: x.loading_date,
+        unloading_date: x.unloading_date ?? null,
+        from: x.loading_point,
+        to: x.unloading_location || x.consignee_name,
+        product_type: x.product_type,
+        loaded_qty: num(x.loaded_qty),
+        unloaded_qty: x.unloaded_qty == null ? null : num(x.unloaded_qty),
+        shortage_qty: x.shortage_qty == null ? null : num(x.shortage_qty),
+        rtkm: x.rtkm == null ? null : num(x.rtkm),
+        driver_name: x.driver_name,
+        company: x.operating_company,
+        age_days: x.age_days == null ? null : num(x.age_days),
+        transit_days: x.transit_days == null ? null : num(x.transit_days),
+      });
+
+      return {
+        pending_count: num(r.pending_count),
+        pending_qty: num(r.pending_qty),
+        last_unload_day: r.last_unload_day ?? null,
+        days_since_unload: r.days_since_unload == null ? null : num(r.days_since_unload),
+        week_from: r.week_from ?? null,
+        week_to: r.week_to ?? null,
+        pending_buckets: (r.pending_buckets ?? []).map((b) => ({
+          label: b.label, trips: num(b.trips), qty: num(b.qty),
+        })),
+        pending_by_company: (r.pending_by_company ?? []).map((c) => ({
+          company: c.company, trips: num(c.trips), qty: num(c.qty),
+          oldest: c.oldest ?? null, oldest_days: num(c.oldest_days),
+        })),
+        pending_rows: (r.pending_rows ?? []).map(mapTrip),
+        last7_unloading: (r.last7_unloading ?? []).map((d) => ({
+          day: d.day, trips: num(d.trips), qty: num(d.qty), shortage: num(d.shortage),
+        })),
+        week_unloads: (r.week_unloads ?? []).map(mapTrip),
+      };
+    }, { pending_count: 0, pending_qty: 0, last_unload_day: null, days_since_unload: null,
+         week_from: null, week_to: null, pending_buckets: [], pending_by_company: [],
+         pending_rows: [], last7_unloading: [], week_unloads: [] });
+
     return {
       ok: true,
       generated_at: new Date().toISOString(),
@@ -1542,7 +1682,7 @@ export function registerDashboardRoutes(app) {
       filter: F,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
              vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
-             loading_activity },
+             loading_activity, unloading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.
