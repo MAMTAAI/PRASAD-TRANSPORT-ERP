@@ -99,12 +99,17 @@ export async function registerMastersRoutes(app) {
                       v.puc_expiry, v.tax_expiry, v.national_permit_expiry) AS next_expiry,
                 COALESCE(t.trips, 0)::int          AS trip_count,
                 COALESCE(t.last_trip, NULL)        AS last_trip_date,
+                COALESCE(dc.docs, 0)::int          AS doc_count,
+                COALESCE(dc.files, 0)::int         AS doc_file_count,
                 a.driver_name                      AS linked_driver,
                 a.driver_id                        AS linked_driver_id
            FROM vehicles v
            LEFT JOIN LATERAL (
              SELECT count(*) trips, max(loading_date) last_trip
                FROM trips WHERE vehicle_id = v.id) t ON true
+           LEFT JOIN LATERAL (
+             SELECT count(*) docs, count(document_url) files
+               FROM vehicle_documents WHERE vehicle_id = v.id) dc ON true
            LEFT JOIN LATERAL (
              SELECT d.name AS driver_name, d.id AS driver_id
                FROM vehicle_assignments va JOIN drivers d ON d.id = va.driver_id

@@ -672,7 +672,15 @@ export default function VehicleDocs() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: 'clamp(14px, 2.5vw, 25px)' }}>
           {filteredVehicles.map((v) => {
-            const updatedDocs = v.documents ? Object.keys(v.documents).length : 0;
+            // THE BADGE COUNTED A FIELD THAT DOES NOT EXIST.
+            //
+            // `v.documents` was the Firestore nested map. PostgreSQL keeps
+            // documents in their own table and the vehicle row has never
+            // carried it, so this read undefined and every folder in the fleet
+            // said "0 Docs Updated" — before the restore and after it, on all
+            // 49 lorries. It was never a stale count; it was the wrong source.
+            // doc_count now arrives with the row, like trip_count next to it.
+            const updatedDocs = Number(v.doc_count ?? (v.documents ? Object.keys(v.documents).length : 0)) || 0;
             const statusColor = updatedDocs >= 10 ? '#10b981' : updatedDocs > 0 ? '#f59e0b' : '#ef4444';
 
             return (
