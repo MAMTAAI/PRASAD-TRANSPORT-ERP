@@ -312,13 +312,61 @@ function getSession(id) { return sessions.get(id || COMPANY_SESSION) || null; }
  *  inside it) must not stop the reconnect — the clientId still moves us to a
  *  clean directory on the next launch, which is the whole reason sessions are
  *  named rather than sharing LocalAuth's default. */
-function wipeAuthProfile(s, why) {
-    const dir = path.join(__dirname, '.wwebjs_auth', `session-${s.authId}`);
+const AUTH_ROOT = path.join(__dirname, '.wwebjs_auth');
+
+/** Written into a profile the moment its session reaches `ready`. It is the
+ *  only durable way to tell, from disk alone, a profile that HAS linked from
+ *  one that merely got as far as drawing a QR — and that distinction is what
+ *  decides whether a leftover directory is worth resuming or is a landmine. */
+const LINKED_MARKER = '.prasad-linked';
+const profileDir = (authId) => path.join(AUTH_ROOT, `session-${authId}`);
+
+function markProfileLinked(s) {
     try {
-        fs.rmSync(dir, { recursive: true, force: true });
+        fs.writeFileSync(path.join(profileDir(s.authId), LINKED_MARKER), new Date().toISOString());
+    } catch (e) {
+        // Not fatal: the cost is one unnecessary re-scan after a restart, which
+        // is a great deal better than refusing to come up.
+        console.error(`[${s.id}] Could not mark profile linked:`, e.message);
+    }
+}
+
+function wipeAuthProfile(s, why) {
+    try {
+        fs.rmSync(profileDir(s.authId), { recursive: true, force: true });
         console.log(`🧹 [${s.id}] Cleared auth profile (${why}) — next link starts from a clean scan.`);
     } catch (e) {
         console.error(`[${s.id}] Could not clear auth profile (${why}):`, e.message);
+    }
+}
+
+/** A RESTART IS NOT A REAP, AND THE PROFILES OUTLIVED BOTH.
+ *
+ *  The reaper clears a staff profile that never linked, because a half-written
+ *  one is what the next scan collides with — that is the LOGOUT loop. But a
+ *  `pm2 restart` empties the session registry without reaping anything, so a
+ *  profile abandoned mid-scan simply survives, and the next press of "jodein"
+ *  loads it and walks into the same wall. Seen on the box at 08:28: the engine
+ *  came back clean, and session-user-u8f51… was still sitting there from the
+ *  attempt before the restart.
+ *
+ *  Company profiles are never touched. Staff profiles that DID link keep their
+ *  marker and are left alone, so a linked staff member survives a restart
+ *  without re-scanning — which is the whole reason the reaper preserves them. */
+function sweepUnlinkedProfiles() {
+    let entries;
+    try { entries = fs.readdirSync(AUTH_ROOT, { withFileTypes: true }); }
+    catch { return; }                                  // nothing written yet
+    for (const e of entries) {
+        if (!e.isDirectory() || !e.name.startsWith('session-user-')) continue;
+        const dir = path.join(AUTH_ROOT, e.name);
+        if (fs.existsSync(path.join(dir, LINKED_MARKER))) continue;
+        try {
+            fs.rmSync(dir, { recursive: true, force: true });
+            console.log(`🧹 Boot sweep: removed ${e.name} — it never finished linking.`);
+        } catch (err) {
+            console.error(`Boot sweep could not remove ${e.name}:`, err.message);
+        }
     }
 }
 
@@ -660,6 +708,9 @@ function wireSession(s) {
         s.pairCooldownUntil = 0;
         s.pairingError = null;
         clearPairingRefresh(s);
+        // Stamped here, at the only moment we know for certain this profile
+        // holds a real credential — that stamp is what the boot sweep reads.
+        if (s.kind === 'user') markProfileLinked(s);
         s.status = 'ONLINE';
         s.reconnectAttempts = 0;
         s.lastHeartbeat = new Date().toISOString();
@@ -815,6 +866,8 @@ setInterval(() => {
 // Node. The HTTP server on :5001 died with it, which is why the CRM sat on
 // "server connecting..." forever: it was polling a process that no longer
 // existed.
+sweepUnlinkedProfiles();
+
 const companySession = newSession(COMPANY_SESSION);
 companySession.client.initialize().catch((e) => {
     companySession.lastError = e.message;
