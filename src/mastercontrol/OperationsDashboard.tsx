@@ -24,6 +24,7 @@ import LiveFleetMap from './LiveFleetMap';
 import { UnloadingQueue } from './OpsWidgets';
 import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from './FleetProductivity';
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
+import LoadingActivity from './LoadingActivity';
 
 // The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
 // these four: it is a real state — a number that has written in and sits on no
@@ -462,7 +463,11 @@ export default function OperationsDashboard({ live, filter }) {
       </div>
 
       {/* ══════════════ RIGHT PANEL — LIVE DISPATCH CHAT ══════════════ */}
-      <div className="lg:col-span-3 min-w-0">
+      {/* The right column is a STACK now, not a single panel. `gap-4` matches
+          the left column's rhythm, and the chat panel keeps its own 500px cap
+          while this wrapper stays unbounded — so the loading widget below it
+          adds its own height instead of squeezing the conversation. */}
+      <div className="lg:col-span-3 min-w-0 flex flex-col gap-4">
         {/* HEIGHT-CAPPED, AND THE CAP IS THE POINT.
             This panel had `lg:h-full` and nothing else, so it grew to whatever
             the grid row was and then grew the row: a chat list capped at 240px,
@@ -728,6 +733,12 @@ export default function OperationsDashboard({ live, filter }) {
             </div>
           </div>
         </GlassPanel>
+
+        {/* DIRECTLY BELOW THE CHAT, WHICH IS WHERE IT WAS ASKED FOR AND ALSO
+            WHERE IT BELONGS: dispatch watches this column all day, and "did
+            today's loadings come in" is the same kind of question as "has
+            anybody written in". */}
+        <LoadingActivity activity={ops?.loading_activity ?? null} offline={offline} />
 
         {/* ── CONTACT PICKER ────────────────────────────────────────────────
             PORTALLED, for the same reason the My WhatsApp dialog is: the shell

@@ -1233,6 +1233,123 @@ export function registerDashboardRoutes(app) {
       }));
     }, []);
 
+    // ── TODAY'S LOADING ACTIVITY — WHERE EACH ROW CAME FROM ─────────────────
+    //
+    // Two ways a loading reaches this ERP: the IOCL AC5 mailbox sync parses an
+    // invoice and inserts it, or somebody types it into the Loading Register.
+    // The register shows them side by side and identical, so nobody can tell
+    // which half of the day's work the machine did and which half a person did —
+    // and, more usefully, nobody can tell when the machine has QUIETLY STOPPED.
+    //
+    // THE SPLIT IS `iocl_invoice_no`, AND IT IS NOT A GUESS. The sync writes it
+    // on every row it creates (tools/iocl_recon/iocl_ac5_loading.py). Measured
+    // on production: 639 trips carry one, 379 do not, and the two sets do not
+    // overlap. `submitted_by` would have been the natural column and is NULL on
+    // all 1018 rows — it has never been written — so it is not used here rather
+    // than being used and quietly meaning nothing.
+    //
+    // DATED IN IST, DELIBERATELY. This database runs in UTC, so `CURRENT_DATE`
+    // is the UTC day: between midnight and 05:30 India time it names YESTERDAY,
+    // and a panel titled "today" would spend every night showing the wrong one.
+    //
+    // BY created_at, NOT loading_date. The question is what the ERP took in
+    // today, not which trucks loaded today — a mailbox sync routinely imports an
+    // invoice days after the loading it describes. Each row still carries its
+    // loading date so the difference is visible rather than hidden.
+    //
+    // AND SPLIT BY OPERATING COMPANY, BECAUSE THREE OF THEM SHARE THIS REGISTER.
+    // Measured on production: M/S PRASAD TRANSPORT 746 trips, M/S JAISWAL
+    // ENTERPRISE 188, M/S GAUTAM PRASAD 84. The two mailboxes feed the first
+    // two (PT##### and JE##### series); the third arrives the same ways and had
+    // nowhere on this dashboard that named it.
+    //
+    // A DAY THAT IS EMPTY STILL HAS TO SAY SOMETHING TRUE. Today is genuinely
+    // empty — the newest row in the whole table is 21-08, seven days back — and
+    // a panel that renders nothing on an empty day is indistinguishable from one
+    // that failed to load, which is the fault this dashboard's honesty contract
+    // exists to prevent. So the last day that DID have entries is returned
+    // alongside, and the panel falls back to showing it under its own date.
+    // That is also what makes a stopped mailbox sync visible instead of silent.
+    const loading_activity = await safe(errors, 'loading_activity', async () => {
+      const SPLIT = `CASE WHEN iocl_invoice_no IS NOT NULL THEN 'EMAIL' ELSE 'MANUAL' END`;
+      const IST_DAY = `(created_at AT TIME ZONE 'Asia/Kolkata')::date`;
+      const { rows } = await query(`
+        WITH tagged AS (
+          SELECT id, trip_code, vehicle_no, product_type, loaded_qty, loading_date,
+                 customer_name, loading_point, iocl_invoice_no, created_at,
+                 COALESCE(operating_company, '(unassigned)') AS operating_company,
+                 ${SPLIT} AS source,
+                 ${IST_DAY} AS ist_day
+            FROM trips
+        ),
+        -- The day the panel is ABOUT: today when it has rows, otherwise the most
+        -- recent day that does. Chosen in SQL so the UI never has to make a
+        -- second request to find out which day it is looking at.
+        target AS (
+          SELECT COALESCE(
+            (SELECT ist_day FROM tagged
+              WHERE ist_day = (now() AT TIME ZONE 'Asia/Kolkata')::date LIMIT 1),
+            (SELECT max(ist_day) FROM tagged)
+          ) AS day
+        ),
+        day_rows AS (
+          SELECT t.* FROM tagged t, target WHERE t.ist_day = target.day
+        )
+        SELECT
+          (SELECT day FROM target)                                        AS day,
+          ((SELECT day FROM target) = (now() AT TIME ZONE 'Asia/Kolkata')::date) AS is_today,
+          (SELECT count(*)::int FROM day_rows WHERE source = 'EMAIL')     AS email_count,
+          (SELECT count(*)::int FROM day_rows WHERE source = 'MANUAL')    AS manual_count,
+          (SELECT COALESCE(sum(loaded_qty), 0) FROM day_rows WHERE source = 'EMAIL')  AS email_qty,
+          (SELECT COALESCE(sum(loaded_qty), 0) FROM day_rows WHERE source = 'MANUAL') AS manual_qty,
+          (SELECT max(created_at) FROM tagged)                            AS last_entry_at,
+          (SELECT count(*)::int FROM tagged
+            WHERE created_at > now() - interval '7 days')                 AS last_7d_count,
+          COALESCE((SELECT json_agg(c ORDER BY c.trips DESC)
+                      FROM (SELECT operating_company AS company,
+                                   count(*)::int AS trips,
+                                   count(*) FILTER (WHERE source = 'EMAIL')::int  AS email_count,
+                                   count(*) FILTER (WHERE source = 'MANUAL')::int AS manual_count,
+                                   COALESCE(sum(loaded_qty), 0) AS qty
+                              FROM day_rows GROUP BY 1) c), '[]'::json)   AS by_company,
+          COALESCE((SELECT json_agg(r ORDER BY r.created_at DESC)
+                      FROM (SELECT * FROM day_rows ORDER BY created_at DESC LIMIT 40) r),
+                   '[]'::json)                                            AS rows`);
+      const r = rows[0] || {};
+      return {
+        day: r.day ?? null,
+        is_today: !!r.is_today,
+        email_count: num(r.email_count),
+        manual_count: num(r.manual_count),
+        email_qty: num(r.email_qty),
+        manual_qty: num(r.manual_qty),
+        last_entry_at: r.last_entry_at ?? null,
+        last_7d_count: num(r.last_7d_count),
+        by_company: (r.by_company ?? []).map((c) => ({
+          company: c.company,
+          trips: num(c.trips),
+          email_count: num(c.email_count),
+          manual_count: num(c.manual_count),
+          qty: num(c.qty),
+        })),
+        rows: (r.rows ?? []).map((x) => ({
+          id: x.id,
+          trip_code: x.trip_code,
+          vehicle_no: x.vehicle_no,
+          product_type: x.product_type,
+          loaded_qty: num(x.loaded_qty),
+          loading_date: x.loading_date,
+          customer_name: x.customer_name,
+          loading_point: x.loading_point,
+          company: x.operating_company,
+          invoice_no: x.iocl_invoice_no,
+          created_at: x.created_at,
+          source: x.source,
+        })),
+      };
+    }, { day: null, is_today: false, email_count: 0, manual_count: 0, email_qty: 0,
+         manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [] });
+
     return {
       ok: true,
       generated_at: new Date().toISOString(),
@@ -1241,7 +1358,8 @@ export function registerDashboardRoutes(app) {
       // rather than with what the user believes they selected.
       filter: F,
       ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
-             vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats },
+             vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
+             loading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },
       // Non-empty means a card is showing a fallback, not a real figure.
