@@ -18,6 +18,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { google } = require('googleapis');
 const stream = require('stream');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
 
@@ -282,6 +283,38 @@ function newSession(id) {
 
 function getSession(id) { return sessions.get(id || COMPANY_SESSION) || null; }
 
+/** THROW AWAY A DEAD AUTH PROFILE.
+ *
+ *  LocalAuth writes to <dataPath>/session-<clientId>. Two states put a profile
+ *  in there that can never link again, and reusing either one produces the same
+ *  loop: a QR appears, the phone scans it, WhatsApp answers LOGOUT, the client
+ *  reconnects with the same dead credentials and offers another QR. Observed on
+ *  the box 28-08 — the owner scanned, the phone said "Logging in…", and the
+ *  screen went back to a fresh QR every twenty seconds.
+ *
+ *  1. A LOGOUT/UNPAIRED disconnect. WhatsApp is saying the registration is
+ *     gone. Keeping the folder keeps a credential the server has just been told
+ *     is void.
+ *  2. A session reaped before it ever linked. The idle reaper's note says
+ *     destroy() "LEAVES the auth profile on disk, so the next link resumes
+ *     without another QR scan" — true, and right, for a session that DID link.
+ *     For one that never did there is nothing to resume; what is left is a
+ *     half-written profile, and it is what the next scan collides with.
+ *
+ *  Best-effort by design. A folder we cannot delete (Windows keeps handles open
+ *  inside it) must not stop the reconnect — the clientId still moves us to a
+ *  clean directory on the next launch, which is the whole reason sessions are
+ *  named rather than sharing LocalAuth's default. */
+function wipeAuthProfile(s, why) {
+    const dir = path.join(__dirname, '.wwebjs_auth', `session-${s.authId}`);
+    try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        console.log(`🧹 [${s.id}] Cleared auth profile (${why}) — next link starts from a clean scan.`);
+    } catch (e) {
+        console.error(`[${s.id}] Could not clear auth profile (${why}):`, e.message);
+    }
+}
+
 /** The company session always exists; a staff one is created on demand. */
 function ensureSession(id) {
     const existing = sessions.get(id);
@@ -306,6 +339,12 @@ function scheduleReinit(s, reason) {
     console.log(`🔁 [${s.id}] Reconnect #${s.reconnectAttempts} in ${delay / 1000}s (${reason})`);
     setTimeout(async () => {
         try { await s.client.destroy().catch(() => {}); } catch (e) {}
+        // AFTER destroy, BEFORE initialize — the only safe window there is.
+        // Deleting the folder while Chromium still has it open lets the
+        // shutdown flush session state straight back onto what we just
+        // removed, which puts the dead credential back and reopens the exact
+        // loop this is here to end.
+        if (s.wipeOnReinit) { s.wipeOnReinit = false; wipeAuthProfile(s, 'dead credential'); }
         // initialize() is async: a try/catch around the call catches nothing,
         // because the failure arrives as a rejected promise long after it
         // returns. That is how a browser crash used to kill the whole engine.
@@ -526,7 +565,33 @@ function wireSession(s) {
         s.qr = '';
         console.log(`❌ [${s.id}] Disconnected! Reason:`, reason);
         logAction('System', `WhatsApp ${s.id} disconnected: ${reason}`);
-        scheduleReinit(s, 'disconnected');
+
+        // LOGOUT IS NOT A NETWORK BLIP, AND RECONNECTING THROUGH IT IS A LOOP.
+        //
+        // These two reasons mean WhatsApp has voided the registration: the
+        // phone unlinked the device, or the stored credential collided with a
+        // new scan. Reconnecting reuses the same folder, so the client comes
+        // back up, shows a QR, the person scans it, and WhatsApp answers LOGOUT
+        // again. That is precisely what the box logged this morning — a scan at
+        // 02:04:17, LOGOUT in the same second, and a fresh QR every twenty
+        // seconds from then on, with the phone stuck on "Logging in…".
+        //
+        // Clearing the profile first costs a scan and is the only thing that
+        // ends it. Said out loud for the company line, because that one is the
+        // OTP channel and somebody has to go and scan it.
+        const dead = ['LOGOUT', 'UNPAIRED', 'UNPAIRED_IDLE'].includes(String(reason).toUpperCase());
+        if (dead) {
+            s.pairingCode = '';
+            s.pairAsked = false;
+            s.pairCooldownUntil = 0;
+            // Flagged rather than done here: scheduleReinit destroys the client
+            // first, and a wipe before that shutdown gets undone by it.
+            s.wipeOnReinit = true;
+            if (isCompany(s.id)) {
+                logAction('System', 'COMPANY WhatsApp was logged out — a QR re-scan is needed before OTP works again.');
+            }
+        }
+        scheduleReinit(s, dead ? `disconnected ${reason} (profile cleared)` : 'disconnected');
     });
 
     // 🤖 Incoming: log to Trip Chat history, and (company only) auto-reply.
@@ -609,7 +674,20 @@ setInterval(() => {
         const limit = s.connected ? USER_SESSION_IDLE_MS : PENDING_LINK_TIMEOUT_MS;
         if (idle < limit) continue;
         console.log(`💤 [${s.id}] ${s.connected ? 'idle' : 'never linked'} for ${Math.round(idle / 60000)}m — stopping session to free memory`);
-        s.client.destroy().catch(() => {});
+        // KEEP THE PROFILE ONLY IF THERE IS SOMETHING TO RESUME. The note above
+        // is right that leaving it lets a LINKED session come back without
+        // another scan. A session that never linked has no credential to keep —
+        // only the half-written directory its abandoned launch left behind, and
+        // that is what the NEXT scan collides with. Two of those were sitting on
+        // this box (reaped 00:44 and 01:38) when the 02:04 scan was answered
+        // with LOGOUT.
+        //
+        // Chained after destroy for the same reason the reinit path is: the
+        // shutdown writes, so wiping first only means wiping twice.
+        const neverLinked = !s.connected;
+        s.client.destroy()
+            .catch(() => {})
+            .then(() => { if (neverLinked) wipeAuthProfile(s, 'reaped before it ever linked'); });
         sessions.delete(s.id);
     }
 }, 2 * 60 * 1000);
@@ -632,18 +710,33 @@ companySession.client.initialize().catch((e) => {
 // down with it. A dead engine that can still answer /api/status with OFFLINE is
 // recoverable from the UI; a dead process is not.
 //
-// These are process-wide and cannot tell which session threw, so they recover
-// the company one — the session whose death actually stops the firm working.
+// These are process-wide and CANNOT TELL WHICH SESSION THREW. They used to
+// answer that by restarting the company one regardless — reasonable when the
+// company line was the only session there was, and actively harmful now.
+//
+// Measured on the box 28-08. A staff member's link attempt failed, its teardown
+// rejected, and this handler took the COMPANY session down with it:
+//
+//     02:04:17  ❌ [u8f51…] Disconnected! Reason: LOGOUT
+//     02:04:22  🔁 [company] Reconnect #1 in 3s (unhandled rejection)
+//     02:04:43  ✅ [company] WhatsApp ONLINE & Ready!
+//
+// Twenty-six seconds with no OTP channel and no dispatch, caused by somebody
+// else's failed QR scan. Every driver login goes through that line.
+//
+// So these now RECORD and stop. Recovery belongs to the watchdog heartbeat 45
+// seconds below, which probes each session's real state with getState() and
+// restarts the one that is actually dead — evidence rather than a guess. The
+// original worry stands and is still handled: the process stays up, and a live
+// engine answering OFFLINE is recoverable from the UI where a dead one is not.
 process.on('unhandledRejection', (err) => {
     const msg = err && err.message ? err.message : String(err);
     companySession.lastError = msg;
-    console.error('⚠  Unhandled rejection (engine stays up):', msg);
-    if (companySession.status !== 'WAITING_FOR_SCAN') { companySession.connected = false; scheduleReinit(companySession, 'unhandled rejection'); }
+    console.error('⚠  Unhandled rejection (engine stays up, heartbeat will recover any dead session):', msg);
 });
 process.on('uncaughtException', (err) => {
     companySession.lastError = err.message;
-    console.error('⚠  Uncaught exception (engine stays up):', err.message);
-    if (companySession.status !== 'WAITING_FOR_SCAN') { companySession.connected = false; scheduleReinit(companySession, 'uncaught exception'); }
+    console.error('⚠  Uncaught exception (engine stays up, heartbeat will recover any dead session):', err.message);
 });
 
 // ==========================================
