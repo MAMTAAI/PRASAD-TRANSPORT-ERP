@@ -184,9 +184,17 @@ def main(argv: list[str]) -> int:
     print(f"mode: {'APPLY' if args.apply else 'DRY RUN - nothing will be inserted'}\n")
 
     args.ac5_dir.mkdir(parents=True, exist_ok=True)
+    # THE RETURN VALUE USED TO BE THROWN AWAY, AND IT IS THE MOST IMPORTANT
+    # THING THIS FUNCTION KNOWS. fetch() already detects a mailbox whose OAuth
+    # token has expired -- it prints "reauth_required" and the invalid_grant
+    # detail, loudly, for a person watching a terminal. Nobody watches a cron.
+    # The summary never reached RESULT_JSON, so the scheduler recorded
+    # event:"ok" with inserted:0 while BOTH mailboxes were dead, and the loading
+    # register stood still from 21-08 to 28-08 with every health check green.
+    mailboxes = {}
     if not args.no_fetch:
         print("=== fetch")
-        fetch(args.window_from, args.window_to, args.ac5_dir, args.limit)
+        mailboxes = fetch(args.window_from, args.window_to, args.ac5_dir, args.limit) or {}
         print()
 
     pdfs = sorted(p for p in args.ac5_dir.rglob("*.pdf")) + \
@@ -307,6 +315,12 @@ def main(argv: list[str]) -> int:
 
     # One machine-readable line at the end, so the API parses a value instead of
     # scraping prose that was written for a person to read.
+    # A mailbox is "healthy" only when it actually answered. no_token and
+    # reauth_required both mean zero mail was read, and zero mail read is not
+    # the same fact as zero new invoices -- telling them apart is the whole
+    # point of carrying this out of fetch().
+    unhealthy = {k: v for k, v in mailboxes.items()
+                 if (v or {}).get("status") not in ("ok", None)}
     print("RESULT_JSON " + json.dumps({
         "inserted": inserted_count,
         "duplicates": len(buckets["DUP_INVOICE"]) + len(buckets["DUP_INVOICE_VEHICLE"]),
@@ -315,6 +329,9 @@ def main(argv: list[str]) -> int:
         "rejected": len(rejected),
         "applied": bool(args.apply),
         "window": [args.window_from.isoformat(), args.window_to.isoformat()],
+        "mailboxes": mailboxes,
+        "mailboxes_failed": sorted(unhealthy.keys()),
+        "downloaded": sum(int((v or {}).get("downloaded") or 0) for v in mailboxes.values()),
     }))
     return 0
 

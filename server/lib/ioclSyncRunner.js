@@ -43,6 +43,10 @@ const LOG_FILE = path.join(LOG_DIR, 'cron_sync.log');
 const RUN_TIMEOUT_MS = Number(process.env.IOCL_SYNC_TIMEOUT_MS || 15 * 60 * 1000);
 
 let running = null;   // { startedAt, window, trigger }
+// The last COMPLETED run, kept in memory so /sync-status can answer "is the
+// mailbox actually being read" and not only "is something running right now".
+// The second question is the one that went unasked for a week.
+let lastRun = null;
 
 export function syncState() {
   return {
@@ -50,6 +54,7 @@ export function syncState() {
     started_at: running?.startedAt ?? null,
     window: running?.window ?? null,
     trigger: running?.trigger ?? null,
+    last_run: lastRun,
   };
 }
 
@@ -156,11 +161,39 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       }
     }
 
+    // A DEAD MAILBOX IS NOT AN "ok" RUN, AND CALLING IT ONE COST A WEEK.
+    //
+    // Both Gmail OAuth tokens expired on or before 21-08. Every tick after that
+    // read zero mail and logged event:"ok" with inserted:0 — which is exactly
+    // what a genuinely quiet day looks like. The register stood still for seven
+    // days, the API reported itself healthy throughout, and the failure was
+    // visible only in stdout nobody was reading.
+    //
+    // The importer now carries each mailbox's status out in RESULT_JSON, so the
+    // run is named for what it was. `degraded` is still a completed run — the
+    // invoices already on disk were parsed and filed — but it is a completed
+    // run over a mailbox that answered nothing, and it says so.
+    const failed = summary.mailboxes_failed || [];
+    if (failed.length) {
+      logLine({
+        event: 'mailbox_unavailable', trigger, mailboxes: failed,
+        detail: Object.fromEntries(failed.map((k) => [k, (summary.mailboxes || {})[k]?.reason || (summary.mailboxes || {})[k]?.status])),
+      });
+    }
+    lastRun = {
+      at: new Date().toISOString(), trigger, seconds: secs,
+      inserted: summary.inserted, downloaded: summary.downloaded ?? null,
+      mailboxes_failed: failed,
+      mailboxes: summary.mailboxes || {},
+    };
+
     logLine({
-      event: 'ok', trigger, seconds: secs, enrich,
+      event: failed.length ? 'degraded' : 'ok', trigger, seconds: secs, enrich,
       inserted: summary.inserted, duplicates: summary.duplicates,
       held_for_review: summary.held_for_review, parsed: summary.parsed,
       rejected: summary.rejected, kl_imported: kl,
+      downloaded: summary.downloaded ?? null,
+      mailboxes_failed: failed,
       window: summary.window,
     });
     return { ...summary, seconds: secs, kl_imported: kl, enrich };

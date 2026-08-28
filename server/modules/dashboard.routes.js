@@ -20,6 +20,7 @@ import { requireAdminRole } from './auth.routes.js';
 import * as otpChannel from '../lib/otpChannel.js';
 import { periodBounds, previousOf, PERIODS } from '../lib/periods.js';
 import { DIRECTORY_CTE } from '../lib/contactDirectory.js';
+import { syncState } from '../lib/ioclSyncRunner.js';
 
 const num = (v) => (v == null ? 0 : Number(v));
 
@@ -1314,17 +1315,69 @@ export function registerDashboardRoutes(app) {
                               FROM day_rows GROUP BY 1) c), '[]'::json)   AS by_company,
           COALESCE((SELECT json_agg(r ORDER BY r.created_at DESC)
                       FROM (SELECT * FROM day_rows ORDER BY created_at DESC LIMIT 40) r),
-                   '[]'::json)                                            AS rows`);
+                   '[]'::json)                                            AS rows,
+          -- THE LAST SEVEN DAYS, WITH THE EMPTY ONES STILL IN IT.
+          --
+          -- generate_series is what puts a zero row on a day nothing came in.
+          -- Aggregating the trips table alone would simply omit those days, and
+          -- a chart that silently skips its empty days is a chart that hides the
+          -- exact thing this panel exists to show — the week the sync stopped
+          -- would render as an unbroken line of busy days.
+          COALESCE((SELECT json_agg(d ORDER BY d.day)
+                      FROM (
+                        SELECT g::date AS day,
+                               count(t.id) FILTER (WHERE t.source = 'EMAIL')::int  AS email_count,
+                               count(t.id) FILTER (WHERE t.source = 'MANUAL')::int AS manual_count,
+                               COALESCE(sum(t.loaded_qty) FILTER (WHERE t.source = 'EMAIL'), 0)  AS email_qty,
+                               COALESCE(sum(t.loaded_qty) FILTER (WHERE t.source = 'MANUAL'), 0) AS manual_qty,
+                               COALESCE(json_agg(DISTINCT t.operating_company)
+                                        FILTER (WHERE t.id IS NOT NULL), '[]'::json) AS companies
+                          FROM generate_series(
+                                 (now() AT TIME ZONE 'Asia/Kolkata')::date - 6,
+                                 (now() AT TIME ZONE 'Asia/Kolkata')::date,
+                                 interval '1 day') g
+                          LEFT JOIN tagged t ON t.ist_day = g::date
+                         GROUP BY g::date) d), '[]'::json)                 AS last7`);
       const r = rows[0] || {};
+      // MAILBOX HEALTH TRAVELS WITH THE COUNTS IT EXPLAINS.
+      //
+      // "0 auto entries today" has two meanings and the panel cannot tell them
+      // apart on its own: a quiet day, or a mailbox that has not been readable
+      // since 21-08 because its OAuth token expired. Both tokens had. The
+      // counts and the reason belong in the same payload, on the same screen,
+      // or the reason is somewhere nobody looks.
+      //
+      // In memory, so this costs nothing on a dashboard polled every 30s. It is
+      // null until the first sync tick after an API restart, and the UI says
+      // nothing rather than claiming health it has not checked.
+      const sync = syncState();
+      const failedBoxes = sync?.last_run?.mailboxes_failed ?? [];
       return {
         day: r.day ?? null,
         is_today: !!r.is_today,
+        sync: {
+          checked_at: sync?.last_run?.at ?? null,
+          running: !!sync?.running,
+          downloaded: sync?.last_run?.downloaded ?? null,
+          mailboxes_failed: failedBoxes,
+          mailbox_detail: failedBoxes.length
+            ? Object.fromEntries(failedBoxes.map((k) => [k, sync.last_run.mailboxes?.[k]?.status ?? 'unavailable']))
+            : {},
+        },
         email_count: num(r.email_count),
         manual_count: num(r.manual_count),
         email_qty: num(r.email_qty),
         manual_qty: num(r.manual_qty),
         last_entry_at: r.last_entry_at ?? null,
         last_7d_count: num(r.last_7d_count),
+        last7: (r.last7 ?? []).map((d) => ({
+          day: d.day,
+          email_count: num(d.email_count),
+          manual_count: num(d.manual_count),
+          email_qty: num(d.email_qty),
+          manual_qty: num(d.manual_qty),
+          companies: d.companies ?? [],
+        })),
         by_company: (r.by_company ?? []).map((c) => ({
           company: c.company,
           trips: num(c.trips),
@@ -1348,7 +1401,8 @@ export function registerDashboardRoutes(app) {
         })),
       };
     }, { day: null, is_today: false, email_count: 0, manual_count: 0, email_qty: 0,
-         manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [] });
+         manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [], last7: [],
+         sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {} } });
 
     return {
       ok: true,
