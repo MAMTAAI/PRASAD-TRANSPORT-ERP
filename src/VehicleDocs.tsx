@@ -236,6 +236,22 @@ export default function VehicleDocs() {
     setScannedAIData(null);
   };
 
+  // ── IS THIS FEE BEING PAID, OR MERELY REDISPLAYED? ─────────────────────
+  //
+  // docsByType is what the server holds; formData is the operator's edited
+  // copy. A fee that came back from the database has already been paid and
+  // already been accounted for — reopening the tab and pressing Save must not
+  // post it a second time. Only a fee that DIFFERS from the stored one is a
+  // payment being made now.
+  //
+  // This matters because the 2026-08-28 restore filed 79 documents carrying a
+  // fee from the old Firestore system with no voucher_id — that money was
+  // posted in the old books. Keying off voucher_id alone would have called
+  // every one of them an unpaid fee and offered to post it a second time.
+  const storedAmount = parseFloat(docsByType?.[activeTab?.id]?.amount || '0') || 0;
+  const enteredAmount = parseFloat(formData.amount || '0') || 0;
+  const feeIsNew = enteredAmount > 0 && enteredAmount !== storedAmount;
+
   const handleInputChange = (e: any) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
@@ -358,7 +374,8 @@ export default function VehicleDocs() {
       const amount = parseFloat(formData.amount || '0') || 0;
       // A fee moves real money. The account is the operator's choice — this screen
       // refuses to guess one, and the server refuses the request without it.
-      if (amount > 0 && !payAccount) {
+      // Only a NEW fee needs an account named; see feeIsNew above.
+      if (feeIsNew && !payAccount) {
         setSaving(false);
         return alert('⚠️ This document carries a fee of ₹' + amount.toLocaleString('en-IN')
           + '.\n\nSelect the bank or cash account it was paid from — the entry posts to the ledger and no account is assumed for you.');
@@ -378,7 +395,12 @@ export default function VehicleDocs() {
           amount: amount > 0 ? amount : null,
           payment_mode: formData.payment_mode || null,
           document_url: formData.document_file || null,
-          ...(amount > 0 ? { account: payAccount } : {}),
+          // post_to_ledger=false is what keeps a redisplayed fee out of the
+          // books. The amount still saves — it is part of the document's
+          // record — it just does not raise a second voucher for money
+          // that was already spent.
+          post_to_ledger: feeIsNew,
+          ...(feeIsNew ? { account: payAccount } : {}),
         }),
       });
 
@@ -392,7 +414,7 @@ export default function VehicleDocs() {
       alert(`✅ ${activeTab.name} saved.`
         + (out.voucher_id
           ? `\n\n📓 Fee of ₹${amount.toLocaleString('en-IN')} posted: Dr Vehicle Compliance & Docs / Cr ${payAccount}.`
-          : amount > 0 ? '' : '\n\nNo fee recorded, so nothing was posted to the ledger.')
+          : amount > 0 ? '\n\nFee left as recorded - nothing posted, this fee was already paid.' : '\n\nNo fee recorded, so nothing was posted to the ledger.')
         + (out.ledger_note ? `\n\nℹ️ ${out.ledger_note}` : ''));
     } catch (error: any) {
       const hint = {
@@ -793,7 +815,7 @@ export default function VehicleDocs() {
                   one-sided debit with no credit at all, which PostgreSQL will not
                   accept (ledger_entries is append-only with a deferred Dr = Cr
                   constraint per voucher). */}
-              {parseFloat(formData.amount || '0') > 0 && (
+              {feeIsNew && (
                 <div style={{ marginTop: '25px', background: 'rgba(239,68,68,0.06)', border: '1px solid #ef4444', borderRadius: '14px', padding: '18px' }}>
                   <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
                     💳 Paid From — Bank / Cash Account *
