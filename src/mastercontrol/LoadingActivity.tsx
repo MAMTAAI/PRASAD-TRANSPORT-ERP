@@ -77,6 +77,14 @@ export default function LoadingActivity({ activity, offline }) {
   const weekFrom = a?.load_week_from ?? null;
   const weekTo = a?.load_week_to ?? null;
   const weekCompanies = a?.by_company_week ?? [];
+  const weekTrips = a?.week_trips ?? [];
+  // Grouped here rather than in SQL: the server already sorts by date, so this
+  // is a single pass, and a flat list keeps the payload one array instead of a
+  // nested shape the other two tabs have no use for.
+  const tripsByDay = weekTrips.reduce((acc, t) => {
+    (acc[t.loading_date] ||= []).push(t);
+    return acc;
+  }, {});
   const rows = a?.rows ?? [];
   const stale = !!a && !a.is_today && !!a.day;
   const gap = stale ? daysBetween(a.day) : 0;
@@ -277,7 +285,7 @@ export default function LoadingActivity({ activity, offline }) {
         <div onClick={() => setOpen(false)}
           className="fixed inset-0 z-[1400] grid place-items-center bg-slate-950/85 p-5">
           <div onClick={(e) => e.stopPropagation()}
-            className="w-[min(560px,100%)] max-h-[calc(100vh-48px)] flex flex-col rounded-2xl border border-slate-700/60 bg-slate-900 shadow-[0_20px_60px_rgba(0,0,0,0.6)]">
+            className={`${tab === 'trips' ? 'w-[min(720px,100%)]' : 'w-[min(560px,100%)]'} max-h-[calc(100vh-48px)] flex flex-col rounded-2xl border border-slate-700/60 bg-slate-900 shadow-[0_20px_60px_rgba(0,0,0,0.6)] transition-[width]`}>
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
               <div>
                 <p className="text-[13px] font-black text-slate-100">Pichhle 7 din — Loading Activity</p>
@@ -296,7 +304,7 @@ export default function LoadingActivity({ activity, offline }) {
                 register is shared by three companies — so the second one had no
                 answer here at all until it was asked for out loud. */}
             <div className="flex gap-1 px-4 pb-2">
-              {[['days', 'Roz ka hisaab'], ['company', 'Transport-wise']].map(([id, label]) => (
+              {[['days', 'Roz ka hisaab'], ['company', 'Transport-wise'], ['trips', 'Trip details']].map(([id, label]) => (
                 <button key={id} onClick={() => setTab(id)}
                   className={`rounded-lg border px-2.5 py-1 text-[10.5px] font-bold transition-colors ${
                     tab === id
@@ -315,7 +323,102 @@ export default function LoadingActivity({ activity, offline }) {
             )}
 
             <div className="flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar px-4 pb-4">
-              {tab === 'company' ? (
+              {tab === 'trips' ? (
+                weekTrips.length === 0 ? (
+                  <p className="py-4 text-[11.5px] text-slate-500">
+                    Is hafte ki koi trip nahi mili.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {Object.keys(tripsByDay).map((day) => (
+                      <div key={day}>
+                        {/* Sticky so the date stays readable while a long day
+                            scrolls past it — the whole point of grouping. */}
+                        <div className="sticky top-0 z-10 -mx-1 mb-1 bg-slate-900/95 px-1 py-1 backdrop-blur-sm">
+                          <span className="text-[10.5px] font-black text-cyan-300">{dayLabel(day)}</span>
+                          <span className="ml-1.5 text-[9.5px] text-slate-500">
+                            {tripsByDay[day].length} trip{tripsByDay[day].length === 1 ? '' : 's'}
+                            <span className="text-slate-600"> · </span>
+                            {kl(tripsByDay[day].reduce((s, t) => s + t.loaded_qty, 0))}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {tripsByDay[day].map((t) => {
+                            const short = shortCompany(t.company);
+                            return (
+                              <div key={t.id}
+                                className="rounded-lg border border-slate-700/50 bg-slate-800/30 px-2.5 py-1.5">
+                                <div className="flex items-baseline justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-[11px] font-black text-slate-100">
+                                      {t.trip_code || '(no LR)'}
+                                    </span>
+                                    <span className={`shrink-0 rounded px-1 py-[1px] text-[8px] font-black uppercase border ${COMPANY_TONE[short] || NEUTRAL_TONE}`}>
+                                      {short}
+                                    </span>
+                                    <span className={`shrink-0 grid place-items-center w-4 h-4 rounded border ${
+                                      t.source === 'EMAIL'
+                                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                                        : 'border-sky-500/40 bg-sky-500/10 text-sky-300'}`}
+                                      title={t.source === 'EMAIL' ? 'Email se apne aap' : 'Staff ne bhari'}>
+                                      {t.source === 'EMAIL' ? <Bot size={9} /> : <UserRound size={9} />}
+                                    </span>
+                                  </div>
+                                  <span className="shrink-0 text-[12px] font-black tabular-nums text-slate-100">
+                                    {kl(t.loaded_qty)}
+                                  </span>
+                                </div>
+
+                                <p className="mt-0.5 text-[10.5px] font-bold text-slate-300">
+                                  {t.vehicle_no || 'gaadi —'}
+                                  {t.product_type && (
+                                    <span className="ml-1.5 font-normal text-slate-500">{t.product_type}</span>
+                                  )}
+                                </p>
+
+                                {/* FROM -> TO on its own line: it is the thing
+                                    being asked for and it is the longest field,
+                                    so it gets the width rather than a column. */}
+                                <p className="text-[10px] text-slate-400 truncate"
+                                  title={`${t.from || '—'} → ${t.to || '—'}`}>
+                                  <span className="text-slate-500">from</span> {t.from || '—'}
+                                  <span className="mx-1 text-cyan-500/70">→</span>
+                                  <span className="text-slate-500">to</span> {t.to || '—'}
+                                </p>
+
+                                <p className="text-[9.5px] text-slate-500 tabular-nums">
+                                  {t.rtkm != null && <>RTKM {t.rtkm.toFixed(0)}</>}
+                                  {t.unloaded_qty != null && (
+                                    <><span className="mx-1 text-slate-700">|</span>unloaded {kl(t.unloaded_qty)}</>
+                                  )}
+                                  {/* Shortage is the number somebody is looking
+                                      for when they look at all, so it is the one
+                                      thing here allowed a colour. */}
+                                  {t.shortage_qty != null && t.shortage_qty > 0 && (
+                                    <><span className="mx-1 text-slate-700">|</span>
+                                      <span className="text-amber-300 font-bold">short {kl(t.shortage_qty)}</span></>
+                                  )}
+                                  {t.driver_name && (
+                                    <><span className="mx-1 text-slate-700">|</span>{t.driver_name}</>
+                                  )}
+                                  {t.status && (
+                                    <><span className="mx-1 text-slate-700">|</span>{String(t.status).replace(/_/g, ' ').toLowerCase()}</>
+                                  )}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    {weekTrips.length >= 200 && (
+                      <p className="pt-1 text-[9.5px] text-slate-600">
+                        Sirf pehli 200 trips dikha rahe hain — poori list Loading Register mein.
+                      </p>
+                    )}
+                  </div>
+                )
+              ) : tab === 'company' ? (
                 weekCompanies.length === 0 ? (
                   <p className="py-4 text-[11.5px] text-slate-500">
                     Is hafte kisi bhi transport ki koi loading nahi mili.

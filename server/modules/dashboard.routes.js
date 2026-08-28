@@ -1391,7 +1391,33 @@ export function registerDashboardRoutes(app) {
                                    count(DISTINCT vehicle_no)::int AS vehicles,
                                    min(loading_date)::date AS first_day,
                                    max(loading_date)::date AS last_day
-                              FROM load_week GROUP BY 1) c), '[]'::json)   AS by_company_week`);
+                              FROM load_week GROUP BY 1) c), '[]'::json)   AS by_company_week,
+
+          -- EVERY TRIP IN THAT WEEK, NOT JUST THE TOTALS.
+          --
+          -- The bars answer "kitni" and the company cards answer "kiski"; the
+          -- next question is always "kaunsi gaadi, kahan se kahan, kitna" and
+          -- until now that meant leaving the dashboard for the Loading Register.
+          -- Read straight from trips rather than through tagged so the extra
+          -- columns do not widen the day-panel payload, which is polled every
+          -- 30s and needs none of them.
+          --
+          -- Capped at 200. A seven-day window has never held a fifth of that,
+          -- and an uncapped json_agg on a dashboard poll is how a slow page
+          -- becomes a slow server.
+          COALESCE((SELECT json_agg(t ORDER BY t.loading_date DESC, t.trip_code)
+                      FROM (SELECT tr.id, tr.trip_code, tr.vehicle_no, tr.loading_date,
+                                   tr.loading_point, tr.unloading_location, tr.consignee_name,
+                                   tr.product_type, tr.loaded_qty, tr.unloaded_qty,
+                                   tr.shortage_qty, tr.rtkm, tr.driver_name, tr.status,
+                                   COALESCE(tr.operating_company, '(unassigned)') AS operating_company,
+                                   tr.iocl_invoice_no,
+                                   CASE WHEN tr.iocl_invoice_no IS NOT NULL THEN 'EMAIL' ELSE 'MANUAL' END AS source
+                              FROM trips tr, load_target
+                             WHERE tr.loading_date::date
+                                   BETWEEN load_target.day - 6 AND load_target.day
+                             ORDER BY tr.loading_date DESC, tr.trip_code
+                             LIMIT 200) t), '[]'::json)                    AS week_trips`);
       const r = rows[0] || {};
       // MAILBOX HEALTH TRAVELS WITH THE COUNTS IT EXPLAINS.
       //
@@ -1457,6 +1483,24 @@ export function registerDashboardRoutes(app) {
           email_qty: num(d.email_qty),
           manual_qty: num(d.manual_qty),
         })),
+        week_trips: (r.week_trips ?? []).map((t) => ({
+          id: t.id,
+          trip_code: t.trip_code,
+          vehicle_no: t.vehicle_no,
+          loading_date: t.loading_date,
+          from: t.loading_point,
+          to: t.unloading_location || t.consignee_name,
+          product_type: t.product_type,
+          loaded_qty: num(t.loaded_qty),
+          unloaded_qty: t.unloaded_qty == null ? null : num(t.unloaded_qty),
+          shortage_qty: t.shortage_qty == null ? null : num(t.shortage_qty),
+          rtkm: t.rtkm == null ? null : num(t.rtkm),
+          driver_name: t.driver_name,
+          status: t.status,
+          company: t.operating_company,
+          invoice_no: t.iocl_invoice_no,
+          source: t.source,
+        })),
         by_company_week: (r.by_company_week ?? []).map((c) => ({
           company: c.company,
           trips: num(c.trips),
@@ -1485,6 +1529,7 @@ export function registerDashboardRoutes(app) {
     }, { day: null, is_today: false, email_count: 0, manual_count: 0, email_qty: 0,
          manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [], last7: [],
          load_week_from: null, load_week_to: null, last7_loading: [], by_company_week: [],
+         week_trips: [],
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
                  insert_failed: 0, insert_errors: [] } });
 
