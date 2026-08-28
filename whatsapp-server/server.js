@@ -229,6 +229,11 @@ function newSession(id) {
         pairingError: null,
         pairingCodeAt: 0,
         pairRefreshTimer: null,
+        pairRefreshCount: 0,
+        // Last time anybody asked this session for its status. The link dialog
+        // polls every 3s while it is open, so this is how the engine knows a
+        // human is still waiting for a code — see schedulePairingRefresh.
+        lastPollAt: 0,
         connected: false,
         status: 'STARTING',           // STARTING | WAITING_FOR_SCAN | ONLINE | RECONNECTING | OFFLINE
         lastHeartbeat: null,
@@ -431,11 +436,43 @@ function clearPairingRefresh(s) {
     if (s && s.pairRefreshTimer) { clearTimeout(s.pairRefreshTimer); s.pairRefreshTimer = null; }
 }
 
+/** How many times one link attempt may refresh before it stops asking. Four
+ *  requests buys about ten minutes of usable code, which is far longer than
+ *  anybody needs to read eight characters off a screen. Beyond that the dialog
+ *  has almost certainly been abandoned, and every further request is spent
+ *  against a limit WhatsApp has now shown us it enforces by name. */
+const PAIR_MAX_REFRESHES = Number.parseInt(process.env.WA_PAIR_MAX_REFRESHES || '3', 10);
+
+/** Nobody has looked at this session for this long → stop refreshing. The
+ *  dialog polls /api/status/:userId every 3s while it is open, so a recent poll
+ *  is proof somebody is actually watching for a code. */
+const PAIR_WATCHER_IDLE_MS = 30 * 1000;
+
 function schedulePairingRefresh(s) {
     clearPairingRefresh(s);
+    if ((s.pairRefreshCount || 0) >= PAIR_MAX_REFRESHES) {
+        console.log(`[${s.id}] pairing refresh limit reached (${PAIR_MAX_REFRESHES}) — waiting for the operator to ask again.`);
+        return;
+    }
     s.pairRefreshTimer = setTimeout(() => {
         s.pairRefreshTimer = null;
         if (!sessions.has(s.id) || s.connected || !s.pairPhone) return;
+        // ONLY WHILE SOMEBODY IS LOOKING.
+        //
+        // A refresh exists to keep the code on the operator's SCREEN usable. If
+        // the dialog is closed there is no screen, and the request is spent for
+        // nothing — against a limit that is plainly not generous:
+        //
+        //   {"name":"CompanionHelloError","type":{"name":"IQErrorRateOverlimit"}}
+        //
+        // Not rescheduled either. Pressing "jodein" starts a fresh attempt, and
+        // that press is the same signal as the poll: a person, present, waiting.
+        const watchedAgo = Date.now() - (s.lastPollAt || 0);
+        if (watchedAgo > PAIR_WATCHER_IDLE_MS) {
+            console.log(`[${s.id}] pairing refresh skipped — nobody has polled for ${Math.round(watchedAgo / 1000)}s.`);
+            return;
+        }
+        s.pairRefreshCount = (s.pairRefreshCount || 0) + 1;
         // Dropped BEFORE asking, not after. Leaving the old one in place would
         // keep the guard at the top of askForPairingCode shut, and would also
         // leave a dead code on the operator's screen for the second or two the
@@ -522,9 +559,23 @@ function askForPairingCode(s, attempt = 0) {
                 return;
             }
             const err = (r && r.err) || {};
-            // Logged whole, because the whole point of issuePairingCode is that
-            // the interesting part is never in `message`.
-            const detail = err.message || err.text || 'unknown';
+            // THE NAME IS IN `own`, AND `message` IS THE ONE FIELD THAT IS NOT.
+            // WhatsApp throws class instances with no message and no useful
+            // toString, so `err.message || err.text` resolved to the string
+            // "[object Object]" and that is what went into lastError. The
+            // readable identity is in the own-properties dump:
+            //
+            //   {"name":"CompanionHelloError","type":{"name":"IQErrorRateOverlimit"}}
+            //
+            // which is WhatsApp naming the rate limit itself, in its own words.
+            // Worth the twelve lines: this is the difference between a
+            // diagnosis and a guess, and it took most of a morning to get here.
+            let named = null;
+            try {
+                const own = err.own ? JSON.parse(err.own) : null;
+                named = (own && (own.type?.name || own.name)) || null;
+            } catch { /* not JSON — fall through to the plainer fields */ }
+            const detail = named || err.message || (err.text !== '[object Object]' ? err.text : null) || 'unknown';
             console.error(`[${s.id}] pairing attempt ${attempt + 1} refused:`, JSON.stringify(err).slice(0, 400));
             if (isTransientPairError(detail) || isTransientPairError(err.own)) {
                 // The library's injection has not finished. Worth one more go.
@@ -534,7 +585,13 @@ function askForPairingCode(s, attempt = 0) {
             }
             // WhatsApp said no. Asking again is what got us here.
             s.pairCooldownUntil = Date.now() + PAIR_COOLDOWN_MS;
-            s.pairingError = 'WhatsApp ne abhi code dene se mana kar diya — aam taur par bahut zyada koshish ho jane par. QR se abhi jud sakte hain, ya ~20 minute baad dobara.';
+            // Said as a fact when WhatsApp has named the limit, and as the
+            // likely cause when it has not. The screen should not assert a
+            // reason the engine only suspects.
+            const rateLimited = /RateOverlimit|RateLimit/i.test(String(detail));
+            s.pairingError = rateLimited
+                ? 'WhatsApp ne code dene se mana kar diya — is number par bahut zyada koshish ho chuki hain (rate limit). Abhi QR se jud jaayein; code ~20 minute baad dobara milega.'
+                : `WhatsApp ne abhi code dene se mana kar diya (${detail}). QR se abhi jud sakte hain, ya ~20 minute baad dobara.`;
             s.lastError = `${s.pairingError} [${detail}]`;
         })
         .catch((e) => {
@@ -834,7 +891,12 @@ app.get('/api/status', (req, res) => res.json(statusPayload(getSession(COMPANY_S
 // they were online on a number they had never scanned.
 app.get('/api/status/:userId', (req, res) => {
     const id = req.params.userId;
-    res.json(statusPayload(getSession(id) || (id === COMPANY_SESSION ? getSession(COMPANY_SESSION) : null)));
+    const s = getSession(id) || (id === COMPANY_SESSION ? getSession(COMPANY_SESSION) : null);
+    // Proof of a watcher, not a side effect. The pairing refresh spends a
+    // rate-limited request to keep the code on somebody's screen alive, so it
+    // has to be able to tell whether there is still a screen.
+    if (s && s.kind === 'user') s.lastPollAt = Date.now();
+    res.json(statusPayload(s));
 });
 
 app.get('/api/sessions', (req, res) => {
@@ -874,6 +936,7 @@ app.post('/api/link/:userId', async (req, res) => {
         if (!s) {
             s = ensureSession(id);
             if (phone) s.pairPhone = phone;
+            s.lastPollAt = Date.now();
             s.client.initialize().catch((e) => {
                 s.lastError = e.message;
                 console.error(`[${id}] Initial launch failed:`, e.message);
@@ -894,6 +957,11 @@ app.post('/api/link/:userId', async (req, res) => {
             // cooling-off period has passed.
             const cooledOff = !s.pairCooldownUntil || Date.now() >= s.pairCooldownUntil;
             if (s.status === 'WAITING_FOR_SCAN' && (!s.pairAsked || (cooledOff && !s.pairInFlight))) {
+                // A person pressing the button is a new attempt, so it gets a
+                // new refresh budget. The cap is there to stop an ABANDONED
+                // dialog spending requests, not to ration a present operator.
+                s.pairRefreshCount = 0;
+                s.lastPollAt = Date.now();
                 askForPairingCode(s);
             }
         }
