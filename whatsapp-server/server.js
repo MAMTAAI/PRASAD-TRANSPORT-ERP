@@ -218,6 +218,14 @@ function newSession(id) {
         qr: '',
         pairingCode: '',
         pairPhone: '',
+        // Pairing is asked for ONCE and then left alone — see askForPairingCode.
+        // `pairAsked` is what makes a rotating QR stop re-arming it, `pairInFlight`
+        // stops two chains overlapping, and `pairingError` is the sentence the
+        // operator sees instead of a silent fall back to a QR they cannot scan.
+        pairAsked: false,
+        pairInFlight: false,
+        pairCooldownUntil: 0,
+        pairingError: null,
         connected: false,
         status: 'STARTING',           // STARTING | WAITING_FOR_SCAN | ONLINE | RECONNECTING | OFFLINE
         lastHeartbeat: null,
@@ -313,43 +321,134 @@ function scheduleReinit(s, reason) {
     }, delay);
 }
 
-/** Ask WhatsApp for an 8-character pairing code, and keep asking for a bit.
+/** ASKING WHATSAPP FOR THE CODE — AND WHY ASKING TWICE IS WORSE THAN NOT ASKING.
  *
- *  THE 'qr' EVENT IS NOT THE SAME AS "READY TO ISSUE A CODE". requestPairingCode
- *  calls into a hook — window.onCodeReceivedEvent — that whatsapp-web.js installs
- *  during its own page injection. Firing once on 'qr' races that injection, and
- *  the box logged exactly what losing the race looks like:
+ *  WhatsApp rate-limits pairing requests per number, and the limit is not
+ *  generous. Once tripped, every later call is refused for a while — and the
+ *  refusal arrives as a minified error object whose whole text is one letter:
  *
- *      requestPairingCode failed: window.onCodeReceivedEvent is not a function
- *      requestPairingCode failed: t
+ *      requestPairingCode attempt 3 failed: t
  *
- *  Both are transient. So this retries on a short backoff instead of giving up
- *  on the first miss, and stops the moment a code arrives, the session links, or
- *  the session is gone.
+ *  That one letter is the reason this used to look like a bug in the code
+ *  rather than a wall we had walked into. Measured on the box 28-08 with the
+ *  previous version of this file: SIX chains running at once, ~18 requests a
+ *  minute, every one answered `t`.
  *
- *  Bounded on purpose. An unbounded retry against a Chromium that is genuinely
- *  dead — the "Target closed" case, which on this box came from memory pressure
- *  rather than from timing — is a loop that never ends and never says why. Six
- *  attempts over ~30s either wins or leaves a real error on the screen. */
+ *  All three multipliers are fixed here.
+ *
+ *  ONE CHAIN. `qr` fires again roughly every 20 seconds — WhatsApp rotates the
+ *  code — and the old guard (`!s.pairingCode`) is true the entire time a
+ *  request is failing, so every rotation started ANOTHER six-attempt chain on
+ *  top of the ones already running. `pairInFlight` is the guard that `pairingCode`
+ *  could not be, because it describes the request rather than its result.
+ *
+ *  TRANSIENT ONLY. The library's own hook — window.onCodeReceivedEvent — is
+ *  installed during page injection, so firing on the first `qr` genuinely does
+ *  race it, and THAT is worth a retry. A refusal from WhatsApp is not: it will
+ *  be refused again, and each retry digs the hole deeper. Only errors that name
+ *  the injection are retried now.
+ *
+ *  THEN STOP, AND SAY SO. Giving up sets a cooldown and a sentence the operator
+ *  can act on. Nothing re-arms by itself; the next attempt is a person pressing
+ *  the button, which is also the only signal that anyone is still watching. */
+const PAIR_COOLDOWN_MS = Number.parseInt(process.env.WA_PAIR_COOLDOWN_MS || String(20 * 60 * 1000), 10);
+
+/** A transient failure is one that names the library's own injection. Anything
+ *  else came from WhatsApp and means what it says. */
+const isTransientPairError = (msg) => /onCodeReceivedEvent|PairingCodeLinkUtils|not a function|undefined/i.test(msg || '');
+
+/** THE ERROR, NOT ITS INITIAL. whatsapp-web.js calls startAltLinkingFlow inside
+ *  a page.evaluate, and an exception crossing that boundary is flattened to
+ *  whatever `message` survived minification — here, `t`. Running the same three
+ *  calls ourselves with a try/catch INSIDE the page lets the real shape of the
+ *  error come back as data: name, message, and the string form, none of which
+ *  survive the throw.
+ *
+ *  It is the same flow the library runs, in the same order, so this is not a
+ *  reimplementation of the protocol — it is the library's own evaluate with the
+ *  catch moved to the side of the boundary where the error still exists. The one
+ *  deliberate omission is window.codeInterval: the library re-requests every 180
+ *  seconds for the life of the page, which is a second uninvited caller against
+ *  the same rate limit. A code that expires is better re-requested by a person. */
+async function issuePairingCode(client, phone) {
+    return client.pupPage.evaluate(async (phoneNumber, showNotification) => {
+        const describe = (e) => {
+            const out = { name: null, message: null, code: null, text: String(e) };
+            try { out.name = e && e.name ? String(e.name) : null; } catch { /* getter threw */ }
+            try { out.message = e && e.message ? String(e.message) : null; } catch { /* getter threw */ }
+            try { out.code = e && e.code != null ? String(e.code) : null; } catch { /* getter threw */ }
+            // Minified WhatsApp errors often carry their meaning in own
+            // properties rather than in `message`, so keep them.
+            try { out.own = JSON.stringify(e, Object.getOwnPropertyNames(Object(e))).slice(0, 400); } catch { /* circular */ }
+            return out;
+        };
+        try {
+            const deadline = Date.now() + 20000;
+            while (!window.AuthStore || !window.AuthStore.PairingCodeLinkUtils) {
+                if (Date.now() > deadline) return { ok: false, err: { message: 'PairingCodeLinkUtils never appeared', text: 'timeout' } };
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            window.AuthStore.PairingCodeLinkUtils.setPairingType('ALT_DEVICE_LINKING');
+            await window.AuthStore.PairingCodeLinkUtils.initializeAltDeviceLinking();
+            const code = await window.AuthStore.PairingCodeLinkUtils.startAltLinkingFlow(phoneNumber, showNotification);
+            return { ok: true, code: String(code || '') };
+        } catch (e) {
+            return { ok: false, err: describe(e) };
+        }
+    }, phone, true);
+}
+
 function askForPairingCode(s, attempt = 0) {
     if (!s || s.pairingCode || s.connected || !s.pairPhone) return;
     if (!sessions.has(s.id)) return;                 // logged out while waiting
-    if (attempt >= 6) {
-        s.lastError = 'pairing code nahi mil paya — dobara koshish karein';
-        console.error(`[${s.id}] pairing code gave up after ${attempt} attempts`);
+    if (s.pairInFlight) return;                      // a chain is already running
+    if (s.pairCooldownUntil && Date.now() < s.pairCooldownUntil) return;
+    s.pairAsked = true;
+    if (attempt >= 3) {
+        s.pairInFlight = false;
+        s.pairCooldownUntil = Date.now() + PAIR_COOLDOWN_MS;
+        s.pairingError = 'WhatsApp abhi code nahi de raha. QR se jodein, ya thodi der baad dobara koshish karein.';
+        s.lastError = s.pairingError;
+        console.error(`[${s.id}] pairing code gave up after ${attempt} attempts; cooling down ${Math.round(PAIR_COOLDOWN_MS / 60000)}m`);
         return;
     }
-    s.client.requestPairingCode(s.pairPhone)
-        .then((code) => {
-            s.pairingCode = String(code || '');
-            s.lastError = null;
-            console.log(`🔢 [${s.id}] Pairing code issued for ${s.pairPhone} (attempt ${attempt + 1}).`);
+    s.pairInFlight = true;
+    issuePairingCode(s.client, s.pairPhone)
+        .then((r) => {
+            s.pairInFlight = false;
+            if (!sessions.has(s.id) || s.connected) return;
+            if (r && r.ok && r.code) {
+                s.pairingCode = r.code;
+                s.pairingError = null;
+                s.lastError = null;
+                s.pairCooldownUntil = 0;
+                console.log(`🔢 [${s.id}] Pairing code issued (attempt ${attempt + 1}).`);
+                return;
+            }
+            const err = (r && r.err) || {};
+            // Logged whole, because the whole point of issuePairingCode is that
+            // the interesting part is never in `message`.
+            const detail = err.message || err.text || 'unknown';
+            console.error(`[${s.id}] pairing attempt ${attempt + 1} refused:`, JSON.stringify(err).slice(0, 400));
+            if (isTransientPairError(detail) || isTransientPairError(err.own)) {
+                // The library's injection has not finished. Worth one more go.
+                s.lastError = `pairing code: engine abhi taiyar nahi (${detail})`;
+                setTimeout(() => askForPairingCode(s, attempt + 1), 4000 + attempt * 4000);
+                return;
+            }
+            // WhatsApp said no. Asking again is what got us here.
+            s.pairCooldownUntil = Date.now() + PAIR_COOLDOWN_MS;
+            s.pairingError = 'WhatsApp ne abhi code dene se mana kar diya — aam taur par bahut zyada koshish ho jane par. QR se abhi jud sakte hain, ya ~20 minute baad dobara.';
+            s.lastError = `${s.pairingError} [${detail}]`;
         })
         .catch((e) => {
+            // The evaluate itself failed — a dead page, not a refusal. That is
+            // the "Target closed" case, and it is the session that is broken.
+            s.pairInFlight = false;
             const msg = e && e.message ? e.message : String(e);
-            console.error(`[${s.id}] requestPairingCode attempt ${attempt + 1} failed:`, msg);
-            s.lastError = `pairing code failed: ${msg}`;
-            setTimeout(() => askForPairingCode(s, attempt + 1), 3000 + attempt * 2000);
+            console.error(`[${s.id}] pairing evaluate failed:`, msg);
+            s.pairingError = 'WhatsApp engine ka page band ho gaya — dobara koshish karein.';
+            s.lastError = `pairing evaluate failed: ${msg}`;
         });
 }
 
@@ -377,7 +476,14 @@ function wireSession(s) {
         // this event means. And requested ONCE per pending session: asking
         // again invalidates the code already sitting on the operator's screen,
         // and the link endpoint is polled.
-        if (s.pairPhone && !s.pairingCode) {
+        //
+        // ONCE MEANS `pairAsked`, NOT `!pairingCode`. This event repeats every
+        // ~20 seconds for as long as nobody links, and while a request is
+        // FAILING there is no pairingCode to hold the old guard shut — so each
+        // rotation started a fresh retry chain on top of the last, and the
+        // stack of them is what tripped WhatsApp's rate limit. One ask per
+        // session; after that only a person pressing the button starts another.
+        if (s.pairPhone && !s.pairingCode && !s.pairAsked) {
             askForPairingCode(s);
         }
     });
@@ -392,6 +498,14 @@ function wireSession(s) {
         // reads as "the link broke" when it actually worked.
         s.pairingCode = '';
         s.pairPhone = '';
+        // The pairing bookkeeping dies with the link too. A cooldown left set
+        // here would be waiting out a limit for a session that has since
+        // succeeded, and an error string left set would be shown next to a
+        // working link.
+        s.pairAsked = false;
+        s.pairInFlight = false;
+        s.pairCooldownUntil = 0;
+        s.pairingError = null;
         s.status = 'ONLINE';
         s.reconnectAttempts = 0;
         s.lastHeartbeat = new Date().toISOString();
@@ -545,6 +659,15 @@ const statusPayload = (s) => ({
     server: 'local-pc',
     // "Offline" on its own tells an operator nothing they can act on.
     lastError: s ? s.lastError : 'session not started',
+    // SEPARATE FROM lastError ON PURPOSE. lastError is a developer's field —
+    // it collects reconnects, auth failures and evaluate crashes — and the ERP
+    // must not put whatever happens to be in it in front of an operator. This
+    // one is set only by the pairing path and only with a sentence written to
+    // be read, so the ERP can pass it straight through to the screen.
+    pairingError: s ? (s.pairingError || null) : null,
+    // Lets the screen say "20 minute baad" rather than "later".
+    pairingRetryInSec: s && s.pairCooldownUntil && s.pairCooldownUntil > Date.now()
+        ? Math.ceil((s.pairCooldownUntil - Date.now()) / 1000) : 0,
     uptimeSec: Math.round(process.uptime()),
     session: s ? s.id : null,
     session_kind: s ? s.kind : null,
@@ -610,9 +733,17 @@ app.post('/api/link/:userId', async (req, res) => {
             // guarded on !pairingCode: this endpoint is POLLED, and a second
             // request would invalidate the code already on screen.
             s.pairPhone = phone;
-            // Same retrying helper as the 'qr' path — a single shot here loses
-            // the same race against the library's injection.
-            if (s.status === 'WAITING_FOR_SCAN') askForPairingCode(s);
+            // AND GUARDED ON `pairAsked` TOO, FOR THE SAME REASON THE 'qr'
+            // HANDLER IS. A poll arriving in the gap between two retries finds
+            // pairInFlight false and would start a second chain beside the one
+            // already going. A person pressing the button again is a real
+            // retry and must still work — that is the cooldown branch, which
+            // becomes true only once the previous chain has finished and its
+            // cooling-off period has passed.
+            const cooledOff = !s.pairCooldownUntil || Date.now() >= s.pairCooldownUntil;
+            if (s.status === 'WAITING_FOR_SCAN' && (!s.pairAsked || (cooledOff && !s.pairInFlight))) {
+                askForPairingCode(s);
+            }
         }
         s.lastActivity = Date.now();
         res.json({ success: true, ...statusPayload(s) });

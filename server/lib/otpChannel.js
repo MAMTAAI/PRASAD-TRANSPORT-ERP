@@ -158,6 +158,15 @@ export async function userSessionStatus(sessionId) {
       // engine that predates pairing simply omits it and the screen falls back
       // to the QR, which still works.
       pairing_code: multiSession && !j?.connected ? (j?.pairingCode || null) : null,
+      // WHY THE FAILURE TRAVELS AND lastError DOES NOT. When WhatsApp refuses a
+      // pairing code the engine still has a QR to offer, so the screen fell back
+      // to one and said nothing about the refusal — which on a phone is a dead
+      // end, because you cannot scan a QR with the handset that is displaying
+      // it. The operator was left pressing a button that appeared to do nothing.
+      // `pairingError` is the engine's one operator-facing sentence; lastError
+      // is not (it also carries reconnect and crash text), so only this travels.
+      pairing_error: multiSession && !j?.connected ? (j?.pairingError || null) : null,
+      pairing_retry_in_sec: multiSession && !j?.connected ? (j?.pairingRetryInSec || 0) : 0,
       last_heartbeat: j?.lastHeartbeat ?? null,
       session: j?.session ?? null,
     };
@@ -206,6 +215,12 @@ export async function linkUserSession(sessionId, phone) {
     // pending. Handing one back for a session already ONLINE gets it typed in
     // and rejected, which reads as a broken link rather than a finished one.
     pairing_code: j.connected ? null : (j.pairingCode || null),
+    // Carried on the link reply as well as the status poll: pressing the button
+    // while a cooldown is running answers immediately, and without this the
+    // reply would look like an ordinary "starting…" and start the same wait
+    // again with nothing at the end of it.
+    pairing_error: j.connected ? null : (j.pairingError || null),
+    pairing_retry_in_sec: j.connected ? 0 : (j.pairingRetryInSec || 0),
   };
 }
 

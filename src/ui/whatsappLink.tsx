@@ -111,8 +111,7 @@ export function MyWhatsApp({ variant = 'menu' }) {
     } finally { setBusy(false); }
   };
 
-  const unlink = async () => {
-    if (!window.confirm('Apna WhatsApp ERP se hata dein?\n\nUske baad aapke bheje messages company number se jayenge.')) return;
+  const drop = async () => {
     setBusy(true);
     try {
       const token = localStorage.getItem('prasad_token');
@@ -122,6 +121,52 @@ export function MyWhatsApp({ variant = 'menu' }) {
       await read();
     } finally { setBusy(false); }
   };
+
+  const unlink = async () => {
+    if (!window.confirm('Apna WhatsApp ERP se hata dein?\n\nUske baad aapke bheje messages company number se jayenge.')) return;
+    await drop();
+  };
+
+  /** CANCELLING A LINK THAT NEVER HAPPENED IS A DIFFERENT ACTION, AND IT WAS
+   *  MISSING. Until a session links there was no way to stop it: the dialog
+   *  offered a QR and a close button, and closing the dialog leaves the engine
+   *  running. That session then holds a headless Chromium — ~250MB on a 1.9GB
+   *  box — AND the single staff-session slot, for the six-hour idle timeout.
+   *  One person opening this screen and walking away locked everybody else out
+   *  until the evening. No confirm: nothing is being undone, and a confirm on
+   *  the way out of a screen you did not manage to use is just another wall. */
+  const cancelPending = drop;
+
+  /** The refusal, said out loud, wherever the dialog ends up rendering.
+   *
+   *  IT SITS ABOVE THE QR RATHER THAN REPLACING IT. On a desktop the QR is a
+   *  perfectly good way in and the person should not be blocked from it — the
+   *  code was only ever the flow that works on a phone. So the failure is
+   *  reported and the alternative is left on the screen. */
+  const pairingTrouble = !state.linked && !state.pairing_code && state.pairing_error ? (
+    <div style={{ background: 'rgba(120,53,15,0.25)', border: '1px solid #78350f', borderRadius: 12,
+                  padding: '10px 12px', marginBottom: 12 }}>
+      <div style={{ fontSize: 11.5, color: '#fcd34d', fontWeight: 800, marginBottom: 4 }}>
+        Code nahi mil paya
+      </div>
+      <div style={{ fontSize: 11, color: '#fde68a', lineHeight: 1.5 }}>{state.pairing_error}</div>
+      {state.pairing_retry_in_sec > 0 && (
+        <div style={{ fontSize: 10.5, color: '#d97706', marginTop: 6, fontWeight: 700 }}>
+          Dobara koshish ~{Math.max(1, Math.round(state.pairing_retry_in_sec / 60))} minute baad
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  /** Offered in every not-yet-linked state, because every one of them can be
+   *  walked away from and all of them cost the same slot. */
+  const cancelRow = (
+    <button onClick={cancelPending} disabled={busy}
+      style={{ width: '100%', marginTop: 12, padding: '9px', borderRadius: 10, border: '1px solid #334155',
+               background: 'transparent', color: '#94a3b8', fontWeight: 700, fontSize: 11.5, cursor: 'pointer' }}>
+      {busy ? '…' : 'Band karein'}
+    </button>
+  );
 
   // One line, in the menu. Everything else lives in the dialog.
   let dot = '#64748b';
@@ -256,6 +301,12 @@ export function MyWhatsApp({ variant = 'menu' }) {
               </>
             ) : state.qr ? (
               <>
+                {/* THE QR USED TO ARRIVE WITH NO EXPLANATION OF ITSELF. Pressing
+                    "jodein" promises a code; when WhatsApp refuses one this
+                    branch is what the person actually got, and it looked like
+                    the button had simply done something else. Now the refusal
+                    is named first and the QR is offered as the way round it. */}
+                {pairingTrouble}
                 <div style={{ background: '#fff', padding: 12, borderRadius: 14, display: 'grid', placeItems: 'center' }}>
                   <QRCodeSVG value={state.qr} size={220} />
                 </div>
@@ -266,8 +317,10 @@ export function MyWhatsApp({ variant = 'menu' }) {
                   <li>Ye code scan karein</li>
                 </ol>
                 <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
-                  Scan hote hi ye screen apne aap badal jayegi.
+                  Scan hote hi ye screen apne aap badal jayegi. Doosre phone ya computer ki zaroorat
+                  padegi — jis phone par WhatsApp hai, wahi screen scan nahi kar sakta.
                 </p>
+                {cancelRow}
               </>
             ) : pending ? (
               /* THE WINDOW BETWEEN PRESSING THE BUTTON AND THE CODE ARRIVING.
@@ -279,16 +332,22 @@ export function MyWhatsApp({ variant = 'menu' }) {
                  is happening and how long it takes, and the poll above replaces
                  it with the code the moment there is one. */
               <>
-                <p style={{ fontSize: 12.5, color: '#7dd3fc', fontWeight: 700, marginBottom: 8 }}>
-                  Code banaya ja raha hai…
-                </p>
-                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
-                  WhatsApp se code mangwa rahe hain. Isme aam taur par <b style={{ color: '#cbd5e1' }}>15–30 second</b> lagte
-                  hain — ye screen khuli rehne dein, code aate hi apne aap dikh jayega.
-                </p>
+                {pairingTrouble}
+                {!state.pairing_error && (
+                  <>
+                    <p style={{ fontSize: 12.5, color: '#7dd3fc', fontWeight: 700, marginBottom: 8 }}>
+                      Code banaya ja raha hai…
+                    </p>
+                    <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
+                      WhatsApp se code mangwa rahe hain. Isme aam taur par <b style={{ color: '#cbd5e1' }}>15–30 second</b> lagte
+                      hain — ye screen khuli rehne dein, code aate hi apne aap dikh jayega.
+                    </p>
+                  </>
+                )}
                 {state.reason && (
                   <p style={{ fontSize: 11, color: '#fca5a5', marginTop: 10, lineHeight: 1.5 }}>{state.reason}</p>
                 )}
+                {cancelRow}
               </>
             ) : state.error === 'ENGINE_OUTDATED' || state.multi_session === false ? (
               <>
