@@ -64,7 +64,19 @@ const kl = (n) => `${Number(n || 0).toFixed(1)} KL`;
 
 export default function LoadingActivity({ activity, offline }) {
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState('days');
   const a = activity ?? null;
+  // THE WEEK DIALOG IS ON THE LOADING-DATE AXIS, and the panel behind it is on
+  // the entry-date one. That is deliberate, not an inconsistency: the panel
+  // exists to show whether the sync RAN (created_at), and the dialog is opened
+  // by somebody asking what the fleet DID (loading_date). On 28-08 the two
+  // differed by a whole screen — a week's loadings were all recovered in one
+  // morning, so every row carried the same created_at and the old chart drew
+  // six empty days over a week that had eleven trips in it.
+  const weekDays = a?.last7_loading ?? [];
+  const weekFrom = a?.load_week_from ?? null;
+  const weekTo = a?.load_week_to ?? null;
+  const weekCompanies = a?.by_company_week ?? [];
   const rows = a?.rows ?? [];
   const stale = !!a && !a.is_today && !!a.day;
   const gap = stale ? daysBetween(a.day) : 0;
@@ -269,10 +281,30 @@ export default function LoadingActivity({ activity, offline }) {
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
               <div>
                 <p className="text-[13px] font-black text-slate-100">Pichhle 7 din — Loading Activity</p>
-                <p className="text-[10px] text-slate-500">Auto (email) aur Manual (staff) ka roz ka hisaab</p>
+                <p className="text-[10px] text-slate-500">
+                  {weekFrom && weekTo
+                    ? <>Loading ki taarikh se · {dayLabel(weekFrom)} – {dayLabel(weekTo)}</>
+                    : 'Auto (email) aur Manual (staff) ka roz ka hisaab'}
+                </p>
               </div>
               <button onClick={() => setOpen(false)}
                 className="text-slate-500 hover:text-slate-300 leading-none text-xl">×</button>
+            </div>
+
+            {/* TWO QUESTIONS, NOT ONE. "Kis din kitni loading hui" and "kiski
+                loading thi" are asked by the same person seconds apart, and the
+                register is shared by three companies — so the second one had no
+                answer here at all until it was asked for out loud. */}
+            <div className="flex gap-1 px-4 pb-2">
+              {[['days', 'Roz ka hisaab'], ['company', 'Transport-wise']].map(([id, label]) => (
+                <button key={id} onClick={() => setTab(id)}
+                  className={`rounded-lg border px-2.5 py-1 text-[10.5px] font-bold transition-colors ${
+                    tab === id
+                      ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200'
+                      : 'border-slate-700/60 text-slate-400 hover:text-slate-200'}`}>
+                  {label}
+                </button>
+              ))}
             </div>
 
             {!!deadBoxes.length && (
@@ -283,8 +315,64 @@ export default function LoadingActivity({ activity, offline }) {
             )}
 
             <div className="flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar px-4 pb-4">
-              {(() => {
-                const days = a?.last7 ?? [];
+              {tab === 'company' ? (
+                weekCompanies.length === 0 ? (
+                  <p className="py-4 text-[11.5px] text-slate-500">
+                    Is hafte kisi bhi transport ki koi loading nahi mili.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {(() => {
+                      const top = Math.max(1, ...weekCompanies.map((c) => c.qty));
+                      return weekCompanies.map((c) => {
+                        const short = shortCompany(c.company);
+                        return (
+                          <div key={c.company}
+                            className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-3 py-2">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-black ${COMPANY_TONE[short] || NEUTRAL_TONE}`}>
+                                {short}
+                              </span>
+                              <span className="text-[15px] font-black tabular-nums text-slate-100">
+                                {kl(c.qty)}
+                              </span>
+                            </div>
+                            {/* The bar is share-of-week by volume, which is the
+                                comparison somebody opens this tab to make. */}
+                            <div className="mt-1.5 h-1.5 rounded bg-slate-900/70 overflow-hidden">
+                              <div className="h-full rounded bg-cyan-500/60"
+                                style={{ width: `${(c.qty / top) * 100}%` }} />
+                            </div>
+                            <p className="mt-1.5 text-[10px] text-slate-400 tabular-nums">
+                              {c.trips} trip{c.trips === 1 ? '' : 's'}
+                              <span className="text-slate-600"> · </span>
+                              {c.vehicles} gaadi
+                              <span className="text-slate-600"> · </span>
+                              <span className="text-emerald-300">{c.email_count} auto</span>
+                              <span className="text-slate-600"> / </span>
+                              <span className="text-sky-300">{c.manual_count} manual</span>
+                            </p>
+                            {c.first_day && (
+                              <p className="text-[9.5px] text-slate-600">
+                                {c.first_day === c.last_day
+                                  ? dayLabel(c.first_day)
+                                  : `${dayLabel(c.first_day)} – ${dayLabel(c.last_day)}`}
+                              </p>
+                            )}
+                            {/* The full registered name, because "Prasad" is a
+                                display shortening and two of the three firms
+                                share that word. */}
+                            <p className="mt-0.5 text-[9px] text-slate-600 truncate" title={c.company}>
+                              {c.company}
+                            </p>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )
+              ) : (() => {
+                const days = weekDays;
                 const peak = Math.max(1, ...days.map((d) => d.email_count + d.manual_count));
                 const tot = days.reduce((acc, d) => ({
                   e: acc.e + d.email_count, m: acc.m + d.manual_count,

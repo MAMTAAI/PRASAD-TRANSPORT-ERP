@@ -1295,6 +1295,28 @@ export function registerDashboardRoutes(app) {
         ),
         day_rows AS (
           SELECT t.* FROM tagged t, target WHERE t.ist_day = target.day
+        ),
+        -- ── THE WEEK VIEW IS ABOUT LOADING DATES, NOT ENTRY DATES ─────────────
+        -- target/last7 above are keyed on created_at, which is the right
+        -- axis for "did the sync run" — that is what this panel was built to
+        -- expose. It is the WRONG axis for "kis din kitni loading hui", and on
+        -- 28-08 the difference was the whole screen: the register was recovered
+        -- that morning, so every one of those trips carried today's created_at
+        -- and the week chart drew six empty days and one spike, for loadings
+        -- that actually happened on the 17th to the 21st.
+        --
+        -- Anchored on the newest LOADING day rather than today for the same
+        -- reason target falls back: a window ending today is empty whenever
+        -- the register is behind, and an empty chart is indistinguishable from
+        -- a broken one. Ending it on the last day with real work shows the week
+        -- the operator is actually asking about.
+        load_target AS (
+          SELECT COALESCE((SELECT max(loading_date)::date FROM tagged),
+                          (now() AT TIME ZONE 'Asia/Kolkata')::date) AS day
+        ),
+        load_week AS (
+          SELECT t.* FROM tagged t, load_target
+           WHERE t.loading_date::date BETWEEN load_target.day - 6 AND load_target.day
         )
         SELECT
           (SELECT day FROM target)                                        AS day,
@@ -1337,7 +1359,39 @@ export function registerDashboardRoutes(app) {
                                  (now() AT TIME ZONE 'Asia/Kolkata')::date,
                                  interval '1 day') g
                           LEFT JOIN tagged t ON t.ist_day = g::date
-                         GROUP BY g::date) d), '[]'::json)                 AS last7`);
+                         GROUP BY g::date) d), '[]'::json)                 AS last7,
+
+          -- The same seven rows on the loading-date axis, ending on the last day
+          -- that had a loading. This is what the 7-day dialog draws.
+          (SELECT day FROM load_target)                                    AS load_week_to,
+          ((SELECT day FROM load_target) - 6)                              AS load_week_from,
+          COALESCE((SELECT json_agg(d ORDER BY d.day)
+                      FROM (
+                        SELECT g::date AS day,
+                               count(t.id) FILTER (WHERE t.source = 'EMAIL')::int  AS email_count,
+                               count(t.id) FILTER (WHERE t.source = 'MANUAL')::int AS manual_count,
+                               COALESCE(sum(t.loaded_qty) FILTER (WHERE t.source = 'EMAIL'), 0)  AS email_qty,
+                               COALESCE(sum(t.loaded_qty) FILTER (WHERE t.source = 'MANUAL'), 0) AS manual_qty
+                          FROM load_target,
+                               generate_series(load_target.day - 6, load_target.day,
+                                               interval '1 day') g
+                          LEFT JOIN tagged t ON t.loading_date::date = g::date
+                         GROUP BY g::date) d), '[]'::json)                 AS last7_loading,
+
+          -- TRANSPORT-WISE, over that same week. The day chips answer "kiska
+          -- aaj"; this answers "kiska is hafte", which is the question actually
+          -- asked of a register three companies share — and the one the panel
+          -- could not answer at all before.
+          COALESCE((SELECT json_agg(c ORDER BY c.trips DESC)
+                      FROM (SELECT operating_company AS company,
+                                   count(*)::int AS trips,
+                                   count(*) FILTER (WHERE source = 'EMAIL')::int  AS email_count,
+                                   count(*) FILTER (WHERE source = 'MANUAL')::int AS manual_count,
+                                   COALESCE(sum(loaded_qty), 0) AS qty,
+                                   count(DISTINCT vehicle_no)::int AS vehicles,
+                                   min(loading_date)::date AS first_day,
+                                   max(loading_date)::date AS last_day
+                              FROM load_week GROUP BY 1) c), '[]'::json)   AS by_company_week`);
       const r = rows[0] || {};
       // MAILBOX HEALTH TRAVELS WITH THE COUNTS IT EXPLAINS.
       //
@@ -1394,6 +1448,25 @@ export function registerDashboardRoutes(app) {
           manual_count: num(c.manual_count),
           qty: num(c.qty),
         })),
+        load_week_from: r.load_week_from ?? null,
+        load_week_to: r.load_week_to ?? null,
+        last7_loading: (r.last7_loading ?? []).map((d) => ({
+          day: d.day,
+          email_count: num(d.email_count),
+          manual_count: num(d.manual_count),
+          email_qty: num(d.email_qty),
+          manual_qty: num(d.manual_qty),
+        })),
+        by_company_week: (r.by_company_week ?? []).map((c) => ({
+          company: c.company,
+          trips: num(c.trips),
+          email_count: num(c.email_count),
+          manual_count: num(c.manual_count),
+          qty: num(c.qty),
+          vehicles: num(c.vehicles),
+          first_day: c.first_day ?? null,
+          last_day: c.last_day ?? null,
+        })),
         rows: (r.rows ?? []).map((x) => ({
           id: x.id,
           trip_code: x.trip_code,
@@ -1411,6 +1484,7 @@ export function registerDashboardRoutes(app) {
       };
     }, { day: null, is_today: false, email_count: 0, manual_count: 0, email_qty: 0,
          manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [], last7: [],
+         load_week_from: null, load_week_to: null, last7_loading: [], by_company_week: [],
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
                  insert_failed: 0, insert_errors: [] } });
 
