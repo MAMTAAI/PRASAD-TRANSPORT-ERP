@@ -13,6 +13,7 @@
 // Firebase; the stored value is the permanent /api/v1/files/<key> URL.
 import React, { useState, useEffect } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
+import AuthImg from './components/AuthImg';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
@@ -676,7 +677,7 @@ export default function DriverMgmt() {
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: '#1e293b', border: '2px solid #38bdf8', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyItems: 'center' }}>
-                          {d.profile_pic ? <img src={d.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '20px' }}>👨‍✈️</span>}
+                          {<AuthImg src={d.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<span style={{ fontSize: '20px' }}>👨‍✈️</span>} />}
                         </div>
                         <div>
                           <b style={{ color: '#fff', fontSize: '16px' }}>{d.name}</b><br/>
@@ -856,7 +857,7 @@ export default function DriverMgmt() {
                 
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
                   <div style={{ position: 'relative', width: '120px', height: '120px', borderRadius: '50%', border: '2px dashed #c084fc', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.2)' }}>
-                    {localPicPreview || driverData.profile_pic ? <img src={localPicPreview || driverData.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>📷<br/>Passport<br/>Photo</div>}
+                    {<AuthImg src={localPicPreview || driverData.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>📷<br/>Passport<br/>Photo</div>} />}
                     <input type="file" accept="image/*" onChange={(e) => handleDocUpload(e, 'profile_pic')} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} />
                   </div>
                 </div>
