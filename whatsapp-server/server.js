@@ -227,6 +227,8 @@ function newSession(id) {
         pairInFlight: false,
         pairCooldownUntil: 0,
         pairingError: null,
+        pairingCodeAt: 0,
+        pairRefreshTimer: null,
         connected: false,
         status: 'STARTING',           // STARTING | WAITING_FOR_SCAN | ONLINE | RECONNECTING | OFFLINE
         lastHeartbeat: null,
@@ -338,6 +340,14 @@ function scheduleReinit(s, reason) {
     s.status = 'RECONNECTING';
     console.log(`🔁 [${s.id}] Reconnect #${s.reconnectAttempts} in ${delay / 1000}s (${reason})`);
     setTimeout(async () => {
+        // BOTH CREDENTIALS DIE WITH THE PAGE. The QR and the pairing code are
+        // renderings of an auth ref that belongs to the Chromium being thrown
+        // away here. Left in place they keep being served to the screen, and a
+        // dead code typed into a phone answers "Couldn't link device" — which
+        // reads as the link being broken rather than the code being old.
+        clearPairingRefresh(s);
+        s.qr = '';
+        s.pairingCode = '';
         try { await s.client.destroy().catch(() => {}); } catch (e) {}
         // AFTER destroy, BEFORE initialize — the only safe window there is.
         // Deleting the folder while Chromium still has it open lets the
@@ -391,6 +401,49 @@ function scheduleReinit(s, reason) {
  *  can act on. Nothing re-arms by itself; the next attempt is a person pressing
  *  the button, which is also the only signal that anyone is still watching. */
 const PAIR_COOLDOWN_MS = Number.parseInt(process.env.WA_PAIR_COOLDOWN_MS || String(20 * 60 * 1000), 10);
+
+/** A PAIRING CODE HAS A SHELF LIFE, AND THE FIRST FIX FORGOT IT.
+ *
+ *  The QR and the code are two renderings of the same auth ref, and the page
+ *  rotates that ref every ~20 seconds. whatsapp-web.js keeps the displayed code
+ *  usable by re-requesting it on a timer — `window.codeInterval`, default 180s —
+ *  and this morning's fix deliberately removed that, calling it a second
+ *  uninvited caller against the rate limit we had just walked into.
+ *
+ *  Half right. It IS a second caller, and stacking it under six overlapping
+ *  retry chains is what got us blocked. But on its own it is one request every
+ *  three minutes, and it is the only thing keeping the code on screen alive.
+ *  Without it the code was issued once and then sat there going stale:
+ *
+ *      02:37:17  🔢 Pairing code issued (attempt 1)
+ *      02:38:15  📲 New QR generated          … and every 20s after
+ *      08:11     phone: "Couldn't link device"
+ *
+ *  Four minutes between issue and entry, and the code had been dead for most of
+ *  them. So the refresh comes back — at WhatsApp's own cadence, as ONE timer,
+ *  behind the same single-chain guard as everything else. 170s rather than 180
+ *  so the replacement is in hand slightly before the old one lapses. */
+const PAIR_REFRESH_MS = Number.parseInt(process.env.WA_PAIR_REFRESH_MS || String(170 * 1000), 10);
+
+/** Cancel any pending refresh. Called wherever a session stops needing a code —
+ *  it linked, it was logged out, it was reaped, or its page is being replaced. */
+function clearPairingRefresh(s) {
+    if (s && s.pairRefreshTimer) { clearTimeout(s.pairRefreshTimer); s.pairRefreshTimer = null; }
+}
+
+function schedulePairingRefresh(s) {
+    clearPairingRefresh(s);
+    s.pairRefreshTimer = setTimeout(() => {
+        s.pairRefreshTimer = null;
+        if (!sessions.has(s.id) || s.connected || !s.pairPhone) return;
+        // Dropped BEFORE asking, not after. Leaving the old one in place would
+        // keep the guard at the top of askForPairingCode shut, and would also
+        // leave a dead code on the operator's screen for the second or two the
+        // request takes — which is the exact failure being fixed.
+        s.pairingCode = '';
+        askForPairingCode(s);
+    }, PAIR_REFRESH_MS);
+}
 
 /** A transient failure is one that names the library's own injection. Anything
  *  else came from WhatsApp and means what it says. */
@@ -458,10 +511,14 @@ function askForPairingCode(s, attempt = 0) {
             if (!sessions.has(s.id) || s.connected) return;
             if (r && r.ok && r.code) {
                 s.pairingCode = r.code;
+                s.pairingCodeAt = Date.now();
                 s.pairingError = null;
                 s.lastError = null;
                 s.pairCooldownUntil = 0;
-                console.log(`🔢 [${s.id}] Pairing code issued (attempt ${attempt + 1}).`);
+                // Keep it alive. A code nobody refreshes is a code that works
+                // for whoever types it inside three minutes and nobody else.
+                schedulePairingRefresh(s);
+                console.log(`🔢 [${s.id}] Pairing code issued (attempt ${attempt + 1}); refresh in ${Math.round(PAIR_REFRESH_MS / 1000)}s.`);
                 return;
             }
             const err = (r && r.err) || {};
@@ -545,6 +602,7 @@ function wireSession(s) {
         s.pairInFlight = false;
         s.pairCooldownUntil = 0;
         s.pairingError = null;
+        clearPairingRefresh(s);
         s.status = 'ONLINE';
         s.reconnectAttempts = 0;
         s.lastHeartbeat = new Date().toISOString();
@@ -685,6 +743,7 @@ setInterval(() => {
         // Chained after destroy for the same reason the reinit path is: the
         // shutdown writes, so wiping first only means wiping twice.
         const neverLinked = !s.connected;
+        clearPairingRefresh(s);
         s.client.destroy()
             .catch(() => {})
             .then(() => { if (neverLinked) wipeAuthProfile(s, 'reaped before it ever linked'); });

@@ -323,7 +323,17 @@ export function MyWhatsApp({ variant = 'menu' }) {
                   <li><b style={{ color: '#cbd5e1' }}>Link with phone number instead</b> chunein</li>
                   <li>Ye code daalein</li>
                 </ol>
-                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
+                {/* SAID OUT LOUD, BECAUSE A SILENT EXPIRY LOOKS LIKE A BROKEN
+                    LINK. The code lapses after about three minutes and the
+                    engine replaces it on its own. Without this the digits
+                    change under the operator with no explanation — and a code
+                    typed four minutes after it appeared answers "Couldn't link
+                    device", which is exactly what happened at 08:11 on 28-08. */}
+                <p style={{ fontSize: 10.5, color: '#fcd34d', marginTop: 12, lineHeight: 1.5 }}>
+                  Ye code kuch hi minute chalta hai aur apne aap naya ho jata hai —
+                  <b> jo is waqt screen par hai wahi daalein</b>. Badal jaye to naya wala lein.
+                </p>
+                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
                   Code daalte hi ye screen apne aap badal jayegi.
                 </p>
               </>
