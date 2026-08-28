@@ -102,7 +102,22 @@ function AppShell() {
   const [showSplash, setShowSplash] = useState(true); 
   
   // 🚪 EXTERNAL PORTAL MODES
-  const [isDriverMode, setIsDriverMode] = useState(false); 
+  //
+  // DRIVER MODE OPENS FROM THE URL, NOT ONLY FROM A BUTTON.
+  //
+  // The WhatsApp login link is https://prasadtransport.com/driver?k=<token>,
+  // and until this read the URL that address landed on the public website with
+  // the token sitting unused in the address bar — a login link that logs
+  // nobody in. A driver arriving from WhatsApp has no way to find the button
+  // this state used to be set by, which is the entire point of sending a link.
+  //
+  // ?k= alone is enough on purpose: whatever path the link is shortened,
+  // forwarded or rewritten to, the token is what says "this is a driver".
+  const [isDriverMode, setIsDriverMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const { pathname, search } = window.location;
+    return /^\/driver\/?$/i.test(pathname) || new URLSearchParams(search).has('k');
+  });
   const [isCustomerMode, setIsCustomerMode] = useState(false); 
   const [isPartnerMode, setIsPartnerMode] = useState(false);
 
