@@ -259,6 +259,7 @@ def main(argv: list[str]) -> int:
 
     print("\n=== insert")
     inserted_count = 0
+    insert_failed: list[tuple[str, str]] = []
     if not buckets["NEW"]:
         print("  nothing new to insert.")
     elif not args.apply:
@@ -269,6 +270,30 @@ def main(argv: list[str]) -> int:
     else:
         import urllib.request
         base = api_base()
+
+        # THE API IS CLOSED BY DEFAULT (server/lib/apiGuard.js). This importer is
+        # not a person and holds no session, so it identifies as a machine with
+        # the shared service secret — the same door the WhatsApp engine uses for
+        # POST /crm/chats and the reconciler for POST /finance/vouchers.
+        #
+        # Sending nothing is what broke the register on 21-08: every insert came
+        # back 401, the failures were counted into a local list that never left
+        # this function, and the tick reported "ok, inserted 0" — the same shape
+        # as a quiet day. Three days later the Gmail token expired too and took
+        # the blame for both.
+        #
+        # ERP_SERVICE_TOKEN reaches here because ioclSyncRunner spawns this with
+        # the API's own env; a hand-run without it fails loudly below rather than
+        # silently filing nothing.
+        service_token = os.environ.get("ERP_SERVICE_TOKEN", "")
+        headers = {"Content-Type": "application/json"}
+        if service_token:
+            headers["Authorization"] = f"Bearer {service_token}"
+            headers["X-Service-Name"] = "iocl-ac5-importer"
+        else:
+            print("  ⚠ ERP_SERVICE_TOKEN not set — inserts will 401 unless the API "
+                  "is running with no service secret configured.")
+
         done, failed = 0, []
         for load, _ in buckets["NEW"]:
             src = load_source(load)
@@ -288,7 +313,7 @@ def main(argv: list[str]) -> int:
             }
             req = urllib.request.Request(f"{base}/api/v1/ops/trips", method="POST",
                                          data=json.dumps(body).encode(),
-                                         headers={"Content-Type": "application/json"})
+                                         headers=headers)
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:
                     created = json.loads(r.read())
@@ -298,6 +323,7 @@ def main(argv: list[str]) -> int:
                 failed.append((load.doc_no, str(exc)[:90]))
         print(f"  inserted {done}, failed {len(failed)}")
         inserted_count = done
+        insert_failed = failed
         for inv, why in failed[:10]:
             print(f"      inv {inv}: {why}")
 
@@ -321,8 +347,18 @@ def main(argv: list[str]) -> int:
     # point of carrying this out of fetch().
     unhealthy = {k: v for k, v in mailboxes.items()
                  if (v or {}).get("status") not in ("ok", None)}
+    # AN INSERT THAT 401s IS NOT A QUIET DAY EITHER.
+    #
+    # `failed` used to live and die inside the insert branch: it was printed to
+    # a stdout nobody reads and never reached this line, so a run where every
+    # single insert was refused reported inserted:0 and the runner logged "ok".
+    # That is the same mistake the mailbox statuses above were carried out to
+    # fix, one stage further down the pipeline — zero rows written is not the
+    # same fact as zero rows to write, and only the importer can tell them apart.
     print("RESULT_JSON " + json.dumps({
         "inserted": inserted_count,
+        "insert_failed": len(insert_failed),
+        "insert_errors": [{"invoice": str(i), "why": w} for i, w in insert_failed[:10]],
         "duplicates": len(buckets["DUP_INVOICE"]) + len(buckets["DUP_INVOICE_VEHICLE"]),
         "held_for_review": len(buckets["DUP_SHAPE"]),
         "parsed": len(parsed),

@@ -65,6 +65,22 @@ export const PUBLIC_API = new Set([
 export const SERVICE_API = new Set([
   'POST /api/v1/crm/chats',
   'POST /api/v1/crm/logs',
+  // The AC5 importer, filing IOCL dispatch invoices as loading entries. It runs
+  // unattended from cron via ioclSyncRunner and has no session to carry.
+  //
+  // The register stopped advancing on 21-08 because every insert it attempted
+  // answered 401, and the importer counted that into a local list which never
+  // reached RESULT_JSON — so the tick logged "ok, inserted 0", which reads
+  // exactly like a quiet day. The dead Gmail token arrived on top of it three
+  // days later and got the blame for both. Re-authorising alone would have
+  // turned the dashboard green and left the register frozen at 21-08.
+  //
+  // THIS IS A MASS-INSERT ROUTE AND OPENING IT IS A REAL WIDENING. It is the
+  // narrowest door that works: the secret exists only in .env.api on the box,
+  // it is the same door the unattended IOCL reconciler already uses for
+  // POST /finance/vouchers, and the alternative — minting a human session for a
+  // cron job — leaves a standing admin credential on disk instead.
+  'POST /api/v1/ops/trips',
 ]);
 
 const bearerOf = (req) => {

@@ -1363,6 +1363,15 @@ export function registerDashboardRoutes(app) {
           mailbox_detail: failedBoxes.length
             ? Object.fromEntries(failedBoxes.map((k) => [k, sync.last_run.mailboxes?.[k]?.status ?? 'unavailable']))
             : {},
+          // A READABLE MAILBOX IS ONLY HALF THE CHAIN.
+          // From 21-08 the mailboxes were fine and every insert answered 401, so
+          // a banner that watches only the read end would have gone green while
+          // the register stayed frozen — the exact wrong answer, because green
+          // is what stops anyone looking. Carried separately from
+          // mailboxes_failed: "we could not read" and "we read it and could not
+          // file it" send you to different places.
+          insert_failed: sync?.last_run?.insert_failed ?? 0,
+          insert_errors: sync?.last_run?.insert_errors ?? [],
         },
         email_count: num(r.email_count),
         manual_count: num(r.manual_count),
@@ -1402,7 +1411,8 @@ export function registerDashboardRoutes(app) {
       };
     }, { day: null, is_today: false, email_count: 0, manual_count: 0, email_qty: 0,
          manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [], last7: [],
-         sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {} } });
+         sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
+                 insert_failed: 0, insert_errors: [] } });
 
     return {
       ok: true,

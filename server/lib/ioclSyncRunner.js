@@ -180,20 +180,42 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
         detail: Object.fromEntries(failed.map((k) => [k, (summary.mailboxes || {})[k]?.reason || (summary.mailboxes || {})[k]?.status])),
       });
     }
+
+    // AND NEITHER IS AN INSERT THAT WAS REFUSED.
+    //
+    // The lesson above cost a week at the READ end; the same shape was waiting
+    // at the WRITE end and cost the same week. From 21-08 every insert answered
+    // 401 UNAUTHENTICATED — the importer sent no service token to an API that
+    // had just been closed by default — and reported inserted:0, which this
+    // runner faithfully logged as "ok". Two independent faults, one indistinguishable
+    // log line, and the newer one (the dead mailbox) took the blame for both.
+    //
+    // A refused insert is a parsed, wanted, real load that did not get written.
+    // It is louder than a dead mailbox, not quieter.
+    const insertFailed = Number(summary.insert_failed || 0);
+    if (insertFailed) {
+      logLine({
+        event: 'insert_refused', trigger, count: insertFailed,
+        detail: (summary.insert_errors || []).slice(0, 5),
+      });
+    }
     lastRun = {
       at: new Date().toISOString(), trigger, seconds: secs,
       inserted: summary.inserted, downloaded: summary.downloaded ?? null,
       mailboxes_failed: failed,
       mailboxes: summary.mailboxes || {},
+      insert_failed: insertFailed,
+      insert_errors: summary.insert_errors || [],
     };
 
     logLine({
-      event: failed.length ? 'degraded' : 'ok', trigger, seconds: secs, enrich,
+      event: (failed.length || insertFailed) ? 'degraded' : 'ok', trigger, seconds: secs, enrich,
       inserted: summary.inserted, duplicates: summary.duplicates,
       held_for_review: summary.held_for_review, parsed: summary.parsed,
       rejected: summary.rejected, kl_imported: kl,
       downloaded: summary.downloaded ?? null,
       mailboxes_failed: failed,
+      insert_failed: insertFailed,
       window: summary.window,
     });
     return { ...summary, seconds: secs, kl_imported: kl, enrich };

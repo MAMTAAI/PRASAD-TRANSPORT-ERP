@@ -73,6 +73,13 @@ export default function LoadingActivity({ activity, offline }) {
   // thing somebody has to go and fix, and only a person can fix it — an expired
   // OAuth token needs a human to sign in again.
   const deadBoxes = a?.sync?.mailboxes_failed ?? [];
+  // AND THE OTHER HALF OF THE CHAIN. A readable mailbox whose invoices cannot be
+  // WRITTEN looks identical from here: zero auto entries, no dead box, panel
+  // green. That is what happened from 21-08 — every insert answered 401 and the
+  // banner above had nothing to say, so the frozen register read as a quiet
+  // fortnight. Kept separate from deadBoxes because the two send you to
+  // different places: one needs a Google login, the other needs the box.
+  const refused = a?.sync?.insert_failed ?? 0;
 
   return (
     <GlassPanel className="flex flex-col overflow-hidden max-h-[340px] border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]">
@@ -112,6 +119,21 @@ export default function LoadingActivity({ activity, offline }) {
             <p className="text-[10px] leading-snug text-red-200">
               {deadBoxes.join(' aur ')} ka Gmail token expire ho gaya hai — inbox padha hi nahi ja raha.
               Jab tak dobara login nahi hoga, koi auto entry nahi aayegi.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!deadBoxes.length && refused > 0 && (
+        <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-red-500/50 bg-red-500/10 px-2 py-1.5">
+          <AlertTriangle size={12} className="mt-px shrink-0 text-red-400" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-wide text-red-300">
+              Inbox padha gaya, entry nahi ban paayi
+            </p>
+            <p className="text-[10px] leading-snug text-red-200">
+              {refused} loading {refused === 1 ? 'invoice' : 'invoices'} mail se mil gayi thi lekin
+              register mein likhi nahi ja saki. Ye Gmail ka nahi, server ka masla hai.
             </p>
           </div>
         </div>
