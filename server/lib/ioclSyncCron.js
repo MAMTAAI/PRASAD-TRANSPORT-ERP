@@ -1,9 +1,37 @@
 // server/lib/ioclSyncCron.js
 // ─────────────────────────────────────────────────────────────────────────────
-// Every 15 minutes, 09:00-21:59 local:  */15 9-21 * * *
+// Every 10 minutes, round the clock:  */10 * * * *
 //
 // Pulls IOCL AC5 dispatch invoices from both mailboxes and files them as loading
 // entries. Runs unattended, writes to logs/cron_sync.log, and touches no UI.
+//
+// THIS SCHEDULER IS THE AUTO-SCAN, AND IT LIVES ON THE SERVER.
+//
+// It is node-cron inside the ERP API process on the AWS box, started at boot by
+// index.js and kept alive by pm2 (whose startup unit is enabled, so it survives
+// a reboot). It has no connection whatsoever to the office PC: that machine can
+// be off, asleep or in a power cut and every tick still runs. Worth stating
+// plainly because the obvious way to "make it run on the server" — an entry in
+// the ubuntu crontab calling iocl_ac5_loading.py directly — is a TRAP:
+//
+//   • it would bypass the in-process lock, and the note below is not
+//     hypothetical — two concurrent imports each build a deduplication index
+//     blind to the other's uncommitted rows and both insert the same invoice;
+//   • it would skip the enrichment pass the runner does after a successful
+//     insert;
+//   • it would never update syncState(), so the dashboard's sync panel — the
+//     thing that finally made the dead mailboxes visible — would go blind again.
+//
+// The only crontab entry on that box is ci-deploy, and it should stay the only
+// one. Change the cadence HERE, or with IOCL_SYNC_CRON.
+//
+// WHY ROUND THE CLOCK NOW. This was '*/15 9-21 * * *' — business hours in IST,
+// which is the process timezone. That was a reasonable guess about when IOCL
+// sends, and it is wrong often enough to matter: the window is swept by date,
+// so an invoice mailed at 23:40 sat unread until 09:00 the next day, and
+// anything arriving over a weekend night waited longer. A tick that finds
+// nothing costs one Gmail list call, which is cheaper than the register being
+// eleven hours stale every night.
 //
 // WHY THE PDFs DO NOT GO THROUGH DEEPSEEK
 //
@@ -23,14 +51,19 @@
 // It also happens to be why this scheduler still works today while Ollama is
 // down: the ingestion path has no model in it at all.
 //
-// AN OVERRUN IS SKIPPED, NOT QUEUED. A 15-minute cadence against a job that can
-// take minutes will eventually overlap. The runner's lock refuses the second
-// caller, and the tick logs "skipped" and moves on -- two concurrent imports
-// would each build a deduplication index blind to the other's uncommitted rows.
+// AN OVERRUN IS SKIPPED, NOT QUEUED. A 10-minute cadence against a job that can
+// take minutes will eventually overlap -- and it is closer than it was: the
+// catch-up run on 28-08 took 160 seconds against 115 downloaded PDFs, so a
+// backlog run uses a quarter of the interval and a bad one could exceed it. The
+// runner's lock refuses the second caller, and the tick logs "skipped" and moves
+// on -- two concurrent imports would each build a deduplication index blind to
+// the other's uncommitted rows and both would insert the same invoice. Skipping
+// is free here because the window is swept by date, not by a cursor: whatever a
+// skipped tick would have seen, the next one sees too.
 import cron from 'node-cron';
 import { runIoclSync, SyncBusyError, logLine } from './ioclSyncRunner.js';
 
-const SCHEDULE = process.env.IOCL_SYNC_CRON || '*/15 9-21 * * *';
+const SCHEDULE = process.env.IOCL_SYNC_CRON || '*/10 * * * *';
 const ENABLED = String(process.env.IOCL_SYNC_CRON_ENABLED ?? '1') !== '0';
 
 let task = null;
