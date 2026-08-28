@@ -46,6 +46,25 @@ export const PUBLIC_API = new Set([
   'GET /api/v1/crm/website',
   // A fleet partner applying has no account yet; this IS the application.
   'POST /api/v1/bazaar/onboarding',
+  // OTP-LESS DRIVER SIGN-IN. Both are doors, so neither can require a session.
+  // /claim spends a link that was sent to the driver's own handset — the token
+  // is the credential. /track takes a vehicle or mobile number and answers with
+  // a session that can do nothing but report GPS (see TRACK_ONLY_API below).
+  'POST /api/v1/auth/driver/claim',
+  'POST /api/v1/auth/driver/track',
+]);
+
+/** The entire reach of a TRACK_ONLY session.
+ *
+ *  Kept as a set of its own rather than a flag on each route, so that a route
+ *  written next year is closed to these sessions by not appearing here. That
+ *  inversion is the whole point of this file, applied one level in.
+ *
+ *  ONE ENTRY, AND IT SHOULD STAY THAT WAY. This session is handed out on the
+ *  strength of a number painted on a truck. Every addition widens what a
+ *  stranger in a lorry park can reach. */
+export const TRACK_ONLY_API = new Set([
+  'POST /api/v1/tracking/ping',
 ]);
 
 // THIS LIST MAY ONLY DESCRIBE, NEVER WIDEN.
@@ -136,7 +155,37 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
 
     // Everything else: a real, unrevoked session. requireAuth re-reads the
     // account too, so a suspension bites immediately rather than at expiry.
-    return requireAuth(req, reply);
+    const denied = await requireAuth(req, reply);
+    // requireAuth sets req.user on success and replies on failure. Testing the
+    // populated claims rather than reply.sent keeps this correct across Fastify
+    // versions, where that flag has been renamed more than once.
+    if (!req.user) return denied;
+
+    // ── A TRACK_ONLY SESSION MAY DO EXACTLY ONE THING ───────────────────────
+    //
+    // POST /auth/driver/track hands a session to anyone who can name a vehicle
+    // and its live trip — and a vehicle number is painted on the side of the
+    // truck. That door exists because drivers could not get through the OTP one
+    // and the fleet board had sat at "0 / 100 on map" since the day it was
+    // built. It is only defensible while what lies behind it is this small.
+    //
+    // So the scope is enforced HERE, at the one place every /api/ request
+    // passes, and not by remembering to check it on each route. A route added
+    // next year is closed to these sessions because it was not added to this
+    // set — the same inversion the whole file is built on.
+    //
+    // The worst such a session can do is post a false position for a truck
+    // whose number a stranger could read. That shows up on the dispatch board
+    // immediately and is attributable: the ping carries the jti that wrote it.
+    // Reading a freight rate, a customer, a ledger or another trip is not on
+    // the list, and cannot be reached from here.
+    if (req.user?.scope === 'TRACK_ONLY' && !TRACK_ONLY_API.has(route)) {
+      return reply.code(403).send({
+        error: 'TRACK_ONLY_SESSION',
+        detail: 'This session may only report GPS. Open the app from your WhatsApp link for the full driver screen.',
+      });
+    }
+    return denied;
   };
 }
 

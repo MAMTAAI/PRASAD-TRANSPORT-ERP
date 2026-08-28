@@ -203,6 +203,10 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   // ==========================================
   const [otpStep, setOtpStep] = useState('PHONE'); // PHONE | OTP
   const [otpCode, setOtpCode] = useState('');
+  // Set when the driver came in through the no-OTP door. Holds the trip the
+  // TRACK_ONLY session is reporting for — that session cannot fetch anything
+  // else, so this object is the entire screen it gets.
+  const [trackOnlyTrip, setTrackOnlyTrip] = useState<any>(null);
   // No confirmation handle and no reCAPTCHA any more: the code lives in the
   // database (hashed, 5-minute expiry, capped attempts) and the number is the
   // only thing the client has to remember between the two steps.
@@ -234,6 +238,75 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
       }
     })();
   }, [preview, driver]);
+
+  // ── ONE TAP FROM WHATSAPP ────────────────────────────────────────────────
+  //
+  // The link the office sends carries ?k=<token>. Spending it here is the whole
+  // login: no code to read out of a chat, no code to type, nothing to mistype.
+  // Possession of the handset is still the factor — the link went to the
+  // driver's own number — which is exactly what the OTP was proving, minus the
+  // three steps where drivers gave up.
+  //
+  // The token is stripped from the URL the moment it is spent, BEFORE the
+  // request resolves either way. It is single-use server-side, so leaving it in
+  // the address bar would only invite a reload that fails with "link already
+  // used" on a driver who is in fact logged in.
+  useEffect(() => {
+    if (preview || driver) return;
+    const url = new URL(window.location.href);
+    const k = url.searchParams.get('k');
+    if (!k) return;
+    url.searchParams.delete('k');
+    window.history.replaceState(null, '', url.toString());
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await api('/auth/driver/claim', { method: 'POST', body: JSON.stringify({ token: k }) });
+        localStorage.setItem('prasad_driver_token', r.token || '');
+        localStorage.setItem('prasad_driver', JSON.stringify(r.driver));
+        setDriver(r.driver);
+        setDriverType(r.driver?.driver_type || 'OWN');
+        fetchDriverTrips(r.driver?.mobile, r.driver?.name);
+      } catch (e: any) {
+        // Said plainly, because the commonest cause is the most innocent one:
+        // the driver already tapped it, and is probably already logged in on
+        // this phone.
+        alert(e?.code === 'LINK_INVALID_OR_USED'
+          ? '⚠️ Ye link pehle istemaal ho chuka hai ya purana ho gaya hai.\nOffice se naya link mangwa lein, ya neeche gaadi number daal kar tracking chalu karein.'
+          : `⚠️ Link se login nahi hua: ${e?.message || 'unknown'}`);
+      } finally { setLoading(false); }
+    })();
+  }, [preview, driver]);
+
+  // ── NO OTP AT ALL: gaadi ya mobile number, aur tracking chalu ────────────
+  //
+  // Deliberately NOT a full login. The server answers with a TRACK_ONLY session
+  // that apiGuard admits to POST /tracking/ping and to nothing else, because a
+  // vehicle number is painted on the side of the truck and anyone who can read
+  // one can reach this. It starts the GPS and shows which trip it is reporting
+  // for; the duty screen, the ledger and the paperwork stay behind the link.
+  const handleTrackOnly = async () => {
+    const raw = String(mobileNo ?? '').trim();
+    if (!raw) return alert('⚠️ Gaadi number ya mobile number daalein.');
+    const digits = raw.replace(/\D/g, '');
+    const isMobile = /^[6-9]\d{9}$/.test(digits.replace(/^91(?=[6-9]\d{9}$)/, ''));
+    setLoading(true);
+    try {
+      const r = await api('/auth/driver/track', {
+        method: 'POST',
+        body: JSON.stringify(isMobile
+          ? { mobile: digits.replace(/^91(?=[6-9]\d{9}$)/, '') }
+          : { vehicle_no: raw }),
+      });
+      localStorage.setItem('prasad_driver_token', r.token || '');
+      setTrackOnlyTrip(r.trip);
+      startAutoTracking(r.trip.id);
+    } catch (e: any) {
+      alert(e?.code === 'NO_ACTIVE_TRIP'
+        ? '⚠️ Is gaadi/number par abhi koi chalu trip nahi hai.\nOffice se poochein ki trip bani hai ya nahi.'
+        : `⚠️ Tracking chalu nahi hui: ${e?.message || 'unknown'}`);
+    } finally { setLoading(false); }
+  };
 
   const handleSendOtp = async () => {
     const m = mobileNo.replace(/[^\d]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
@@ -452,6 +525,64 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   };
 
   // =========================================================
+  // 📍 SCREEN 0: TRACKING ONLY — came in without an OTP
+  // =========================================================
+  // A TRACK_ONLY session can fetch nothing, so there is nothing to fetch: the
+  // trip handed back by /auth/driver/track IS this screen. Kept deliberately
+  // bare — it exists to prove to the driver that the phone is reporting, and to
+  // give the office a moving dot. Everything else needs the WhatsApp link.
+  if (!driver && trackOnlyTrip) {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col justify-center items-center p-6 text-center font-sans">
+        <div className={`w-28 h-28 rounded-full flex items-center justify-center text-5xl mb-8 ${isTracking ? 'bg-emerald-500/20 animate-pulse' : 'bg-zinc-800'}`}>
+          {isTracking ? '📡' : '⏳'}
+        </div>
+        <h1 className="text-white text-3xl font-black mb-1">
+          {isTracking ? 'लोकेशन भेजी जा रही है' : 'लोकेशन चालू हो रही है…'}
+        </h1>
+        <p className="text-white/40 text-sm mb-8">
+          ऐप खुला रखें। ऑफिस को गाड़ी लाइव दिखेगी।
+        </p>
+
+        <div className="w-full max-w-[400px] bg-white/5 border border-white/10 rounded-[24px] p-5 text-left">
+          <p className="text-emerald-400 text-xs font-black tracking-wide mb-2">
+            {trackOnlyTrip.trip_code || 'TRIP'} · {trackOnlyTrip.status}
+          </p>
+          <p className="text-white text-xl font-black">{trackOnlyTrip.vehicle_no}</p>
+          <p className="text-white/50 text-sm mt-1">
+            {trackOnlyTrip.from || '—'} <span className="text-emerald-400">→</span> {trackOnlyTrip.to || '—'}
+          </p>
+          {trackOnlyTrip.driver_name && (
+            <p className="text-white/30 text-xs mt-2">{trackOnlyTrip.driver_name}</p>
+          )}
+          {currentLoc && (
+            <p className="text-white/30 text-[11px] mt-3 tabular-nums">
+              📍 {currentLoc.lat.toFixed(5)}, {currentLoc.lng.toFixed(5)}
+            </p>
+          )}
+        </div>
+
+        <p className="text-white/25 text-[11px] leading-relaxed mt-8 max-w-[340px]">
+          इस मोड में सिर्फ़ लोकेशन जाती है। ट्रिप डिटेल, पैसा और कागज़ देखने के लिए
+          ऑफिस से WhatsApp लिंक मंगवाएँ।
+        </p>
+        <button
+          onClick={() => {
+            if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+            watchIdRef.current = null;
+            setIsTracking(false);
+            localStorage.removeItem('prasad_driver_token');
+            setTrackOnlyTrip(null);
+          }}
+          className="mt-6 text-white/40 text-sm font-bold underline"
+        >
+          बंद करो
+        </button>
+      </div>
+    );
+  }
+
+  // =========================================================
   // 🔐 SCREEN 1: LOGIN
   // =========================================================
   if (!driver) {
@@ -482,22 +613,40 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
               </>
             ) : otpStep === 'PHONE' ? (
               <>
-                <div className="relative">
-                  <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/80 font-black text-lg">+91</span>
-                  <input
-                    type="tel" inputMode="numeric" maxLength={10}
-                    placeholder="मोबाइल नंबर डालो"
-                    value={mobileNo}
-                    onChange={e => setMobileNo(e.target.value.replace(/[^\d]/g, ''))}
-                    className="w-full bg-white/5 border border-white/10 p-5 pl-16 rounded-[24px] text-white text-lg font-black text-center outline-none focus:border-blue-500 focus:bg-white/10 transition-all backdrop-blur-md placeholder:text-white/30"
-                  />
-                </div>
+                {/* ONE BOX FOR BOTH. It used to strip every non-digit, which
+                    is right for a phone number and destroys "AS 26C 9809".
+                    Letters and spaces are kept now; the two handlers each read
+                    it the way they need — handleTrackOnly decides mobile vs
+                    vehicle by shape, and handleSendOtp still digit-strips. */}
+                <input
+                  type="text" inputMode="text" autoCapitalize="characters" maxLength={16}
+                  placeholder="गाड़ी नंबर या मोबाइल नंबर"
+                  value={mobileNo}
+                  onChange={e => setMobileNo(e.target.value.replace(/[^0-9a-zA-Z ]/g, '').toUpperCase())}
+                  className="w-full bg-white/5 border border-white/10 p-5 rounded-[24px] text-white text-lg font-black text-center outline-none focus:border-emerald-500 focus:bg-white/10 transition-all backdrop-blur-md placeholder:text-white/30"
+                />
+                {/* NO OTP — AND IT IS THE FIRST BUTTON, not a fallback.
+                    The OTP path is what nobody ever got through: 54 drivers
+                    with a number on file and not one login, ever. This one asks
+                    for something the driver is sitting inside. */}
+                <button
+                  onClick={handleTrackOnly}
+                  disabled={loading}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-[0.98] transition-all"
+                >
+                  {loading ? '⏳ चालू कर रहे हैं…' : '📍 लोकेशन भेजना चालू करो'}
+                </button>
+                <p className="text-white/40 text-center text-[11px] leading-relaxed -mt-3">
+                  गाड़ी नंबर या मोबाइल नंबर — कोई OTP नहीं।<br />
+                  पूरी ट्रिप डिटेल के लिए ऑफिस से WhatsApp लिंक मंगवाएँ।
+                </p>
+
                 <button
                   onClick={handleSendOtp}
                   disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black shadow-[0_10px_30px_rgba(37,99,235,0.3)] active:scale-[0.98] transition-all"
+                  className="w-full bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-50 text-white/70 py-4 rounded-[24px] text-sm font-black active:scale-[0.98] transition-all"
                 >
-                  {loading ? '⏳ भेज रहे हैं…' : '📩 OTP भेजो'}
+                  {loading ? '⏳ भेज रहे हैं…' : '📩 OTP से पूरा लॉगिन'}
                 </button>
               </>
             ) : (

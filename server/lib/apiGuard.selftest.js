@@ -126,6 +126,71 @@ for (const entry of SERVICE_API) {
 check('GET /api/v1/masters/drivers (unconfigured)',
   await run(guardNoSecret, req('GET', '/api/v1/masters/drivers')), 401);
 
+// ── TRACK_ONLY ───────────────────────────────────────────────────────────────
+// The scope handed out by POST /auth/driver/track, which anyone able to read a
+// number off the side of a truck can obtain. Its reach is the single most
+// security-relevant thing in this file, so it is asserted rather than trusted.
+console.log('\nTRACK_ONLY SESSIONS — one route, and only one');
+const trackAuth = async (rq, reply) => {
+  const h = rq.headers?.authorization ?? '';
+  if (!h.startsWith('Bearer ')) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+  rq.user = { sub: 'driver', role: 'DRIVER', scope: 'TRACK_ONLY' };
+};
+const trackGuard = makeApiGuard({ requireAuth: trackAuth, serviceToken: SECRET });
+const asDriver = (method, path) => req(method, path, { authorization: 'Bearer ' + 'z'.repeat(40) });
+
+check('POST /api/v1/tracking/ping is allowed',
+  await run(trackGuard, asDriver('POST', '/api/v1/tracking/ping')), 'allowed');
+
+// Everything a stranger in a lorry park must NOT be able to reach. The assertion
+// is REFUSED, not a particular code: POST /ops/trips is a SERVICE_API route, so
+// a caller holding a session bearer instead of the service secret is turned away
+// at 401 before the scope check is ever reached. Refused is refused; pinning the
+// number here would make this test fail the next time a route joins that list,
+// which is not a change in what a driver can do.
+const refused = (r) => (r === 'allowed' ? 'allowed' : 'refused');
+for (const [m, p] of [
+  ['GET',  '/api/v1/masters/drivers'],
+  ['GET',  '/api/v1/ops/trips'],
+  ['POST', '/api/v1/ops/trips'],
+  ['GET',  '/api/v1/finance/ledger'],
+  ['GET',  '/api/v1/dashboard/v5'],
+  ['GET',  '/api/v1/tracking'],              // the fleet board itself
+  ['GET',  '/api/v1/tracking/ping'],         // same path, wrong method
+  ['POST', '/api/v1/crm/send'],
+]) {
+  check(`${m} ${p} refused`, refused(await run(trackGuard, asDriver(m, p))), 'refused');
+}
+// And the ones that are not service routes are refused with the scope's own
+// code, so the app can tell "wrong door" from "no session".
+check('a plain route refuses TRACK_ONLY with 403',
+  await run(trackGuard, asDriver('GET', '/api/v1/dashboard/v5')), 403);
+
+// A FULL driver session must not be caught by the same rule — the link login
+// exists precisely so a driver gets the whole duty screen.
+const fullAuth = async (rq, reply) => {
+  const h = rq.headers?.authorization ?? '';
+  if (!h.startsWith('Bearer ')) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+  rq.user = { sub: 'driver', role: 'DRIVER' };   // no scope
+};
+const fullGuard = makeApiGuard({ requireAuth: fullAuth, serviceToken: SECRET });
+check('a full driver session still reaches its trips',
+  await run(fullGuard, asDriver('GET', '/api/v1/ops/trips')), 'allowed');
+
+// And an unauthenticated caller is still 401, not 403: the scope check must run
+// AFTER the session check, never instead of it.
+check('no session is still 401, not 403',
+  await run(trackGuard, req('POST', '/api/v1/tracking/ping')), 401);
+
+console.log('\nTHE TWO NEW DOORS ARE PUBLIC — a driver has no session yet');
+check('POST /api/v1/auth/driver/claim',
+  await run(guard, req('POST', '/api/v1/auth/driver/claim')), 'allowed');
+check('POST /api/v1/auth/driver/track',
+  await run(guard, req('POST', '/api/v1/auth/driver/track')), 'allowed');
+// Minting one is staff work and must NOT be public.
+check('POST /api/v1/auth/driver/link needs a session',
+  await run(guard, req('POST', '/api/v1/auth/driver/link')), 401);
+
 console.log(failures === 0
   ? '\n✅ apiGuard: all checks passed\n'
   : `\n❌ apiGuard: ${failures} check(s) FAILED\n`);

@@ -23,7 +23,7 @@
 // PASSWORD_RESET_REQUIRED, which the cutover needs — otherwise six staff see
 // "wrong password" for a password that was never wrong.
 // ─────────────────────────────────────────────────────────────────────────────
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomBytes, createHash } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
 import { hashPassword, verifyPassword, issueToken, verifyToken, bearer, hashCode, verifyCode, newOtp, ALGO } from '../lib/auth.js';
 import * as otp from '../lib/otpChannel.js';
@@ -376,6 +376,165 @@ export async function registerAuthRoutes(app) {
     // auth_sessions.issued_at already records every login with more detail.
 
     return { token, expires_at: expiresAt, driver: drv[0], role: 'DRIVER' };
+  });
+
+  // ═══ OTP-LESS DRIVER SIGN-IN ══════════════════════════════════════════════
+  //
+  // Everything behind driver login already worked on the day this was written:
+  // DriverPortal captures GPS, POST /tracking/ping inserts and broadcasts,
+  // LiveFleetMap draws it. The board still read "0 / 100 on map" and
+  // trip_gps_pings held zero rows — because auth_sessions has never held a
+  // single driver_id. 54 drivers with a mobile on file, not one login, ever.
+  //
+  // The only door was a six-digit code the driver had to read out of a chat and
+  // type into an app. Every step of that is a place a driver stops. Two doors
+  // replace it, and they are deliberately NOT equally powerful.
+
+  /** Random URL-safe secret; the link is a bearer credential, so it is CSPRNG
+   *  and long enough that guessing is not a strategy. */
+  const newLinkToken = () => randomBytes(32).toString('base64url');
+  const hashLink = (t) => createHash('sha256').update(String(t)).digest('hex');
+
+  // ── DOOR 1: the WhatsApp link — full driver session ──────────────────────
+  // Minted by staff (or by the trip-creation path) and sent to the driver's own
+  // number. Possession of that handset is the authentication factor, exactly as
+  // it was with the OTP; what changes is that the driver taps instead of types.
+  app.post('/driver/link', { preHandler: requireAdminOrService }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const mobile = last10(b.mobile);
+    const { rows: drv } = await query(
+      `SELECT id, name, mobile FROM drivers
+        WHERE ($1::uuid IS NOT NULL AND id = $1::uuid)
+           OR ($2 <> '' AND right(regexp_replace(coalesce(mobile,''), '\\D', '', 'g'), 10) = $2)
+        LIMIT 1`,
+      [UUID_RE.test(String(b.driver_id ?? '')) ? b.driver_id : null, mobile]);
+    if (!drv.length) return reply.code(404).send({ error: 'DRIVER_NOT_FOUND' });
+
+    const token = newLinkToken();
+    // Hours, not days. A link minted for today's dispatch is not a standing key
+    // to the app, and the driver can always be sent another.
+    const hours = Math.min(Math.max(Number(b.valid_hours ?? 72), 1), 168);
+    const { rows: [link] } = await query(
+      `INSERT INTO driver_login_links (driver_id, trip_id, token_hash, sent_to, created_by, expires_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, now() + ($6 || ' hours')::interval)
+       RETURNING id, expires_at`,
+      [drv[0].id, UUID_RE.test(String(b.trip_id ?? '')) ? b.trip_id : null,
+       hashLink(token), drv[0].mobile ?? null, req.user?.name ?? 'system', String(hours)]);
+
+    // The base has to be the address a DRIVER's phone can open, which is not
+    // necessarily the one this request arrived on.
+    const base = (process.env.DRIVER_APP_URL || process.env.PUBLIC_APP_URL || '').replace(/\/+$/, '');
+    return {
+      ok: true,
+      link_id: link.id,
+      expires_at: link.expires_at,
+      driver: { id: drv[0].id, name: drv[0].name, mobile: drv[0].mobile },
+      // Returned ONCE and never stored — only its hash is kept.
+      url: `${base}/driver?k=${token}`,
+      token,
+    };
+  });
+
+  // ── Claiming it: public, single use ──────────────────────────────────────
+  // Public because a driver holding the link has no session yet — that is the
+  // entire point. The token IS the credential.
+  app.post('/driver/claim', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const token = String(req.body?.token ?? '').trim();
+    if (!token) return reply.code(400).send({ error: 'MISSING_TOKEN' });
+
+    // Burned in the same statement that claims it: two taps on one WhatsApp
+    // message must not open two sessions, and checking-then-updating leaves a
+    // window where they do.
+    const { rows: claimed } = await query(
+      `UPDATE driver_login_links
+          SET consumed_at = now()
+        WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()
+        RETURNING driver_id, trip_id`, [hashLink(token)]);
+    if (!claimed.length) return reply.code(401).send({ error: 'LINK_INVALID_OR_USED' });
+
+    const { rows: drv } = await query('SELECT * FROM drivers WHERE id = $1::uuid', [claimed[0].driver_id]);
+    if (!drv.length) return reply.code(401).send({ error: 'NO_ACCOUNT' });
+
+    const { rows: [{ jti }] } = await query('SELECT gen_random_uuid() AS jti');
+    const { token: jwt, expiresAt } = issueToken({ sub: drv[0].id, jti, role: 'DRIVER', name: drv[0].name });
+    await query(
+      `INSERT INTO auth_sessions (jti, driver_id, expires_at, user_agent, ip)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5)`,
+      [jti, drv[0].id, expiresAt, String(req.headers['user-agent'] ?? '').slice(0, 300), req.ip ?? null]);
+
+    return { token: jwt, expires_at: expiresAt, driver: drv[0], role: 'DRIVER', trip_id: claimed[0].trip_id };
+  });
+
+  // ── DOOR 2: vehicle or mobile, straight in — BUT TRACKING ONLY ───────────
+  //
+  // A VEHICLE NUMBER IS PAINTED ON THE SIDE OF THE TRUCK. Anyone who can read
+  // one could open this door, so what is behind it is deliberately almost
+  // nothing: a session whose scope is TRACK_ONLY, which apiGuard admits to
+  // POST /tracking/ping and to no other route in the system. It can say where a
+  // truck is. It cannot read a freight rate, a customer, a driver's ledger or
+  // another trip.
+  //
+  // That is the honest trade. The stated requirement was "vehicle number daalte
+  // hi GPS tracking start ho jaye", and this does exactly that, without making
+  // the fleet's movements readable by anyone who walks past a parked tanker.
+  // The full app stays behind the link, which goes to the driver's own phone.
+  //
+  // The worst a stranger can do here is post a false position for a truck whose
+  // number they can see — visible immediately on the dispatch board, and
+  // attributable, because every ping records the session that wrote it.
+  app.post('/driver/track', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const mobile = last10(b.mobile);
+    // Vehicle numbers are written a dozen ways ("AS 26C 9809", "as26c9809").
+    // Compared with the spaces stripped, on both sides.
+    const vehicle = String(b.vehicle_no ?? '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+    if (!mobile && !vehicle) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'vehicle_no ya mobile chahiye' });
+
+    // The MOVING trip is the whole subject of a tracking session. No moving
+    // trip, nothing to track — and saying so is more useful than a session that
+    // can post pings nobody wants.
+    const { rows: trips } = await query(
+      `SELECT t.id, t.trip_code, t.vehicle_no, t.status, t.loading_point, t.unloading_location,
+              t.consignee_name, t.driver_name, t.loading_date, d.id AS driver_id
+         FROM trips t
+         LEFT JOIN drivers d ON d.id = t.driver_id
+        WHERE t.status IN ('LOADED','IN_TRANSIT','UNLOADING')
+          AND ( ($1 <> '' AND upper(regexp_replace(coalesce(t.vehicle_no,''), '[^0-9a-zA-Z]', '', 'g')) = $1)
+             OR ($2 <> '' AND right(regexp_replace(coalesce(d.mobile,''), '\\D', '', 'g'), 10) = $2) )
+        ORDER BY t.loading_date DESC NULLS LAST
+        LIMIT 1`, [vehicle, mobile]);
+    if (!trips.length) {
+      return reply.code(404).send({
+        error: 'NO_ACTIVE_TRIP',
+        detail: 'Is gaadi/number par abhi koi chalu trip nahi hai. Office se poochein.',
+      });
+    }
+    const t = trips[0];
+
+    const { rows: [{ jti }] } = await query('SELECT gen_random_uuid() AS jti');
+    const { token, expiresAt } = issueToken({
+      sub: t.driver_id ?? t.id, jti, role: 'DRIVER', name: t.driver_name ?? t.vehicle_no,
+      scope: 'TRACK_ONLY',
+    });
+    // Recorded like any other session so it can be listed and revoked. driver_id
+    // may be null when the trip has no driver linked — the session is still
+    // real and still expires.
+    await query(
+      `INSERT INTO auth_sessions (jti, driver_id, expires_at, user_agent, ip)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5)`,
+      [jti, t.driver_id ?? null, expiresAt, String(req.headers['user-agent'] ?? '').slice(0, 300), req.ip ?? null]);
+
+    return {
+      token, expires_at: expiresAt, role: 'DRIVER', scope: 'TRACK_ONLY',
+      trip: {
+        id: t.id, trip_code: t.trip_code, vehicle_no: t.vehicle_no, status: t.status,
+        from: t.loading_point, to: t.unloading_location || t.consignee_name,
+        driver_name: t.driver_name, loading_date: t.loading_date,
+      },
+    };
   });
 
   // ── Self-service password set / reset ────────────────────────────────────
