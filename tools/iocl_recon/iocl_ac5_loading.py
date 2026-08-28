@@ -307,7 +307,22 @@ def main(argv: list[str]) -> int:
                 "loaded_qty": float(load.qty_kl),
                 "product_type": load.product,
                 "iocl_invoice_no": str(load.doc_no),
-                "loading_point": load.loading_point_code,
+                # NAME FIRST, CODE IN BRACKETS — "Lumding Terminal (7T04)".
+                #
+                # This posted the bare code, and the name the parser had already
+                # read off the same invoice was thrown away. The register then
+                # held "7T04" as a loading point, which Google cannot geocode,
+                # so Route Tracking opened on a map of the planet. It also broke
+                # the shape the rest of the table uses: 357 typed rows read
+                # "BONGAIGAON  RC  OFFICE  (7R01)" and the imported ones did not
+                # match any of them.
+                #
+                # Falls back to the bare code when the invoice had no usable
+                # name, because the code is still the thing the office says out
+                # loud and losing it would be worse than an unfindable pin.
+                "loading_point": (f"{load.loading_point} ({load.loading_point_code})"
+                                  if load.loading_point and load.loading_point_code
+                                  else (load.loading_point or load.loading_point_code)),
                 "consignee_name": load.consignee_name,
                 "status": "IN_TRANSIT",
             }

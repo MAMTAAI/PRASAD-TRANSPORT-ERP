@@ -209,6 +209,25 @@ def parse_ac5(path: Path) -> Ac5Load:
     if m := re.search(r"Destination\s*:?\s*(.+)", text):
         load.consignee_name = m.group(1).strip()
 
+    # THE DEPOT NAME AND THE DESTINATION SHARE A LINE ON THIS FORM.
+    #
+    # "Name & Address" is greedy to end-of-line, and on an AC5 that line also
+    # carries the destination — 7T04 came back as "Lumding Terminal Chabua AFS
+    # 7A04" and 7R02 as "Guwahati RC Office Tezpur AFS 7A10". Harmless while
+    # nobody used the field; not harmless now that it is what a map is asked to
+    # find, because the pair geocodes to neither place.
+    #
+    # Trimmed against consignee_name rather than by guessing at a separator:
+    # the destination is already parsed, exactly, from its own line.
+    if load.loading_point and load.consignee_name:
+        tail = load.consignee_name.strip()
+        if tail and load.loading_point.endswith(tail):
+            trimmed = load.loading_point[: -len(tail)].strip(" ,-")
+            # Only when something is actually left. A form that prints the two
+            # the other way round must degrade to the full string, not to "".
+            if trimmed:
+                load.loading_point = trimmed
+
     if not load.ok:
         missing = [k for k, v in (("doc_no", load.doc_no), ("vehicle_no", load.vehicle_no),
                                   ("loading_date", load.loading_date), ("qty", load.qty_kl)) if not v]

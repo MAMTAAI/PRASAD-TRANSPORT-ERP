@@ -23,6 +23,7 @@ function TripMeter({ label, used, target, unit, color }) {
   );
 }
 import { getDrivingDistance, loadGoogleMaps } from './lib/maps';
+import { placeOf, routeEmbedUrl, routeAppUrl } from './lib/tripPlaces';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -1050,14 +1051,43 @@ export default function TripManagment() {
             </div>
 
             <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155', position: 'relative' }}>
-              {/* 🗺️ GOOGLE MAPS FIX APPLIED HERE */}
-              {trackMode === 'ROUTE' && (
-                <iframe
-                    width="100%" height="100%" frameBorder="0" style={{ border: 0 }}
-                    src={`https://maps.google.com/maps?saddr=${encodeURIComponent(activeTrip.loading_point || activeTrip.Loading_Point || '')}&daddr=${encodeURIComponent(activeTrip.consignee_name || activeTrip.Consignee_Name || '')}&z=7&output=embed`}
-                    allowFullScreen>
-                </iframe>
-              )}
+              {/* ── THE ROUTE MAP ────────────────────────────────────────────
+                  This used to interpolate loading_point straight into saddr.
+                  On every IOCL-imported trip that value is the literal "7T04",
+                  Google cannot geocode it, and a directions embed whose origin
+                  fails does not show an error — it shows the whole planet.
+                  That is the "map clean nahi aa rahi" in the screenshot: a pin
+                  on Chabua with an ocean around it.
+
+                  placeOf() resolves the code against the names this company
+                  already uses for its own depots, and returns null rather than
+                  guessing when it cannot. Null gets the panel below instead of
+                  a confident pin on the wrong town. */}
+              {trackMode === 'ROUTE' && (() => {
+                const from = activeTrip.loading_point || activeTrip.Loading_Point || '';
+                const to = activeTrip.consignee_name || activeTrip.Consignee_Name
+                        || activeTrip.unloading_location || '';
+                const url = routeEmbedUrl(from, to);
+                if (url) {
+                  return <iframe width="100%" height="100%" frameBorder="0" style={{ border: 0 }}
+                            src={url} allowFullScreen loading="lazy" />;
+                }
+                const a = placeOf(from); const b = placeOf(to);
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '10px', padding: '24px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '34px' }}>🗺️</div>
+                    <div style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '15px' }}>
+                      Is trip ka route map par nahi dikha sakte
+                    </div>
+                    <div style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, maxWidth: '440px' }}>
+                      {a.unresolved && <>Loading point <b style={{ color: '#e2e8f0' }}>{a.label}</b> ek IOCL code hai jiska naam system mein kahin nahi hai.<br /></>}
+                      {b.unresolved && <>Destination <b style={{ color: '#e2e8f0' }}>{b.label}</b> ka naam system mein nahi hai.<br /></>}
+                      {!a.unresolved && !b.unresolved && <>Is trip par loading ya unloading ki jagah bhari hi nahi gayi.<br /></>}
+                      Galat jagah ka pin dikhane se behtar hai ki kuch na dikhayein — naam bharte hi map apne aap aa jayega.
+                    </div>
+                  </div>
+                );
+              })()}
               {trackMode === 'GPRS' && (activeTrip.liveLocation?.lat ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', background: 'rgba(16,185,129,0.1)', borderBottom: '1px solid #334155', gap: '10px', flexWrap: 'wrap' }}>
@@ -1107,11 +1137,34 @@ export default function TripManagment() {
               )}
             </div>
             
-            {trackMode === 'ROUTE' && (
-              <div style={{ marginTop: '15px', textAlign: 'center' }}>
-                <a href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(activeTrip.loading_point || activeTrip.Loading_Point || '')}&destination=${encodeURIComponent(activeTrip.consignee_name || activeTrip.Consignee_Name || '')}`} target="_blank" rel="noopener noreferrer" style={{ background: '#2563eb', color: 'white', padding: '12px 25px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>🗺️ Open Full Route in Google Maps App</a>
-              </div>
-            )}
+            {/* The same route in the real app — one tap to turn-by-turn on a
+                phone, and the deep link opens the installed Google Maps rather
+                than the browser. Hidden, not dead, when the route cannot be
+                placed: a button that opens a map of the world is worse than no
+                button, because somebody presses it every time. */}
+            {trackMode === 'ROUTE' && (() => {
+              const url = routeAppUrl(
+                activeTrip.loading_point || activeTrip.Loading_Point || '',
+                activeTrip.consignee_name || activeTrip.Consignee_Name || activeTrip.unloading_location || '');
+              if (!url) return null;
+              const a = placeOf(activeTrip.loading_point || activeTrip.Loading_Point || '');
+              const b = placeOf(activeTrip.consignee_name || activeTrip.Consignee_Name || activeTrip.unloading_location || '');
+              return (
+                <div style={{ marginTop: '15px', textAlign: 'center' }}>
+                  <a href={url} target="_blank" rel="noopener noreferrer"
+                    style={{ background: '#2563eb', color: 'white', padding: '12px 25px', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold', display: 'inline-block' }}>
+                    🗺️ Open Full Route in Google Maps App
+                  </a>
+                  {/* What it is actually going to search for. The codes are how
+                      the office talks about these depots; the names are what a
+                      map can find — showing both is what makes a wrong pin
+                      obvious instead of mysterious. */}
+                  <div style={{ marginTop: '8px', color: '#64748b', fontSize: '12px' }}>
+                    {a.label} <span style={{ color: '#38bdf8' }}>→</span> {b.label}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </BottomSheet>
