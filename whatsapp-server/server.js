@@ -127,6 +127,9 @@ const postCrm = async (path, body) => {
 
 const last10 = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 
+// A photo is a message too — see describeMedia.js for the 400 this ends.
+const { describeMedia } = require('./describeMedia');
+
 async function logChat(entry) {
     try { await postCrm('/chats', entry); } catch (e) { console.error('WA_CHATS log error:', e.message); }
 }
@@ -774,14 +777,22 @@ function wireSession(s) {
         try {
             s.lastActivity = Date.now();
             const from10 = last10(msg.from);
+            const media = describeMedia(msg);
             await logChat({
-                phone: from10, text: msg.body, type: 'incoming',
+                phone: from10, text: media.text, type: 'incoming',
+                media_type: media.mediaType, media_filename: media.filename,
                 timestamp: new Date().toISOString(), wa_from: msg.from,
                 wa_session: s.id, wa_session_kind: s.kind,
             });
             if (s.kind !== 'company') return;   // no bot on a personal number
 
-            const text = msg.body.toLowerCase().trim();
+            // The bot answers WORDS, and matches on what the sender actually
+            // typed — never on the label above. Keying on media.text would let a
+            // keyword rule fire on '📷 Photo', and an empty body would look up the
+            // rule with keyword '' on every photo that arrives.
+            if (media.mediaType) return;
+            const text = String(msg.body || '').toLowerCase().trim();
+            if (!text) return;
             const rule = await Rule.findOne({ keyword: text }).catch(() => null);
             if (rule) {
                 await msg.reply(rule.reply);

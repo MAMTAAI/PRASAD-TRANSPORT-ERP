@@ -28,6 +28,26 @@ import MamtaChat from './MamtaChat';
 import useIsMobile from './hooks/useIsMobile';
 import { waHeaders, canUseLocalEngine } from './lib/waSend'; // 🔐 P0: X-PT-Token for the hardened engine
 
+// An attachment, said once. The engine writes a readable line into wa_chats.text
+// — the caption when the driver sent one, otherwise a label naming what came
+// through — so a bubble already reads correctly with no help from here. What it
+// cannot show is a photo that DID carry a caption: the caption is the text, and
+// the fact that a photo came with it would be invisible.
+//
+// So the chip below is shown for every media row, and the text line is dropped
+// when it is only repeating the chip. This map mirrors the one in
+// whatsapp-server/describeMedia.js; if the two ever drift the failure is a
+// bubble that says 'Photo' twice, which is why the comparison is this naive.
+const MEDIA_LABELS: Record<string, string> = {
+  image: '📷 Photo', video: '🎥 Video', audio: '🎵 Audio', ptt: '🎤 Voice note',
+  document: '📄 Document', sticker: '🙂 Sticker', location: '📍 Location',
+  vcard: '👤 Contact card', multi_vcard: '👤 Contact cards',
+};
+const mediaLabel = (kind: string, filename?: string | null) => {
+  const label = MEDIA_LABELS[kind] || ('📎 ' + kind);
+  return filename ? label + ' — ' + filename : label;
+};
+
 // 🌐 Engine endpoints: the hardened LOCAL engine (this PC, persistent session)
 // is preferred; the legacy Render deploy stays as fallback for other machines.
 const WA_LOCAL = 'http://localhost:5001';
@@ -493,7 +513,8 @@ const WhatsappDashboard = () => {
                               {currentChatHistory.map(msg => (
                                   <div key={msg.id} style={{alignSelf: msg.type === 'outgoing' ? 'flex-end' : 'flex-start', maxWidth:'70%', background: msg.type === 'outgoing' ? theme.wa : theme.inputBg, color: msg.type === 'outgoing' ? 'black' : 'white', padding:'12px 18px', borderRadius: msg.type === 'outgoing' ? '20px 20px 0 20px' : '20px 20px 20px 0', border:`1px solid ${theme.border}`, boxShadow:'0 5px 15px rgba(0,0,0,0.1)'}}>
                                       {msg.type === 'outgoing' && <div style={{fontSize:'10px', fontWeight:'bold', color: (msg.sentByUserName || msg.userId) === 'Mamta AI' ? '#6B21A8' : '#064E3B', marginBottom:'3px'}}>✓ Sent by {msg.sentByUserName || msg.userId || 'Unknown'}</div>}
-                                      <div style={{fontSize:'15px'}}>{msg.text}</div>
+                                      {msg.media_type && <div style={{fontSize:'12px', fontWeight:'bold', opacity:0.75, marginBottom:'4px'}}>{mediaLabel(msg.media_type, msg.media_filename)}</div>}
+                                      {(!msg.media_type || msg.text !== mediaLabel(msg.media_type, msg.media_filename)) && <div style={{fontSize:'15px'}}>{msg.text}</div>}
                                       <div style={{fontSize:'10px', textAlign:'right', marginTop:'5px', opacity:0.7}}>{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                                   </div>
                               ))}

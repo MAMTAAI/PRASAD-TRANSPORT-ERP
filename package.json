@@ -28,7 +28,8 @@
     "ship": "node scripts/ship.mjs",
     "ship:watch": "node scripts/ship.mjs --watch",
     "ship:release": "node scripts/ship.mjs --release",
-    "auth:selftest": "node server/lib/apiGuard.selftest.js"
+    "auth:selftest": "node server/lib/apiGuard.selftest.js",
+    "wa:selftest": "node whatsapp-server/describeMedia.selftest.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

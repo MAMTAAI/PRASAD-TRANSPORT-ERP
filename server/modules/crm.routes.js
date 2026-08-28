@@ -213,8 +213,28 @@ export async function registerCrmRoutes(app) {
     // The engine's field is `type`; the column is `direction` because `type` is
     // a reserved-ish word in enough places to be worth avoiding.
     const direction = b.direction ?? b.type;
-    if (!b.phone || !b.text || !['incoming', 'outgoing'].includes(direction)) {
-      return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'phone, text and direction (incoming|outgoing) are required' });
+
+    // ── A MEDIA MESSAGE IS NOT A MALFORMED ONE ──────────────────────────────
+    // This endpoint required a non-empty text, and wa_chats.text is NOT NULL,
+    // so it did the requiring for real. whatsapp-web.js puts the caption in
+    // msg.body: a photo sent without one has body '', which arrived here as a
+    // 400 and was swallowed by the engine's logChat catch. Several a day since
+    // 15-08. The table holds 170 incoming rows and NOT ONE with an empty text —
+    // not because none was sent, but because none could be written. It is the
+    // worst possible subset to lose: a driver does not type 'loaded', he
+    // photographs the slip.
+    //
+    // The engine now names what came through (describeMedia), so text arrives
+    // filled. The fallback below is still here on purpose: an engine older than
+    // this deploy, or one restarted mid-rollout, must record the message rather
+    // than lose it a second time — the same reason the privacy gate lives on
+    // this side rather than in the engine. A row reading '📎 image' is a
+    // record; a 400 is an absence nobody can see.
+    const mediaType = b.media_type ?? b.mediaType ?? null;
+    const text = String(b.text ?? '').trim() || (mediaType ? `📎 ${mediaType}` : '');
+
+    if (!b.phone || !text || !['incoming', 'outgoing'].includes(direction)) {
+      return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'phone, direction (incoming|outgoing) and either text or media_type are required' });
     }
     const phone = last10(b.phone);
     const waSession = String(b.wa_session ?? b.waSession ?? 'company');
@@ -272,14 +292,15 @@ export async function registerCrmRoutes(app) {
 
     const { rows } = await query(`
       INSERT INTO wa_chats (phone, text, direction, user_id, sent_by_user_id, sent_by_user_name,
-        trip_id, role, wa_from, wa_msg_id, wa_session, wa_session_kind, ts)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13::timestamptz, now()))
+        trip_id, role, wa_from, wa_msg_id, wa_session, wa_session_kind, media_type, media_filename, ts)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::timestamptz, now()))
       ON CONFLICT (wa_msg_id) DO NOTHING
       RETURNING *`,
-      [phone, b.text, direction, b.userId ?? b.user_id ?? null,
+      [phone, text, direction, b.userId ?? b.user_id ?? null,
        b.sentByUserId ?? b.sent_by_user_id ?? null, b.sentByUserName ?? b.sent_by_user_name ?? null,
        UUID_RE.test(String(b.tripId ?? b.trip_id ?? '')) ? (b.tripId ?? b.trip_id) : null,
        b.role ?? null, b.wa_from ?? null, b.wa_msg_id ?? null, waSession, waKind,
+       mediaType, b.media_filename ?? b.mediaFilename ?? null,
        b.timestamp ?? b.ts ?? null]);
     // DO NOTHING returns no row on a replayed send — report the existing one.
     if (!rows.length) {
