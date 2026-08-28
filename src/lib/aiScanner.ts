@@ -4,6 +4,7 @@
 // text and DeepSeek parses it. Vision is the fallback, not the default.
 
 import { llmChat } from './llm';
+import { API_BASE } from './apiBase';
 
 // Two models, because they do different jobs and are not interchangeable.
 //   TEXT_MODEL   reads OCR output. deepseek-r1 is a reasoning text model.
@@ -62,12 +63,79 @@ Rules: document_number is the policy/certificate/registration number (keep lette
   // think:false is CRITICAL: on hard documents the reasoning mode can spend the
   // whole output budget "thinking" and return empty content (verified on real
   // IOCL bills). numCtx gives the vision prompt headroom over Ollama's default.
-  const res = await llmChat([{ role: 'user', content: prompt, images: [imageB64] }], { format: 'json', temperature: 0, think: false, numCtx: 8192 });
   let parsed: any = {};
-  try { parsed = JSON.parse(res.content); }
-  catch { try { const m = res.content.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : {}; } catch { parsed = {}; } }
+  try {
+    const res = await llmChat([{ role: 'user', content: prompt, images: [imageB64] }], { format: 'json', temperature: 0, think: false, numCtx: 8192 });
+    try { parsed = JSON.parse(res.content); }
+    catch { try { const m = res.content.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : {}; } catch { parsed = {}; } }
+  } catch {
+    // Local vision unreachable — fall through to the server. Deliberately not
+    // rethrown here: see scanOnServer for why the browser is the wrong place to
+    // insist on a local model.
+    parsed = {};
+  }
+
   const out: any = { _lowConfidence: [] };
   for (const f of DOC_FIELDS) { const v = String(parsed[f] ?? '').trim(); out[f] = v; if (!v) out._lowConfidence.push(f); }
+
+  // A DEAD LOCAL MODEL MUST NOT MEAN "NO SCAN".
+  //
+  // llmChat talks to VITE_LLM_BASE_URL, which is baked at build time and is
+  // http://localhost:11434 — i.e. the OPERATOR'S OWN PC, not the server. On the
+  // production box nobody has Ollama running behind that address, so every scan
+  // took the catch branch and every expiry date had to be typed by hand while
+  // the button still said it would read the document.
+  //
+  // The API already has a scanner that needs no model at all: tesseract WASM
+  // plus the pattern tables in docPatterns.js, which is what the phone has been
+  // using all along. Use it whenever the local pass came back with nothing.
+  if (!out.document_number && !out.expiry_date && !out.issue_date) {
+    try { return await scanOnServer(file, out); } catch { /* keep the empty local result below */ }
+  }
+  return out as ExtractedDoc;
+}
+
+/**
+ * Server-side extraction via POST /api/v1/scan — OCR + pattern tables, no LLM.
+ * Returns the same ExtractedDoc shape so callers need no second branch.
+ *
+ * Dates come back ISO (YYYY-MM-DD); every caller runs them through its own
+ * date formatter, which reads ISO and DD-MM-YYYY alike, so they are passed
+ * through untouched rather than reformatted twice.
+ */
+async function scanOnServer(file: File, local: any): Promise<ExtractedDoc> {
+  const form = new FormData();
+  // `source` BEFORE the file: @fastify/multipart only exposes fields that
+  // precede the file part, so a field appended after it is invisible server-side.
+  form.append('source', 'erp-web');
+  form.append('file', file, file.name || 'document');
+
+  const res = await fetch(`${API_BASE}/api/v1/scan`, { method: 'POST', body: form });
+  const body: any = await res.json().catch(() => ({}));
+  if (!res.ok || body.ok === false) {
+    throw new Error(body.detail || body.error || `Scan failed (HTTP ${res.status})`);
+  }
+
+  const expiry = String(body.expiry_date ?? '');
+  // The issue date is not read separately by the pattern pass. The earliest
+  // date on the page that is not the expiry is the honest best guess, and it
+  // is reported as low-confidence so the operator checks it.
+  const dates: string[] = Array.isArray(body.all_dates) ? [...body.all_dates].sort() : [];
+  const issue = dates.find((d) => d && d !== expiry) ?? '';
+
+  const out: any = {
+    document_number: String(local?.document_number ?? ''),
+    expiry_date: expiry,
+    issue_date: issue,
+    holder_name: String(local?.holder_name ?? ''),
+    _lowConfidence: [] as string[],
+  };
+  for (const f of DOC_FIELDS) if (!out[f]) out._lowConfidence.push(f);
+  // An uncued date is the parser's own doubt, not ours — surface it even when
+  // a date WAS found, or a misread issue date walks in as an expiry unchecked.
+  if (expiry && !body.expiry_cued && !out._lowConfidence.includes('expiry_date')) {
+    out._lowConfidence.push('expiry_date');
+  }
   return out as ExtractedDoc;
 }
 

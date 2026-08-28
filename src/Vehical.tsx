@@ -57,6 +57,19 @@ const tyreCountOf = (cfg: any) => {
 const num = (v: any) => (v === '' || v === null || v === undefined ? null : Number(v));
 const dt = (v: any) => (v ? String(v).slice(0, 10) : null);
 
+// Resolve a company either way round — by id when the row carries one, else by
+// name. Names are compared trimmed and case-folded on purpose: the master holds
+// 'M/S JAISWAL ENTERPRISE  ' with trailing spaces, and an exact === against a
+// value that has been through a form control is one stray space from silently
+// unlinking a lorry from its operating company.
+const sameName = (a: any, b: any) =>
+  String(a ?? '').trim().toUpperCase() === String(b ?? '').trim().toUpperCase();
+
+const findCompany = (companies: any[], id: any, name: any) =>
+  (id ? companies.find((c: any) => String(c.id) === String(id)) : null)
+  ?? (name ? companies.find((c: any) => sameName(c.company_name, name)) : null)
+  ?? null;
+
 const vehicleFromApi = (v: any, companies: any[]) => ({
   ...v,
   own_attach: fromOwnership(v.ownership),
@@ -68,7 +81,7 @@ const vehicleFromApi = (v: any, companies: any[]) => ({
   unladen_wt: v.unladen_weight ?? '',
   no_of_tyres: v.tyre_config ?? (v.tyre_count ? String(v.tyre_count) : '10+1'),
   branch_name: v.branch ?? '',
-  company_name: companies.find((c: any) => c.id === v.company_id)?.company_name ?? '',
+  company_name: findCompany(companies, v.company_id, v.company_name)?.company_name ?? '',
   status: fromStatus(v.status),
   approval: v.approval_status === 'APPROVED' ? 'Approved' : v.approval_status === 'REJECTED' ? 'Rejected' : 'Pending',
   driver_name: v.linked_driver ?? '',
@@ -106,8 +119,13 @@ const vehicleToApi = (f: any, companies: any[]) => {
   };
   const kind = toKind(f.veh_class);
   if (kind) body.vehicle_type = kind;
-  const co = companies.find((c: any) => c.company_name === f.company_name);
-  if (co) body.company_id = co.id;
+  // ALWAYS SEND company_id, INCLUDING null.
+  //
+  // The old line only assigned when a company matched, so clearing the dropdown
+  // back to "-- Select Company --" left the previous owner on the lorry: the key
+  // never reached the PATCH, and a PATCH only writes the keys it is given.
+  const co = findCompany(companies, null, f.company_name);
+  body.company_id = co ? co.id : null;
   return body;
 };
 

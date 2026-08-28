@@ -295,7 +295,16 @@ export async function registerCashbookRoutes(app) {
   app.get('/masters/companies', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const [companies, branches] = await Promise.all([
-      query(`SELECT company_name, gstin::text AS gstin, pan_no::text AS pan_no, tds_tan,
+      // `id` IS PART OF THE PICKER, NOT AN EXTRA.
+      //
+      // Every caller that stores a choice stores companies.id — vehicles.company_id
+      // is a uuid FK. Returning only the name gave the fleet master a list it
+      // could display but never resolve: it matched `c.id === v.company_id`
+      // against undefined, so the saved company never loaded, and on save
+      // `body.company_id = co.id` was undefined, which JSON.stringify drops.
+      // The field silently did nothing in both directions — all 49 vehicles sat
+      // at company_id IS NULL — because one column was missing from this SELECT.
+      query(`SELECT id, company_name, gstin::text AS gstin, pan_no::text AS pan_no, tds_tan,
                     address, city, state, pincode, bank_name, account_no, ifsc_code
                FROM companies WHERE status = 'ACTIVE' ORDER BY company_name`),
       query(`SELECT DISTINCT branch FROM (
