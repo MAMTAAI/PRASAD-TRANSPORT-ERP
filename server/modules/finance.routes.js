@@ -374,6 +374,11 @@ export async function registerFinanceRoutes(app) {
             entry_date: { type: ['string', 'null'], format: 'date' },
             company: { type: ['string', 'null'], maxLength: 120 },
             branch: { type: ['string', 'null'], maxLength: 60 },
+            // The FK dimension, so a cash voucher can be scoped to one firm at the
+            // write path instead of only carrying free text. postVoucher(req.body)
+            // forwards it to postJournal, which writes ledger_entries.company_id.
+            company_id: { type: ['string', 'null'], format: 'uuid' },
+            branch_id: { type: ['string', 'null'], format: 'uuid' },
             created_by: { type: ['string', 'null'], maxLength: 100 },
             tds: { type: ['object', 'null'], properties: { ledger: { type: 'string' }, amount: { type: 'number', minimum: 0 } } },
             dry_run: { type: 'boolean' },

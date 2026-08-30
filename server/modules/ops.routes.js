@@ -526,6 +526,8 @@ export async function registerOpsRoutes(app) {
             entry_date: b.unloading_date,
             narration: `Shortage recovered from ${trip.driver_name} — trip ${trip.trip_code}, ${shortageQty} unit(s) short`,
             company: trip.operating_company,
+            company_id: trip.company_id ?? null,
+            branch_id: trip.branch_id ?? null,
           });
           recovery = { amount: penalty, driver: trip.driver_name, voucher_id: j.voucher_id };
         } catch (err) {
@@ -1073,7 +1075,7 @@ export async function registerOpsRoutes(app) {
 
       // Every trip must be real, this driver's, and not already settled.
       const { rows: checked } = await query(
-        `SELECT t.id, t.trip_code, t.driver_name, t.status,
+        `SELECT t.id, t.trip_code, t.driver_name, t.status, t.company_id, t.branch_id,
                 (SELECT s.settlement_no FROM driver_settlement_trips st
                    JOIN driver_settlements s ON s.id = st.settlement_id
                   WHERE st.trip_id = t.id AND s.status <> 'CONSUMED' LIMIT 1) AS existing
@@ -1099,6 +1101,25 @@ export async function registerOpsRoutes(app) {
           detail: `a settlement covers one driver; ${wrongDriver.map((t) => `${t.trip_code} ran ${t.driver_name}`).join('; ')}`,
         });
       }
+      // One settlement, one operating company — otherwise its bhatta voucher has
+      // no single set of books to post into (F8). The company is the trip's FK,
+      // not free text. Trips still awaiting a company are refused rather than
+      // posted unscoped.
+      const stlCompanies = [...new Set(checked.map((t) => t.company_id))];
+      if (stlCompanies.includes(null)) {
+        return reply.code(400).send({
+          error: 'TRIP_COMPANY_UNSET',
+          detail: `these trips carry no operating company: ${checked.filter((t) => !t.company_id).map((t) => t.trip_code).join(', ')}`,
+        });
+      }
+      if (stlCompanies.length !== 1) {
+        return reply.code(400).send({
+          error: 'MIXED_COMPANY',
+          detail: `a settlement posts into one company's books; these trips span ${stlCompanies.length}. Settle per company.`,
+        });
+      }
+      const stlCompanyId = stlCompanies[0];
+      const stlBranchId = checked[0].branch_id ?? null;
 
       // Settlement number comes from a sequence, not a timestamp. The Firestore
       // original used Date.now(), which two clicks in the same millisecond
@@ -1166,6 +1187,8 @@ export async function registerOpsRoutes(app) {
         try {
           voucher = await postVoucher({
             type: 'JOURNAL',
+            company_id: stlCompanyId,
+            branch_id: stlBranchId,
             lines: [
               { ledger: 'Trip Allowance & Bhatta', dr_cr: 'DR', amount: earned, group: 'Direct Expenses - Driver & Trip' },
               { ledger: `Driver Advance: ${b.driver_name}`, dr_cr: 'CR', amount: earned, group: 'Current Assets - Driver Advances' },

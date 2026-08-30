@@ -1072,6 +1072,8 @@ export async function registerMastersRoutes(app) {
       ref_no: { type: ['string', 'null'], maxLength: 60 },
       company: { type: ['string', 'null'], maxLength: 120 },
       branch: { type: ['string', 'null'], maxLength: 120 },
+      company_id: { type: ['string', 'null'], format: 'uuid' },
+      branch_id: { type: ['string', 'null'], format: 'uuid' },
       remarks: { type: ['string', 'null'], maxLength: 300 },
       created_by: { type: ['string', 'null'], maxLength: 100 },
     } } } },
@@ -1094,6 +1096,8 @@ export async function registerMastersRoutes(app) {
           source_type: 'CUSTOMER_RECEIPT',
           company: b.company ?? null,
           branch: b.branch ?? null,
+          company_id: b.company_id ?? null,
+          branch_id: b.branch_id ?? null,
           created_by: b.created_by ?? null,
         });
         await drain().catch(() => {});
@@ -1214,6 +1218,8 @@ export async function registerMastersRoutes(app) {
       txn_date: { type: ['string', 'null'], format: 'date' },
       payment_mode: { type: ['string', 'null'], maxLength: 40 },
       account: { type: ['string', 'null'], maxLength: 120 },
+      company_id: { type: ['string', 'null'], format: 'uuid' },
+      branch_id: { type: ['string', 'null'], format: 'uuid' },
       remarks: { type: ['string', 'null'], maxLength: 300 },
       created_by: { type: ['string', 'null'], maxLength: 100 },
       post_to_ledger: { type: 'boolean', default: true },
@@ -1244,6 +1250,8 @@ export async function registerMastersRoutes(app) {
             entry_date: date,
             narration: `Payment to ${v.vendor_name}${b.remarks ? ` — ${b.remarks}` : ''}`,
             source_type: 'VENDOR_PAYMENT',
+            company_id: b.company_id ?? null,
+            branch_id: b.branch_id ?? null,
             created_by: b.created_by ?? null,
           });
           await drain().catch(() => {});

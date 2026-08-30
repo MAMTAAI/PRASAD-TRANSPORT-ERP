@@ -364,6 +364,20 @@ export async function registerQueueRoutes(app) {
     const totalLiters = slips.reduce((t, s) => t + (Number(s.liters) || 0), 0);
     const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+    // Which company's diesel is this? Resolve it from the slips' trips (the FK,
+    // not the pump). When every slip's trip is the same firm, stamp it so the
+    // expense lands in that firm's P&L; when a pump fuelled trucks of more than
+    // one firm (or the trips are untagged), leave it NULL — a split pump bill is
+    // surfaced by v_voucher_company_conflicts rather than misattributed here.
+    const tripIds = slips.map((s) => s.trip_id).filter(Boolean);
+    let fuelCompanyId = null;
+    if (tripIds.length) {
+      const { rows: coRows } = await query(
+        `SELECT DISTINCT company_id FROM trips
+          WHERE id = ANY($1::uuid[]) AND company_id IS NOT NULL`, [tripIds]);
+      if (coRows.length === 1) fuelCompanyId = coRows[0].company_id;
+    }
+
     // The voucher is posted FIRST and outside the transaction, because TARA
     // opens its own. If it fails, nothing below has happened yet.
     const period = b.from && b.to ? ` (Period: ${b.from} to ${b.to})` : '';
@@ -372,6 +386,7 @@ export async function registerQueueRoutes(app) {
       voucher = await postVoucher({
         type: 'JOURNAL',
         source_type: 'FUEL_BILL',
+        company_id: fuelCompanyId,
         // Deterministic: the same pump and the same slip set cannot post twice.
         ref_no: `FUELBILL_${vendor.id}_${[...slipIds].sort().join('').slice(0, 40)}`,
         entry_date: b.to ?? new Date().toISOString().slice(0, 10),

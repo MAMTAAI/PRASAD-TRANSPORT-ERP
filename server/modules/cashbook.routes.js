@@ -416,6 +416,8 @@ export async function registerCashbookRoutes(app) {
       narration: { type: ['string', 'null'], maxLength: 400 },
       company: { type: ['string', 'null'], maxLength: 120 },
       branch: { type: ['string', 'null'], maxLength: 60 },
+      company_id: { type: ['string', 'null'], format: 'uuid' },
+      branch_id: { type: ['string', 'null'], format: 'uuid' },
       created_by: { type: ['string', 'null'], maxLength: 100 },
       lines: {
         type: 'array', minItems: 2, maxItems: 100,
@@ -443,6 +445,8 @@ export async function registerCashbookRoutes(app) {
           ref_no: b.source_ref,
           company: b.company ?? null,
           branch: b.branch ?? null,
+          company_id: b.company_id ?? null,
+          branch_id: b.branch_id ?? null,
           created_by: b.created_by ?? null,
           lines: b.lines.map((l) => ({
             ledger: l.ledger,
