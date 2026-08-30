@@ -64,7 +64,9 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
 
   const ops = v5?.ops ?? {};
   const fin = v5?.finance ?? {};
-  const money = fin.money ?? {};
+  // The v5 endpoint SPREADS the money block straight into `finance` (…money),
+  // so unbilled_freight / freight_income live on `fin` itself, not fin.money.
+  const money = fin;
   const health = fin.health ?? {};
   const custs = fin.customers ?? [];
   const liveFleet = ops.live_fleet ?? [];
