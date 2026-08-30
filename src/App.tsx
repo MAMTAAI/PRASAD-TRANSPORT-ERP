@@ -19,6 +19,7 @@ import { FilterProvider, useGlobalFilter, navFromUrl } from './lib/filterStore';
 // opened. This cut the boot chunk from one 2.4 MB monolith to a small shell;
 // visitors on the public site / login no longer pay for the whole back office.
 const Dashboard = lazy(() => import('./Dashboard'));
+const OperationsDeck2026 = lazy(() => import('./OperationsDeck2026'));
 const MasterControlV5 = lazy(() => import('./mastercontrol/MasterControlApp'));
 const MobileSuiteApp = lazy(() => import('./modules/mobile/MobileSuiteApp'));
 const AgentFleetCommand = lazy(() => import('./AgentFleetCommand'));
@@ -133,7 +134,8 @@ function AppShell() {
     ['OPERATION', 'ACCOUNTS', 'CRM'].includes(boot.module) ? boot.module : 'OPERATION');
   // Landing page = Master Control v5.0 (God 2026-08-15). Logging in drops the
   // user straight into the control centre instead of the legacy dashboard.
-  const [activeComponent, setActiveComponent] = useState(boot.screen || 'MASTER_CONTROL_V5');
+  const [activeComponent, setActiveComponent] = useState(
+    boot.screen || (boot.module === 'ACCOUNTS' || boot.module === 'CRM' ? 'MASTER_CONTROL_V5' : 'OPS_DECK'));
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false); 
@@ -264,9 +266,10 @@ function AppShell() {
 
   const handleModuleChange = (mod: string) => {
     setActiveModule(mod);
-    // Switching module lands on the control centre, which itself opens the tab
-    // matching that module (ACCOUNTS -> Finance, CRM -> CRM, else Operations).
-    handleComponentChange('MASTER_CONTROL_V5');
+    // Operations lands on the 2026 Command Deck (the top-level summary Home);
+    // its full granular console is one click away inside the deck. ACCOUNTS and
+    // CRM keep the control centre, which opens their own tab.
+    handleComponentChange(mod === 'OPERATION' ? 'OPS_DECK' : 'MASTER_CONTROL_V5');
   };
 
   const handleLogout = () => {
@@ -324,7 +327,7 @@ function AppShell() {
     // (this silently locked newly added modules for everyone).
     if (isAdmin(user)) return true;
 
-    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
+    if (['DASHBOARD', 'OPS_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
 
     if (module === 'OPERATION') {
       if (itemId === 'BAZAAR_ADMIN') return checkView('Load Bazaar Admin'); 
@@ -499,6 +502,7 @@ function AppShell() {
     switch (activeComponent) {
       // 🔥 MAIN FIX IS HERE: PASSING currentUser={user} TO DASHBOARD
       case 'DASHBOARD': return <Dashboard activeModule={activeModule} currentUser={user} />;
+      case 'OPS_DECK': return <OperationsDeck2026 currentUser={user} onOpenConsole={handleComponentChange} />;
       // 🚀 v5.0 Master Control — opens on the tab matching the current ERP module
       case 'MASTER_CONTROL_V5':
         return <MasterControlV5 initialTab={activeModule === 'ACCOUNTS' ? 'finance' : activeModule === 'CRM' ? 'crm' : 'ops'} />;

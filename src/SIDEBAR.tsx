@@ -74,7 +74,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     }
     
     // 🔓 DEFAULT OPEN FOR ALL STAFF
-    if (['DASHBOARD', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
+    if (['DASHBOARD', 'OPS_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
 
     const perms = user.permissions || [];
     const checkView = (name: string) => perms.find((x: any) => x.name === name)?.view;
@@ -115,8 +115,10 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
   const getMenuItems = () => {
     if (activeModule === 'OPERATION') {
       return [
-        // Master Control v5.0 is the primary control centre and the landing
-        // page (God 2026-08-15), so it sits at the top of every module.
+        // The 2026 Command Deck is the Operations Home — a top-level live summary.
+        // The full granular console (Master Control v5.0) sits right below it,
+        // unchanged, so nothing that ran there is lost.
+        { id: 'OPS_DECK', label: 'Command Deck (Home)', icon: '🛰️' },
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'SUPER_APP', label: 'Super App (5-Role Mobile)', icon: '📱' },
         // The duplicate DASHBOARD entries in ACCOUNTS ("Finance Hub") and CRM
