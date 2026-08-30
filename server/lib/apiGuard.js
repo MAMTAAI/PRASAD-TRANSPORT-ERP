@@ -67,6 +67,68 @@ export const TRACK_ONLY_API = new Set([
   'POST /api/v1/tracking/ping',
 ]);
 
+// ── EXTERNAL ROLES MAY ONLY REACH THEIR OWN CORNER OF THE API ────────────────
+//
+// A TRACK_ONLY session is confined above. But a FULL driver session (from
+// POST /auth/driver/claim), and every vendor and customer portal login, carry
+// role='DRIVER'|'VENDOR'|'CUSTOMER' with NO scope claim — so nothing above
+// touches them, and until now they passed the same session check as staff and
+// reached every route that did not name its own preHandler. The audit found the
+// consequence: a driver token could read the whole finance and masters book and
+// PATCH any trip; a vendor token could read any other vendor's ledger; a
+// customer token could read any other customer's bills. The JWT carries no
+// company or party id, so role is the only control available at this choke
+// point — and it was not applied.
+//
+// The fix is the same inversion the rest of this file is built on, one level in:
+// an external session is CLOSED to everything except the prefixes its own app
+// actually calls. A route added next year is closed to these sessions because it
+// was not added here. Staff roles (SUPER_ADMIN, ADMIN, anything not listed as
+// external) are unaffected — the office ERP and the IOCL service caller see no
+// change whatsoever.
+//
+// WHY PREFIXES AND NOT EXACT ROUTES. The portal and driver apps are small but
+// their route lists move; pinning exact methods here would turn every portal
+// tweak into a silent 403. The prefixes below are the surfaces those apps own,
+// verified against src/portal and src/modules/mobile. Row-level ownership WITHIN
+// these prefixes (a driver seeing only their own trips, a vendor only their own
+// bills) is enforced by the routes themselves — portal.routes already derives
+// the party from the session and never trusts a param; the driver /ops scoping
+// is a route-level job this boundary deliberately does not pretend to do.
+export const EXTERNAL_ROLES = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
+
+// Prefixes any external session may reach: getting in, its own portal, its own
+// documents, map tiles, and the one tracking door. `/auth/users` is NOT here —
+// creating accounts is staff work — so it is reached by the specific-route list
+// below, never by a blanket `/auth/` prefix.
+const EXTERNAL_COMMON_PREFIXES = [
+  '/api/v1/portal/',   // customer + vendor portals — party derived server-side
+  '/api/v1/files',     // own uploads/downloads; per-object ownership in files.routes
+  '/api/v1/maps/',     // Directions/Geocode cache — no party data
+];
+const EXTERNAL_COMMON_ROUTES = new Set([
+  'GET /api/v1/auth/me',
+  'POST /api/v1/auth/logout',
+  'POST /api/v1/tracking/ping',
+]);
+// Per-role extras: the duty screen a driver needs, the credit-bill door a vendor
+// needs. A customer has neither — its whole world is /portal/customer.
+const EXTERNAL_ROLE_PREFIXES = {
+  DRIVER: ['/api/v1/ops/', '/api/v1/approvals'],
+  VENDOR: ['/api/v1/vendor/'],
+  CUSTOMER: [],
+};
+
+function externalMayReach(role, method, path, route) {
+  if (EXTERNAL_COMMON_ROUTES.has(route)) return true;
+  // /auth/otp/*, /auth/password-reset/* and /auth/driver/* are already PUBLIC_API
+  // (handled before this runs); an authenticated external session needs nothing
+  // else under /auth except the two common routes above.
+  for (const p of EXTERNAL_COMMON_PREFIXES) if (path.startsWith(p)) return true;
+  for (const p of (EXTERNAL_ROLE_PREFIXES[role] ?? [])) if (path.startsWith(p)) return true;
+  return false;
+}
+
 // THIS LIST MAY ONLY DESCRIBE, NEVER WIDEN.
 //
 // Every entry above was verified against the running server to be reachable
@@ -183,6 +245,19 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
       return reply.code(403).send({
         error: 'TRACK_ONLY_SESSION',
         detail: 'This session may only report GPS. Open the app from your WhatsApp link for the full driver screen.',
+      });
+    }
+
+    // ── AN EXTERNAL SESSION MAY ONLY REACH ITS OWN CORNER ───────────────────
+    // See EXTERNAL_ROLES above. Staff and SERVICE fall straight through. This is
+    // the closed-by-default inversion applied to role, so an outsider holding a
+    // valid portal or driver token cannot read another party's ledger or the
+    // firm's books simply because a route forgot its own preHandler.
+    const role = req.user?.role;
+    if (EXTERNAL_ROLES.has(role) && !externalMayReach(role, req.method, path, route)) {
+      return reply.code(403).send({
+        error: 'OUTSIDE_ROLE_SCOPE',
+        detail: 'This account may only use its own portal. If you reached this by mistake, sign in with a staff account.',
       });
     }
     return denied;

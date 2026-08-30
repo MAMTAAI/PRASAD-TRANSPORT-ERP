@@ -29,6 +29,40 @@ const ALLOWED = new Map([
 
 const fail = (reply, code, status, detail) => reply.code(status).send({ error: code, detail });
 
+// ── WHOSE DOCUMENT IS THIS ───────────────────────────────────────────────────
+// The stored key IS the party: uploads are laid out `drivers/<driverId>/...`,
+// `vehicles/<vehicleId>/...` and `vehicle-docs/<PLATE>/...` (see
+// services/fileIntoStorage.js). apiGuard lets a driver/vendor/customer session
+// into /files at all — because they legitimately fetch their OWN photo and their
+// portal bills — so the object-level lock has to live here: without it, a driver
+// holding one login could pull any other driver's DL, Aadhaar and bank passbook
+// by walking the driver ids the masters list hands out.
+//
+// The rule is strict on purpose. Staff and the service caller manage the whole
+// vault and see everything. A DRIVER sees only their own `drivers/<sub>/...`
+// folder. Nobody external reaches another party's KYC. A vendor/customer keeps
+// every OTHER prefix (their portal uploads), so this narrows exactly the
+// driver/vehicle KYC surface and nothing else.
+const EXTERNAL_FILE_ROLES = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
+const KYC_PREFIXES = ['drivers/', 'vehicles/', 'vehicle-docs/'];
+
+function mayAccessKey(user, key) {
+  const role = user?.role;
+  // Staff (SUPER_ADMIN/ADMIN/VIEWER/…) and the SERVICE caller: the vault is theirs.
+  if (!EXTERNAL_FILE_ROLES.has(role)) return true;
+  const norm = String(key).replace(/^\/+/, '');
+  const isKyc = KYC_PREFIXES.some((p) => norm.startsWith(p));
+  // A vendor/customer has no business in the driver/vehicle KYC tree at all.
+  if (role !== 'DRIVER') return !isKyc;
+  // A driver may read ONLY their own folder. `sub` is the driver id for a driver
+  // session (auth.routes.js mints it from drivers.id).
+  if (norm.startsWith('drivers/')) return norm.split('/')[1] === String(user.sub);
+  // Vehicle KYC is resolved by plate/id, which a driver session cannot be tied
+  // to here without an assignment lookup — kept closed rather than guessed.
+  if (norm.startsWith('vehicles/') || norm.startsWith('vehicle-docs/')) return false;
+  return true;  // non-KYC object (e.g. a bill the driver themselves uploaded)
+}
+
 export async function registerFileRoutes(app) {
   // Registered here as well as in fleet.routes: Fastify encapsulates plugins
   // per scope, so a sibling module's registration is not visible to this one.
@@ -56,6 +90,14 @@ export async function registerFileRoutes(app) {
     const wanted = part.fields?.path?.value ?? part.fields?.key?.value ?? '';
     const ext = ALLOWED.get(contentType);
     const base = String(wanted).replace(/\.[^./]+$/, '') || `misc/${Date.now()}`;
+
+    // An external session may not overwrite another party's KYC by choosing the
+    // key. `mayAccessKey` allows a driver only their own `drivers/<sub>/…` folder
+    // and refuses vendors/customers the KYC tree entirely, so a caller cannot
+    // POST `path=drivers/<someone-else>/dl_photo` and silently replace it.
+    if (!mayAccessKey(req.user, base + ext)) {
+      return fail(reply, 'NOT_YOUR_DOCUMENT', 403, 'cannot write a document under another party');
+    }
     try {
       const out = await put(safeKey(base + ext), buffer, contentType);
       reply.code(201);
@@ -70,6 +112,12 @@ export async function registerFileRoutes(app) {
   });
 
   app.get('/files/*', async (req, reply) => {
+    // Object-level ownership: a driver/vendor/customer session may not read
+    // another party's KYC even though apiGuard let it into /files. Staff and the
+    // service caller fall straight through.
+    if (!mayAccessKey(req.user, req.params['*'])) {
+      return fail(reply, 'NOT_YOUR_DOCUMENT', 403, 'this document belongs to another party');
+    }
     let found;
     try { found = await openStream(req.params['*']); }
     catch (e) { return fail(reply, e.code ?? 'BAD_KEY', 400, e.message); }
@@ -106,6 +154,12 @@ export async function registerFileRoutes(app) {
   });
 
   app.delete('/files/*', async (req, reply) => {
+    // Deleting a document of record is staff work. Before this, any authenticated
+    // session — a driver, a rejected vendor still holding a token — could unlink
+    // every RC, insurance, POD and KYC scan, silently and unrecoverably.
+    if (EXTERNAL_FILE_ROLES.has(req.user?.role)) {
+      return fail(reply, 'STAFF_ONLY', 403, 'documents can only be removed by staff');
+    }
     try { await remove(req.params['*']); return { deleted: true }; }
     catch (e) { return fail(reply, e.code ?? 'BAD_KEY', 400, e.message); }
   });

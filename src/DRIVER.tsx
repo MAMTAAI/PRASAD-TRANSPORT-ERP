@@ -14,6 +14,7 @@
 import React, { useState, useEffect } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import AuthImg from './components/AuthImg';
+import { openDocument } from './lib/openDocument';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
@@ -86,26 +87,11 @@ const ExpiryPill = ({ date }: { date: string }) => {
   return <span className={`pt-pill ${cls}`} style={{ marginLeft: '6px' }}>{label}</span>;
 };
 
-// 🌟 FIX: UNIVERSAL DRIVE LINK EXTRACTOR (Bypasses Access Denied & Reads Old Data)
-const getDriveLinks = (rawLink: string) => {
-  if (!rawLink) return { view: '#', download: '#' };
-  let fileId = '';
-  try {
-    if (rawLink.includes('/d/')) {
-       fileId = rawLink.split('/d/')[1].split('/')[0];
-    } else if (rawLink.includes('id=')) {
-       fileId = rawLink.split('id=')[1].split('&')[0];
-    }
-  } catch (e) { console.error("Link Parse Error", e); }
-
-  if (fileId) {
-    return { 
-      view: `https://drive.google.com/file/d/${fileId}/preview`, 
-      download: `https://drive.google.com/uc?export=download&id=${fileId}` 
-    };
-  }
-  return { view: rawLink, download: rawLink }; 
-};
+// Document opening moved to src/lib/openDocument.ts — a stored KYC PDF is served
+// from the token-guarded /api/v1/files route, so a bare <a href> lands on a 401
+// and a blank tab. openDocument fetches the bytes WITH the session bearer (and
+// still opens Drive/Firebase links directly), which is why every "View File"
+// link on this screen goes through it now.
 
 export default function DriverMgmt() {
   const [activeTab, setActiveTab] = useState('MASTER');
@@ -689,13 +675,13 @@ export default function DriverMgmt() {
                       </div>
                     </td>
                     <td>
-                      <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href={getDriveLinks(d.dl_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.dl_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
                       <small style={{ color: '#64748b' }}>Exp: {d.license_expiry || 'N/A'}</small><ExpiryPill date={d.license_expiry} /><br/>
-                      <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href={getDriveLinks(d.hzd_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
+                      <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.hzd_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
                     </td>
                     <td>
-                      <span style={{ color: d.aadhar_photo ? '#10b981' : '#cbd5e1' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href={getDriveLinks(d.aadhar_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <span style={{ color: d.pan_photo ? '#10b981' : '#cbd5e1' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href={getDriveLinks(d.pan_photo).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.aadhar_photo ? '#10b981' : '#cbd5e1' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.aadhar_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.pan_photo ? '#10b981' : '#cbd5e1' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.pan_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
                       <span style={{ color: '#38bdf8', fontSize: '11px' }}>A/C: {d.account_no || 'N/A'}</span>
                     </td>
                     <td>
@@ -703,7 +689,7 @@ export default function DriverMgmt() {
                        {(!d.additional_docs || d.additional_docs.length === 0) ? <span style={{ color: '#64748b', fontSize: '11px' }}>No Extra Docs</span> : 
                          d.additional_docs.map((doc: any, i: number) => (
                            <div key={i} style={{ marginBottom: '4px', fontSize: '11px' }}>
-                              <span style={{ color: doc.link ? '#10b981' : '#cbd5e1' }}>• {doc.name} {doc.link && <a href={getDriveLinks(doc.link).view} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
+                              <span style={{ color: doc.link ? '#10b981' : '#cbd5e1' }}>• {doc.name} {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
                               {doc.valid_till && <div style={{ color: '#94a3b8', paddingLeft: '8px', fontSize: '10px' }}>Exp: {doc.valid_till}</div>}
                            </div>
                          ))
@@ -898,7 +884,7 @@ export default function DriverMgmt() {
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.dl_photo ? '1fr 1fr 1fr' : '2fr 1fr', gap: '8px' }}>
                     {driverData.dl_photo ? (
                       <>
-                        <a href={getDriveLinks(driverData.dl_photo).view} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.dl_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
                         <label className="upload-btn update-btn">
                           {uploadingField === 'dl_photo' ? '⏳...' : '🔄 Change'}
                           <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'dl_photo')} />
@@ -921,7 +907,7 @@ export default function DriverMgmt() {
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.aadhar_photo ? '1fr 1fr 1fr' : '2fr 1fr', gap: '8px' }}>
                     {driverData.aadhar_photo ? (
                       <>
-                        <a href={getDriveLinks(driverData.aadhar_photo).view} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.aadhar_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>
                         <label className="upload-btn update-btn">
                           {uploadingField === 'aadhar_photo' ? '⏳...' : '🔄 Change'}
                           <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'aadhar_photo')} />
@@ -941,7 +927,7 @@ export default function DriverMgmt() {
                   <label>PAN Card Details</label>
                   <input className="modern-input" placeholder="PAN Number" value={driverData.pan_no} onChange={e=>setDriverData({...driverData, pan_no: e.target.value})} style={{marginBottom:'15px'}}/>
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.pan_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                    {driverData.pan_photo && <a href={getDriveLinks(driverData.pan_photo).view} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
+                    {driverData.pan_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.pan_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
                     <label className={`upload-btn ${driverData.pan_photo ? 'update-btn' : ''}`}>
                       {uploadingField === 'pan_photo' ? '⏳ Uploading...' : driverData.pan_photo ? '🔄 Change File' : '📎 Upload PAN File'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'pan_photo')} />
@@ -960,7 +946,7 @@ export default function DriverMgmt() {
                   <input className="modern-input" placeholder="HZD Cert Number" value={driverData.hzd_cert_no} onChange={e=>setDriverData({...driverData, hzd_cert_no: e.target.value})} style={{marginBottom:'10px'}}/>
                   <input type="date" className="modern-input" value={driverData.hzd_expiry} onChange={e=>setDriverData({...driverData, hzd_expiry: e.target.value})} style={{colorScheme:'dark', marginBottom:'15px'}}/>
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.hzd_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                    {driverData.hzd_photo && <a href={getDriveLinks(driverData.hzd_photo).view} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
+                    {driverData.hzd_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.hzd_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
                     <label className={`upload-btn ${driverData.hzd_photo ? 'update-btn' : ''}`}>
                       {uploadingField === 'hzd_photo' ? '⏳ Uploading...' : driverData.hzd_photo ? '🔄 Change File' : '📎 Upload HZD File'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'hzd_photo')} />
@@ -973,7 +959,7 @@ export default function DriverMgmt() {
                   <input className="modern-input" placeholder="Bank Account Number" value={driverData.account_no} onChange={e=>setDriverData({...driverData, account_no: e.target.value})} style={{marginBottom:'10px'}}/>
                   <input className="modern-input" placeholder="IFSC Code & Bank Name" value={driverData.ifsc_code} onChange={e=>setDriverData({...driverData, ifsc_code: e.target.value})} style={{marginBottom:'15px'}}/>
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.bank_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                    {driverData.bank_photo && <a href={getDriveLinks(driverData.bank_photo).view} target="_blank" rel="noreferrer" className="view-btn">👁️ View Passbook</a>}
+                    {driverData.bank_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.bank_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View Passbook</a>}
                     <label className={`upload-btn ${driverData.bank_photo ? 'update-btn' : ''}`}>
                       {uploadingField === 'bank_photo' ? '⏳ Uploading...' : driverData.bank_photo ? '🔄 Change File' : '📎 Upload Passbook'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'bank_photo')} />
@@ -990,7 +976,7 @@ export default function DriverMgmt() {
                       <label style={{ color: '#c084fc' }}>{doc.name}</label>
                       <input type="date" className="modern-input" value={doc.valid_till} onChange={e=>handleCustomDocChange(doc.id, 'valid_till', e.target.value)} style={{colorScheme:'dark', marginBottom:'15px'}} title="Expiry Date (If applicable)"/>
                       <div style={{ display: 'grid', gridTemplateColumns: doc.link ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                        {doc.link && <a href={getDriveLinks(doc.link).view} target="_blank" rel="noreferrer" className="view-btn" style={{ borderColor: '#c084fc', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)' }}>👁️ View File</a>}
+                        {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" className="view-btn" style={{ borderColor: '#c084fc', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)' }}>👁️ View File</a>}
                         <label className={`upload-btn ${doc.link ? 'update-btn' : ''}`} style={doc.link ? { borderColor: '#c084fc', color: '#c084fc' } : {}}>
                           {uploadingField === doc.id ? '⏳ Uploading...' : doc.link ? '🔄 Change File' : '📎 Upload File'}
                           <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, doc.id)} />

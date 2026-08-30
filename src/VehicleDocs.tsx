@@ -5,6 +5,7 @@ import { uploadMedia, slug } from './lib/uploadMedia';
 import { toISODate } from './lib/accounting/tripMath';
 
 import { API_BASE } from './lib/apiBase';
+import { openDocument } from './lib/openDocument';
 import UnmappedDocumentQueue from './components/UnmappedDocumentQueue';
 import ComplianceGapsWidget from './components/ComplianceGapsWidget';
 import DepartmentQueue from './components/DepartmentQueue';
@@ -865,11 +866,12 @@ export default function VehicleDocs() {
                   <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(16,185,129,0.1)', border: '1px dashed #10b981', borderRadius: '10px', display: 'inline-block' }}>
                      <p style={{ margin: '0 0 10px 0', color: '#10b981', fontWeight: 'bold', fontSize: '13px' }}>✅ File Available</p>
                      <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                       <a href={getDriveLinks(formData.document_file).view} target="_blank" rel="noreferrer" className="action-btn" style={{ borderColor: '#38bdf8', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)' }}>👁️ View Document</a>
-                       {/* `download` on the anchor AND ?download=1 on the URL:
-                           the attribute is ignored cross-origin, the header is
-                           not, so between them the file saves either way. */}
-                       <a href={getDriveLinks(formData.document_file).download} download target="_blank" rel="noreferrer" className="action-btn" style={{ borderColor: '#f59e0b', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>⬇️ Download PDF</a>
+                       {/* A stored PDF is served from the token-guarded file
+                           route, so a plain <a href> lands on a 401 and paints a
+                           blank tab. openDocument fetches it WITH the bearer and
+                           opens the bytes; Drive/Firebase links still open direct. */}
+                       <button type="button" onClick={() => openDocument(formData.document_file)} className="action-btn" style={{ borderColor: '#38bdf8', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)' }}>👁️ View Document</button>
+                       <button type="button" onClick={() => openDocument(formData.document_file, { download: true })} className="action-btn" style={{ borderColor: '#f59e0b', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>⬇️ Download PDF</button>
                        <button onClick={() => emailDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#a78bfa', color: '#a78bfa', background: 'rgba(167, 139, 250, 0.1)' }}>✉️ Share via Email</button>
                        <button onClick={() => shareDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#22c55e', color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)' }}>💬 Share via WhatsApp</button>
                      </div>

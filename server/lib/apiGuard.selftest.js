@@ -182,6 +182,57 @@ check('a full driver session still reaches its trips',
 check('no session is still 401, not 403',
   await run(trackGuard, req('POST', '/api/v1/tracking/ping')), 401);
 
+// ── EXTERNAL ROLES ────────────────────────────────────────────────────────────
+// A full driver/vendor/customer session is confined to its own corner of the
+// API. This is the second half of the same inversion as TRACK_ONLY: role, not
+// just scope. Staff roles are untouched — asserted at the end.
+console.log('\nEXTERNAL ROLES — confined to their own corner');
+const asRole = (role) => async (rq, reply) => {
+  const h = rq.headers?.authorization ?? '';
+  if (!h.startsWith('Bearer ')) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+  rq.user = { sub: 'party', role };
+};
+const roleGuard = (role) => makeApiGuard({ requireAuth: asRole(role), serviceToken: SECRET });
+const bear = (method, path) => req(method, path, { authorization: 'Bearer ' + 'z'.repeat(40) });
+const refused2 = (r) => (r === 'allowed' ? 'allowed' : 'refused');
+
+// What every external role KEEPS.
+for (const role of ['DRIVER', 'VENDOR', 'CUSTOMER']) {
+  const g = roleGuard(role);
+  check(`${role} reaches /portal/me`, await run(g, bear('GET', '/api/v1/portal/me')), 'allowed');
+  check(`${role} reaches its own files`, await run(g, bear('GET', '/api/v1/files/drivers/x/dl.pdf')), 'allowed');
+  check(`${role} reaches /auth/me`, await run(g, bear('GET', '/api/v1/auth/me')), 'allowed');
+  check(`${role} reaches map cache`, await run(g, bear('GET', '/api/v1/maps/directions')), 'allowed');
+  // What NO external role may reach — the office books and masters.
+  check(`${role} refused finance`, refused2(await run(g, bear('GET', '/api/v1/finance/ledgers'))), 'refused');
+  check(`${role} refused masters`, refused2(await run(g, bear('GET', '/api/v1/masters/customers'))), 'refused');
+  check(`${role} refused dashboard`, refused2(await run(g, bear('GET', '/api/v1/dashboard/v5'))), 'refused');
+  check(`${role} refused crm send`, refused2(await run(g, bear('POST', '/api/v1/crm/send'))), 'refused');
+  check(`${role} refused with 403 not 401`, await run(g, bear('GET', '/api/v1/finance/ledgers')), 403);
+}
+
+// Role-specific surfaces: a DRIVER keeps the duty screen; a CUSTOMER does not.
+check('DRIVER reaches its duty trips',
+  await run(roleGuard('DRIVER'), bear('GET', '/api/v1/ops/trips')), 'allowed');
+check('CUSTOMER cannot reach /ops',
+  refused2(await run(roleGuard('CUSTOMER'), bear('GET', '/api/v1/ops/trips'))), 'refused');
+check('VENDOR reaches its credit-bill door',
+  await run(roleGuard('VENDOR'), bear('POST', '/api/v1/vendor/bills')), 'allowed');
+check('DRIVER cannot reach the vendor door',
+  refused2(await run(roleGuard('DRIVER'), bear('POST', '/api/v1/vendor/bills'))), 'refused');
+
+// Staff is NOT confined — the whole point is that the office ERP is unchanged.
+const asStaff = async (rq, reply) => {
+  const h = rq.headers?.authorization ?? '';
+  if (!h.startsWith('Bearer ')) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+  rq.user = { sub: 'boss', role: 'ADMIN' };
+};
+const staffGuard = makeApiGuard({ requireAuth: asStaff, serviceToken: SECRET });
+check('ADMIN still reaches finance',
+  await run(staffGuard, req('GET', '/api/v1/finance/ledgers', { authorization: 'Bearer abc' })), 'allowed');
+check('ADMIN still reaches masters',
+  await run(staffGuard, req('GET', '/api/v1/masters/customers', { authorization: 'Bearer abc' })), 'allowed');
+
 console.log('\nTHE TWO NEW DOORS ARE PUBLIC — a driver has no session yet');
 check('POST /api/v1/auth/driver/claim',
   await run(guard, req('POST', '/api/v1/auth/driver/claim')), 'allowed');
