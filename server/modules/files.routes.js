@@ -128,8 +128,11 @@ export async function registerFileRoutes(app) {
       // is safe to fire on every stored object. Best-effort: a bus hiccup must
       // never fail the upload the operator just made.
       try {
+        // aggregate_id is a uuid column and a storage key is not a uuid, so the
+        // key travels in the payload (which is exactly where the handler reads
+        // s3_key from); aggregateId stays null.
         await emit('document.uploaded', {
-          aggregate: 'document', aggregateId: out.key,
+          aggregate: 'document', aggregateId: null,
           payload: { s3_key: out.key, doc_type: inferDocType(out.key), content_type: contentType, bytes: out.bytes },
         });
       } catch (busErr) {
