@@ -298,11 +298,38 @@ export async function registerOpsRoutes(app) {
       }
       b.status = status;
 
+      // ── STAMP THE OPERATING COMPANY AS AN FK, NOT A REGEX ──────────────────
+      // trips.company_id is the partition key (054); until now this route never
+      // set it, so every IOCL-imported trip landed company_id NULL and bled
+      // across all three firms downstream. Resolve the free text to a real
+      // company row and carry the id. A name that is present but matches nothing
+      // is refused rather than defaulted — a trip in the wrong entity is a rupee
+      // in the wrong set of books. A trip with no company named at all (a manual
+      // entry) is still allowed through with company_id NULL, exactly as before.
+      const coText = String(b.operating_company ?? '').trim();
+      let companyRow = null;
+      if (coText) {
+        companyRow = await query(
+          `SELECT id, company_name FROM companies
+            WHERE norm_company_name(company_name) = norm_company_name($1)
+            LIMIT 1`, [coText]).then((r) => r.rows[0] ?? null);
+        if (!companyRow) {
+          return reply.code(400).send({
+            error: 'UNKNOWN_COMPANY',
+            detail: `operating company '${coText}' matches no company master — create it first or fix the spelling`,
+          });
+        }
+        // Canonicalise so the text and the FK can never drift apart.
+        b.operating_company = companyRow.company_name;
+        b.company_id = companyRow.id;
+      }
+
       // Trip code: <company prefix><5-digit sequence>, matching the live data
-      // (PT00689, JE00105). Derived inside the transaction from the current max
-      // so two simultaneous creates cannot mint the same code.
-      const prefix = /jaiswal/i.test(b.operating_company ?? '') ? 'JE'
-        : /gautam/i.test(b.operating_company ?? '') ? 'GP' : 'PT';
+      // (PT00689, JE00105). The prefix now comes from the RESOLVED company name,
+      // so an unrecognised firm no longer silently mints a PRASAD TRANSPORT LR.
+      const prefixSource = companyRow?.company_name ?? b.operating_company ?? '';
+      const prefix = /jaiswal/i.test(prefixSource) ? 'JE'
+        : /gautam/i.test(prefixSource) ? 'GP' : 'PT';
 
       try {
         const created = await withTransaction(async (t) => {
@@ -313,6 +340,9 @@ export async function registerOpsRoutes(app) {
           const tripCode = `${prefix}${String(seq.n).padStart(5, '0')}`;
 
           const cols = FIELD_NAMES.filter((f) => b[f] !== undefined);
+          // company_id is resolved server-side above, not a client field, so it
+          // is not in FIELD_NAMES — add it explicitly when we have one.
+          if (b.company_id && !cols.includes('company_id')) cols.push('company_id');
           const vals = cols.map((f) => b[f]);
           const ph = cols.map((_, i) => `$${i + 2}`);
           const { rows } = await t.query(

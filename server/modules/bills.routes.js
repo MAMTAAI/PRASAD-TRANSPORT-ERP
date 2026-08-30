@@ -323,7 +323,7 @@ export async function registerBillRoutes(app) {
       const { rows: dbTrips } = await query(
         `SELECT t.id, t.trip_code, t.vehicle_no, t.driver_name, t.customer_id, t.customer_name,
                 t.consignee_name, t.unloading_location, t.loading_date, t.unloading_date,
-                t.operating_company, t.challan_no,
+                t.operating_company, t.company_id, t.challan_no,
                 (SELECT b2.bill_no FROM company_bill_trips bt
                    JOIN company_bills b2 ON b2.id = bt.bill_id
                   WHERE bt.trip_id = t.id AND b2.status <> 'CANCELLED' LIMIT 1) AS existing_bill
@@ -365,6 +365,31 @@ export async function registerBillRoutes(app) {
           detail: `one bill covers one customer; these trips span ${customerIds.length}: ${names.join(', ')}`,
         });
       }
+      // One bill, one operating company — the same rule as one customer, and the
+      // more important of the two: a bill straddling two firms is the wrong legal
+      // entity billing, i.e. the wrong GSTIN on a document sent to a customer.
+      // Decided by trips.company_id (the partition key, migration 054), never by
+      // the free-text operating_company. A trip with no company_id yet cannot be
+      // placed on any firm's invoice, so it is refused rather than defaulted.
+      const noCompany = dbTrips.filter((t) => !t.company_id);
+      if (noCompany.length) {
+        return reply.code(400).send({
+          error: 'TRIP_COMPANY_UNSET',
+          detail: `these trips carry no operating company, so the bill's legal entity is unknown: ${
+            noCompany.map((t) => t.trip_code ?? t.id).join(', ')
+          }. Set the company on them first.`,
+        });
+      }
+      const companyIds = [...new Set(dbTrips.map((t) => t.company_id))];
+      if (companyIds.length !== 1) {
+        const names = [...new Set(dbTrips.map((t) => t.operating_company).filter(Boolean))];
+        return reply.code(400).send({
+          error: 'MIXED_COMPANY',
+          detail: `one invoice is one operating company; these trips span ${companyIds.length} (${names.join(', ')}). Raise a separate bill per company.`,
+        });
+      }
+      const billCompanyId = companyIds[0];
+
       // Bill under the customer master's own spelling, so every bill for a party
       // carries one name however the trip happened to be typed.
       const { rows: [master] } = await query(
@@ -452,9 +477,9 @@ export async function registerBillRoutes(app) {
                 period_from, period_to, total_gross, total_shortage, total_tds,
                 total_cgst, total_sgst, total_igst, total_net, status, created_by,
                 detention_total, detention_rate, detention_days, free_days, det_invoice_no,
-                advance_deduction, billing_period)
+                advance_deduction, billing_period, company_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'PENDING_PAYMENT',$18,
-                     $19,$20,$21,$22,$23,$24,$25)
+                     $19,$20,$21,$22,$23,$24,$25,$26::uuid)
              RETURNING *`,
             [billNo, b.bill_date ?? new Date().toISOString().slice(0, 10),
              dbTrips[0].customer_id, customerName, b.company ?? dbTrips[0].operating_company,
@@ -469,7 +494,7 @@ export async function registerBillRoutes(app) {
              b.created_by ?? null,
              b.detention_total ?? 0, b.detention_rate ?? 0, b.detention_days ?? 0,
              b.free_days ?? 0, b.det_invoice_no || null, b.advance_deduction ?? 0,
-             b.billing_period ?? null]);
+             b.billing_period ?? null, billCompanyId]);
 
           for (const l of lines) {
             await t.query(
