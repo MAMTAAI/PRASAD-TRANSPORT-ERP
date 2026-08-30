@@ -18,6 +18,26 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import multipart from '@fastify/multipart';
 import { put, openStream, remove, stats, safeKey, MAX_BYTES, DRIVER, StorageError } from '../lib/storage.js';
+import { emit } from '../agents/bus.js';
+
+// Infer the document kind from the stored key so BHUVANESHWARI (the OCR/vault
+// agent) can classify without re-reading the bytes. drivers/<id>/dl_photo →
+// 'DL', vehicle-docs/<plate>/fitness_… → 'FITNESS', etc. Best-effort only; an
+// unrecognised shape is 'UNCLASSIFIED', which the agent routes to review.
+function inferDocType(key) {
+  const seg = String(key).toLowerCase();
+  if (/\/dl[_./]|driving/.test(seg)) return 'DL';
+  if (/aadh?ar/.test(seg)) return 'AADHAAR';
+  if (/\bpan\b|pan_/.test(seg)) return 'PAN';
+  if (/fitness/.test(seg)) return 'FITNESS';
+  if (/insur/.test(seg)) return 'INSURANCE';
+  if (/permit/.test(seg)) return 'PERMIT';
+  if (/\brc\b|rc_/.test(seg)) return 'RC';
+  if (/puc|pollution/.test(seg)) return 'PUC';
+  if (/fuel|hsd|slip/.test(seg)) return 'FUEL_SLIP';
+  if (/toll|fastag/.test(seg)) return 'TOLL';
+  return 'UNCLASSIFIED';
+}
 
 // Only what a document archive should ever hold. An upload endpoint that
 // accepts anything is an upload endpoint that will eventually serve a script
@@ -100,6 +120,21 @@ export async function registerFileRoutes(app) {
     }
     try {
       const out = await put(safeKey(base + ext), buffer, contentType);
+      // Tell the swarm a document landed. BHUVANESHWARI (AGENT_04, OCR/vault)
+      // subscribes to document.uploaded but nothing emitted it, so it sat at
+      // zero runs while uploads piled up — the OCR/classify step never fired.
+      // The handler is non-destructive (it classifies and routes low-confidence
+      // scans to review; it never writes a ledger or deletes the file), so this
+      // is safe to fire on every stored object. Best-effort: a bus hiccup must
+      // never fail the upload the operator just made.
+      try {
+        await emit('document.uploaded', {
+          aggregate: 'document', aggregateId: out.key,
+          payload: { s3_key: out.key, doc_type: inferDocType(out.key), content_type: contentType, bytes: out.bytes },
+        });
+      } catch (busErr) {
+        req.log?.warn?.(`document.uploaded emit failed (upload still saved): ${busErr.message}`);
+      }
       reply.code(201);
       return out;
     } catch (e) {
