@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { resolveParty, visibleModules, needsModule } from './portal.routes.js';
+import { notifyWhatsApp } from '../lib/notify.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -87,9 +88,15 @@ export function registerVendorPortalRoutes(app) {
       return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'a bid needs a positive rupee amount' });
     }
 
-    return withTransaction(async (t) => {
+    // Set inside the transaction, fired only after it commits — a bid the
+    // customer heard about must exist.
+    let bidAlert = null;
+
+    const result = await withTransaction(async (t) => {
       const { rows: load } = await t.query(
-        `SELECT load_id, status FROM bazaar_loads WHERE load_id = $1 FOR UPDATE`, [req.params.loadId]);
+        `SELECT l.load_id, l.status, l.origin, l.destination, c.mobile_no AS customer_mobile
+           FROM bazaar_loads l LEFT JOIN customers c ON c.id = l.customer_id
+          WHERE l.load_id = $1 FOR UPDATE OF l`, [req.params.loadId]);
       if (!load[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such load' });
       if (load[0].status !== 'OPEN') {
         return reply.code(409).send({
@@ -116,6 +123,16 @@ export function registerVendorPortalRoutes(app) {
         [req.params.loadId, vend[0]?.vendor_name ?? 'unknown',
          req.party.vendorId, amount, req.body?.remarks ?? null]);
 
+      if (load[0].customer_mobile) {
+        // The COUNT of interest is public knowledge on this board; the amount
+        // is the customer's to see — it is their load.
+        bidAlert = {
+          mobile: load[0].customer_mobile,
+          text: `📦 Load Bazaar: aapke load ${load[0].load_id} (${load[0].origin} → ${load[0].destination}) `
+              + `par nayi bid aayi hai. Portal par "Live Bids" mein dekhein aur accept karein.`,
+        };
+      }
+
       return reply.code(201).send({
         ...rows[0],
         revised: withdrawn > 0,
@@ -125,6 +142,9 @@ export function registerVendorPortalRoutes(app) {
               + 'you will see the result here once the office decides.',
       });
     });
+
+    if (bidAlert) notifyWhatsApp(bidAlert.mobile, bidAlert.text);
+    return result;
   });
 
   // ONLY the caller's own bids. There is no parameter that widens this.

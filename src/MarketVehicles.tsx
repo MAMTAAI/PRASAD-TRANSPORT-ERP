@@ -76,7 +76,10 @@ export default function MarketVehicles() {
     subscription_plan: 'FREE', max_vehicle_limit: 2,
     // 🎛️ NEW: 110% PORTAL CONTROL
     portal_access: true,
-    portal_features: { live_loads: true, fleet_mgmt: true, active_trips: false, wallet: false }
+    // Keys are the REAL portal module keys (068: vend.<key>) that
+    // visibleModules() reads — the old live_loads/fleet_mgmt/wallet names
+    // matched nothing and every toggle was inert.
+    portal_features: { bazaar: true, vehicles: true, bills: false, submit_bill: false }
   });
 
   // ========================
@@ -125,7 +128,10 @@ export default function MarketVehicles() {
       agency_name: '', owner_name: '', mobile: '', email: '', pan_no: '', gst_no: '', address: '', 
       opening_balance: '0', payment_terms: 'Advance', bank_account: '', ifsc_code: '', status: 'APPROVED',
       subscription_plan: 'FREE', max_vehicle_limit: 2, portal_access: true,
-      portal_features: { live_loads: true, fleet_mgmt: true, active_trips: false, wallet: false }
+      // Keys are the REAL portal module keys (068: vend.<key>) that
+    // visibleModules() reads — the old live_loads/fleet_mgmt/wallet names
+    // matched nothing and every toggle was inert.
+    portal_features: { bazaar: true, vehicles: true, bills: false, submit_bill: false }
     });
     setEditingVendorId(null);
     setIsVendorModalOpen(true);
@@ -134,7 +140,7 @@ export default function MarketVehicles() {
   const openVendorModalForEdit = (vendor) => {
     setVendorFormData({ 
       ...vendor, 
-      portal_features: vendor.portal_features || { live_loads: true, fleet_mgmt: true, active_trips: false, wallet: false },
+      portal_features: vendor.portal_features || { bazaar: true, vehicles: true, bills: false, submit_bill: false },
       subscription_plan: vendor.subscription_plan || 'FREE',
       max_vehicle_limit: vendor.max_vehicle_limit || 2,
       portal_access: vendor.portal_access !== undefined ? vendor.portal_access : true
@@ -143,11 +149,14 @@ export default function MarketVehicles() {
     setIsVendorModalOpen(true);
   };
 
-  // SMART AUTO-LIMIT UPDATER
+  // SMART AUTO-LIMIT UPDATER. Plans are the DB's own CHECK values
+  // (FREE|SILVER|GOLD|PLATINUM, migration 044) — the old PRO/ENTERPRISE
+  // labels violated the constraint and every save with them failed.
   const handlePlanChange = (plan) => {
     let limit = 2;
-    if (plan === 'PRO') limit = 50;
-    if (plan === 'ENTERPRISE') limit = 9999;
+    if (plan === 'SILVER') limit = 10;
+    if (plan === 'GOLD') limit = 50;
+    if (plan === 'PLATINUM') limit = 9999;
     setVendorFormData({ ...vendorFormData, subscription_plan: plan, max_vehicle_limit: limit });
   };
 
@@ -408,8 +417,9 @@ export default function MarketVehicles() {
                     <label style={{fontSize:'11px', color:'#ec4899', fontWeight:'bold'}}>Vendor Subscription Plan</label>
                     <select className="glass-input" style={{borderColor:'#ec4899', color:'#ec4899', fontWeight:'bold'}} value={vendorFormData.subscription_plan} onChange={e => handlePlanChange(e.target.value)}>
                       <option value="FREE">FREE PLAN (Max 2 Vehicles)</option>
-                      <option value="PRO">PRO PLAN (Max 50 Vehicles)</option>
-                      <option value="ENTERPRISE">ENTERPRISE (Unlimited)</option>
+                      <option value="SILVER">SILVER PLAN (Max 10 Vehicles)</option>
+                      <option value="GOLD">GOLD PLAN (Max 50 Vehicles)</option>
+                      <option value="PLATINUM">PLATINUM (Unlimited)</option>
                     </select>
                   </div>
                   <div>
@@ -431,21 +441,21 @@ export default function MarketVehicles() {
 
                 {vendorFormData.portal_access && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '15px' }}>
-                    <div className={`feature-card ${vendorFormData.portal_features?.live_loads ? 'active' : ''}`}>
-                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>🎯 Live Load Board</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can bid on loads</div></div>
-                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.live_loads} onChange={() => toggleFeature('live_loads')} /><span className="slider"></span></label>
+                    <div className={`feature-card ${vendorFormData.portal_features?.bazaar ? 'active' : ''}`}>
+                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>🎯 Live Load Board</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can bid on loads (vend.bazaar)</div></div>
+                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.bazaar} onChange={() => toggleFeature('bazaar')} /><span className="slider"></span></label>
                     </div>
-                    <div className={`feature-card ${vendorFormData.portal_features?.fleet_mgmt ? 'active' : ''}`}>
-                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>🚛 My Fleet & Drivers</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can add trucks</div></div>
-                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.fleet_mgmt} onChange={() => toggleFeature('fleet_mgmt')} /><span className="slider"></span></label>
+                    <div className={`feature-card ${vendorFormData.portal_features?.vehicles ? 'active' : ''}`}>
+                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>🚛 My Fleet & Drivers</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can add trucks (vend.vehicles)</div></div>
+                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.vehicles} onChange={() => toggleFeature('vehicles')} /><span className="slider"></span></label>
                     </div>
-                    <div className={`feature-card ${vendorFormData.portal_features?.active_trips ? 'active' : ''}`}>
-                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>📍 Active Trips (GPS)</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can track own trips</div></div>
-                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.active_trips} onChange={() => toggleFeature('active_trips')} /><span className="slider"></span></label>
+                    <div className={`feature-card ${vendorFormData.portal_features?.submit_bill ? 'active' : ''}`}>
+                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>🧾 Submit Bills</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can raise bills (vend.submit_bill)</div></div>
+                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.submit_bill} onChange={() => toggleFeature('submit_bill')} /><span className="slider"></span></label>
                     </div>
-                    <div className={`feature-card ${vendorFormData.portal_features?.wallet ? 'active' : ''}`}>
-                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>💰 Earnings & Wallet</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can view ledger/escrow</div></div>
-                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.wallet} onChange={() => toggleFeature('wallet')} /><span className="slider"></span></label>
+                    <div className={`feature-card ${vendorFormData.portal_features?.bills ? 'active' : ''}`}>
+                      <div><div style={{ color: '#fff', fontSize: '13px', fontWeight: 'bold' }}>💰 Earnings & Wallet</div><div style={{ color: '#94a3b8', fontSize: '11px' }}>Can view ledger (vend.bills)</div></div>
+                      <label className="toggle-switch"><input type="checkbox" checked={vendorFormData.portal_features?.bills} onChange={() => toggleFeature('bills')} /><span className="slider"></span></label>
                     </div>
                   </div>
                 )}

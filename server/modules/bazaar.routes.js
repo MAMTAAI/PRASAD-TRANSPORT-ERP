@@ -17,8 +17,11 @@
 // `uq_bazaar_bid_winner` (a partial unique index on status='ACCEPTED') makes the
 // second concurrent award fail rather than double-book the load.
 // ─────────────────────────────────────────────────────────────────────────────
+import { randomBytes } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { requireAdminRole } from './auth.routes.js';
+import { hashPassword, ALGO } from '../lib/auth.js';
+import { notifyWhatsApp } from '../lib/notify.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -184,8 +187,17 @@ export async function registerBazaarRoutes(app) {
                                             WHERE id = $1::uuid RETURNING *`, [bid_id]);
         const { rows: U } = await c.query(`UPDATE bazaar_loads SET status = 'AWARDED', updated_at = now()
                                             WHERE load_id = $1 RETURNING *`, [req.params.loadId]);
-        return { code: 200, body: { load: U[0], bid: W[0] } };
+        const { rows: VM } = await c.query(
+          'SELECT mobile_no FROM vendors WHERE id = $1::uuid', [W[0].vendor_id]);
+        return { code: 200, body: { load: U[0], bid: W[0] }, vendorMobile: VM[0]?.mobile_no ?? null };
       });
+      if (out.code === 200 && out.vendorMobile) {
+        // After commit — a slow WhatsApp engine must never hold the award.
+        notifyWhatsApp(out.vendorMobile,
+          `🎉 Load Bazaar: aapki bid ₹${out.body.bid.bid_amount} load ${req.params.loadId} `
+          + `(${out.body.load.origin} → ${out.body.load.destination}) ke liye ACCEPT ho gayi hai. `
+          + `Prasad Transport office se agla step confirm hoga.`);
+      }
       return reply.code(out.code).send(out.body);
     } catch (e) { return pgErr(reply, e); }
   });
@@ -300,19 +312,85 @@ export async function registerBazaarRoutes(app) {
   // master_id is supplied by the caller: KycApprovals creates the customer or
   // vendor through /api/v1/masters first and passes the id it got back, so the
   // master's own validation and ledger behaviour stay in one place.
+  // APPROVAL NOW FINISHES THE JOB. Until Phase 1 of the marketplace rebuild,
+  // approving here stamped the application and stopped: the party master
+  // existed, but no `users` login row was ever created and
+  // `is_approved_for_portal` stayed false — so an "approved" applicant still
+  // could not sign in, and unblocking them took two more manual steps nobody
+  // knew about (provision-portal-user.mjs + the Portal Access screen). One
+  // approval now produces: the stamped application, the portal gate open on
+  // the party, and an OTP-ready login (matched by mobile at /auth/otp/verify;
+  // the random password exists only because the column is NOT NULL, and
+  // must_change_password guards the day someone tries it).
   app.post('/onboarding/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('onboarding_applications')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
     if (row.status !== 'SUBMITTED') return reply.code(409).send({ error: 'ALREADY_DECIDED', detail: `application is ${row.status}` });
     const { master_id, approved_by } = req.body ?? {};
-    const { rows } = await query(`
-      UPDATE onboarding_applications
-         SET status = 'APPROVED', approved_at = now(), approved_by = $2,
-             master_id = COALESCE($3::uuid, master_id)
-       WHERE id = $1::uuid RETURNING *`,
-      [row.id, approved_by ?? null, UUID_RE.test(String(master_id ?? '')) ? master_id : null]);
-    return { application: withAliases(rows[0]) };
+    const masterId = UUID_RE.test(String(master_id ?? '')) ? master_id : null;
+    const notes = [];
+
+    const application = await withTransaction(async (c) => {
+      const { rows } = await c.query(`
+        UPDATE onboarding_applications
+           SET status = 'APPROVED', approved_at = now(), approved_by = $2,
+               master_id = COALESCE($3::uuid, master_id)
+         WHERE id = $1::uuid RETURNING *`, [row.id, approved_by ?? null, masterId]);
+      const app0 = rows[0];
+      const partyId = app0.master_id;
+      if (!partyId) { notes.push('no master_id — portal gate and login skipped'); return app0; }
+
+      const isCustomer = app0.type === 'CUSTOMER';
+      const table = isCustomer ? 'customers' : 'vendors';
+      const linkCol = isCustomer ? 'customer_id' : 'vendor_id';
+      const role = isCustomer ? 'CUSTOMER' : 'VENDOR';
+
+      // 1. Open the gate the API actually enforces (068).
+      const { rows: party } = await c.query(`
+        UPDATE ${table}
+           SET is_approved_for_portal = true, portal_approved_by = NULL, portal_approved_at = now()
+         WHERE id = $1::uuid
+         RETURNING ${isCustomer ? 'customer_name' : 'vendor_name'} AS name, email, mobile_no`, [partyId]);
+      if (!party.length) { notes.push(`master_id ${partyId} not found in ${table}`); return app0; }
+
+      // 2. The login. OTP login matches users by MOBILE, so a mobile is the
+      // one thing a portal account cannot do without.
+      const mobile = String(app0.mobile_no ?? party[0].mobile_no ?? '').replace(/\D/g, '').slice(-10);
+      if (mobile.length < 10) { notes.push('no mobile number — login not created'); return app0; }
+
+      const { rows: existing } = await c.query(
+        `SELECT id FROM users WHERE ${linkCol} = $1::uuid`, [partyId]);
+      if (existing.length) { notes.push('login already exists'); return app0; }
+
+      const { rows: mobileTaken } = await c.query(
+        'SELECT id, role FROM users WHERE mobile = $1 LIMIT 1', [mobile]);
+      if (mobileTaken.length) {
+        notes.push(`mobile ${mobile} already belongs to another login (${mobileTaken[0].role}) — login not created`);
+        return app0;
+      }
+
+      // A real address when the party has one; otherwise a non-routable,
+      // unique placeholder — the OTP lane never reads it.
+      const email = String(party[0].email ?? '').trim().toLowerCase()
+        || `portal-${String(partyId).slice(0, 8)}@login.prasadtransport.com`;
+      const { saltHex, hashHex } = hashPassword(randomBytes(14).toString('base64url'));
+      await c.query(`
+        INSERT INTO users (full_name, email, mobile, password_hash, password_salt, password_algo,
+                           role, permissions, status, must_change_password, ${linkCol})
+        VALUES ($1, $2::citext, $3, $4, $5, $6, $7::user_role, '{"grants":[]}'::jsonb, 'ACTIVE', true, $8::uuid)`,
+        [party[0].name, email, mobile, hashHex, saltHex, ALGO, role, partyId]);
+      notes.push(`portal login created — OTP login on ${mobile}`);
+      return app0;
+    });
+
+    // After commit: tell the applicant. Never inside the transaction.
+    if (application.status === 'APPROVED' && application.mobile_no) {
+      notifyWhatsApp(application.mobile_no,
+        `✅ Prasad Transport Load Bazaar: aapka ${application.type === 'CUSTOMER' ? 'customer' : 'fleet partner'} `
+        + `KYC APPROVE ho gaya hai. Ab portal par apne registered mobile number se OTP login karein.`);
+    }
+    return { application: withAliases(application), notes };
   });
 
   app.post('/onboarding/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
@@ -326,6 +404,67 @@ export async function registerBazaarRoutes(app) {
       UPDATE onboarding_applications
          SET status = 'REJECTED', reject_reason = $2, rejected_at = now(), rejected_by = $3
        WHERE id = $1::uuid RETURNING *`, [row.id, reason, rejected_by ?? null]);
+    if (rows[0]?.mobile_no) {
+      notifyWhatsApp(rows[0].mobile_no,
+        `Prasad Transport Load Bazaar: aapka KYC application reject hua — karan: ${reason}. `
+        + `Sudhaar karke dobara apply kar sakte hain.`);
+    }
     return { application: withAliases(rows[0]) };
+  });
+
+  // The applicant's own status check — PUBLIC, but only by the application's
+  // unguessable uuid (returned to them at submit time). Returns the decision
+  // and nothing else, so the pre-login portal can stop faking its lock screen
+  // from local state.
+  app.get('/onboarding-status', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const id = String(req.query?.id ?? '');
+    if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID', detail: 'id must be the application uuid' });
+    const { rows } = await query(
+      'SELECT status, reject_reason, type FROM onboarding_applications WHERE id = $1::uuid', [id]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { status: rows[0].status, reject_reason: rows[0].reject_reason, type: rows[0].type };
+  });
+
+  // ═══ MARKET DRIVERS — APPROVAL ════════════════════════════════════════════
+  // Partners have been able to SUBMIT drivers since 069; nothing could ever
+  // approve one, so every submission sat at PENDING APPROVAL forever. Same
+  // shape as the vehicle approval above: a dedicated endpoint, never a PATCH.
+  app.get('/market-drivers', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { status } = req.query ?? {};
+    const args = [];
+    let where = '';
+    if (status) { args.push(String(status)); where = 'WHERE d.system_status = $1'; }
+    const { rows } = await query(`
+      SELECT d.id, d.name, d.mobile, d.licence_no, d.licence_expiry, d.aadhaar_last4,
+             d.photo_url, d.licence_photo_url, d.system_status, d.reject_reason, d.created_at,
+             v.vendor_name
+        FROM market_drivers d LEFT JOIN vendors v ON v.id = d.vendor_id
+        ${where} ORDER BY d.created_at DESC`, args);
+    return { count: rows.length, drivers: rows };
+  });
+
+  app.post('/market-drivers/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`
+      UPDATE market_drivers
+         SET system_status = 'System Active', reject_reason = NULL,
+             approved_by = $2, approved_at = now(), updated_at = now()
+       WHERE id = $1::uuid RETURNING *`, [req.params.id, req.body?.approved_by ?? null]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { driver: rows[0] };
+  });
+
+  app.post('/market-drivers/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the partner sees it' });
+    const { rows } = await query(`
+      UPDATE market_drivers
+         SET system_status = 'REJECTED', reject_reason = $2, updated_at = now()
+       WHERE id = $1::uuid RETURNING *`, [req.params.id, reason]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { driver: rows[0] };
   });
 }

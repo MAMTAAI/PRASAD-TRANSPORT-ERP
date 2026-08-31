@@ -46,6 +46,9 @@ export const PUBLIC_API = new Set([
   'GET /api/v1/crm/website',
   // A fleet partner applying has no account yet; this IS the application.
   'POST /api/v1/bazaar/onboarding',
+  // …and the same applicant checking the decision. Readable only by the
+  // application's unguessable uuid, and it answers with the status alone.
+  'GET /api/v1/bazaar/onboarding-status',
   // OTP-LESS DRIVER SIGN-IN. Both are doors, so neither can require a session.
   // /claim spends a link that was sent to the driver's own handset — the token
   // is the credential. /track takes a vehicle or mobile number and answers with
@@ -115,7 +118,11 @@ const EXTERNAL_COMMON_ROUTES = new Set([
 // needs. A customer has neither — its whole world is /portal/customer.
 const EXTERNAL_ROLE_PREFIXES = {
   DRIVER: ['/api/v1/ops/', '/api/v1/approvals'],
-  VENDOR: ['/api/v1/vendor/'],
+  // The audit of 2026-08-31 found '/api/v1/vendor/' here — a prefix no module
+  // has ever registered (the fleet app lives under /portal/vendor/, already
+  // covered by the common prefix above). Dead entries in an allow-list are
+  // how the NEXT route that happens to match gets opened by accident.
+  VENDOR: [],
   CUSTOMER: [],
 };
 

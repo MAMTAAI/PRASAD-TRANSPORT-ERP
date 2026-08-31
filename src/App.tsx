@@ -74,6 +74,7 @@ const MarketVehicles = lazy(() => import('./MarketVehicles'));
 const CustomerPortal = lazy(() => import('./CustomerPortal'));
 const FleetPartnerPortal = lazy(() => import('./FleetPartnerPortal'));
 const FleetPartnerApp = lazy(() => import('./portal/FleetPartnerApp'));
+const CustomerApp = lazy(() => import('./portal/CustomerApp'));
 const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
@@ -453,7 +454,21 @@ function AppShell() {
   }
 
   if (showPublicWebsite && !user) return <PublicWebsite onLoginClick={() => setShowPublicWebsite(false)} />;
-  if (isCustomerMode) return <Suspense fallback={<ModuleLoader />}><CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} /></Suspense>;
+  // CUSTOMER MODE SPLITS ON WHETHER THERE IS A SESSION — the same rule the
+  // partner door follows just below, for the same reason: the signed-in app
+  // (post loads, compare bids, accept, track — all customer-scoped server
+  // routes) has nothing to show a party that does not exist yet, and the old
+  // portal is still where onboarding lives.
+  if (isCustomerMode) {
+    const customerSignedIn = !!localStorage.getItem('prasad_token');
+    return (
+      <Suspense fallback={<ModuleLoader />}>
+        {customerSignedIn
+          ? <CustomerApp />
+          : <CustomerPortal onLogout={() => { setIsCustomerMode(false); setShowPublicWebsite(true); }} />}
+      </Suspense>
+    );
+  }
   // PARTNER MODE SPLITS ON WHETHER THERE IS A SESSION.
   //
   // A signed-in partner gets the 2026 mobile app: blind-bid load board, own

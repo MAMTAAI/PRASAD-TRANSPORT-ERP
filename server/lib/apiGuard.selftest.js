@@ -216,8 +216,14 @@ check('DRIVER reaches its duty trips',
   await run(roleGuard('DRIVER'), bear('GET', '/api/v1/ops/trips')), 'allowed');
 check('CUSTOMER cannot reach /ops',
   refused2(await run(roleGuard('CUSTOMER'), bear('GET', '/api/v1/ops/trips'))), 'refused');
-check('VENDOR reaches its credit-bill door',
-  await run(roleGuard('VENDOR'), bear('POST', '/api/v1/vendor/bills')), 'allowed');
+// '/api/v1/vendor/' was a dead allow-list entry — no module ever registered
+// that prefix (the fleet app lives under /portal/vendor/, inside the common
+// prefix). Removed 2026-08-31; a dead entry must now REFUSE, so the next
+// route that happens to match it cannot be opened by accident.
+check('VENDOR refused at the dead /vendor/ prefix',
+  refused2(await run(roleGuard('VENDOR'), bear('POST', '/api/v1/vendor/bills'))), 'refused');
+check('VENDOR reaches its real bills door',
+  await run(roleGuard('VENDOR'), bear('GET', '/api/v1/portal/vendor/bills')), 'allowed');
 check('DRIVER cannot reach the vendor door',
   refused2(await run(roleGuard('DRIVER'), bear('POST', '/api/v1/vendor/bills'))), 'refused');
 

@@ -76,6 +76,7 @@ import { registerMapsRoutes } from './modules/maps.routes.js';
 import { registerOwnerRoutes } from './modules/owners.routes.js';
 import { registerGovernanceRoutes } from './modules/governance.routes.js';
 import { registerVendorPortalRoutes } from './modules/vendorPortal.routes.js';
+import { registerCustomerPortalRoutes } from './modules/customerPortal.routes.js';
 import { startScheduler } from './lib/scheduler.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
 import { registerTripImportRoutes } from './modules/tripImport.routes.js';
@@ -287,6 +288,8 @@ await app.register(registerDrilldownRoutes, { prefix: '/api/v1' });
 await app.register(registerGovernanceRoutes, { prefix: '/api/v1' });
 // Fleet Partner app: blind-bid load board, own fleet, earnings.
 await app.register(registerVendorPortalRoutes, { prefix: '/api/v1' });
+// Customer app: post loads, see bids on own loads, accept, scoped tracking.
+await app.register(registerCustomerPortalRoutes, { prefix: '/api/v1' });
 
 // Calendar jobs: the 15th/EOM accrual sweep and the daily <=10-day compliance
 // check. Both gate themselves on the date, so the quarter-hourly tick is a
