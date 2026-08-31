@@ -47,7 +47,9 @@ const EMI_GRADIENTS = [
 export default function FinanceDashboard({ live, filter }) {
   // LIVE from GET /api/v1/dashboard/v5
   const fin = live?.data?.finance ?? null;
-  const offline = !!live?.error;
+  // Same rule as OperationsDashboard: a failed poll with last-good data in
+  // hand is stale, not offline. Only an empty screen earns the banner.
+  const offline = !!live?.error && !live?.data;
 
   // ...and the parts /dashboard/v5 does not carry: the loan book, and revenue
   // measured by the freight actually run rather than by what has been receipted.

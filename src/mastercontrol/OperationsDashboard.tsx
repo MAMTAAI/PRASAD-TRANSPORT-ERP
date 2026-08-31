@@ -186,7 +186,11 @@ export default function OperationsDashboard({ live, filter }) {
 
   // LIVE from GET /api/v1/dashboard/v5 (server/modules/dashboard.routes.js).
   const ops = live?.data?.ops ?? null;
-  const offline = !!live?.error;
+  // Offline means "we have NOTHING to show" — the hook keeps the last good
+  // payload across a failed poll, and one 20s timeout must not flip a screen
+  // full of real numbers to "API not reachable". Numbers a poll stale beat a
+  // banner every time; with no payload at all the banner is the honest state.
+  const offline = !!live?.error && !live?.data;
 
   const kpiLive = ops ? [
     { label: 'Fleet Size', value: String(ops.fleet_size), sub: 'Active vehicles', icon: Truck, accent: 'cyan',

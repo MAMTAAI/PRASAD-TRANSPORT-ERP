@@ -463,12 +463,32 @@ export function registerDashboardRoutes(app) {
     };
   });
 
+  // ── /v5 MICRO-CACHE ───────────────────────────────────────────────────────
+  // The handler below runs ~55 aggregate queries in sequence, and every open
+  // Master Control tab polls it every 8 seconds. On the 2GB box the P&L
+  // aggregation alone takes 1–9s under load, so two viewers were enough to
+  // push a poll past the SPA's 20s abort — which the screens render as "Live
+  // data unavailable — API not reachable" over numbers that were fine.
+  //
+  // Six seconds is just under the poll cadence: each filter combination is
+  // computed once per cycle no matter how many screens are watching, and
+  // nobody ever reads a figure more than one poll stale. Keyed on the APPLIED
+  // filters (filtersOf), so a company-scoped view never serves the group's
+  // numbers. Same-payload-for-all is safe here: the route is staff-only via
+  // the global guard, and it already serves identical data to every staff.
+  const V5_TTL_MS = Number(process.env.DASHBOARD_V5_CACHE_MS || 6000);
+  const v5Cache = new Map();
+
   app.get('/dashboard/v5', async (req, reply) => {
     if (isDegraded()) {
       return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
     }
     const errors = [];
     const t0 = Date.now();
+
+    const cacheKey = JSON.stringify(filtersOf(req.query));
+    const hit = v5Cache.get(cacheKey);
+    if (hit && t0 - hit.at < V5_TTL_MS) return hit.payload;
 
     // ── THE 3-TIER FILTER ───────────────────────────────────────────────────
     // Company -> Branch -> Fleet/Owner. Every value is optional and NULL means
@@ -1674,7 +1694,7 @@ export function registerDashboardRoutes(app) {
          week_from: null, week_to: null, pending_buckets: [], pending_by_company: [],
          pending_rows: [], last7_unloading: [], week_unloads: [] });
 
-    return {
+    const payload = {
       ok: true,
       generated_at: new Date().toISOString(),
       took_ms: Date.now() - t0,
@@ -1689,6 +1709,17 @@ export function registerDashboardRoutes(app) {
       // Non-empty means a card is showing a fallback, not a real figure.
       errors,
     };
+    // A degraded payload (any per-card error) is not cached: serving a fallback
+    // for six more seconds after the fault cleared is six seconds of wrong.
+    if (!errors.length) {
+      v5Cache.set(cacheKey, { at: Date.now(), payload });
+      // Filter combinations are few, but an unbounded map is an unbounded map.
+      if (v5Cache.size > 50) {
+        const oldest = [...v5Cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+        v5Cache.delete(oldest[0]);
+      }
+    }
+    return payload;
   });
 
   // ── GET /api/v1/monitoring/live ─────────────────────────────────────────

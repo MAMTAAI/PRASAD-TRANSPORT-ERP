@@ -49,6 +49,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from iocl_ac5_parser import parse_ac5, Ac5Load  # noqa: E402
+import iocl_bill_parser as billspec  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 AC5_DIR = REPO / "uploads" / "iocl_ac5"
@@ -182,6 +183,16 @@ def main(argv: list[str]) -> int:
 
     print(f"AC5 -> Loading Register    window {args.window_from} .. {args.window_to}")
     print(f"mode: {'APPLY' if args.apply else 'DRY RUN - nothing will be inserted'}\n")
+
+    # THE WINDOW MUST REACH billspec, NOT ONLY THE GMAIL QUERY. This script
+    # formats its own dates into AC5_QUERY, so the search matched — but
+    # fetch_bills_from_gmail re-checks every message's received date against
+    # billspec.WINDOW_FROM..WINDOW_TO ("belt and braces"), and those were still
+    # the module DEFAULTS, whose upper end is frozen at 21-08-2026. Every mail
+    # received after that date was matched by the query and then silently
+    # dropped by the belt: downloaded 0, mailboxes "ok", register frozen at
+    # 21-08 for ten days while every health signal stayed green.
+    billspec.set_window(args.window_from, args.window_to)
 
     args.ac5_dir.mkdir(parents=True, exist_ok=True)
     # THE RETURN VALUE USED TO BE THROWN AWAY, AND IT IS THE MOST IMPORTANT
