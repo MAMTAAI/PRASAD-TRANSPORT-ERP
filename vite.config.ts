@@ -12,6 +12,19 @@ export default defineConfig({
         // Phase B: modules are code-split, so the old 10 MB single-chunk cap
         // is no longer needed. 5 MB still covers the pdf.js worker chunk.
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Written out rather than trusted to defaults, because these three are
+        // the whole difference between "deployed" and "on the screen":
+        //   skipWaiting    — the new worker activates the moment it installs,
+        //                    instead of idling behind the old one until every
+        //                    tab closes (on an office machine: never).
+        //   clientsClaim   — it takes over the already-open tabs, so the
+        //                    reload in pwaUpdate.ts swaps them to the new build.
+        //   cleanupOutdatedCaches — precaches from earlier deploys are deleted
+        //                    on activation; an iPhone that has installed the
+        //                    PWA does not accumulate every bundle ever shipped.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
       },
 
       // SINGLE SOURCE OF TRUTH for the web manifest. The plugin both writes
@@ -46,11 +59,25 @@ export default defineConfig({
     })
   ],
 
+  // Stamped into the bundle at build time. pwaUpdate.ts compares it against
+  // what the device last ran and purges legacy caches when it changes — the
+  // "did my phone actually get the new build" question, answerable in code.
+  define: {
+    __BUILD_STAMP__: JSON.stringify(new Date().toISOString()),
+  },
+
   build: {
     // Keep heavy shared vendors in their own long-cacheable chunks so a code
     // change in one ERP module doesn't invalidate the framework/vendor cache.
     rollupOptions: {
       output: {
+        // Vite hashes by default; written out so the cache-busting contract is
+        // visible and cannot be lost to a future default change. A deploy that
+        // changes one byte changes the filename, and index.html (served
+        // no-cache) points at the new name — no client can hold a stale chunk.
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
             // No vendor-firebase chunk: the client SDK is gone from the app.

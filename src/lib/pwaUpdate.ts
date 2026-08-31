@@ -38,9 +38,39 @@ import { registerSW } from 'virtual:pwa-register';
 
 const CHECK_EVERY_MS = 2 * 60 * 1000;
 
+// Stamped by vite.config's `define` at build time. Guarded because the module
+// is also imported by tests and by dev-mode, where the define may be absent.
+declare const __BUILD_STAMP__: string | undefined;
+const BUILD_STAMP = typeof __BUILD_STAMP__ === 'string' ? __BUILD_STAMP__ : 'dev';
+const STAMP_KEY = 'pt_build_stamp';
+
+/** One-time purge when the running build changes.
+ *
+ *  Workbox already deletes ITS outdated precaches (cleanupOutdatedCaches), so
+ *  this deliberately touches only what workbox will not: caches left behind by
+ *  earlier service workers under other names — the "legacy local bundles" that
+ *  iOS Safari and old WebView installs hold onto for months. The active
+ *  workbox caches are left alone; deleting them would re-download the entire
+ *  app on every deploy for no benefit.
+ */
+async function purgeLegacyCachesOnNewBuild() {
+  try {
+    if (localStorage.getItem(STAMP_KEY) === BUILD_STAMP) return;
+    if ('caches' in window) {
+      const names = await caches.keys();
+      await Promise.all(names
+        .filter((n) => !n.startsWith('workbox-'))
+        .map((n) => caches.delete(n)));
+    }
+    localStorage.setItem(STAMP_KEY, BUILD_STAMP);
+  } catch { /* storage denied (private mode) — the SW path still updates */ }
+}
+
 export function installPwaAutoUpdate() {
   // Nothing to register in dev, and no service worker on an insecure origin.
   if (!('serviceWorker' in navigator)) return;
+
+  purgeLegacyCachesOnNewBuild();
 
   registerSW({
     // Register straight away rather than waiting for the load event: the sooner
