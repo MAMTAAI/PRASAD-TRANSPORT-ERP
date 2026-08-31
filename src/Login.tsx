@@ -47,6 +47,13 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // 🔐 STAFF LOGIN 2FA. null = not in the flow; otherwise the password stage
+  // succeeded and the server is holding the session back until the code that
+  // went to the registered mobile comes back. Carries the masked number so the
+  // screen can say where to look.
+  const [twoFa, setTwoFa] = useState<null | { mobile: string; ttl: number }>(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+
   // ==========================================
   // 🏢 1. OFFICE STAFF / ADMIN LOGIN
   // ==========================================
@@ -61,15 +68,25 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
       // the profile together — the password is verified and the role read in
       // the same request, so there is no window where a session exists without
       // a profile behind it.
-      const { token, expires_at, user } = await authFetch('/login', {
+      const r = await authFetch('/login', {
         email: email.trim().toLowerCase(), password,
       });
 
+      // The 2026-08-31 mandate: a correct password no longer mints a session by
+      // itself. The server has sent a code to the registered mobile and is
+      // waiting for it — /login/verify below finishes the login.
+      if (r.otp_required) {
+        setTwoFa({ mobile: r.mobile, ttl: r.expires_in_minutes ?? 5 });
+        setTwoFaCode('');
+        setLoading(false);
+        return;
+      }
+
       // The token authorises every later request; the profile is only for
       // rendering. Both go where the app already looks for them.
-      localStorage.setItem('prasad_token', token);
-      localStorage.setItem('prasad_token_expires', String(expires_at ?? ''));
-      onLoginSuccess({ ...user, uid: user.id });
+      localStorage.setItem('prasad_token', r.token);
+      localStorage.setItem('prasad_token_expires', String(r.expires_at ?? ''));
+      onLoginSuccess({ ...r.user, uid: r.user.id });
     } catch (error: any) {
       console.error("Login error:", error?.code);
       if (error?.code === 'ACCOUNT_PENDING_APPROVAL' || error?.code === 'ACCOUNT_SUSPENDED') {
@@ -95,6 +112,39 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
         alert("🚨 Server database se connect nahi ho pa raha — thodi der baad try karein.");
       } else {
         alert("❌ Login failed! Check your internet connection.");
+      }
+    }
+    setLoading(false);
+  };
+
+  // ==========================================
+  // 🔐 1a. STAFF LOGIN — OTP STAGE (/login/verify)
+  // ==========================================
+  const handleVerify2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!/^\d{6}$/.test(twoFaCode)) return alert('⚠️ 6-digit OTP daalein.');
+    setLoading(true);
+    try {
+      const { token, expires_at, user } = await authFetch('/login/verify', {
+        email: email.trim().toLowerCase(), code: twoFaCode,
+      });
+      localStorage.setItem('prasad_token', token);
+      localStorage.setItem('prasad_token_expires', String(expires_at ?? ''));
+      setTwoFa(null); setTwoFaCode('');
+      onLoginSuccess({ ...user, uid: user.id });
+    } catch (err: any) {
+      console.error(err?.code);
+      if (err?.code === 'OTP_LOCKED') {
+        // The code is burned server-side — the only way forward is the password
+        // stage again, so send them there instead of leaving a dead form up.
+        alert('🚨 Bahut zyada galat attempts — password se dobara login karein.');
+        setTwoFa(null); setTwoFaCode('');
+      } else if (err?.code === 'OTP_INVALID' || err?.code === 'OTP_ALREADY_USED') {
+        alert('❌ Code galat ya expire ho chuka hai — dobara dekhein, ya login se naya code mangwayein.');
+      } else if (err?.code === 'DB_UNAVAILABLE') {
+        alert('🚨 Server database se connect nahi ho pa raha — thodi der baad try karein.');
+      } else {
+        alert('❌ Verify nahi ho paya — internet check karein.');
       }
     }
     setLoading(false);
@@ -243,7 +293,7 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
 
       <button 
         onClick={() => {
-          if (loginMode !== 'SELECT') { setLoginMode('SELECT'); setResetStage(null); setResetCode(''); } 
+          if (loginMode !== 'SELECT') { setLoginMode('SELECT'); setResetStage(null); setResetCode(''); setTwoFa(null); setTwoFaCode(''); }
           else onBackToWeb(); 
         }} 
         className="absolute top-4 left-4 md:top-8 md:left-8 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/10 px-5 py-2.5 rounded-full flex items-center gap-2 font-bold text-sm backdrop-blur-md transition-all z-20 shadow-lg"
@@ -306,8 +356,42 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
             </>
           )}
 
+          {/* 🔐 STAFF LOGIN — OTP STAGE. Password maana ja chuka hai; ab code. */}
+          {loginMode === 'ADMIN' && twoFa && (
+            <div className="bg-slate-900/80 backdrop-blur-xl p-6 md:p-8 rounded-[32px] border border-slate-800 shadow-2xl relative overflow-hidden animate-fade-in-up w-full">
+              <div className="absolute top-0 left-0 w-full h-2 bg-red-600"></div>
+
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-3xl mb-3 shadow-inner bg-red-900 text-white border-2 border-red-500">📲</div>
+                <h2 className="text-xl md:text-2xl font-black text-white">OTP Verification</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Password sahi hai — code aapke mobile <span className="text-white font-bold">{twoFa.mobile}</span> par bheja gaya hai ({twoFa.ttl} min valid)
+                </p>
+              </div>
+
+              <form onSubmit={handleVerify2FA} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 ml-1 text-center">6-Digit OTP</label>
+                  <input type="text" inputMode="numeric" maxLength={6} value={twoFaCode} autoFocus
+                    onChange={(e) => setTwoFaCode(e.target.value.replace(/[^\d]/g, ''))} placeholder="••••••"
+                    className="w-full bg-slate-950 border border-slate-700 p-4 rounded-xl text-white text-3xl tracking-[1em] font-black text-center outline-none focus:border-red-500 transition-colors" required />
+                </div>
+                <button type="submit" disabled={loading} className="w-full bg-red-600 hover:bg-red-500 text-white font-black text-sm py-4 rounded-xl shadow-[0_5px_15px_rgba(220,38,38,0.3)] transition-transform hover:-translate-y-0.5">
+                  {loading ? 'Verifying...' : 'VERIFY & ENTER ✅'}
+                </button>
+                {/* A fresh code needs the password stage again — the server
+                    retires the old code when a new login starts, so this is the
+                    honest "resend". */}
+                <button type="button" onClick={() => { setTwoFa(null); setTwoFaCode(''); }}
+                  className="w-full text-center text-xs text-slate-400 hover:text-red-400 font-bold pt-1 transition-colors">
+                  Code nahi mila? Wapas jaakar dobara login karein
+                </button>
+              </form>
+            </div>
+          )}
+
           {/* 🔐 ADMIN / OFFICE STAFF LOGIN FORM */}
-          {loginMode === 'ADMIN' && resetStage === null && (
+          {loginMode === 'ADMIN' && !twoFa && resetStage === null && (
             <div className="bg-slate-900/80 backdrop-blur-xl p-6 md:p-8 rounded-[32px] border border-slate-800 shadow-2xl relative overflow-hidden animate-fade-in-up w-full">
               <div className="absolute top-0 left-0 w-full h-2 bg-red-600"></div>
               

@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
 import { isAdmin } from '../lib/rbac';
 import { MyWhatsApp, WA_LINK_ROLES } from './whatsappLink';
+import ChangePasswordCard from './ChangePasswordCard';
 
 const ROLE_TONE = {
   SUPER_ADMIN: { bg: 'rgba(168,85,247,0.16)', fg: '#d8b4fe', ring: 'rgba(168,85,247,0.5)' },
@@ -63,6 +64,10 @@ const Row = ({ label, value, mono }) => (
 export default function ProfileMenu({ user, onLogout, compact = false }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState(null);
+  // The OTP password-change flow, folded shut by default: the menu is opened
+  // dozens of times a day to check a session or log out, and three input
+  // fields nobody asked for would bury both.
+  const [pwOpen, setPwOpen] = useState(false);
   const wrapRef = useRef(null);
 
   const role = String(user?.role || 'STAFF').toUpperCase();
@@ -169,6 +174,25 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
           </div>
 
           {WA_LINK_ROLES.includes(role) && <MyWhatsApp />}
+
+          {/* 🔑 Self-service password change (2026-08-31 mandate) — OTP to the
+              registered mobile, then the person picks the password themselves. */}
+          <div style={{ borderTop: '1px solid #1e293b', padding: '10px 16px 12px' }}>
+            <button
+              type="button"
+              onClick={() => setPwOpen((v) => !v)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                color: '#94a3b8', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}
+            >
+              <span>🔑 Change Password</span>
+              <span style={{ fontSize: 10 }}>{pwOpen ? '▲' : '▼'}</span>
+            </button>
+            {pwOpen && <div style={{ marginTop: 8 }}><ChangePasswordCard compact /></div>}
+          </div>
 
           <div style={{ padding: '12px 12px 12px' }}>
             <button

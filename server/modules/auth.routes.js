@@ -260,8 +260,105 @@ export async function registerAuthRoutes(app) {
       return deny();
     }
 
+    // ── THE SECOND FACTOR (2026-08-31 mandate) ──────────────────────────────
+    // A correct password no longer mints a session by itself: a LOGIN_2FA code
+    // goes to the account's registered mobile and /login/verify finishes the
+    // login. Two deliberate degradations, both said out loud in the response
+    // and both narrower than they look:
+    //   · no mobile on file  → password-only login. Three real accounts have
+    //     no mobile (admin@ included); enforcing would brick them. The fix is
+    //     to add their mobiles, not to lock the owner out.
+    //   · OTP channel down   → password-only login, logged. A dead WhatsApp
+    //     engine + unconfigured SMS must degrade to yesterday's security, not
+    //     to "nobody can enter the ERP".
+    const { rows: mrow } = await query('SELECT mobile FROM users WHERE id = $1::uuid', [u.id]);
+    const mobile = mrow[0]?.mobile ?? null;
+    let otpSkipped = null;
+    if (!mobile) otpSkipped = 'no_mobile_on_file';
+    else {
+      const ch = await otp.available();
+      if (!ch.ok) {
+        otpSkipped = 'otp_channel_down';
+        req.log.warn({ user: u.id, reason: ch.reason }, '2FA skipped — otp channel unavailable');
+      }
+    }
+
+    if (!otpSkipped) {
+      const code = newOtp();
+      const { saltHex, hashHex } = hashCode(code);
+      await query(`UPDATE auth_otp SET consumed_at = now()
+                    WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'LOGIN_2FA'`, [u.id]);
+      await query(
+        `INSERT INTO auth_otp (user_id, mobile, code_hash, code_salt, channel, purpose, expires_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, 'LOGIN_2FA', now() + ($6 || ' minutes')::interval)`,
+        [u.id, mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
+      try {
+        const sent = await otp.send(mobile, code);
+        if (sent?.channel && sent.channel !== otp.CHANNEL_NAME) {
+          await query(`UPDATE auth_otp SET channel = $2
+                        WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'LOGIN_2FA'`,
+            [u.id, sent.channel]);
+        }
+      } catch (e) {
+        req.log.error({ err: e }, '2fa otp send failed');
+        return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: e.message });
+      }
+      // The password stage is done and said so; no token yet. failed_logins
+      // clears here — the password was right, and the OTP has its own counter.
+      await query('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1::uuid', [u.id]);
+      return {
+        otp_required: true,
+        mobile: `******${String(mobile).slice(-4)}`,
+        expires_in_minutes: OTP_TTL_MIN,
+        detail: 'Password sahi hai — ab mobile par aaya OTP daaliye.',
+      };
+    }
+
     const session = await openSession(u, req);
     await query('UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1::uuid', [u.id]);
+    const { rows: profile } = await query(`SELECT ${SAFE} FROM users WHERE id = $1::uuid`, [u.id]);
+    return { ...session, user: permsOut(profile[0]), otp_skipped: otpSkipped };
+  });
+
+  // ── The second half of a password login ──────────────────────────────────
+  // Verifies the LOGIN_2FA code and mints the session the password stage
+  // withheld. Bound to the USER (by email → user_id), never to the bare
+  // mobile, so a code issued for one account cannot finish a login for
+  // another that happens to share a handset.
+  app.post('/login/verify', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const code = String(req.body?.code ?? '').replace(/\D/g, '');
+    if (!email || code.length !== 6) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'email and the 6-digit code are required' });
+
+    const { rows } = await query(
+      `SELECT id, full_name, role, account_status::text AS account_status
+         FROM users WHERE lower(email::text) = $1`, [email]);
+    const u = rows[0];
+    if (!u) return reply.code(401).send({ error: 'OTP_INVALID' });
+    if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
+
+    const { rows: recs } = await query(
+      `SELECT * FROM auth_otp
+        WHERE user_id = $1::uuid AND consumed_at IS NULL AND expires_at > now()
+          AND purpose = 'LOGIN_2FA'
+        ORDER BY created_at DESC LIMIT 1`, [u.id]);
+    const rec = recs[0];
+    if (!rec) return reply.code(401).send({ error: 'OTP_INVALID', detail: 'code expired ya pehle use ho chuka — dobara login karein' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) {
+      await query('UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid', [rec.id]);
+      return reply.code(429).send({ error: 'OTP_LOCKED', detail: 'bahut galat koshishein — dobara login karein' });
+    }
+    if (!verifyCode(code, rec.code_salt, rec.code_hash)) {
+      await query('UPDATE auth_otp SET attempts = attempts + 1 WHERE id = $1::uuid', [rec.id]);
+      return reply.code(401).send({ error: 'OTP_INVALID' });
+    }
+    const { rowCount } = await query(
+      'UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL', [rec.id]);
+    if (!rowCount) return reply.code(401).send({ error: 'OTP_ALREADY_USED' });
+
+    const session = await openSession(u, req);
+    await query('UPDATE users SET last_login_at = now() WHERE id = $1::uuid', [u.id]);
     const { rows: profile } = await query(`SELECT ${SAFE} FROM users WHERE id = $1::uuid`, [u.id]);
     return { ...session, user: permsOut(profile[0]) };
   });
@@ -276,6 +373,88 @@ export async function registerAuthRoutes(app) {
       [jti, u.id, expiresAt, String(req.headers['user-agent'] ?? '').slice(0, 300), req.ip ?? null]);
     return { token, expires_at: expiresAt };
   }
+
+  // ═══ SELF-SERVICE PASSWORD CHANGE (logged-in, OTP-verified) ═══════════════
+  // The Profile Settings flow of the 2026-08-31 mandate: any registered user
+  // changes their OWN password after proving they hold the registered mobile.
+  // Distinct purpose PASSWORD_CHANGE — a forgot-password code cannot be
+  // replayed here and vice versa. Drivers have no password by design (OTP and
+  // link-claim logins only), so the route says that instead of guessing.
+
+  app.post('/me/password/otp', { preHandler: requireAuth }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (req.user.role === 'DRIVER') {
+      return reply.code(400).send({ error: 'NOT_APPLICABLE', detail: 'driver login OTP se hota hai — password hai hi nahi' });
+    }
+    const { rows } = await query('SELECT id, mobile FROM users WHERE id = $1::uuid', [req.user.sub]);
+    const u = rows[0];
+    if (!u) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (!u.mobile) {
+      return reply.code(400).send({
+        error: 'NO_MOBILE',
+        detail: 'is account par mobile number nahi hai — admin se User Management mein number judwayein, tabhi OTP aa sakta hai',
+      });
+    }
+    const ch = await otp.available();
+    if (!ch.ok) return reply.code(503).send({ error: 'OTP_CHANNEL_UNAVAILABLE', detail: ch.reason });
+
+    const code = newOtp();
+    const { saltHex, hashHex } = hashCode(code);
+    await query(`UPDATE auth_otp SET consumed_at = now()
+                  WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'PASSWORD_CHANGE'`, [u.id]);
+    await query(
+      `INSERT INTO auth_otp (user_id, mobile, code_hash, code_salt, channel, purpose, expires_at)
+       VALUES ($1::uuid, $2, $3, $4, $5, 'PASSWORD_CHANGE', now() + ($6 || ' minutes')::interval)`,
+      [u.id, u.mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
+    try { await otp.send(u.mobile, code); }
+    catch (e) {
+      req.log.error({ err: e }, 'password-change otp send failed');
+      return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: e.message });
+    }
+    return { sent: true, mobile: `******${String(u.mobile).slice(-4)}`, expires_in_minutes: OTP_TTL_MIN };
+  });
+
+  app.post('/me/password', { preHandler: requireAuth }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (req.user.role === 'DRIVER') {
+      return reply.code(400).send({ error: 'NOT_APPLICABLE', detail: 'driver login OTP se hota hai — password hai hi nahi' });
+    }
+    const code = String(req.body?.code ?? '').replace(/\D/g, '');
+    const password = String(req.body?.new_password ?? req.body?.password ?? '');
+    if (code.length !== 6) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'the 6-digit OTP is required' });
+    if (password.length < 8) return reply.code(400).send({ error: 'WEAK_PASSWORD', detail: 'password must be at least 8 characters' });
+
+    const { rows: recs } = await query(
+      `SELECT * FROM auth_otp
+        WHERE user_id = $1::uuid AND consumed_at IS NULL AND expires_at > now()
+          AND purpose = 'PASSWORD_CHANGE'
+        ORDER BY created_at DESC LIMIT 1`, [req.user.sub]);
+    const rec = recs[0];
+    if (!rec) return reply.code(401).send({ error: 'OTP_INVALID', detail: 'code expired ya use ho chuka — dobara OTP mangwayein' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) {
+      await query('UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid', [rec.id]);
+      return reply.code(429).send({ error: 'OTP_LOCKED', detail: 'bahut galat koshishein — naya OTP mangwayein' });
+    }
+    if (!verifyCode(code, rec.code_salt, rec.code_hash)) {
+      await query('UPDATE auth_otp SET attempts = attempts + 1 WHERE id = $1::uuid', [rec.id]);
+      return reply.code(401).send({ error: 'OTP_INVALID' });
+    }
+    const { rowCount } = await query(
+      'UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL', [rec.id]);
+    if (!rowCount) return reply.code(401).send({ error: 'OTP_ALREADY_USED' });
+
+    const { saltHex, hashHex } = hashPassword(password);
+    await query(
+      `UPDATE users SET password_hash = $2, password_salt = $3, password_algo = $4,
+              must_change_password = false, failed_logins = 0, locked_until = NULL
+        WHERE id = $1::uuid`, [req.user.sub, hashHex, saltHex, ALGO]);
+    // Every OTHER session dies; the one that just proved the mobile survives —
+    // logging somebody out of the screen they changed the password on reads as
+    // a failure, not as security.
+    await query('DELETE FROM auth_sessions WHERE user_id = $1::uuid AND jti <> $2::uuid',
+      [req.user.sub, req.user.jti]);
+    return { ok: true, other_sessions_revoked: true };
+  });
 
   // ── OTP ──────────────────────────────────────────────────────────────────
   app.post('/otp/request', async (req, reply) => {

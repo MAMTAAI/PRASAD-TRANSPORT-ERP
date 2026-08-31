@@ -208,6 +208,10 @@ for (const role of ['DRIVER', 'VENDOR', 'CUSTOMER']) {
   check(`${role} reaches its own files`, await run(g, bear('GET', '/api/v1/files/drivers/x/dl.pdf')), 'allowed');
   check(`${role} reaches /auth/me`, await run(g, bear('GET', '/api/v1/auth/me')), 'allowed');
   check(`${role} reaches map cache`, await run(g, bear('GET', '/api/v1/maps/directions')), 'allowed');
+  // Self-service password change (OTP) — the routes act only on the session's
+  // own user id, so every external role keeps them.
+  check(`${role} may request a password-change OTP`, await run(g, bear('POST', '/api/v1/auth/me/password/otp')), 'allowed');
+  check(`${role} may change its own password`, await run(g, bear('POST', '/api/v1/auth/me/password')), 'allowed');
   // What NO external role may reach — the office books and masters.
   check(`${role} refused finance`, refused2(await run(g, bear('GET', '/api/v1/finance/ledgers'))), 'refused');
   check(`${role} refused masters`, refused2(await run(g, bear('GET', '/api/v1/masters/customers'))), 'refused');
@@ -262,6 +266,15 @@ check('POST /api/v1/auth/driver/track',
 // Minting one is staff work and must NOT be public.
 check('POST /api/v1/auth/driver/link needs a session',
   await run(guard, req('POST', '/api/v1/auth/driver/link')), 401);
+
+console.log('\n2FA LOGIN — the second half is public, the change routes are not');
+check('POST /api/v1/auth/login/verify is public',
+  await run(guard, req('POST', '/api/v1/auth/login/verify')), 'allowed');
+// The password-CHANGE pair requires a session — only the reset pair is public.
+check('POST /api/v1/auth/me/password/otp needs a session',
+  await run(guard, req('POST', '/api/v1/auth/me/password/otp')), 401);
+check('POST /api/v1/auth/me/password needs a session',
+  await run(guard, req('POST', '/api/v1/auth/me/password')), 401);
 
 console.log(failures === 0
   ? '\n✅ apiGuard: all checks passed\n'

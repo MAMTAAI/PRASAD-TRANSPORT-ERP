@@ -21,9 +21,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Package, Gavel, Truck, ReceiptText, Plus, X, MapPin, CalendarDays,
   ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, Info, Navigation,
-  Zap, FileCheck2, Circle,
+  Zap, FileCheck2, Circle, UserRound,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
+import ChangePasswordCard from '../ui/ChangePasswordCard';
 
 const inr = (n) => {
   const v = Number(n);
@@ -308,6 +309,15 @@ export default function CustomerApp() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {tab === 'account' && (
+        <div className="px-4 pt-4">
+          <Header title="Account" sub="Profile Settings" />
+          {/* 🔑 Self-service password change (2026-08-31 mandate) — the OTP
+              goes to the mobile this account is registered with. */}
+          <ChangePasswordCard />
         </div>
       )}
 
@@ -695,7 +705,7 @@ function Shell({ children, tab, setTab, hideNav = false }) {
         <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/[0.07] bg-[#0b0f18]/95
                         pb-[env(safe-area-inset-bottom)] backdrop-blur-2xl">
           <div className="mx-auto flex max-w-md">
-            {[['loads', Package, 'Loads'], ['trips', Truck, 'Shipments'], ['bills', ReceiptText, 'Bills']].map(([id, Icon, label]) => (
+            {[['loads', Package, 'Loads'], ['trips', Truck, 'Shipments'], ['bills', ReceiptText, 'Bills'], ['account', UserRound, 'Account']].map(([id, Icon, label]) => (
               <button key={id} onClick={() => setTab(id)}
                 className={`flex flex-1 flex-col items-center gap-1 py-3 text-[10.5px] font-bold transition-colors
                             ${tab === id ? 'text-sky-400' : 'text-white/35'}`}>

@@ -90,6 +90,12 @@ export function AuthProvider({ children }) {
   const loginPassword = useCallback(async (email, password) => {
     try {
       const r = await api('/login', { email, password });
+      // The 2026-08-31 mandate: a correct password answers otp_required and
+      // withholds the token until verifyLogin2fa presents the code that went
+      // to the registered mobile.
+      if (r.ok && r.otp_required) {
+        return { ok: true, otpRequired: true, mobile: r.mobile, ttl: r.expires_in_minutes ?? 5 };
+      }
       if (r.ok && r.token) {
         const usr = { ...(r.user || {}), role: normalizeRole(r.user?.role) };
         persist(r.token, usr);
@@ -98,6 +104,23 @@ export function AuthProvider({ children }) {
       return { ok: false, error: r.error || `login failed (${r.status})` };
     } catch {
       return demoLogin(email); // API unreachable → demo
+    }
+  }, [persist]);
+
+  // The second half of a staff password login: /login/verify mints the session
+  // the password stage withheld. Bound to the email, not the bare mobile, so a
+  // code issued for one account cannot finish a login for another.
+  const verifyLogin2fa = useCallback(async (email, code) => {
+    try {
+      const r = await api('/login/verify', { email, code });
+      if (r.ok && r.token) {
+        const usr = { ...(r.user || {}), role: normalizeRole(r.user?.role) };
+        persist(r.token, usr);
+        return { ok: true, role: usr.role };
+      }
+      return { ok: false, error: r.error || `verify failed (${r.status})` };
+    } catch {
+      return { ok: false, error: 'network' };
     }
   }, [persist]);
 
@@ -160,8 +183,8 @@ export function AuthProvider({ children }) {
 
   const value = useMemo(() => ({
     token, user, role: user?.role || null, isAuthenticated: !!token && !!user,
-    demoMode, loginPassword, requestOtp, verifyOtp, logout,
-  }), [token, user, demoMode, loginPassword, requestOtp, verifyOtp, logout]);
+    demoMode, loginPassword, verifyLogin2fa, requestOtp, verifyOtp, logout,
+  }), [token, user, demoMode, loginPassword, verifyLogin2fa, requestOtp, verifyOtp, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

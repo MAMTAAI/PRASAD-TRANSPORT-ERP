@@ -20,8 +20,8 @@ const ROLE_BADGES = {
 };
 
 export default function UniversalLogin({ onAuthenticated }) {
-  const { requestOtp, verifyOtp, loginPassword } = useAuth();
-  const [step, setStep] = useState(1);
+  const { requestOtp, verifyOtp, loginPassword, verifyLogin2fa } = useAuth();
+  const [step, setStep] = useState(1);   // 3 = staff 2FA code after the password
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
@@ -59,20 +59,41 @@ export default function UniversalLogin({ onAuthenticated }) {
     const r = await loginPassword(identifier.trim().toLowerCase(), password);
     setBusy(false);
     if (!r.ok) { setError(r.error || 'Login failed'); return; }
+    // 2026-08-31 mandate: the password was right but the session is being held
+    // back until the code that went to the registered mobile comes back.
+    if (r.otpRequired) {
+      setChannelNote(`Password sahi — OTP sent to ${r.mobile} · valid ${r.ttl} min`);
+      setDigits(['', '', '', '', '', '']);
+      setStep(3);
+      setTimeout(() => boxes.current[0]?.focus(), 60);
+      return;
+    }
     onAuthenticated?.(r.role);
   };
+
+  const submit2fa = async (code) => {
+    setBusy(true); setError('');
+    const r = await verifyLogin2fa(identifier.trim().toLowerCase(), code);
+    setBusy(false);
+    if (!r.ok) { setError(r.error || 'Invalid code'); setDigits(['', '', '', '', '', '']); boxes.current[0]?.focus(); return; }
+    onAuthenticated?.(r.role);
+  };
+
+  // One set of boxes, two verifiers: step 2 is the mobile-OTP login, step 3 is
+  // the staff 2FA code after a correct password.
+  const submitCode = (code) => (step === 3 ? submit2fa(code) : submitOtp(code));
 
   const onDigit = (i, v) => {
     const c = v.replace(/\D/g, '');
     if (c.length > 1) { // paste of the whole code
       const all = c.slice(0, 6).split('');
       setDigits([...all, '', '', '', '', '', ''].slice(0, 6));
-      if (all.length === 6) submitOtp(all.join(''));
+      if (all.length === 6) submitCode(all.join(''));
       return;
     }
     const next = [...digits]; next[i] = c; setDigits(next);
     if (c && i < 5) boxes.current[i + 1]?.focus();
-    if (next.every((d) => d) && next.join('').length === 6) submitOtp(next.join(''));
+    if (next.every((d) => d) && next.join('').length === 6) submitCode(next.join(''));
   };
 
   return (
@@ -177,6 +198,34 @@ export default function UniversalLogin({ onAuthenticated }) {
               </button>
               <button onClick={() => { setStep(1); setPassword(''); setError(''); }} className="mt-4 mx-auto flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-300 transition-colors">
                 <ArrowLeft size={12} /> Back
+              </button>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="mt-7">
+              <p className="text-center text-[12px] text-slate-400">
+                OTP verification for <span className="font-black text-slate-100">{identifier}</span>
+              </p>
+              {channelNote && <p className="mt-1 text-center text-[10px] font-bold text-emerald-400">{channelNote}</p>}
+              <div className="mt-4 flex justify-center gap-2">
+                {digits.map((d, i) => (
+                  <input
+                    key={i}
+                    ref={(el) => (boxes.current[i] = el)}
+                    value={d}
+                    onChange={(e) => onDigit(i, e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) boxes.current[i - 1]?.focus(); }}
+                    inputMode="numeric" maxLength={6}
+                    className="w-11 h-14 sm:w-12 rounded-xl bg-slate-950/70 border border-slate-700/50 text-center text-xl font-black text-cyan-300 outline-none focus:border-cyan-500/70 focus:shadow-[0_0_15px_rgba(34,211,238,0.25)] transition-all"
+                  />
+                ))}
+              </div>
+              {busy && <p className="mt-3 text-center text-[11px] text-cyan-400 flex items-center justify-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Verifying…</p>}
+              {/* A fresh code needs the password stage again — the server retires
+                  the old one when a new login starts. */}
+              <button onClick={() => { setStep(2); setDigits(['', '', '', '', '', '']); setError(''); }} className="mt-4 mx-auto flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-300 transition-colors">
+                <ArrowLeft size={12} /> Code nahi mila? Password se dobara login karein
               </button>
             </div>
           )}

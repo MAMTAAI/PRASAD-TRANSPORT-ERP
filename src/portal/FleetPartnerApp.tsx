@@ -28,9 +28,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Gavel, Truck, Wallet, Plus, X, MapPin, Package, CalendarDays, Users,
   ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, ArrowRight, Upload, Info,
-  ClipboardList, Zap, FileCheck2, IndianRupee,
+  ClipboardList, Zap, FileCheck2, IndianRupee, UserRound,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
+import ChangePasswordCard from '../ui/ChangePasswordCard';
 
 // ── money & dates ───────────────────────────────────────────────────────────
 const inr = (n) => {
@@ -775,6 +776,15 @@ export default function FleetPartnerApp() {
         </div>
       )}
 
+      {tab === 'account' && (
+        <div className="px-4 pt-4">
+          <Header title="Account" sub="Profile Settings" />
+          {/* 🔑 Self-service password change (2026-08-31 mandate) — the OTP
+              goes to the mobile this account is registered with. */}
+          <ChangePasswordCard />
+        </div>
+      )}
+
       {/* ── BID SHEET ──────────────────────────────────────────────────── */}
       <BidSheet
         load={bidFor}
@@ -836,6 +846,7 @@ export default function FleetPartnerApp() {
             { k: 'trips', icon: ClipboardList, label: 'My Trips' },
             { k: 'fleet', icon: Truck, label: 'My Fleet' },
             { k: 'wallet', icon: Wallet, label: 'Earnings' },
+            { k: 'account', icon: UserRound, label: 'Account' },
           ].map((t) => {
             const on = tab === t.k;
             return (

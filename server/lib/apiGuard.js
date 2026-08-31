@@ -32,6 +32,10 @@ import { timingSafeEqual } from 'node:crypto';
 export const PUBLIC_API = new Set([
   // Getting in. None of these can require a session — they are how you get one.
   'POST /api/v1/auth/login',
+  // The second half of a password login (the 2026-08-31 OTP mandate): the
+  // password stage answered otp_required and withheld the token, so the caller
+  // presenting the code here has no session yet by construction.
+  'POST /api/v1/auth/login/verify',
   'POST /api/v1/auth/otp/request',
   'POST /api/v1/auth/otp/verify',
   'POST /api/v1/auth/password-reset/request',
@@ -117,6 +121,11 @@ const EXTERNAL_COMMON_ROUTES = new Set([
   'POST /api/v1/auth/logout',
   'POST /api/v1/tracking/ping',
   'POST /api/v1/files',
+  // Self-service password change (OTP-verified) — a vendor or customer owns
+  // their own credential the same as staff do. Both routes act only on the
+  // session's own user id; there is no target parameter to widen.
+  'POST /api/v1/auth/me/password/otp',
+  'POST /api/v1/auth/me/password',
 ]);
 // Per-role extras. The 2026-08-31 security audit REMOVED both DRIVER entries:
 // '/api/v1/ops/' exposed the full ops surface to any driver token — the vendor
