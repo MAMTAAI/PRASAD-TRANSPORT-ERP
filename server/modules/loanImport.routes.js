@@ -280,7 +280,7 @@ export async function registerLoanImportRoutes(app) {
       const { as_of = '2026-04-01', commit = false, stated = {} } = req.body ?? {};
 
       const { rows: loans } = await query(
-        `SELECT loan_account_no, vehicle_no, bank_name, loan_type, company_name,
+        `SELECT loan_account_no, vehicle_no, bank_name, loan_type, company_name, company_id,
                 principal_amt, first_emi_date, emi_slabs, repayment_schedule, financier_ledger
            FROM loan_master ORDER BY bank_name, loan_account_no`);
 
@@ -337,6 +337,9 @@ export async function registerLoanImportRoutes(app) {
             narration: `Opening loan liability ${as_of} — ${l.bank_name} ${l.loan_account_no} `
                      + `(${l.vehicle_no}) after ${pos.emis_completed} EMIs [${basis}]`,
             created_by: req.body.created_by ?? 'loan-import',
+            // The loan's firm (111: HDFC/SBI → Jaiswal, rest → Prasad) scopes
+            // the liability into one set of books.
+            company_id: l.company_id ?? null,
             lines: [
               { ledger: OPENING_CONTRA, dr_cr: 'DR', amount, group: OPENING_GROUP },
               { ledger, dr_cr: 'CR', amount, group: LOAN_GROUP },
@@ -487,7 +490,7 @@ export async function registerLoanImportRoutes(app) {
               bank_ledger = DEFAULT_BANK, commit = false } = req.body ?? {};
 
       const { rows: loans } = await query(
-        `SELECT id, loan_account_no, vehicle_no, bank_name, company_name, repayment_schedule, financier_ledger
+        `SELECT id, loan_account_no, vehicle_no, bank_name, company_name, company_id, repayment_schedule, financier_ledger
            FROM loan_master ORDER BY bank_name, loan_account_no`);
 
       const posted = [], skipped = [], problems = [];
@@ -544,6 +547,7 @@ export async function registerLoanImportRoutes(app) {
               narration: `EMI ${r.month_no}/${(l.repayment_schedule ?? []).length} ${l.vehicle_no} `
                        + `${l.bank_name} (P ${r.principal} + I ${r.interest})`,
               created_by: req.body.created_by ?? 'loan-import',
+              company_id: l.company_id ?? null,
               lines: [
                 { ledger, dr_cr: 'DR', amount: principal, group: LOAN_GROUP },
                 { ledger: INTEREST_LEDGER, dr_cr: 'DR', amount: interest, group: INTEREST_GROUP },

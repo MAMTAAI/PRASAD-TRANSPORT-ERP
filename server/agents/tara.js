@@ -385,11 +385,14 @@ export async function postVoucher(v) {
         // from a hand-typed entry and could not be traced back or reconciled.
         // Defaulted rather than replaced, so every existing caller keeps the
         // 'VOUCHER' it has always written.
-        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, branch, vehicle_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid)`,
+        `INSERT INTO ledger_entries (ledger_name, voucher_id, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, branch, company_id, branch_id, vehicle_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::uuid,$12::uuid,$13::uuid)`,
         [l.ledger, voucherId, entryDate, narration, l.dr_cr, l.amt,
          v.source_type ?? 'VOUCHER', v.ref_no ?? null, v.company ?? null, v.branch ?? null,
-         v.vehicle_id ?? null]);
+         // The same dimensions postJournal has carried since 05b89f9 — a cash
+         // voucher is one transaction in one firm's books, so the voucher-level
+         // company_id stamps every leg.
+         v.company_id ?? null, v.branch_id ?? null, v.vehicle_id ?? null]);
     }
 
     await busEmit('ledger.posted', {

@@ -31,6 +31,19 @@ const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const money = (v) => Number(v ?? 0);
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+// The firm that OWNS a truck pays for its upkeep (owner rule of 2026-08-31,
+// see migration 111). ASSET ownership is single-firm even for the trucks whose
+// TRIPS span firms (054) — so vehicles.company_id is safe here where
+// trip-derived attribution is not. An ATTACHED truck's upkeep debits the owner
+// khata (056) and deliberately stays company-NULL.
+async function ownedVehicleCompanyId(vehicleNo) {
+  if (!vehicleNo) return null;
+  const { rows: [v] } = await query(
+    `SELECT company_id FROM vehicles
+      WHERE vehicle_no = $1 AND ownership = 'OWNED' LIMIT 1`, [vehicleNo]);
+  return v?.company_id ?? null;
+}
+
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
                 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
@@ -305,6 +318,9 @@ export async function registerAssetRoutes(app) {
             source_type: 'LOAN_EMI',
             ref_no: b.ref_no || null,
             company: b.company ?? loan.company_name ?? null,
+            // The loan's firm (111: HDFC/SBI → Jaiswal, rest → Prasad), not the
+            // caller's guess — the financier decides whose books this is.
+            company_id: loan.company_id ?? null,
             created_by: b.created_by ?? null,
             lines: legs,
           });
@@ -386,7 +402,7 @@ export async function registerAssetRoutes(app) {
         // Same shape the cash book uses: a mirror-image JOURNAL, referenced
         // REV-<voucher> so a voucher cannot be reversed twice.
         const { rows: legs } = await query(
-          `SELECT ledger_name, dr_cr, amount, company, branch
+          `SELECT ledger_name, dr_cr, amount, company, branch, company_id
              FROM ledger_entries WHERE voucher_id = $1::uuid ORDER BY id`, [pay.voucher_id]);
         if (!legs.length) throw new Error('the voucher has no ledger entries');
         const ref = `REV-${pay.voucher_id}`;
@@ -406,6 +422,8 @@ export async function registerAssetRoutes(app) {
           narration: `Reversal of voucher ${pay.voucher_id} — ${req.body?.reason || 'EMI payment deleted'}`,
           company: legs[0].company,
           branch: legs[0].branch,
+          // A reversal un-does the entry in the SAME firm's books.
+          company_id: legs[0].company_id ?? null,
           created_by: req.body?.created_by ?? null,
         });
         await drain().catch(() => {});
@@ -740,6 +758,9 @@ export async function registerAssetRoutes(app) {
                 source_type: kind === 'tyres' ? 'TYRE_CONSUMPTION' : 'BATTERY_CONSUMPTION',
                 ref_no: `${kind.toUpperCase()}-CONSUME-${item.serial_no}`,
                 created_by: b.created_by ?? null,
+                // The truck it died on decides whose P&L eats it — owned only;
+                // stock bought but not yet consumed stays firm-neutral.
+                company_id: await ownedVehicleCompanyId(out.fitment?.vehicle_no),
                 lines: [
                   { ledger: STOCK[kind].expense, dr_cr: 'DR', amount: cost, group: CONSUMPTION_GROUP },
                   { ledger: STOCK[kind].stock, dr_cr: 'CR', amount: cost, group: STOCK_GROUP },
@@ -815,6 +836,7 @@ export async function registerAssetRoutes(app) {
           narration: `${b.service_type || 'Service'} — ${body.vehicle_no}${b.garage_name ? ` @ ${b.garage_name}` : ''}`,
           source_type: 'VEHICLE_MAINTENANCE',
           company: b.company ?? null,
+          company_id: await ownedVehicleCompanyId(body.vehicle_no),
           created_by: b.created_by ?? null,
         });
         await drain().catch(() => {});

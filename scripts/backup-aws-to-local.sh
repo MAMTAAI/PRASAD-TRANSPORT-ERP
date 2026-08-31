@@ -52,7 +52,7 @@ REMOTE_DUMP="/tmp/prasad_erp_${STAMP}.dump"
 ssh_box "$BOX" bash -s <<REMOTE
   set -e
   cd /var/www/prasad-erp
-  g() { grep -E "^\$1=" .env.api | head -1 | cut -d= -f2- | tr -d '"'"'"'"'"'; }
+  g() { grep -E "^\$1=" .env.api | head -1 | cut -d= -f2- | tr -d "\\"'"; }
   export PGPASSWORD="\$(g PGPASSWORD)"
   pg_dump -h "\$(g PGHOST || echo 127.0.0.1)" -p "\$(g PGPORT || echo 5432)" \
           -U "\$(g PGUSER)" -d "\$(g PGDATABASE || echo prasad_erp)" \

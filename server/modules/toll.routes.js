@@ -40,6 +40,24 @@ const pgErr = (reply, err) => {
 // surfaced only in the response's ledger_note. Taken from account_groups.
 const WALLET_GROUP = 'Loans & Advances (Asset)';
 
+// Which firm's money is moving? The per-firm wallets name it after the colon
+// ('FASTag Wallet: Jaiswal Enterprise', 039), and a recharge may name it in
+// free text instead. Resolved through norm_company_name so the eight historic
+// spellings of three firms (053) collapse to one id — no match means NULL,
+// never a guess (owner rule agreed 2026-08-31, same review as migration 111).
+async function companyIdByName(name) {
+  const t = String(name ?? '').trim();
+  if (!t || /^all$/i.test(t)) return null;
+  const { rows: [c] } = await query(
+    `SELECT id FROM companies
+      WHERE norm_company_name(company_name) = norm_company_name($1) LIMIT 1`, [t]);
+  return c?.id ?? null;
+}
+const walletCompanyId = (ledgerName) => {
+  const s = String(ledgerName ?? '');
+  return s.includes(':') ? companyIdByName(s.slice(s.indexOf(':') + 1)) : Promise.resolve(null);
+};
+
 const JSONB = new Set(['groups']);
 const enc = (col, v) => (JSONB.has(col) && v !== null && typeof v === 'object' ? JSON.stringify(v) : v);
 
@@ -362,6 +380,7 @@ export async function registerTollRoutes(app) {
             narration: `FASTag wallet recharge${b.provider ? ` (${b.provider})` : ''}${b.remarks ? ` — ${b.remarks}` : ''}`,
             source_type: 'TOLL_RECHARGE',
             company: b.company ?? null,
+            company_id: await companyIdByName(b.company),
             created_by: b.created_by ?? null,
           });
           await drain().catch(() => {});
@@ -458,6 +477,9 @@ export async function registerTollRoutes(app) {
       // the chart already carries a real account per physical card, and
       // inventing a second one would split the card's balance across two.
       const wallet = card.wallet_ledger || b.wallet_ledger || `${card.provider} Card Wallet`;
+      // The wallet the money moves through names the firm; a generic card
+      // wallet resolves to NULL and the entry stays visibly unattributed.
+      const walletCo = await walletCompanyId(wallet);
 
       let voucher = null, ledgerNote = null;
       if (b.post_to_ledger !== false) {
@@ -470,6 +492,7 @@ export async function registerTollRoutes(app) {
               narration: b.narration || `Pump credit settled via ${card.name} — ${b.party}`,
               source_type: 'CARD_SETTLEMENT',
               ref_no: b.ref || null,
+              company_id: walletCo,
               created_by: b.created_by ?? null,
               lines: [
                 { ledger: `Creditors: ${b.party}`, dr_cr: 'DR', amount: b.amount, group: 'Sundry Creditors (Fuel Pumps)' },
@@ -497,6 +520,7 @@ export async function registerTollRoutes(app) {
                 narration: b.narration || `Fleet card loaded by freight deduction — ${card.name} (${b.party})`,
                 source_type: 'CARD_RECHARGE',
                 ref_no: b.ref || null,
+                company_id: walletCo,
                 created_by: b.created_by ?? null,
                 lines: [
                   { ledger: wallet, dr_cr: 'DR', amount: b.amount, group: WALLET_GROUP },
@@ -520,6 +544,7 @@ export async function registerTollRoutes(app) {
                 entry_date: date,
                 narration: b.narration || `Card load — ${card.name}`,
                 source_type: 'CARD_LOAD',
+                company_id: walletCo,
                 created_by: b.created_by ?? null,
               });
             }
