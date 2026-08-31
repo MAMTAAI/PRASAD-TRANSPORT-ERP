@@ -728,6 +728,8 @@ export default function FleetPartnerApp() {
                 <Stat label="Bids won" value={earn.bids.won} sub={`${earn.bids.pending} pending`} tone="text-emerald-300" />
                 <Stat label="Pending" value={earn.fleet.pending} sub="awaiting office" tone="text-amber-300" />
               </div>
+
+              {earn.ledger_visible && <StatementButton />}
             </>
           )}
         </div>
@@ -884,6 +886,34 @@ function BidSheet({ load, existing, onClose, onDone }) {
 
       {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
     </Sheet>
+  );
+}
+
+// ── full statement PDF — server-built, FY to date, own account only ─────────
+function StatementButton() {
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const r = await fetch(`${API_BASE}/api/v1/portal/vendor/statement.pdf`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) return;
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'account-statement.pdf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } finally { setBusy(false); }
+  };
+  return (
+    <button onClick={download} disabled={busy}
+      className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-400/30
+                 bg-emerald-400/10 py-3 text-[13px] font-black text-emerald-300 disabled:opacity-40">
+      {busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} />}
+      Download full statement (PDF)
+    </button>
   );
 }
 

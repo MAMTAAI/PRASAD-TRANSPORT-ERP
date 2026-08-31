@@ -43,6 +43,26 @@ const fetchJson = async (url: string, opts?: RequestInit) => {
 const inr = (n) => (Number(n) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dmy = (iso) => { const d = toISODate(iso); return d ? `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}` : ''; };
 
+// Server-built statement PDF: one customer's full khata, or (no customer
+// chosen) the all-accounts master summary. Token via header, saved via blob.
+const downloadStatementPdf = async (custId, custName, fromDate, toDate) => {
+  const token = localStorage.getItem('prasad_token');
+  const qs = new URLSearchParams();
+  if (fromDate) qs.set('from', fromDate);
+  if (toDate) qs.set('to', toDate);
+  const path = custId
+    ? `/api/v1/reports/party-statement.pdf?kind=CUSTOMER&id=${custId}&${qs}`
+    : `/api/v1/reports/all-accounts.pdf?${qs}`;
+  const r = await fetch(`${API}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!r.ok) { alert(`PDF nahi bana (${r.status})`); return; }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = custId ? `statement-${custName || 'customer'}.pdf` : 'all-accounts.pdf';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
 const EMPTY = { rows: [], opening: 0, billed: 0, received: 0, outstanding: 0, companies: [] };
 
 export default function CustomerLedger() {
@@ -157,6 +177,9 @@ export default function CustomerLedger() {
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button className="pt-btn pt-btn--ghost" style={{ minHeight: '48px' }} onClick={exportCsv}>📥 Export CSV</button>
+          <button className="pt-btn pt-btn--ghost" style={{ minHeight: '48px' }} onClick={() => downloadStatementPdf(cust, custName, fromDate, toDate)}>
+            📄 {cust ? 'Statement PDF' : 'All Accounts PDF'}
+          </button>
           <button className="pt-btn pt-btn--success" style={{ minHeight: '48px', fontWeight: 900 }} onClick={() => setShowPay(true)}>＋ Add Payment Entry</button>
         </div>
       </div>

@@ -78,6 +78,8 @@ import { registerOwnerRoutes } from './modules/owners.routes.js';
 import { registerGovernanceRoutes } from './modules/governance.routes.js';
 import { registerVendorPortalRoutes } from './modules/vendorPortal.routes.js';
 import { registerCustomerPortalRoutes } from './modules/customerPortal.routes.js';
+import { registerDriverPortalRoutes } from './modules/driverPortal.routes.js';
+import { registerStatementRoutes } from './modules/statements.routes.js';
 import { startScheduler } from './lib/scheduler.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
 import { registerTripImportRoutes } from './modules/tripImport.routes.js';
@@ -294,6 +296,11 @@ await app.register(registerGovernanceRoutes, { prefix: '/api/v1' });
 await app.register(registerVendorPortalRoutes, { prefix: '/api/v1' });
 // Customer app: post loads, see bids on own loads, accept, scoped tracking.
 await app.register(registerCustomerPortalRoutes, { prefix: '/api/v1' });
+// Driver app: own trips, khata, staged requests (2026-08-31 audit — replaces
+// the /ops and /masters surfaces drivers could or could not wrongly reach).
+await app.register(registerDriverPortalRoutes, { prefix: '/api/v1' });
+// Account statement PDFs: each party downloads its own; the office any/all.
+await app.register(registerStatementRoutes, { prefix: '/api/v1' });
 
 // Calendar jobs: the 15th/EOM accrual sweep and the daily <=10-day compliance
 // check. Both gate themselves on the date, so the quarter-hourly tick is a

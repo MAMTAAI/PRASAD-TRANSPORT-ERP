@@ -71,12 +71,11 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const fetchDriverExtras = async (drv) => {
     if (!drv || String(drv.id).includes('DEMO')) return;
     try {
+      // /portal/driver/* — the scoped surface (2026-08-31). The old /masters
+      // calls were staff routes that 403'd every real driver session.
       const [reqs, ledger] = await Promise.all([
-        api(`/masters/driver-requests?driver_name=${encodeURIComponent(drv.name)}`).catch(() => ({ requests: [] })),
-        // The khata is the unified, source-tagged view: an advance issued from
-        // Trip Command Center or recovered on a bill shows here too, which the
-        // old single-collection read could not see.
-        api(`/masters/drivers/${drv.id}/ledger`).catch(() => ({ entries: [] })),
+        api('/portal/driver/requests').catch(() => ({ requests: [] })),
+        api('/portal/driver/khata').catch(() => ({ entries: [] })),
       ]);
       setMyRequests((reqs.requests ?? []).slice(0, 20).map((r: any) => ({ ...r, createdAt: r.requested_at, type: r.request_type })));
       setKhataTxns(ledger.entries ?? ledger.transactions ?? []);
@@ -91,12 +90,11 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const sendRequest = async (type, amount, remarks) => {
     setSendingReq(true);
     try {
-      await api('/masters/driver-requests', {
+      await api('/portal/driver/requests', {
         method: 'POST',
         body: JSON.stringify({
-          driver_id: driver.id, driver_name: driver.name,
-          // The column is an enum (ADVANCE|FUEL|EXPENSE|LEAVE|OTHER); anything
-          // the sheet invents lands on OTHER rather than failing the insert.
+          // Identity comes from the session server-side; sending it is not
+          // needed and not trusted.
           request_type: ['ADVANCE', 'FUEL', 'EXPENSE', 'LEAVE'].includes(String(type).toUpperCase())
             ? String(type).toUpperCase() : 'OTHER',
           amount: Number(amount) || 0,
@@ -121,10 +119,9 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
         const { url } = await uploadMedia(expFile, `driver-expenses/${slug(driver.id)}/${Date.now()}.jpg`);
         billUrl = url;
       }
-      await api('/masters/driver-requests', {
+      await api('/portal/driver/requests', {
         method: 'POST',
         body: JSON.stringify({
-          driver_id: driver.id, driver_name: driver.name,
           request_type: 'EXPENSE', amount: amt, remarks: expType, photo_url: billUrl,
         }),
       });
@@ -374,7 +371,10 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
       if (!driver?.id) { setActiveTrips([]); return; }
       // Scoped by driver id server-side, and completed trips excluded there too
       // — the phone never receives another driver's work.
-      const { trips } = await api(`/ops/trips?driver_id=${driver.id}&exclude_status=COMPLETED,SETTLED,CANCELLED&limit=50`);
+      // /portal/driver/trips scopes by the SESSION, not a query param — a
+      // driver token cannot name another driver's id (2026-08-31 audit; the
+      // /ops surface is staff-only now).
+      const { trips } = await api('/portal/driver/trips');
       setActiveTrips(trips ?? []);
     } catch (e) {
       console.error(e);
@@ -387,7 +387,19 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
       return;
     }
     try {
-      await api(`/ops/trips/${tripId}`, { method: 'PATCH', body: JSON.stringify({ [fieldName]: value }) });
+      // Maker-checker (2026-08-31): a driver no longer writes onto the trip
+      // row. The photo/value goes to the office as a staged request; staff
+      // verify and apply it. The optimistic local update above keeps the
+      // screen responsive.
+      await api('/portal/driver/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          request_type: 'OTHER', amount: 0, trip_id: tripId,
+          remarks: `TRIP UPDATE ${fieldName}`,
+          photo_url: typeof value === 'string' ? value : String(value ?? ''),
+        }),
+      });
+      setActiveTrips(prev => prev.map(t => t.id === tripId ? { ...t, [fieldName]: value } : t));
     } catch (e) {
       console.error("Error saving data!", e);
     }

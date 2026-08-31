@@ -19,6 +19,7 @@
 import multipart from '@fastify/multipart';
 import { put, openStream, remove, stats, safeKey, MAX_BYTES, DRIVER, StorageError } from '../lib/storage.js';
 import { emit } from '../agents/bus.js';
+import { query } from '../db/pool.js';
 
 // Infer the document kind from the stored key so BHUVANESHWARI (the OCR/vault
 // agent) can classify without re-reading the bytes. drivers/<id>/dl_photo →
@@ -65,23 +66,44 @@ const fail = (reply, code, status, detail) => reply.code(status).send({ error: c
 // every OTHER prefix (their portal uploads), so this narrows exactly the
 // driver/vehicle KYC surface and nothing else.
 const EXTERNAL_FILE_ROLES = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
-const KYC_PREFIXES = ['drivers/', 'vehicles/', 'vehicle-docs/'];
 
-function mayAccessKey(user, key) {
+/** The namespace an external session owns outright: everything it uploads goes
+ *  here (the POST rewrites the key), and everything here it may read back. */
+const ownPrefix = (user) => `up/${String(user.role).toLowerCase()}/${String(user.sub)}/`;
+
+/** Object-level access for reads.
+ *
+ *  2026-08-31 audit rewrite. The old rule was deny-listed (block the KYC trees,
+ *  allow the rest), which let any external session read any OTHER shared-tree
+ *  object — a driver could pull `trips/<any>/pod.jpg`, a vendor could walk
+ *  `partner-docs/`. The rule is now allow-listed:
+ *
+ *   · staff / service         → the whole vault
+ *   · external                → its OWN `up/<role>/<sub>/…` tree
+ *   · DRIVER additionally     → its own legacy `drivers/<sub>/…` KYC folder
+ *   · CUSTOMER / VENDOR       → a POD that sits on THEIR OWN settlement,
+ *                               wherever it is stored (the one legitimate
+ *                               cross-party read: the delivery proof is shared
+ *                               between the two sides of that trip, by record,
+ *                               not by folder)
+ *
+ *  Everything else — other parties' uploads, the legacy shared trees — is
+ *  staff-only. */
+async function mayReadKey(user, key) {
   const role = user?.role;
-  // Staff (SUPER_ADMIN/ADMIN/VIEWER/…) and the SERVICE caller: the vault is theirs.
   if (!EXTERNAL_FILE_ROLES.has(role)) return true;
   const norm = String(key).replace(/^\/+/, '');
-  const isKyc = KYC_PREFIXES.some((p) => norm.startsWith(p));
-  // A vendor/customer has no business in the driver/vehicle KYC tree at all.
-  if (role !== 'DRIVER') return !isKyc;
-  // A driver may read ONLY their own folder. `sub` is the driver id for a driver
-  // session (auth.routes.js mints it from drivers.id).
-  if (norm.startsWith('drivers/')) return norm.split('/')[1] === String(user.sub);
-  // Vehicle KYC is resolved by plate/id, which a driver session cannot be tied
-  // to here without an assignment lookup — kept closed rather than guessed.
-  if (norm.startsWith('vehicles/') || norm.startsWith('vehicle-docs/')) return false;
-  return true;  // non-KYC object (e.g. a bill the driver themselves uploaded)
+  if (norm.startsWith(ownPrefix(user))) return true;
+  if (role === 'DRIVER') return norm.startsWith('drivers/') && norm.split('/')[1] === String(user.sub);
+  // The record-based grant: this exact key, on a settlement this party is on.
+  const { rows } = await query(
+    `SELECT 1 FROM bazaar_settlements s
+       JOIN users u ON u.id = $2::uuid
+      WHERE s.pod_file = $1
+        AND ((u.customer_id IS NOT NULL AND s.customer_id = u.customer_id)
+          OR (u.vendor_id   IS NOT NULL AND s.vendor_id   = u.vendor_id))
+      LIMIT 1`, [norm, user.sub]);
+  return rows.length > 0;
 }
 
 export async function registerFileRoutes(app) {
@@ -112,15 +134,16 @@ export async function registerFileRoutes(app) {
     const ext = ALLOWED.get(contentType);
     const base = String(wanted).replace(/\.[^./]+$/, '') || `misc/${Date.now()}`;
 
-    // An external session may not overwrite another party's KYC by choosing the
-    // key. `mayAccessKey` allows a driver only their own `drivers/<sub>/…` folder
-    // and refuses vendors/customers the KYC tree entirely, so a caller cannot
-    // POST `path=drivers/<someone-else>/dl_photo` and silently replace it.
-    if (!mayAccessKey(req.user, base + ext)) {
-      return fail(reply, 'NOT_YOUR_DOCUMENT', 403, 'cannot write a document under another party');
-    }
+    // An external session cannot choose where its bytes land: whatever path the
+    // client asked for is re-rooted under the session's own `up/<role>/<sub>/…`
+    // namespace. That removes the whole class of "POST path=drivers/<someone-
+    // else>/dl_photo" overwrites — there is no key an external caller can name
+    // that lands outside its own tree. Staff keep free layout.
+    const finalKey = EXTERNAL_FILE_ROLES.has(req.user?.role)
+      ? ownPrefix(req.user) + String(base + ext).replace(/^\/+/, '')
+      : base + ext;
     try {
-      const out = await put(safeKey(base + ext), buffer, contentType);
+      const out = await put(safeKey(finalKey), buffer, contentType);
       // Tell the swarm a document landed. BHUVANESHWARI (AGENT_04, OCR/vault)
       // subscribes to document.uploaded but nothing emitted it, so it sat at
       // zero runs while uploads piled up — the OCR/classify step never fired.
@@ -151,10 +174,10 @@ export async function registerFileRoutes(app) {
   });
 
   app.get('/files/*', async (req, reply) => {
-    // Object-level ownership: a driver/vendor/customer session may not read
-    // another party's KYC even though apiGuard let it into /files. Staff and the
-    // service caller fall straight through.
-    if (!mayAccessKey(req.user, req.params['*'])) {
+    // Object-level ownership: allow-listed per role, with the settlement-POD
+    // record grant as the only cross-party read. Staff and the service caller
+    // fall straight through.
+    if (!(await mayReadKey(req.user, req.params['*']))) {
       return fail(reply, 'NOT_YOUR_DOCUMENT', 403, 'this document belongs to another party');
     }
     let found;
@@ -203,7 +226,15 @@ export async function registerFileRoutes(app) {
     catch (e) { return fail(reply, e.code ?? 'BAD_KEY', 400, e.message); }
   });
 
-  app.get('/files-stats', async () => ({ driver: DRIVER, ...(await stats()) }));
+  app.get('/files-stats', async (req, reply) => {
+    // Disk layout, object count and free space are operations data, not party
+    // data. (apiGuard's `/api/v1/files` no-slash prefix used to route external
+    // sessions here; the prefix is fixed AND this guard stays.)
+    if (EXTERNAL_FILE_ROLES.has(req.user?.role)) {
+      return fail(reply, 'STAFF_ONLY', 403, 'storage statistics are an office surface');
+    }
+    return { driver: DRIVER, ...(await stats()) };
+  });
 
   // The one-time Firebase Storage import endpoint has been REMOVED.
   //

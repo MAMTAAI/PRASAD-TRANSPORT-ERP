@@ -206,6 +206,46 @@ export async function registerBazaarRoutes(app) {
     } catch (e) { return pgErr(reply, e); }
   });
 
+  // ── Review a customer-posted load (maker-checker, 2026-08-31) ────────────
+  // Customer loads land PENDING_REVIEW; this is the checker's verdict. APPROVE
+  // opens bidding and stamps who opened it; REJECT closes it with a reason the
+  // customer is told. Either way the decision is on the row, timestamped.
+  app.post('/loads/:loadId/review', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const action = String(req.body?.action ?? '').toUpperCase();
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!['APPROVE', 'REJECT'].includes(action)) {
+      return reply.code(400).send({ error: 'BAD_ACTION', detail: 'action must be APPROVE or REJECT' });
+    }
+    if (action === 'REJECT' && !reason) {
+      return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'a rejection must carry a reason for the customer' });
+    }
+    const { rows } = await query(
+      action === 'APPROVE'
+        ? `UPDATE bazaar_loads SET status = 'OPEN', approved_by = $2::uuid, approved_at = now(),
+                  reject_reason = NULL, updated_at = now()
+            WHERE load_id = $1 AND status = 'PENDING_REVIEW' RETURNING *`
+        : `UPDATE bazaar_loads SET status = 'CANCELLED', reject_reason = $3,
+                  approved_by = $2::uuid, approved_at = now(), updated_at = now()
+            WHERE load_id = $1 AND status = 'PENDING_REVIEW' RETURNING *`,
+      action === 'APPROVE' ? [req.params.loadId, req.user?.sub ?? null]
+                           : [req.params.loadId, req.user?.sub ?? null, reason]);
+    if (!rows.length) return reply.code(409).send({ error: 'NOT_REVIEWABLE', detail: 'no such load awaiting review' });
+
+    const L = rows[0];
+    if (L.customer_id) {
+      const { rows: C } = await query('SELECT mobile_no FROM customers WHERE id = $1::uuid', [L.customer_id]);
+      if (C[0]?.mobile_no) {
+        notifyWhatsApp(C[0].mobile_no, action === 'APPROVE'
+          ? `✅ Load Bazaar: aapka load ${L.load_id} (${L.origin} → ${L.destination}) approve ho gaya — `
+            + `ab verified partners ko bids ke liye invite kar diya gaya hai.`
+          : `❌ Load Bazaar: aapka load ${L.load_id} (${L.origin} → ${L.destination}) office ne is kaaran se `
+            + `wapas kiya: ${reason}. Aap sudhaar ke dobara post kar sakte hain.`);
+      }
+    }
+    return { load: L };
+  });
+
   // ═══ MARKET VEHICLES ══════════════════════════════════════════════════════
   app.get('/market-vehicles', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -257,8 +297,10 @@ export async function registerBazaarRoutes(app) {
     const row = await byId('market_vehicles')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
     const { rows } = await query(
-      `UPDATE market_vehicles SET system_status = 'System Active', updated_at = now()
-        WHERE id = $1::uuid RETURNING *`, [row.id]);
+      `UPDATE market_vehicles SET system_status = 'System Active',
+              approved_by = $2::uuid, approved_at = now(), reject_reason = NULL,
+              updated_at = now()
+        WHERE id = $1::uuid RETURNING *`, [row.id, req.user?.sub ?? null]);
     return { vehicle: rows[0] };
   });
 

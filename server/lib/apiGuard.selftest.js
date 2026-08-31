@@ -174,8 +174,13 @@ const fullAuth = async (rq, reply) => {
   rq.user = { sub: 'driver', role: 'DRIVER' };   // no scope
 };
 const fullGuard = makeApiGuard({ requireAuth: fullAuth, serviceToken: SECRET });
-check('a full driver session still reaches its trips',
-  await run(fullGuard, asDriver('GET', '/api/v1/ops/trips')), 'allowed');
+// 2026-08-31 audit: /ops is staff-only now (the driver app's surface is
+// /portal/driver/). A driver session must be REFUSED at /ops and admitted at
+// its portal.
+check('a full driver session is refused at /ops (staff surface)',
+  await run(fullGuard, asDriver('GET', '/api/v1/ops/trips')), 403);
+check('a full driver session reaches its portal trips',
+  await run(fullGuard, asDriver('GET', '/api/v1/portal/driver/trips')), 'allowed');
 
 // And an unauthenticated caller is still 401, not 403: the scope check must run
 // AFTER the session check, never instead of it.
@@ -212,8 +217,18 @@ for (const role of ['DRIVER', 'VENDOR', 'CUSTOMER']) {
 }
 
 // Role-specific surfaces: a DRIVER keeps the duty screen; a CUSTOMER does not.
-check('DRIVER reaches its duty trips',
-  await run(roleGuard('DRIVER'), bear('GET', '/api/v1/ops/trips')), 'allowed');
+check('DRIVER is refused at /ops (2026-08-31: staff-only, portal replaces it)',
+  refused2(await run(roleGuard('DRIVER'), bear('GET', '/api/v1/ops/trips'))), 'refused');
+check('DRIVER reaches its portal khata',
+  await run(roleGuard('DRIVER'), bear('GET', '/api/v1/portal/driver/khata')), 'allowed');
+check('DRIVER is refused at the approvals submit flip',
+  refused2(await run(roleGuard('DRIVER'), bear('POST', '/api/v1/approvals/vendor_txns/x/submit'))), 'refused');
+check('external is refused at /files-stats (no-slash prefix leak, fixed)',
+  refused2(await run(roleGuard('VENDOR'), bear('GET', '/api/v1/files-stats'))), 'refused');
+check('external still reads its own object path',
+  await run(roleGuard('VENDOR'), bear('GET', '/api/v1/files/up/vendor/abc/doc.webp')), 'allowed');
+check('external still uploads at POST /files',
+  await run(roleGuard('VENDOR'), bear('POST', '/api/v1/files')), 'allowed');
 check('CUSTOMER cannot reach /ops',
   refused2(await run(roleGuard('CUSTOMER'), bear('GET', '/api/v1/ops/trips'))), 'refused');
 // '/api/v1/vendor/' was a dead allow-list entry — no module ever registered

@@ -44,6 +44,19 @@ const money = (v) => Number(v ?? 0);
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 export async function registerOpsRoutes(app) {
+  // ── The staff boundary ─────────────────────────────────────────────────────
+  // Every route in this module is office work: the masters call alone returns
+  // vendor bank accounts and IFSC codes, and unload / driver-settlements post
+  // vouchers. apiGuard no longer routes any external role here (2026-08-31
+  // audit), and this hook is the second lock so a future allow-list edit cannot
+  // silently reopen it. The driver app's scoped surface is /portal/driver/.
+  const EXTERNAL = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
+  app.addHook('preHandler', async (req, reply) => {
+    if (EXTERNAL.has(req.user?.role)) {
+      return reply.code(403).send({ error: 'STAFF_ONLY', detail: 'ops is an office surface — the driver app uses /portal/driver' });
+    }
+  });
+
   // ── Masters ────────────────────────────────────────────────────────────────
   // All five screens open by loading the same seven master sets. Firestore did
   // that as seven round trips per screen; one call here, and the client caches it.

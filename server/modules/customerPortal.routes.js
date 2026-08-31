@@ -87,7 +87,7 @@ export function registerCustomerPortalRoutes(app) {
           INSERT INTO bazaar_loads (load_id, customer_name, customer_id, origin, destination,
             distance_km, material, weight, target_rate, loading_date, vehicle_type, rate_type,
             status, posted_by, book_now_rate, bid_close_at)
-          VALUES ($1,$2,$3::uuid,$4,$5,$6,$7,$8,COALESCE($9,0),$10,$11,$12,'OPEN','CUSTOMER_PORTAL',
+          VALUES ($1,$2,$3::uuid,$4,$5,$6,$7,$8,COALESCE($9,0),$10,$11,$12,'PENDING_REVIEW','CUSTOMER_PORTAL',
                   $13, CASE WHEN $14::numeric IS NULL THEN NULL
                             ELSE now() + ($14::numeric * interval '1 hour') END)
           RETURNING *`,
@@ -97,9 +97,13 @@ export function registerCustomerPortalRoutes(app) {
            bookNow, closeHours]);
         return rows[0];
       });
+      // Maker-checker (2026-08-31): a customer load opens for bidding only
+      // after the office has looked at it. The feed and the bid route serve
+      // OPEN loads only, so a pending one simply does not exist to vendors.
       return reply.code(201).send({
         load: row,
-        detail: 'Load posted. Verified fleet partners can now bid; you will see their offers under this load.',
+        detail: 'Load submitted to the Prasad Transport office for review. '
+              + 'The moment it is approved, verified fleet partners are invited to bid.',
       });
     } catch (e) {
       if (e.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: e.detail ?? e.message });

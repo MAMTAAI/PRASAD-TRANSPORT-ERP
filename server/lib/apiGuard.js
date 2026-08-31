@@ -105,23 +105,31 @@ export const EXTERNAL_ROLES = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
 // creating accounts is staff work — so it is reached by the specific-route list
 // below, never by a blanket `/auth/` prefix.
 const EXTERNAL_COMMON_PREFIXES = [
-  '/api/v1/portal/',   // customer + vendor portals — party derived server-side
-  '/api/v1/files',     // own uploads/downloads; per-object ownership in files.routes
+  '/api/v1/portal/',   // customer + vendor + driver portals — party derived server-side
+  // '/api/v1/files' (no slash) also matched /files-stats, which leaked the
+  // upload dir, object count and free disk to any external session. The slash
+  // confines the prefix to object reads; the upload POST is the exact route below.
+  '/api/v1/files/',    // own downloads; per-object ownership in files.routes
   '/api/v1/maps/',     // Directions/Geocode cache — no party data
 ];
 const EXTERNAL_COMMON_ROUTES = new Set([
   'GET /api/v1/auth/me',
   'POST /api/v1/auth/logout',
   'POST /api/v1/tracking/ping',
+  'POST /api/v1/files',
 ]);
-// Per-role extras: the duty screen a driver needs, the credit-bill door a vendor
-// needs. A customer has neither — its whole world is /portal/customer.
+// Per-role extras. The 2026-08-31 security audit REMOVED both DRIVER entries:
+// '/api/v1/ops/' exposed the full ops surface to any driver token — the vendor
+// master with bank accounts and IFSC, trip create/patch/delete, and two routes
+// that post vouchers (unload, driver-settlements). '/api/v1/approvals' exposed
+// the maker-checker submit flip. The driver app's real needs (own trips, own
+// khata, staged requests) now live under /portal/driver/, covered by the common
+// prefix above and scoped by session inside the routes.
 const EXTERNAL_ROLE_PREFIXES = {
-  DRIVER: ['/api/v1/ops/', '/api/v1/approvals'],
-  // The audit of 2026-08-31 found '/api/v1/vendor/' here — a prefix no module
-  // has ever registered (the fleet app lives under /portal/vendor/, already
-  // covered by the common prefix above). Dead entries in an allow-list are
-  // how the NEXT route that happens to match gets opened by accident.
+  DRIVER: [],
+  // '/api/v1/vendor/' was removed earlier for the same reason: a prefix no
+  // module has ever registered. Dead entries in an allow-list are how the NEXT
+  // route that happens to match gets opened by accident.
   VENDOR: [],
   CUSTOMER: [],
 };

@@ -44,6 +44,14 @@ const ENTITY_TABLES = {
   tyres: 'tyres',
   batteries: 'batteries',
   loans: 'loans',
+  // Load Bazaar (2026-08-31 audit): portal-facing rows were logged intent-only
+  // (redacted body, before=null). All have uuid ids, so full images apply.
+  settlements: 'bazaar_settlements',
+  'market-drivers': 'market_drivers',
+  market_drivers: 'market_drivers',
+  onboarding: 'onboarding_applications',
+  'driver-requests': 'driver_requests',
+  driver_requests: 'driver_requests',
 };
 
 // Never store these, at any depth. Passwords and tokens in an append-only table

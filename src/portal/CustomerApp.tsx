@@ -101,6 +101,7 @@ function Sheet({ open, onClose, title, subtitle, children, footer }) {
 }
 
 const STATUS = {
+  PENDING_REVIEW: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Office reviewing' },
   OPEN: { t: 'text-sky-300', b: 'bg-sky-400/10 border-sky-400/25', i: Gavel, l: 'Taking bids' },
   AWARDED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Awarded' },
   CLOSED: { t: 'text-white/40', b: 'bg-white/5 border-white/10', i: XCircle, l: 'Closed' },
@@ -287,6 +288,7 @@ export default function CustomerApp() {
       {tab === 'bills' && (
         <div className="px-4 pt-4">
           <Header title="Bills" sub={bills == null ? 'loading…' : `${bills.length} on record`} />
+          <StatementButton path="/portal/customer/statement.pdf" />
           {bills == null && <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div>}
           {bills?.length === 0 && (
             <Empty icon={ReceiptText} title="No bills yet"
@@ -573,6 +575,35 @@ function BidsSheet({ load, onClose, onAccepted }) {
       {err && <p className="mb-3 text-[12px] font-semibold text-red-400">{err}</p>}
       <div className="pb-4" />
     </Sheet>
+  );
+}
+
+// Full account statement as a server-built PDF — FY to date, ledger + bills +
+// totals. Fetched with the bearer token, saved via a blob link.
+function StatementButton({ path }) {
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const r = await fetch(`${API_BASE}/api/v1${path}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) return;
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'account-statement.pdf';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } finally { setBusy(false); }
+  };
+  return (
+    <button onClick={download} disabled={busy}
+      className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-sky-400/30
+                 bg-sky-400/10 py-3 text-[13px] font-black text-sky-300 disabled:opacity-40">
+      {busy ? <Loader2 size={15} className="animate-spin" /> : <ReceiptText size={15} />}
+      Download full statement (PDF)
+    </button>
   );
 }
 

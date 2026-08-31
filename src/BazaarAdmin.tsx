@@ -219,6 +219,25 @@ export default function BazaarAdmin() {
     }
   };
 
+  // Maker-checker: a customer-posted load waits here until the office opens it.
+  const reviewLoad = async (loadId, action) => {
+    let reason = null;
+    if (action === 'REJECT') {
+      reason = window.prompt('Reject kyon? (yeh kaaran customer ko WhatsApp par jayega)');
+      if (!reason) return;
+    } else if (!window.confirm(`Approve ${loadId}? Vendors ko bidding ke liye khul jayega.`)) return;
+    setLoading(true);
+    try {
+      await fetchJson(`${BAZAAR}/loads/${loadId}/review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason }),
+      });
+      logAudit({ action: `BAZAAR_LOAD_${action}`, target: loadId, details: reason ?? '' });
+      fetchLoadsAndBids();
+    } catch (e) { alert('❌ ' + (e as any).message); }
+    setLoading(false);
+  };
+
   const getBidsForLoad = (loadIdStr) => bids.filter(b => b.load_id === loadIdStr);
   const availableTrucks = marketTrucks.filter(t => t.system_status === 'System Active');
   const filteredMapTrucks = availableTrucks.filter(t => {
@@ -286,8 +305,10 @@ export default function BazaarAdmin() {
                           <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>LOAD ID: <span style={{color:'#fff'}}>{load.load_id}</span></div>
                           <div style={{ fontSize: '16px', fontWeight: '900', color: load.status === 'OPEN' ? '#38bdf8' : '#10b981', marginTop: '5px' }}>{load.customer_name || 'Direct Party'}</div>
                         </div>
-                        <div className="status-badge" style={{ background: load.status === 'OPEN' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)', color: load.status === 'OPEN' ? '#38bdf8' : '#10b981' }}>
-                          {load.status === 'OPEN' ? '🟢 ACCEPTING BIDS' : '✅ ASSIGNED'}
+                        <div className="status-badge" style={{
+                          background: load.status === 'PENDING_REVIEW' ? 'rgba(245,158,11,0.2)' : load.status === 'OPEN' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)',
+                          color: load.status === 'PENDING_REVIEW' ? '#f59e0b' : load.status === 'OPEN' ? '#38bdf8' : '#10b981' }}>
+                          {load.status === 'PENDING_REVIEW' ? '🟡 AWAITING REVIEW' : load.status === 'OPEN' ? '🟢 ACCEPTING BIDS' : '✅ ASSIGNED'}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -329,6 +350,23 @@ export default function BazaarAdmin() {
                          </div>
                       )}
                     </div>
+                    {load.status === 'PENDING_REVIEW' && (
+                      <div style={{ padding: '15px 20px', background: 'rgba(245,158,11,0.07)', borderBottom: '1px solid rgba(245,158,11,0.25)' }}>
+                        <div style={{ fontSize: '11px', color: '#fcd34d', marginBottom: '10px', fontWeight: 'bold' }}>
+                          📥 Customer ne post kiya hai — approve hone tak vendors ko nahi dikhega.
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button onClick={() => reviewLoad(load.load_id, 'APPROVE')}
+                            style={{ flex: 1, background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                            ✅ Approve — open for bidding
+                          </button>
+                          <button onClick={() => reviewLoad(load.load_id, 'REJECT')}
+                            style={{ flex: 1, background: '#1e293b', color: '#ef4444', border: '1px solid #ef444455', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                            ✖ Reject with reason
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ padding: '20px' }}>
                       <div style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 'bold', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
                         <span>LATEST BIDS ({loadBids.length})</span>

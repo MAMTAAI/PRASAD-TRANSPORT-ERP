@@ -30,6 +30,85 @@ const emptyForm = {
   bill_date: new Date().toISOString().split('T')[0], amount: '', gst_amount: '', description: '',
 };
 
+// ── The generic maker-checker deck ──────────────────────────────────────────
+// Reads v_approval_queue via /api/v1/approvals/pending: vendor bills, TDS,
+// EMI, toll claims, fuel entries — anything under 061's maker-checker that a
+// maker has submitted. Approve commits (and posts where postOnApproval
+// applies); Reject demands a reason. Both are stamped with who and when, and
+// the history is one click away in approval_audit.
+function MakerCheckerQueue({ isAdmin }) {
+  const [q, setQ] = useState({ rows: [], total: null });
+  const [busy, setBusy] = useState('');
+  const authed = (path, opts = {}) => {
+    const token = localStorage.getItem('prasad_token');
+    return fetch(`${API}/api/v1${path}`, {
+      ...opts,
+      headers: { ...(opts.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  };
+  const load = async () => {
+    try {
+      const r = await authed('/approvals/pending');
+      if (r.ok) setQ(await r.json());
+    } catch (e) { console.error('approval queue read:', e.message); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const decide = async (row, action) => {
+    let reason = null;
+    if (action === 'reject') {
+      reason = window.prompt('Reject kyon? (reason maker ko dikhega aur audit me jayega)');
+      if (!reason) return;
+    } else if (!window.confirm(`Approve "${row.subject ?? row.source_table}"${row.amount ? ` — ₹${Number(row.amount).toLocaleString('en-IN')}` : ''}? Yeh row lock ho jayegi.`)) return;
+    setBusy(row.id);
+    try {
+      const r = await authed(`/approvals/${row.source_table}/${row.id}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'reject' ? { reason } : {}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) alert('❌ ' + (j.detail ?? j.error ?? r.status));
+      await load();
+    } finally { setBusy(''); }
+  };
+
+  return (
+    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.25)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <b style={{ color: '#38bdf8', fontSize: '14px' }}>
+          🛃 Maker-Checker Queue ({q.rows.length}{q.total?.amount ? ` · ₹${Number(q.total.amount).toLocaleString('en-IN')} pending` : ''})
+        </b>
+        <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px' }} onClick={load}>↻ Refresh</button>
+      </div>
+      {q.rows.length === 0 ? (
+        <div style={{ color: '#64748b', fontSize: '13px' }}>Koi submitted entry approval ka intezaar nahi kar rahi. Vendor bills, TDS, EMI, toll claims — sab clear.</div>
+      ) : q.rows.map((row) => (
+        <div key={`${row.source_table}-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(2,6,23,0.5)', border: '1px solid #1e293b', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '220px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>{row.subject ?? row.source_table}</div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {row.source_table} · submitted {row.submitted_at ? new Date(row.submitted_at).toLocaleString('en-IN') : '—'}
+            </div>
+          </div>
+          {row.amount != null && (
+            <div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{Number(row.amount).toLocaleString('en-IN')}</div>
+          )}
+          {isAdmin ? (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="pt-btn pt-btn--success" style={{ minHeight: '36px', fontSize: '12px' }}
+                      disabled={busy === row.id} onClick={() => decide(row, 'approve')}>✅ Approve</button>
+              <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ef4444', borderColor: '#ef444455' }}
+                      disabled={busy === row.id} onClick={() => decide(row, 'reject')}>✖ Reject</button>
+            </div>
+          ) : (
+            <span style={{ fontSize: '11px', color: '#64748b' }}>admin approval required</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PendingExpenses() {
   const user = currentUser();
   const isAdmin = isAdminRole(user);
@@ -243,6 +322,11 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
           </div>
         </div>
       )}
+
+      {/* ── Generic maker-checker queue (migration 061) — every DRAFT ledger-
+             adjacent row an operator submitted, waiting on an admin. The API
+             existed since 061; this is its first screen. ── */}
+      <MakerCheckerQueue isAdmin={isAdmin} />
 
       {/* ── Entry form (📱 BottomSheet on phone, centered dialog on desktop) ── */}
       <BottomSheet open={showForm} onClose={() => setShowForm(false)} title="📝 File Retro Expense" accent="#f59e0b" maxWidth={760}>

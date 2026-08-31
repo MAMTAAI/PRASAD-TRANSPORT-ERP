@@ -284,6 +284,12 @@ export function registerGovernanceRoutes(app) {
 
   app.post('/approvals/:table/:id/submit', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
+    // Submitting is maker (staff) work. An external session flipping arbitrary
+    // approvable rows to PENDING_APPROVAL is queue-flooding at best; the route
+    // was reachable by driver tokens until the 2026-08-31 audit.
+    if (['DRIVER', 'VENDOR', 'CUSTOMER'].includes(req.user?.role)) {
+      return reply.code(403).send({ error: 'STAFF_ONLY', detail: 'maker-checker submission is office work' });
+    }
     const { table, id } = req.params;
     if (!APPROVABLE.has(table)) {
       return reply.code(400).send({ error: 'NOT_APPROVABLE', detail: `${table} is not under maker-checker` });
