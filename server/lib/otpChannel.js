@@ -64,9 +64,66 @@ const whatsapp = {
   },
 };
 
+// ── SMS — a real driver now (2026-08-31), provider chosen by env ────────────
+// The stub this replaces was the single point of failure the owner kept
+// hitting: WhatsApp engine down → every driver login 503, no second wire.
+// Three providers, all plain HTTPS, no SDK:
+//
+//   SMS_PROVIDER=fast2sms   + SMS_API_KEY
+//   SMS_PROVIDER=msg91      + SMS_API_KEY (authkey) + SMS_TEMPLATE_ID
+//   SMS_PROVIDER=custom     + SMS_URL_TEMPLATE with {mobile} {code} {message}
+//                             placeholders (GET; for any local gateway)
+//
+// available() is config-only — an SMS gateway has no status socket to probe,
+// so "configured" is the honest answer and a send failure still surfaces as
+// OTP_SEND_FAILED with the provider's own message.
+const SMS_PROVIDER = (process.env.SMS_PROVIDER || '').toLowerCase();
+const SMS_API_KEY = process.env.SMS_API_KEY || '';
+const SMS_TEMPLATE_ID = process.env.SMS_TEMPLATE_ID || '';
+const SMS_URL_TEMPLATE = process.env.SMS_URL_TEMPLATE || '';
+
+const smsConfigured = () => {
+  if (SMS_PROVIDER === 'fast2sms') return !!SMS_API_KEY;
+  if (SMS_PROVIDER === 'msg91') return !!(SMS_API_KEY && SMS_TEMPLATE_ID);
+  if (SMS_PROVIDER === 'custom') return SMS_URL_TEMPLATE.includes('{mobile}');
+  return false;
+};
+
 const sms = {
-  async available() { return { ok: false, reason: 'sms driver not implemented — no gateway configured' }; },
-  async send() { throw new OtpChannelError('DRIVER_UNAVAILABLE', 'sms driver is not implemented; see server/lib/otpChannel.js'); },
+  async available() {
+    return smsConfigured()
+      ? { ok: true }
+      : { ok: false, reason: SMS_PROVIDER ? `sms provider ${SMS_PROVIDER} is missing its key/template` : 'no SMS_PROVIDER configured' };
+  },
+  async send(mobile, code) {
+    if (!smsConfigured()) throw new OtpChannelError('DRIVER_UNAVAILABLE', 'sms gateway is not configured');
+    let res;
+    if (SMS_PROVIDER === 'fast2sms') {
+      const u = new URL('https://www.fast2sms.com/dev/bulkV2');
+      u.search = new URLSearchParams({ route: 'otp', variables_values: code, numbers: mobile, flash: '0' });
+      res = await withTimeout(u, { headers: { authorization: SMS_API_KEY } });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j.return === false) {
+        throw new OtpChannelError('SEND_FAILED', j.message?.[0] ?? j.message ?? `fast2sms returned ${res.status}`);
+      }
+    } else if (SMS_PROVIDER === 'msg91') {
+      const u = new URL('https://control.msg91.com/api/v5/otp');
+      u.search = new URLSearchParams({ template_id: SMS_TEMPLATE_ID, mobile: `91${mobile}`, otp: code, authkey: SMS_API_KEY });
+      res = await withTimeout(u, { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || j.type === 'error') {
+        throw new OtpChannelError('SEND_FAILED', j.message ?? `msg91 returned ${res.status}`);
+      }
+    } else {
+      const url = SMS_URL_TEMPLATE
+        .replaceAll('{mobile}', encodeURIComponent(mobile))
+        .replaceAll('{code}', encodeURIComponent(code))
+        .replaceAll('{message}', encodeURIComponent(message(code)));
+      res = await withTimeout(url);
+      if (!res.ok) throw new OtpChannelError('SEND_FAILED', `sms gateway returned ${res.status}`);
+    }
+    return { channel: 'sms' };
+  },
 };
 
 // Never the default, and it refuses to run outside development: a channel that
@@ -86,7 +143,35 @@ const log = {
   },
 };
 
-const drivers = { whatsapp, sms, log };
+// ── auto — WhatsApp first, SMS the moment WhatsApp cannot deliver ───────────
+// The fallback the driver-login mandate asked for. available() is true when
+// EITHER wire is up, so the login route stops 503ing just because the QR
+// dropped; send() prefers WhatsApp (free, already linked to these numbers)
+// and falls through to SMS on any WhatsApp failure. The returned channel is
+// the one that actually carried the code.
+const auto = {
+  async available() {
+    const wa = await whatsapp.available();
+    if (wa.ok) return { ok: true };
+    const sm = await sms.available();
+    if (sm.ok) return { ok: true };
+    return { ok: false, reason: `whatsapp: ${wa.reason}; sms: ${sm.reason}` };
+  },
+  async send(mobile, code) {
+    const wa = await whatsapp.available();
+    if (wa.ok) {
+      try { return await whatsapp.send(mobile, code); }
+      catch (e) {
+        if (!smsConfigured()) throw e;
+        console.warn(`[otp] whatsapp send failed (${e.message}) — falling back to sms`);
+      }
+    }
+    if (smsConfigured()) return sms.send(mobile, code);
+    throw new OtpChannelError('DRIVER_UNAVAILABLE', `whatsapp: ${wa.reason}; sms not configured`);
+  },
+};
+
+const drivers = { whatsapp, sms, log, auto };
 const active = drivers[CHANNEL] ?? whatsapp;
 
 export const CHANNEL_NAME = CHANNEL;

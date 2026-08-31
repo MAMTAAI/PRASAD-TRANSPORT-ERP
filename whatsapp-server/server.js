@@ -107,9 +107,9 @@ const CRM_API = `${ERP_API}/api/v1/crm`;
 // setting it on both sides is what closes them.
 const SERVICE_TOKEN = process.env.ERP_SERVICE_TOKEN || '';
 
-const postCrm = async (path, body) => {
+const postCrm = async (path, body, timeoutMs = 5000) => {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 5000);
+    const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
         const res = await fetch(`${CRM_API}${path}`, {
             method: 'POST',
@@ -132,6 +132,36 @@ const { describeMedia } = require('./describeMedia');
 
 async function logChat(entry) {
     try { await postCrm('/chats', entry); } catch (e) { console.error('WA_CHATS log error:', e.message); }
+}
+
+// ── Inbound media → the ERP vault ───────────────────────────────────────────
+// Until 2026-08-31 an inbound photo/PDF was thrown away: only a label
+// ("📎 Document: bill.pdf") reached wa_chats, and dispatch had to ask the
+// driver to send it again "to the other number". Images and PDFs (the two
+// kinds the vault stores) are now downloaded and parked via POST /crm/media;
+// the returned key rides on the chat row so the console previews them inline.
+// Everything is best-effort and size-capped: a failed download must degrade to
+// exactly the old behaviour (label only), never block the message.
+const MEDIA_SAVE_TYPES = new Set(['image', 'document']);
+const MEDIA_SAVE_MAX = 8 * 1024 * 1024;
+async function saveInboundMedia(msg, from10, media) {
+    try {
+        if (!msg.hasMedia || !MEDIA_SAVE_TYPES.has(msg.type)) return null;
+        const dl = await msg.downloadMedia();
+        if (!dl?.data) return null;
+        const bytes = Buffer.byteLength(dl.data, 'base64');
+        if (bytes > MEDIA_SAVE_MAX) { console.warn(`[media] skipped ${bytes}b from ${from10} (too large)`); return null; }
+        const mime = String(dl.mimetype || '').split(';')[0].trim();
+        const j = await postCrm('/media', {
+            phone: from10, mimetype: mime,
+            filename: media.filename || dl.filename || msg.type,
+            data: dl.data,
+        }, 20000);   // an 8 MB base64 body deserves more than the log timeout
+        return j?.key ?? null;
+    } catch (e) {
+        console.error('WA media save error (message still logged):', e.message);
+        return null;
+    }
 }
 async function logAction(user, action) {
     try { await postCrm('/logs', { user: user || 'System', action }); } catch (e) { /* non-fatal */ }
@@ -778,9 +808,11 @@ function wireSession(s) {
             s.lastActivity = Date.now();
             const from10 = last10(msg.from);
             const media = describeMedia(msg);
+            const mediaKey = await saveInboundMedia(msg, from10, media);
             await logChat({
                 phone: from10, text: media.text, type: 'incoming',
                 media_type: media.mediaType, media_filename: media.filename,
+                media_key: mediaKey,
                 timestamp: new Date().toISOString(), wa_from: msg.from,
                 wa_session: s.id, wa_session_kind: s.kind,
             });

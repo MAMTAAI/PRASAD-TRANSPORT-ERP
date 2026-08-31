@@ -1192,7 +1192,8 @@ export function registerDashboardRoutes(app) {
                                          WHERE o.phone = l.phone AND o.direction = 'outgoing'),
                                        '-infinity'::timestamptz)) AS unread,
                COALESCE((SELECT json_agg(x ORDER BY x.ts)
-                           FROM (SELECT m.text, m.direction, m.ts, m.sent_by_user_name
+                           FROM (SELECT m.id, m.text, m.direction, m.ts, m.sent_by_user_name,
+                                        m.media_type, m.media_key
                                    FROM wa_chats m WHERE m.phone = l.phone
                                   ORDER BY m.ts DESC LIMIT 20) x), '[]'::json) AS messages
           FROM latest l

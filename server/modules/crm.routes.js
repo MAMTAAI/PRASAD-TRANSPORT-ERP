@@ -24,8 +24,9 @@
 // surfacing a 409 the engine would have to special-case.
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
-import { listDirectory, resolveContact, last10 } from '../lib/contactDirectory.js';
+import { listDirectory, resolveContact, last10, DIRECTORY_CTE } from '../lib/contactDirectory.js';
 import { WA_BASE } from '../lib/otpChannel.js';
+import { put, safeKey } from '../lib/storage.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -200,10 +201,16 @@ export async function registerCrmRoutes(app) {
     if (trip_id && UUID_RE.test(String(trip_id))) { args.push(trip_id); where.push(`trip_id = $${args.length}::uuid`); }
     // Newest-first in SQL so a busy number does not have to be read whole, then
     // reversed for display — the dashboard renders oldest → newest.
+    // The linked records travel by NAME as well as id (trip code, registration)
+    // so a badge can say "PT-0912" instead of eight hex characters.
     args.push(clamp(limit, 500, 2000));
     const { rows } = await query(
-      `SELECT * FROM wa_chats ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY ts DESC LIMIT $${args.length}`, args);
+      `SELECT c.*, t.trip_code AS trip_code_linked, v.vehicle_no AS vehicle_reg_linked
+         FROM wa_chats c
+         LEFT JOIN trips t ON t.id = c.trip_id
+         LEFT JOIN vehicles v ON v.id = c.vehicle_id
+        ${where.length ? 'WHERE ' + where.map((w) => `c.${w}`).join(' AND ') : ''}
+        ORDER BY c.ts DESC LIMIT $${args.length}`, args);
     return { chats: rows.reverse() };
   });
 
@@ -292,8 +299,9 @@ export async function registerCrmRoutes(app) {
 
     const { rows } = await query(`
       INSERT INTO wa_chats (phone, text, direction, user_id, sent_by_user_id, sent_by_user_name,
-        trip_id, role, wa_from, wa_msg_id, wa_session, wa_session_kind, media_type, media_filename, ts)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,COALESCE($15::timestamptz, now()))
+        trip_id, role, wa_from, wa_msg_id, wa_session, wa_session_kind, media_type, media_filename,
+        media_key, ts)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,COALESCE($16::timestamptz, now()))
       ON CONFLICT (wa_msg_id) DO NOTHING
       RETURNING *`,
       [phone, text, direction, b.userId ?? b.user_id ?? null,
@@ -301,6 +309,7 @@ export async function registerCrmRoutes(app) {
        UUID_RE.test(String(b.tripId ?? b.trip_id ?? '')) ? (b.tripId ?? b.trip_id) : null,
        b.role ?? null, b.wa_from ?? null, b.wa_msg_id ?? null, waSession, waKind,
        mediaType, b.media_filename ?? b.mediaFilename ?? null,
+       b.media_key ?? b.mediaKey ?? null,
        b.timestamp ?? b.ts ?? null]);
     // DO NOTHING returns no row on a replayed send — report the existing one.
     if (!rows.length) {
@@ -308,6 +317,105 @@ export async function registerCrmRoutes(app) {
       return { chat: existing[0] ?? null, duplicate: true };
     }
     return reply.code(201).send({ chat: rows[0] });
+  });
+
+  // ═══ MEDIA INGEST ═════════════════════════════════════════════════════════
+  // The engine downloads an inbound image/PDF and posts the bytes here BEFORE
+  // logging the chat row, so the row can carry the storage key. Base64 because
+  // the engine already holds the media that way (whatsapp-web.js) and a second
+  // multipart client there is not worth its weight. Size-capped and
+  // type-capped for the same reason POST /files is.
+  const MEDIA_TYPES = new Map([
+    ['image/webp', '.webp'], ['image/jpeg', '.jpg'], ['image/png', '.png'],
+    ['application/pdf', '.pdf'],
+  ]);
+  const MEDIA_MAX = 8 * 1024 * 1024;
+
+  app.post('/media', { bodyLimit: 12 * 1024 * 1024 }, async (req, reply) => {
+    const b = req.body ?? {};
+    const phone = last10(b.phone ?? '');
+    const mime = String(b.mimetype ?? '').split(';')[0].trim();
+    if (!phone || !b.data) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'phone and data (base64) are required' });
+    if (!MEDIA_TYPES.has(mime)) {
+      return reply.code(415).send({ error: 'BAD_TYPE', detail: `stored media is ${[...MEDIA_TYPES.keys()].join(', ')} only` });
+    }
+    let buffer;
+    try { buffer = Buffer.from(String(b.data), 'base64'); }
+    catch { return reply.code(400).send({ error: 'BAD_DATA', detail: 'data must be base64' }); }
+    if (!buffer.length || buffer.length > MEDIA_MAX) {
+      return reply.code(413).send({ error: 'TOO_LARGE', detail: `media must be 1 byte – ${MEDIA_MAX / 1024 / 1024} MB` });
+    }
+    const base = String(b.filename ?? 'media').replace(/\.[^./]+$/, '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60) || 'media';
+    const key = safeKey(`wa-media/${phone}/${Date.now()}-${base}${MEDIA_TYPES.get(mime)}`);
+    const out = await put(key, buffer, mime);
+    return reply.code(201).send({ key: out.key, bytes: out.bytes });
+  });
+
+  // ═══ THREADS ══════════════════════════════════════════════════════════════
+  // The Dispatch Console's left pane: one row per number, newest first, with
+  // the directory's identity attached — so the tabs (Driver/Pump/Vendor/…)
+  // are the DATABASE's answer to who this is, not a guess in the browser.
+  // The dashboard's 24-thread embed stays for the compact panel; this is the
+  // full inbox.
+  app.get('/threads', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { kind, q, limit } = req.query ?? {};
+    const args = [clamp(limit, 100, 300)];
+    let where = '';
+    if (kind && kind !== 'ALL') { args.push(String(kind).toUpperCase()); where += ` AND COALESCE(d.kind,'UNKNOWN') = $${args.length}`; }
+    if (q) { args.push(`%${String(q).slice(0, 60)}%`); where += ` AND (d.name ILIKE $${args.length} OR t.phone LIKE $${args.length})`; }
+    const { rows } = await query(`
+      WITH ${DIRECTORY_CTE},
+      t AS (
+        SELECT DISTINCT ON (phone) phone, text, direction, ts, media_type, media_key,
+               sent_by_user_name
+          FROM wa_chats ORDER BY phone, ts DESC
+      ),
+      n AS (SELECT phone, count(*)::int AS messages,
+                   count(*) FILTER (WHERE media_key IS NOT NULL)::int AS media_count
+              FROM wa_chats GROUP BY phone)
+      SELECT t.phone, t.text AS last_text, t.direction AS last_direction, t.ts AS last_ts,
+             t.media_type AS last_media_type, t.sent_by_user_name AS last_sender,
+             n.messages, n.media_count,
+             COALESCE(d.kind,'UNKNOWN') AS kind, d.name
+        FROM t
+        JOIN n ON n.phone = t.phone
+        LEFT JOIN dir d ON d.phone = t.phone
+       WHERE true ${where}
+       ORDER BY t.ts DESC
+       LIMIT $1`, args);
+    const counts = rows.reduce((a, r) => { a[r.kind] = (a[r.kind] || 0) + 1; return a; }, {});
+    return { count: rows.length, counts, threads: rows };
+  });
+
+  // ═══ RECORD LINKING ═══════════════════════════════════════════════════════
+  // A message ABOUT something points AT it. Staff-set, verified against the
+  // referenced table, and clearable — the structured-record mandate. One field
+  // per call keeps the audit log unambiguous about what changed.
+  const LINK_TARGETS = {
+    trip_id: { table: 'trips', label: 'trip' },
+    vehicle_id: { table: 'vehicles', label: 'vehicle' },
+    expense_id: { table: 'expense_approvals', label: 'expense' },
+  };
+  app.patch('/chats/:id/link', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const field = String(b.field ?? '');
+    const target = LINK_TARGETS[field];
+    if (!target) {
+      return reply.code(400).send({ error: 'BAD_FIELD', detail: `field must be one of ${Object.keys(LINK_TARGETS).join(', ')}` });
+    }
+    const value = b.value ?? null;
+    if (value !== null) {
+      if (!UUID_RE.test(String(value))) return reply.code(400).send({ error: 'BAD_VALUE', detail: 'value must be a uuid or null' });
+      const { rows: T } = await query(`SELECT id FROM ${target.table} WHERE id = $1::uuid`, [value]);
+      if (!T.length) return reply.code(404).send({ error: 'NO_SUCH_RECORD', detail: `no such ${target.label}` });
+    }
+    const { rows } = await query(
+      `UPDATE wa_chats SET ${field} = $2::uuid WHERE id = $1::bigint RETURNING *`,
+      [req.params.id, value]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { chat: rows[0] };
   });
 
   // ═══ CRM ACTION LOG ═══════════════════════════════════════════════════════

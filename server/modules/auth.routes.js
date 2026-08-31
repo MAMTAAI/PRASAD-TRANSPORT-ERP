@@ -305,7 +305,16 @@ export async function registerAuthRoutes(app) {
         `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, purpose, expires_at)
          VALUES ($1,$2,$3,$4,'LOGIN', now() + ($5 || ' minutes')::interval)`,
         [mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
-      try { await otp.send(mobile, code); }
+      // In 'auto' mode the code may go out over WhatsApp or fall back to SMS —
+      // the row records which wire actually carried it, not the mode name.
+      try {
+        const sent = await otp.send(mobile, code);
+        if (sent?.channel && sent.channel !== otp.CHANNEL_NAME) {
+          await query(`UPDATE auth_otp SET channel = $2
+                        WHERE mobile = $1 AND consumed_at IS NULL AND purpose = 'LOGIN'`,
+            [mobile, sent.channel]);
+        }
+      }
       catch (e) {
         req.log.error({ err: e }, 'otp send failed');
         return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: e.message });

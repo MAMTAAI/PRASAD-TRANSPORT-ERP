@@ -12,7 +12,7 @@ import {
   Truck, Route, PackageOpen, FileWarning, ShieldAlert, FileCheck2,
   Users, Wrench, Radio, MessageSquareText, Send, Mic,
   FileText, ScanLine, Phone, Video, AlertTriangle, Gauge,
-  Plus, Search, X,
+  Plus, Search, X, Maximize2, Paperclip,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 import {
@@ -26,6 +26,7 @@ import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from '
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
 import UnloadingActivity from './UnloadingActivity';
+import DispatchConsole from './DispatchConsole';
 
 // The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
 // these four: it is a real state — a number that has written in and sits on no
@@ -148,6 +149,7 @@ export default function OperationsDashboard({ live, filter }) {
   // lives here until the first message is sent, at which point the next refresh
   // returns it as a real thread and this is dropped.
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);   // the full Dispatch Console
   const [pickerQ, setPickerQ] = useState('');
   const [directory, setDirectory] = useState(null);   // null = not loaded yet
   const [dirError, setDirError] = useState(null);
@@ -486,10 +488,13 @@ export default function OperationsDashboard({ live, filter }) {
             title="Live Dispatch Chat"
             accent="text-emerald-400"
             right={
-              <div className="flex items-center gap-2 text-slate-500">
-                <Phone size={14} className="hover:text-emerald-400 cursor-pointer" />
-                <Video size={14} className="hover:text-emerald-400 cursor-pointer" />
-              </div>
+              <button
+                onClick={() => setConsoleOpen(true)}
+                title="Poora Dispatch Console kholo — inline PDF/photo, record linking, saare threads"
+                className="flex items-center gap-1 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-black text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+              >
+                <Maximize2 size={11} /> EXPAND
+              </button>
             }
           />
 
@@ -672,6 +677,14 @@ export default function OperationsDashboard({ live, filter }) {
                           [{outgoing ? (m.sent_by_user_name || 'Office') : chatName(activeChat)}] <span className="font-normal text-slate-600">{clock(m.ts)}</span>
                         </p>
                         <p className="text-[11.5px] text-slate-100 leading-[1.35] whitespace-pre-wrap break-words">{m.text}</p>
+                        {/* Attachment chip — the compact panel says one exists;
+                            opening it is the console's job (EXPAND). */}
+                        {(m.media_key || m.media_type) && (
+                          <button onClick={() => setConsoleOpen(true)}
+                            className="mt-1 flex items-center gap-1 text-[9.5px] font-bold text-violet-300 hover:text-violet-200">
+                            <Paperclip size={9} /> {m.media_key ? 'Attachment — console mein dekho' : m.media_type}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -739,6 +752,12 @@ export default function OperationsDashboard({ live, filter }) {
             WHERE IT BELONGS: dispatch watches this column all day, and "did
             today's loadings come in" is the same kind of question as "has
             anybody written in". */}
+        {/* The full console — its own data path (/crm/threads + /crm/chats),
+            inline media, record linking. Rendered above everything via portal
+            semantics (fixed inset-0), unmounted when closed so its 5s poll
+            stops with it. */}
+        {consoleOpen && <DispatchConsole onClose={() => setConsoleOpen(false)} />}
+
         <LoadingActivity activity={ops?.loading_activity ?? null} offline={offline} />
 
         {/* AND UNLOADING DIRECTLY UNDER IT, because a trip is the pair and the

@@ -161,6 +161,10 @@ function externalMayReach(role, method, path, route) {
 export const SERVICE_API = new Set([
   'POST /api/v1/crm/chats',
   'POST /api/v1/crm/logs',
+  // The WhatsApp engine parking an inbound photo/PDF in the vault before it
+  // logs the chat row that references it. Same caller, same secret, and the
+  // route itself re-checks type and size.
+  'POST /api/v1/crm/media',
   // The AC5 importer, filing IOCL dispatch invoices as loading entries. It runs
   // unattended from cron via ioclSyncRunner and has no session to carry.
   //
