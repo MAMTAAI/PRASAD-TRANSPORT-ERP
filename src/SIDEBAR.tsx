@@ -74,7 +74,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     }
     
     // 🔓 DEFAULT OPEN FOR ALL STAFF
-    if (['DASHBOARD', 'OPS_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
+    if (['DASHBOARD', 'OPS_DECK', 'ACCT_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP'].includes(itemId)) return true;
 
     const perms = user.permissions || [];
     const checkView = (name: string) => perms.find((x: any) => x.name === name)?.view;
@@ -153,6 +153,10 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       ];
     } else if (activeModule === 'ACCOUNTS') {
       return [
+        // The 2026 Command Deck is the Accounts Home — a top-level live summary
+        // off the posted books. Every granular tool sits right below it,
+        // unchanged, so nothing that ran there is lost.
+        { id: 'ACCT_DECK', label: 'Command Deck (Home)', icon: '🧮' },
         { id: 'MASTER_CONTROL_V5', label: 'Master Control v5.0', icon: '🚀' },
         { id: 'BANK', label: 'Cash & Bank Book', icon: '🏦' },
         { id: 'LEDGER', label: 'Ledgers & Party', icon: '📖' },

@@ -27,7 +27,11 @@ DEST_ROOT="/f/Prasad_Transport_System/ERP-LOCAL-BACKUP"
 KEEP_DAYS=30
 STAMP=$(date +%Y%m%d-%H%M%S)
 DEST="$DEST_ROOT/$STAMP"
-SSH="ssh -i $KEY -o ConnectTimeout=15"
+# A function, not a string: $HOME on this PC contains a space ("JAISWAL
+# CAPITAL"), and an unquoted $SSH string splits the key path in two — the dump
+# step then dies on "Could not resolve hostname capital/…" while the quoted
+# scp calls sail through.
+ssh_box() { ssh -i "$KEY" -o ConnectTimeout=15 "$@"; }
 
 mkdir -p "$DEST/uploads/var-www" "$DEST/uploads/var-lib" "$DEST/db" || exit 1
 echo "[backup] $STAMP → $DEST"
@@ -45,7 +49,7 @@ scp -i "$KEY" -r -q "$BOX:/var/lib/prasad/uploads/."      "$DEST/uploads/var-lib
 # format: restorable with pg_restore, and far smaller than plain SQL.
 echo "[backup] dumping prasad_erp on the box…"
 REMOTE_DUMP="/tmp/prasad_erp_${STAMP}.dump"
-$SSH "$BOX" bash -s <<REMOTE
+ssh_box "$BOX" bash -s <<REMOTE
   set -e
   cd /var/www/prasad-erp
   g() { grep -E "^\$1=" .env.api | head -1 | cut -d= -f2- | tr -d '"'"'"'"'"'; }
@@ -58,7 +62,7 @@ REMOTE
 if [ $? -eq 0 ]; then
   scp -i "$KEY" -q "$BOX:$REMOTE_DUMP" "$DEST/db/" \
     && echo "[backup]   db dump: $(ls -lh "$DEST/db/"*.dump 2>/dev/null | awk '{print $5}')"
-  $SSH "$BOX" "rm -f $REMOTE_DUMP"
+  ssh_box "$BOX" "rm -f $REMOTE_DUMP"
 else
   echo "[backup]   ⚠ db dump failed — documents were still backed up"
 fi
