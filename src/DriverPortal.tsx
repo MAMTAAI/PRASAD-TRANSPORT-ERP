@@ -67,18 +67,53 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const [expAmount, setExpAmount] = useState('');
   const [expFile, setExpFile] = useState(null);
   const [sendingExp, setSendingExp] = useState(false);
+  // 📑 Document upload (2026-08-31): every paper from the cab, photographed,
+  // staged PENDING for the office. Photo-first types for low-literacy users.
+  const DOC_KINDS = [
+    ['LOADING_INVOICE', '📄 लोडिंग इनवॉइस'], ['CHALLAN', '🧾 चालान'],
+    ['HSD_BILL', '⛽ डीज़ल बिल'], ['TYRE_BILL', '🛞 टायर बिल'],
+    ['MAINTENANCE_BILL', '🔧 मरम्मत बिल'], ['TOLL_BILL', '🛣️ टोल बिल'],
+    ['KYC', '🪪 कागज़ात (KYC)'], ['OTHER_DOC', '📎 और कुछ'],
+  ];
+  const [docKind, setDocKind] = useState('LOADING_INVOICE');
+  const [docAmount, setDocAmount] = useState('');
+  const [docFile, setDocFile] = useState(null);
+  const [sendingDoc, setSendingDoc] = useState(false);
+  const [myDocs, setMyDocs] = useState([]);
+
+  const submitDocument = async () => {
+    if (!docFile) return alert('⚠️ पहले कागज़ की फोटो खींचो!');
+    setSendingDoc(true);
+    try {
+      const up = await uploadMedia(docFile, `driver-docs/${Date.now()}.jpg`);
+      await api('/portal/driver/documents', {
+        method: 'POST',
+        body: JSON.stringify({
+          doc_type: docKind, file_key: up.path,
+          amount: docAmount ? Number(docAmount) : null,
+          trip_id: activeTrips[0]?.id ?? null,
+        }),
+      });
+      alert('✅ कागज़ ऑफिस को पहुँच गया! स्टाफ चेक करके अप्रूव करेगा।');
+      setDocFile(null); setDocAmount('');
+      fetchDriverExtras(driver);
+    } catch (e) { console.error(e); alert('❌ नहीं गया — नेटवर्क देखकर दोबारा भेजो।'); }
+    setSendingDoc(false);
+  };
 
   const fetchDriverExtras = async (drv) => {
     if (!drv || String(drv.id).includes('DEMO')) return;
     try {
       // /portal/driver/* — the scoped surface (2026-08-31). The old /masters
       // calls were staff routes that 403'd every real driver session.
-      const [reqs, ledger] = await Promise.all([
+      const [reqs, ledger, docs] = await Promise.all([
         api('/portal/driver/requests').catch(() => ({ requests: [] })),
         api('/portal/driver/khata').catch(() => ({ entries: [] })),
+        api('/portal/driver/documents').catch(() => ({ documents: [] })),
       ]);
       setMyRequests((reqs.requests ?? []).slice(0, 20).map((r: any) => ({ ...r, createdAt: r.requested_at, type: r.request_type })));
       setKhataTxns(ledger.entries ?? ledger.transactions ?? []);
+      setMyDocs(docs.documents ?? []);
     } catch (e) { console.error(e); }
   };
   useEffect(() => { if (driver) fetchDriverExtras(driver); }, [driver?.id]);
@@ -965,6 +1000,61 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
                     {sendingExp ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
                   </button>
                 </div>
+              </div>
+
+              {/* 📑 कागज़ भेजो — every paper from the cab, photographed & staged.
+                  Photo-icon buttons, not a dropdown: the blueprint's rule for
+                  low-literacy users. Office approves before anything updates. */}
+              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
+                <h3 className="text-lg font-black text-white mb-1">📑 कागज़ भेजो</h3>
+                <p className="text-[12px] text-white/60 mb-4">लोडिंग इनवॉइस, चालान, टायर/मरम्मत/डीज़ल बिल — फोटो खींचो, ऑफिस चेक करके अप्रूव करेगा।</p>
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {DOC_KINDS.map(([k, label]) => (
+                    <button key={k} onClick={() => setDocKind(k)}
+                      className={`py-3 px-2 rounded-2xl text-[13px] font-black border transition-all active:scale-95
+                        ${docKind === k ? 'bg-amber-500/20 border-amber-400 text-amber-300' : 'bg-[#0a0a0a] border-white/10 text-white/70'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL'].includes(docKind) && (
+                  <input type="number" inputMode="decimal" value={docAmount} onChange={e => setDocAmount(e.target.value)}
+                    placeholder="बिल कितने रुपये का? (₹)"
+                    className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-amber-500 transition-all placeholder:text-white/30 mb-4" />
+                )}
+                <label className={`w-full bg-[#0a0a0a] border-2 border-dashed ${docFile ? 'border-emerald-500 text-emerald-400' : 'border-white/20 text-white/60'} font-bold text-sm py-8 rounded-[20px] flex flex-col items-center justify-center cursor-pointer transition-colors mb-4`}>
+                  <span className="text-3xl mb-2">📸</span>
+                  {docFile ? '✅ फोटो लग गयी — बदलने के लिए दबाओ' : 'कागज़ की फोटो खींचो'}
+                  <input type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
+                    onChange={e => { setDocFile(e.target.files?.[0] || null); e.target.value = ''; }} />
+                </label>
+                <button onClick={submitDocument} disabled={sendingDoc}
+                  className="w-full bg-amber-600 active:bg-amber-500 disabled:bg-zinc-700 text-white font-black text-lg py-4 rounded-[18px] shadow-[0_10px_20px_rgba(217,119,6,0.3)] active:scale-95 transition-transform min-h-[56px]">
+                  {sendingDoc ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
+                </button>
+                {myDocs.length > 0 && (
+                  <div className="mt-5 space-y-2">
+                    {myDocs.slice(0, 10).map(d => (
+                      <div key={d.id} className="flex justify-between items-center bg-[#0a0a0a] border border-white/5 rounded-2xl p-3">
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-black text-white truncate">
+                            {(DOC_KINDS.find(([k]) => k === d.doc_type)?.[1]) ?? d.doc_type}
+                            {d.amount ? ` · ${inr(d.amount)}` : ''}
+                          </p>
+                          <p className="text-[11px] text-white/50 truncate">
+                            {String(d.created_at || '').slice(0, 10)}{d.reject_reason ? ` · ${d.reject_reason}` : ''}
+                          </p>
+                        </div>
+                        <span className={`text-[12px] font-black px-3 py-1.5 rounded-full whitespace-nowrap
+                          ${d.status === 'APPROVED' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
+                            : d.status === 'REJECTED' ? 'text-red-400 bg-red-500/10 border border-red-500/30'
+                            : 'text-amber-400 bg-amber-500/10 border border-amber-500/30'}`}>
+                          {d.status === 'APPROVED' ? '✅ हो गया' : d.status === 'REJECTED' ? '❌ वापस' : '⏳ चेक हो रहा'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 📨 मेरी रिक्वेस्ट — status timeline (closes the phone-call loop) */}

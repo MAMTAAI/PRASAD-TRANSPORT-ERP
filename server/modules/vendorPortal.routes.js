@@ -491,6 +491,60 @@ export function registerVendorPortalRoutes(app) {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  // 2b. MY BILLS & DOCUMENTS — uploaded from the phone, staged for review.
+  // A partner's HSD/tyre/maintenance bill lands PENDING in partner_documents;
+  // the office opens the photo, checks it, and only an approval files it into
+  // the money queue (expense_approvals → TARA). Nothing here writes a khata.
+  // ═══════════════════════════════════════════════════════════════════════
+  const DOC_TYPES = new Set(['LOADING_INVOICE', 'CHALLAN', 'POD',
+    'TYRE_BILL', 'MAINTENANCE_BILL', 'HSD_BILL', 'TOLL_BILL', 'OTHER_BILL', 'KYC', 'OTHER_DOC']);
+  const normalizeKey = (v) => String(v ?? '').replace(/^\/?api\/v1\/files\//, '').replace(/^\/+/, '');
+
+  app.get('/portal/vendor/documents', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT id, doc_type, file_key, amount, bill_no, bill_date, remarks,
+              status, reject_reason, created_at, reviewed_at
+         FROM partner_documents
+        WHERE vendor_id = $1::uuid
+        ORDER BY created_at DESC LIMIT 100`, [req.party.vendorId]);
+    return { count: rows.length, documents: rows };
+  });
+
+  app.post('/portal/vendor/documents', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const docType = String(b.doc_type ?? '').toUpperCase();
+    if (!DOC_TYPES.has(docType)) {
+      return reply.code(400).send({ error: 'BAD_TYPE', detail: `doc_type must be one of ${[...DOC_TYPES].join(', ')}` });
+    }
+    const fileKey = normalizeKey(b.file_key);
+    // Must be in this session's own vault tree (the upload POST puts it there).
+    if (!fileKey.startsWith(`up/vendor/${String(req.user.sub)}/`)) {
+      return reply.code(400).send({ error: 'NOT_YOUR_FILE', detail: 'upload the photo through the app first, then submit it' });
+    }
+    const amount = b.amount == null || b.amount === '' ? null : Number(b.amount);
+    if (amount !== null && !(Number.isFinite(amount) && amount >= 0)) {
+      return reply.code(400).send({ error: 'BAD_AMOUNT' });
+    }
+    const { rows: vend } = await query(
+      `SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
+    const { rows } = await query(
+      `INSERT INTO partner_documents
+         (uploader_role, vendor_id, uploader_name, doc_type, file_key,
+          vehicle_no, amount, bill_no, bill_date, remarks)
+       VALUES ('VENDOR', $1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9)
+       RETURNING id, doc_type, status, created_at`,
+      [req.party.vendorId, vend[0]?.vendor_name ?? 'partner', docType, fileKey,
+       b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
+    return reply.code(201).send({
+      ...rows[0],
+      detail: 'Bill submitted to the Prasad Transport office. It reaches your account '
+            + 'only after the office verifies and approves it.',
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   // 3. EARNINGS & WALLET
   // ═══════════════════════════════════════════════════════════════════════
 

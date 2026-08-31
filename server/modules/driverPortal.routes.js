@@ -97,6 +97,67 @@ export function registerDriverPortalRoutes(app) {
     return { count: rows.length, requests: rows };
   });
 
+  // ── My documents — every paper from the cab, photographed and staged ──────
+  // Loading invoice, challan, tyre/maintenance/HSD bills, KYC. The photo goes
+  // to the driver's own vault tree first (POST /files); the key lands here as
+  // a PENDING row the office reviews. Nothing reaches a trip, a khata or a
+  // ledger from this route.
+  const DOC_TYPES = new Set(['LOADING_INVOICE', 'CHALLAN', 'POD',
+    'TYRE_BILL', 'MAINTENANCE_BILL', 'HSD_BILL', 'TOLL_BILL', 'OTHER_BILL', 'KYC', 'OTHER_DOC']);
+  const normalizeKey = (v) => String(v ?? '').replace(/^\/?api\/v1\/files\//, '').replace(/^\/+/, '');
+
+  app.get('/portal/driver/documents', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT d.id, d.doc_type, d.file_key, d.amount, d.bill_no, d.bill_date, d.remarks,
+              d.status, d.reject_reason, d.created_at, d.reviewed_at, t.trip_code
+         FROM partner_documents d LEFT JOIN trips t ON t.id = d.trip_id
+        WHERE d.driver_id = $1::uuid
+        ORDER BY d.created_at DESC LIMIT 100`, [req.driver.id]);
+    return { count: rows.length, documents: rows };
+  });
+
+  app.post('/portal/driver/documents', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const docType = String(b.doc_type ?? '').toUpperCase();
+    if (!DOC_TYPES.has(docType)) {
+      return reply.code(400).send({ error: 'BAD_TYPE', detail: `doc_type must be one of ${[...DOC_TYPES].join(', ')}` });
+    }
+    const fileKey = normalizeKey(b.file_key);
+    // The key must sit in THIS driver's own vault tree — a reference to
+    // somebody else's object is refused even though reading it would fail
+    // anyway (files.routes), because a review screen must never be pointed
+    // at a file its uploader could not see.
+    if (!fileKey.startsWith(`up/driver/${req.driver.id}/`)) {
+      return reply.code(400).send({ error: 'NOT_YOUR_FILE', detail: 'photo pehle app se upload karein, phir bhejein' });
+    }
+    let tripId = null;
+    if (b.trip_id) {
+      const { rows: T } = await query(
+        `SELECT id FROM trips WHERE id = $1::uuid AND driver_id = $2::uuid`, [b.trip_id, req.driver.id]);
+      if (!T.length) return reply.code(404).send({ error: 'NO_SUCH_TRIP', detail: 'that trip is not yours' });
+      tripId = T[0].id;
+    }
+    const amount = b.amount == null || b.amount === '' ? null : Number(b.amount);
+    if (amount !== null && !(Number.isFinite(amount) && amount >= 0)) {
+      return reply.code(400).send({ error: 'BAD_AMOUNT' });
+    }
+    const { rows } = await query(
+      `INSERT INTO partner_documents
+         (uploader_role, driver_id, uploader_name, doc_type, file_key, trip_id,
+          vehicle_no, amount, bill_no, bill_date, remarks)
+       VALUES ('DRIVER', $1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9::date, $10)
+       RETURNING id, doc_type, status, created_at`,
+      [req.driver.id, req.driver.name, docType, fileKey, tripId,
+       b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
+    return reply.code(201).send({
+      ...rows[0],
+      detail: 'Document office ko pahunch gaya. Staff check karke approve karega — '
+            + 'status yahin dikhega.',
+    });
+  });
+
   app.post('/portal/driver/requests', { preHandler: resolveDriver }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};

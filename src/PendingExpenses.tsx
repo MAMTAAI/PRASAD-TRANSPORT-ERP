@@ -30,6 +30,112 @@ const emptyForm = {
   bill_date: new Date().toISOString().split('T')[0], amount: '', gst_amount: '', description: '',
 };
 
+// ── Phone uploads from the driver & partner apps ────────────────────────────
+// One card per photographed paper. "View" opens the photo (token-fetched);
+// Approve verifies it — and for a bill, files it into expense_approvals so it
+// appears in the queue below for the money approval. Reject demands the reason
+// the uploader is told on WhatsApp.
+const DOC_LABEL = {
+  LOADING_INVOICE: '📄 Loading invoice', CHALLAN: '🧾 Challan', POD: '📦 POD',
+  HSD_BILL: '⛽ HSD bill', TYRE_BILL: '🛞 Tyre bill', MAINTENANCE_BILL: '🔧 Maintenance bill',
+  TOLL_BILL: '🛣️ Toll bill', OTHER_BILL: '🧾 Bill', KYC: '🪪 KYC', OTHER_DOC: '📎 Document',
+};
+const BILL_TYPES = new Set(['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL']);
+
+function PartnerDocsQueue({ userName, onFiled }) {
+  const [docs, setDocs] = useState([]);
+  const [busy, setBusy] = useState('');
+  const [amounts, setAmounts] = useState({});
+  const authed = (path, opts = {}) => {
+    const token = localStorage.getItem('prasad_token');
+    return fetch(`${API}/api/v1${path}`, {
+      ...opts,
+      headers: { ...(opts.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  };
+  const load = async () => {
+    try {
+      const r = await authed('/queues/partner-documents?status=PENDING');
+      if (r.ok) setDocs((await r.json()).documents ?? []);
+    } catch (e) { console.error('partner docs read:', e.message); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const viewPhoto = async (key) => {
+    try {
+      const r = await authed(`/files/${key}`);
+      if (!r.ok) { alert(`Photo nahi khuli (${r.status})`); return; }
+      const blob = await r.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { alert('Photo nahi khuli: ' + e.message); }
+  };
+
+  const decide = async (doc, action) => {
+    let body = { reviewed_by: userName };
+    if (action === 'reject') {
+      const reason = window.prompt('Reject kyon? (yeh kaaran uploader ko WhatsApp par jayega)');
+      if (!reason) return;
+      body.reason = reason;
+    } else {
+      const isBill = BILL_TYPES.has(doc.doc_type);
+      const amt = Number(amounts[doc.id] ?? doc.amount);
+      if (isBill && !(amt > 0)) { alert('⚠️ Bill ka amount bharein — tabhi expense queue mein jayega.'); return; }
+      if (isBill) body.amount = amt;
+      if (!window.confirm(`Approve ${DOC_LABEL[doc.doc_type] ?? doc.doc_type} from ${doc.uploader_name}?${isBill ? ` ₹${amt.toLocaleString('en-IN')} expense queue mein file hoga.` : ''}`)) return;
+    }
+    setBusy(doc.id);
+    try {
+      const r = await authed(`/queues/partner-documents/${doc.id}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) alert('❌ ' + (j.detail ?? j.error ?? r.status));
+      else if (action === 'approve' && j.expenseId) onFiled?.();
+      await load();
+    } finally { setBusy(''); }
+  };
+
+  return (
+    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.3)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+        <b style={{ color: '#f59e0b', fontSize: '14px' }}>📱 App Uploads — Driver & Partner ({docs.length} pending)</b>
+        <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px' }} onClick={load}>↻ Refresh</button>
+      </div>
+      {docs.length === 0 ? (
+        <div style={{ color: '#64748b', fontSize: '13px' }}>Koi naya upload nahi. Driver/partner app se bheja har kagaz yahan aayega — approve hone par hi system mein lagega.</div>
+      ) : docs.map((d) => (
+        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(2,6,23,0.5)', border: '1px solid #1e293b', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '220px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>
+              {DOC_LABEL[d.doc_type] ?? d.doc_type} · <span style={{ color: '#38bdf8' }}>{d.uploader_name}</span>
+              <span style={{ color: '#64748b', fontWeight: 'normal' }}> ({d.uploader_role.toLowerCase()})</span>
+            </div>
+            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+              {new Date(d.created_at).toLocaleString('en-IN')}
+              {d.trip_code ? ` · trip ${d.trip_code}` : ''}{d.bill_no ? ` · bill ${d.bill_no}` : ''}
+              {d.remarks ? ` · ${d.remarks}` : ''}
+            </div>
+          </div>
+          {BILL_TYPES.has(d.doc_type) && (
+            <input className="glass-input" type="number" placeholder="₹ amount"
+              style={{ width: '110px', padding: '8px' }}
+              value={amounts[d.id] ?? d.amount ?? ''}
+              onChange={(e) => setAmounts((p) => ({ ...p, [d.id]: e.target.value }))} />
+          )}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#a78bfa' }}
+                    onClick={() => viewPhoto(d.file_key)}>📷 View</button>
+            <button className="pt-btn pt-btn--success" style={{ minHeight: '36px', fontSize: '12px' }}
+                    disabled={busy === d.id} onClick={() => decide(d, 'approve')}>✅ Approve</button>
+            <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ef4444', borderColor: '#ef444455' }}
+                    disabled={busy === d.id} onClick={() => decide(d, 'reject')}>✖ Reject</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── The generic maker-checker deck ──────────────────────────────────────────
 // Reads v_approval_queue via /api/v1/approvals/pending: vendor bills, TDS,
 // EMI, toll claims, fuel entries — anything under 061's maker-checker that a
@@ -322,6 +428,11 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
           </div>
         </div>
       )}
+
+      {/* ── Phone uploads from drivers & partners (migration 116) — photo
+             verified here; a bill auto-files into THIS screen's expense queue
+             on approval, so the money still passes the money approval. ── */}
+      <PartnerDocsQueue userName={userName} onFiled={reload} />
 
       {/* ── Generic maker-checker queue (migration 061) — every DRAFT ledger-
              adjacent row an operator submitted, waiting on an admin. The API

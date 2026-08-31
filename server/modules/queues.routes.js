@@ -22,6 +22,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
+import { notifyWhatsApp } from '../lib/notify.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -455,12 +456,125 @@ export async function registerQueueRoutes(app) {
   // One query for the three counts the sidebar used to keep three Firestore
   // listeners open for. Cheap enough to poll; the alternative was a websocket
   // for three integers.
+  // ═══ PARTNER DOCUMENTS (116) — photos from the driver & vendor apps ══════
+  // The review half of the phone-upload flow. Approving a BILL doc can file it
+  // straight into expense_approvals (source PARTNER_APP) — it then waits in
+  // THIS screen's money queue like any other bill, and TARA still posts the
+  // only voucher. Approving a plain document just marks it verified. Either
+  // decision is stamped and told to the uploader on WhatsApp.
+  const DOC_EXPENSE_TYPE = {
+    HSD_BILL: 'FUEL', TYRE_BILL: 'TYRE', MAINTENANCE_BILL: 'MAINTENANCE',
+    TOLL_BILL: 'TOLL', OTHER_BILL: 'OTHER',
+  };
+
+  const docWithUploader = async (id) => {
+    const { rows } = await query(
+      `SELECT p.*, t.trip_code, t.vehicle_no AS trip_vehicle,
+              d.mobile AS driver_mobile, v.mobile_no AS vendor_mobile
+         FROM partner_documents p
+         LEFT JOIN trips t ON t.id = p.trip_id
+         LEFT JOIN drivers d ON d.id = p.driver_id
+         LEFT JOIN vendors v ON v.id = p.vendor_id
+        WHERE p.id = $1::uuid`, [id]);
+    return rows[0] ?? null;
+  };
+
+  app.get('/partner-documents', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const status = String(req.query?.status ?? 'PENDING').toUpperCase();
+    const { rows } = await query(
+      `SELECT p.*, t.trip_code
+         FROM partner_documents p LEFT JOIN trips t ON t.id = p.trip_id
+        WHERE ($1 = 'ALL' OR p.status = $1)
+        ORDER BY p.created_at DESC LIMIT 200`, [status]);
+    return { count: rows.length, documents: rows };
+  });
+
+  app.post('/partner-documents/:id/approve', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const doc = await docWithUploader(req.params.id);
+    if (!doc) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (doc.status !== 'PENDING') return reply.code(409).send({ error: 'DECIDED', detail: `already ${doc.status}` });
+
+    const isBill = Object.hasOwn(DOC_EXPENSE_TYPE, doc.doc_type);
+    const fileExpense = b.file_expense !== false && isBill;   // bills auto-file unless told not to
+    const amount = Number(b.amount ?? doc.amount);
+    if (fileExpense && !(amount > 0)) {
+      return reply.code(400).send({
+        error: 'BAD_AMOUNT',
+        detail: 'a bill needs its rupee amount before it can enter the expense queue — '
+              + 'enter it, or approve with file_expense=false',
+      });
+    }
+
+    const out = await withTransaction(async (t) => {
+      let expenseId = null;
+      if (fileExpense) {
+        const { rows: [exp] } = await t.query(
+          `INSERT INTO expense_approvals
+             (trip_id, trip_ref, vehicle_no, driver_name, vendor_name, expense_type,
+              bill_no, bill_date, amount, description, source, entered_by)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9, $10, 'PARTNER_APP', $11)
+           RETURNING id`,
+          [doc.trip_id, doc.trip_code ?? null,
+           b.vehicle_no ?? doc.vehicle_no ?? doc.trip_vehicle ?? null,
+           doc.uploader_role === 'DRIVER' ? doc.uploader_name : null,
+           doc.uploader_role === 'VENDOR' ? doc.uploader_name : null,
+           b.expense_type ?? DOC_EXPENSE_TYPE[doc.doc_type],
+           b.bill_no ?? doc.bill_no, b.bill_date ?? doc.bill_date, amount,
+           `[${doc.doc_type} via ${doc.uploader_role.toLowerCase()} app] ${b.description ?? doc.remarks ?? ''}`.trim(),
+           b.reviewed_by ?? null]);
+        expenseId = exp.id;
+      }
+      const { rows: [upd] } = await t.query(
+        `UPDATE partner_documents
+            SET status = 'APPROVED', reviewed_by = $2, reviewed_at = now(),
+                expense_approval_id = $3::uuid, updated_at = now()
+          WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`,
+        [doc.id, b.reviewed_by ?? null, expenseId]);
+      return { doc: upd, expenseId };
+    });
+
+    const mobile = doc.driver_mobile ?? doc.vendor_mobile;
+    if (mobile) {
+      notifyWhatsApp(mobile,
+        `✅ Prasad Transport: aapka ${doc.doc_type.replaceAll('_', ' ').toLowerCase()} `
+        + `${doc.bill_no ? `(${doc.bill_no}) ` : ''}office ne verify kar liya hai.`
+        + (out.expenseId ? ' Bill hisaab ki queue mein chala gaya hai.' : ''));
+    }
+    return { approved: true, ...out };
+  });
+
+  app.post('/partner-documents/:id/reject', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the uploader is told why' });
+    const doc = await docWithUploader(req.params.id);
+    if (!doc) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const { rows } = await query(
+      `UPDATE partner_documents
+          SET status = 'REJECTED', reviewed_by = $2, reviewed_at = now(),
+              reject_reason = $3, updated_at = now()
+        WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`,
+      [doc.id, req.body?.reviewed_by ?? null, reason]);
+    if (!rows.length) return reply.code(409).send({ error: 'DECIDED', detail: `already ${doc.status}` });
+    const mobile = doc.driver_mobile ?? doc.vendor_mobile;
+    if (mobile) {
+      notifyWhatsApp(mobile,
+        `❌ Prasad Transport: aapka ${doc.doc_type.replaceAll('_', ' ').toLowerCase()} `
+        + `office ne is kaaran se wapas kiya: ${reason}. Sahi photo/detail ke saath dobara bhejein.`);
+    }
+    return { rejected: true, document: rows[0] };
+  });
+
   app.get('/badges', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(`
       SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'SUBMITTED')::int AS pending_kyc,
              (SELECT count(*) FROM driver_requests        WHERE status = 'PENDING')::int   AS pending_requests,
-             (SELECT count(*) FROM expense_approvals      WHERE status = 'PENDING')::int   AS pending_expenses`);
+             (SELECT count(*) FROM expense_approvals      WHERE status = 'PENDING')::int   AS pending_expenses,
+             (SELECT count(*) FROM partner_documents      WHERE status = 'PENDING')::int   AS pending_partner_docs`);
     return rows[0];
   });
 }

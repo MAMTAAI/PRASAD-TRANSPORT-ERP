@@ -250,6 +250,9 @@ export default function FleetPartnerApp() {
   const [earn, setEarn] = useState(null);
   const [trips, setTrips] = useState(null);       // settlements — the won loads
 
+  const [docs, setDocs] = useState(null);         // partner_documents — my uploaded bills
+  const [billSheet, setBillSheet] = useState(false);
+
   const [bidFor, setBidFor] = useState(null);
   const [bookFor, setBookFor] = useState(null);   // Book-Now confirmation sheet
   const [assignFor, setAssignFor] = useState(null); // settlement getting a truck
@@ -289,6 +292,8 @@ export default function FleetPartnerApp() {
   const loadEarn = useCallback(async () => {
     const r = await api('/portal/vendor/earnings');
     setEarn(r.ok ? r.body : null);
+    const d = await api('/portal/vendor/documents');
+    setDocs(d.ok ? (d.body.documents ?? []) : []);
   }, []);
   const loadTrips = useCallback(async () => {
     const r = await api('/portal/vendor/settlements');
@@ -730,6 +735,41 @@ export default function FleetPartnerApp() {
               </div>
 
               {earn.ledger_visible && <StatementButton />}
+
+              {/* Bills from the phone — staged, office-verified, then filed. */}
+              <button onClick={() => setBillSheet(true)}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
+                           from-amber-500 to-orange-600 py-3.5 text-[14px] font-black text-white
+                           shadow-[0_8px_24px_rgba(245,158,11,0.25)] transition-transform active:scale-[0.98]">
+                <Upload size={16} /> Upload a bill (HSD / tyre / repair)
+              </button>
+
+              {(docs?.length ?? 0) > 0 && (
+                <>
+                  <Header title="My submitted bills" sub={`${docs.length} sent`} className="mt-6" />
+                  <div className="space-y-2 pb-4">
+                    {docs.map((d) => (
+                      <div key={d.id} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-bold text-white">
+                            {d.doc_type.replaceAll('_', ' ')}{d.bill_no ? ` · ${d.bill_no}` : ''}
+                          </p>
+                          <p className="truncate text-[11px] text-white/35">
+                            {dmy(d.created_at)}{d.reject_reason ? ` · ${d.reject_reason}` : ''}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          {d.amount != null && <p className="text-[13px] font-black text-white">₹{inr(d.amount)}</p>}
+                          <span className={`text-[10px] font-black ${
+                            d.status === 'APPROVED' ? 'text-emerald-300' : d.status === 'REJECTED' ? 'text-red-300' : 'text-amber-300'}`}>
+                            {d.status === 'APPROVED' ? '✓ Verified' : d.status === 'REJECTED' ? '✗ Returned' : '⏳ In review'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -768,6 +808,12 @@ export default function FleetPartnerApp() {
         settlement={podFor}
         onClose={() => setPodFor(null)}
         onDone={(msg) => { setPodFor(null); flash(msg); loadTrips(); }}
+      />
+
+      <BillUploadSheet
+        open={billSheet}
+        onClose={() => setBillSheet(false)}
+        onDone={(msg) => { setBillSheet(false); flash(msg); loadEarn(); }}
       />
 
       {toast && (
@@ -914,6 +960,77 @@ function StatementButton() {
       {busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} />}
       Download full statement (PDF)
     </button>
+  );
+}
+
+// ── upload a bill — staged for office verification, never straight to books ─
+const BILL_KINDS = [
+  ['HSD_BILL', 'Diesel / HSD bill'], ['TYRE_BILL', 'Tyre bill'],
+  ['MAINTENANCE_BILL', 'Repair / maintenance bill'], ['TOLL_BILL', 'Toll receipt'],
+  ['OTHER_BILL', 'Other bill'], ['OTHER_DOC', 'Document (no amount)'],
+];
+function BillUploadSheet({ open, onClose, onDone }) {
+  const [f, setF] = useState({ doc_type: 'HSD_BILL' });
+  const [fileKey, setFileKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { if (open) { setF({ doc_type: 'HSD_BILL' }); setFileKey(''); setErr(''); } }, [open]);
+  if (!open) return null;
+  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const isBill = f.doc_type !== 'OTHER_DOC';
+
+  const submit = async () => {
+    if (!fileKey) { setErr('Photograph the bill first.'); return; }
+    if (isBill && !(Number(f.amount) > 0)) { setErr('Enter the bill amount.'); return; }
+    setBusy(true); setErr('');
+    const r = await api('/portal/vendor/documents', {
+      method: 'POST',
+      body: JSON.stringify({ ...f, file_key: fileKey, amount: isBill ? Number(f.amount) : null }),
+    });
+    setBusy(false);
+    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
+    onDone(r.body.detail ?? 'Bill sent to the office for verification.');
+  };
+
+  return (
+    <Sheet open onClose={onClose} title="Upload a bill"
+      subtitle="The office verifies the photo; only then does it enter the books."
+      footer={
+        <button onClick={submit} disabled={busy || !fileKey}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
+                     from-amber-500 to-orange-600 py-4 text-[15px] font-black text-white
+                     shadow-[0_10px_30px_rgba(245,158,11,0.3)] transition-transform
+                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
+          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : 'Send to office'}
+        </button>
+      }>
+      <Field label="What is this?">
+        <select value={f.doc_type} onChange={set('doc_type')} className={inputCls}>
+          {BILL_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </Field>
+      {isBill && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Amount (₹)">
+            <input type="number" inputMode="decimal" value={f.amount ?? ''} onChange={set('amount')}
+                   placeholder="e.g. 12500" className={inputCls} />
+          </Field>
+          <Field label="Bill no (optional)">
+            <input value={f.bill_no ?? ''} onChange={set('bill_no')} className={inputCls} />
+          </Field>
+        </div>
+      )}
+      {isBill && (
+        <Field label="Bill date (optional)">
+          <input type="date" value={f.bill_date ?? ''} onChange={set('bill_date')}
+                 className={inputCls} style={{ colorScheme: 'dark' }} />
+        </Field>
+      )}
+      <DocUpload label="Bill photo / PDF" value={fileKey} onUploaded={setFileKey}
+                 pathPrefix="bills"
+                 hint="Clear photo — amount and bill number readable. A blurry bill is the usual reason one bounces." />
+      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
+    </Sheet>
   );
 }
 
