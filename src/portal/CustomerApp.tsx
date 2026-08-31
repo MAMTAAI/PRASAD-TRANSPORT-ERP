@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Package, Gavel, Truck, ReceiptText, Plus, X, MapPin, CalendarDays,
   ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, Info, Navigation,
+  Zap, FileCheck2, Circle,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 
@@ -141,6 +142,7 @@ export default function CustomerApp() {
 
   const [posting, setPosting] = useState(false);
   const [bidsFor, setBidsFor] = useState(null);   // load row whose bids sheet is open
+  const [statusFor, setStatusFor] = useState(null); // awarded load whose stepper is open
   const [trackFor, setTrackFor] = useState(null); // trip row whose tracking sheet is open
   const [toast, setToast] = useState(null);
 
@@ -215,7 +217,8 @@ export default function CustomerApp() {
               body="Post your first load below — verified fleet partners will bid on it, and every bid lands here for you to compare." />
           )}
           {loads?.map((l) => (
-            <button key={l.load_id} onClick={() => l.status === 'OPEN' || l.status === 'AWARDED' ? setBidsFor(l) : null}
+            <button key={l.load_id}
+              onClick={() => l.status === 'AWARDED' ? setStatusFor(l) : l.status === 'OPEN' ? setBidsFor(l) : null}
               className="ca-rise mb-3 block w-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left
                          transition-colors active:bg-white/[0.06]">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -235,7 +238,7 @@ export default function CustomerApp() {
               <div className="mt-2.5 border-t border-white/5 pt-2.5 text-[12.5px]">
                 {l.status === 'AWARDED' ? (
                   <span className="font-bold text-emerald-300">
-                    Awarded to {l.awarded_to} — ₹{inr(l.awarded_amount)}
+                    Awarded to {l.awarded_to} — ₹{inr(l.awarded_amount)} · tap for status
                   </span>
                 ) : (
                   <span className={l.pending_bids > 0 ? 'font-bold text-sky-300' : 'text-white/35'}>
@@ -310,6 +313,7 @@ export default function CustomerApp() {
         onDone={(msg) => { setPosting(false); flash(msg); loadLoads(); }} />
       <BidsSheet load={bidsFor} onClose={() => setBidsFor(null)}
         onAccepted={(msg) => { setBidsFor(null); flash(msg); loadLoads(); }} />
+      <StatusSheet load={statusFor} onClose={() => setStatusFor(null)} />
       <TrackSheet trip={trackFor} onClose={() => setTrackFor(null)} />
 
       {toast && (
@@ -377,7 +381,121 @@ function PostLoadSheet({ open, onClose, onDone }) {
         <input type="number" inputMode="numeric" value={f.target_rate ?? ''} onChange={set('target_rate')}
                placeholder="₹" className={inputCls} />
       </Field>
+      <Field label="Book-Now rate (optional)"
+        hint="This one IS shown to every partner: any verified partner can take the load instantly at this price — no waiting for bids.">
+        <input type="number" inputMode="numeric" value={f.book_now_rate ?? ''} onChange={set('book_now_rate')}
+               placeholder="₹" className={inputCls} />
+      </Field>
+      <Field label="Bidding closes in" hint="After the clock runs out no new bids land; you pick from what came.">
+        <select value={f.bid_close_hours ?? ''} onChange={set('bid_close_hours')} className={inputCls}>
+          <option value="">No time limit</option>
+          <option value="4">4 hours</option>
+          <option value="12">12 hours</option>
+          <option value="24">24 hours</option>
+          <option value="48">2 days</option>
+          <option value="96">4 days</option>
+        </select>
+      </Field>
       {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
+    </Sheet>
+  );
+}
+
+// ── Shipment status — the settlement stepper on an awarded load ─────────────
+// Every station is a fact the server reported; the customer's view carries no
+// vendor money (that is the office's cost side), only progress and the truck.
+const STEPS = [
+  ['CONFIRMED', 'Partner confirmed the trip'],
+  ['VEHICLE_ASSIGNED', 'Truck & driver assigned'],
+  ['ADVANCE_PAID', 'Loading & dispatch'],
+  ['POD_SUBMITTED', 'Delivered — proof received'],
+  ['POD_VERIFIED', 'Proof verified by office'],
+  ['SETTLED', 'Trip completed & closed'],
+];
+const STEP_ORDER = ['AWAITING_CONFIRM', ...STEPS.map(([k]) => k)];
+
+function StatusSheet({ load, onClose }) {
+  const [s, setS] = useState(undefined);   // undefined=loading, null=none
+
+  useEffect(() => {
+    if (!load) return;
+    setS(undefined);
+    (async () => {
+      const r = await api(`/portal/customer/loads/${encodeURIComponent(load.load_id)}/settlement`);
+      setS(r.ok ? (r.body.settlement ?? null) : null);
+    })();
+  }, [load]);
+
+  if (!load) return null;
+  const reached = s && s.status !== 'CANCELLED' ? STEP_ORDER.indexOf(s.status) : -1;
+
+  return (
+    <Sheet open={!!load} onClose={onClose}
+      title={`Shipment — ${load.load_id}`}
+      subtitle={`${load.origin} → ${load.destination}`}>
+      {s === undefined && <CardSkeleton lines={4} />}
+      {s === null && (
+        <Empty icon={Truck} title="Status not started"
+          body="The award is recorded; the office opens the trip lifecycle next. Check back shortly." />
+      )}
+      {s && (
+        <>
+          <div className="mb-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] px-4 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/60">Awarded to</p>
+            <p className="mt-0.5 text-[15px] font-black text-white">{s.vendor_name}</p>
+            <p className="text-[12.5px] font-bold text-emerald-300">₹{inr(s.awarded_amount)}</p>
+            {(s.vehicle_reg || s.driver_name) && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-white/60">
+                <Truck size={12} className="text-emerald-400" />
+                {s.vehicle_reg ?? 'truck TBD'}{s.driver_name ? ` · ${s.driver_name}` : ''}
+                {s.driver_mobile ? ` · ${s.driver_mobile}` : ''}
+              </p>
+            )}
+          </div>
+
+          {s.status === 'CANCELLED' ? (
+            <p className="mb-4 rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-4 py-3
+                          text-[12.5px] leading-relaxed text-red-200/80">
+              This award was cancelled{s.cancel_reason ? ` — ${s.cancel_reason}` : ''}. The load reopened
+              for fresh bids; you will see new offers under it.
+            </p>
+          ) : (
+            <div className="mb-4">
+              {STEPS.map(([key, label], i) => {
+                const idx = STEP_ORDER.indexOf(key);
+                const done = reached >= idx;
+                const current = reached === idx - 1;
+                return (
+                  <div key={key} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      {done
+                        ? <CheckCircle2 size={18} className="text-emerald-400" />
+                        : current
+                          ? <Clock size={18} className="text-amber-300" />
+                          : <Circle size={18} className="text-white/15" />}
+                      {i < STEPS.length - 1 && (
+                        <span className={`my-0.5 w-px flex-1 ${done ? 'bg-emerald-400/40' : 'bg-white/10'}`}
+                              style={{ minHeight: 14 }} />
+                      )}
+                    </div>
+                    <p className={`pb-3 text-[13px] leading-snug
+                        ${done ? 'font-bold text-white' : current ? 'font-bold text-amber-200' : 'text-white/35'}`}>
+                      {label}
+                      {key === 'POD_SUBMITTED' && s.pod_submitted_at && done &&
+                        <span className="block text-[11px] font-normal text-white/40">{dmy(s.pod_submitted_at)}</span>}
+                      {key === 'POD_VERIFIED' && s.pod_verified_at && done &&
+                        <span className="block text-[11px] font-normal text-white/40">{dmy(s.pod_verified_at)}</span>}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {s.pod_file && <PodLink podKey={s.pod_file} />}
+        </>
+      )}
+      <div className="pb-4" />
     </Sheet>
   );
 }
@@ -455,6 +573,30 @@ function BidsSheet({ load, onClose, onAccepted }) {
       {err && <p className="mb-3 text-[12px] font-semibold text-red-400">{err}</p>}
       <div className="pb-4" />
     </Sheet>
+  );
+}
+
+// A plain <a href> would arrive without the bearer token and 401 — so the POD
+// is fetched with the token and opened as a blob URL.
+function PodLink({ podKey }) {
+  const [busy, setBusy] = useState(false);
+  const open = async () => {
+    setBusy(true);
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const r = await fetch(`${API_BASE}/api/v1/files/${podKey}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) return;
+      const blob = await r.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } finally { setBusy(false); }
+  };
+  return (
+    <button onClick={open} disabled={busy}
+      className="mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-400/30
+                 bg-violet-400/10 py-3 text-[13px] font-black text-violet-300 disabled:opacity-40">
+      {busy ? <Loader2 size={15} className="animate-spin" /> : <FileCheck2 size={15} />} View proof of delivery
+    </button>
   );
 }
 

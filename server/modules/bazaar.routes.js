@@ -22,6 +22,7 @@ import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { requireAdminRole } from './auth.routes.js';
 import { hashPassword, ALGO } from '../lib/auth.js';
 import { notifyWhatsApp } from '../lib/notify.js';
+import { openSettlementInTx } from './bazaarSettlement.routes.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -187,9 +188,12 @@ export async function registerBazaarRoutes(app) {
                                             WHERE id = $1::uuid RETURNING *`, [bid_id]);
         const { rows: U } = await c.query(`UPDATE bazaar_loads SET status = 'AWARDED', updated_at = now()
                                             WHERE load_id = $1 RETURNING *`, [req.params.loadId]);
+        // The money lifecycle opens with the award, in the same transaction —
+        // an awarded load without a settlement row cannot exist.
+        const settlement = await openSettlementInTx(c, U[0], W[0]);
         const { rows: VM } = await c.query(
           'SELECT mobile_no FROM vendors WHERE id = $1::uuid', [W[0].vendor_id]);
-        return { code: 200, body: { load: U[0], bid: W[0] }, vendorMobile: VM[0]?.mobile_no ?? null };
+        return { code: 200, body: { load: U[0], bid: W[0], settlement }, vendorMobile: VM[0]?.mobile_no ?? null };
       });
       if (out.code === 200 && out.vendorMobile) {
         // After commit — a slow WhatsApp engine must never hold the award.

@@ -65,6 +65,7 @@ import { registerWatchdogRoutes } from './modules/watchdog.routes.js';
 import { zeroGapPlugin } from './lib/zeroGap.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
 import { registerBazaarRoutes } from './modules/bazaar.routes.js';
+import { registerBazaarSettlementRoutes } from './modules/bazaarSettlement.routes.js';
 import { registerCrmRoutes } from './modules/crm.routes.js';
 import { registerAuthRoutes, requireAuth } from './modules/auth.routes.js';
 import { registerQueueRoutes } from './modules/queues.routes.js';
@@ -254,6 +255,9 @@ await app.register(registerWatchdogRoutes, { prefix: '/api/v1/watchdog' });
 await app.register(registerAssetRoutes,    { prefix: '/api/v1/assets' });
 // Cluster 5 — load bazaar, the vendor hiring pool and portal KYC intake.
 await app.register(registerBazaarRoutes,   { prefix: '/api/v1/bazaar' });
+// Phase 2 — the money lifecycle behind an award: deposit, advance, POD gate,
+// balance. Every rupee via TARA; this module writes workflow state only.
+await app.register(registerBazaarSettlementRoutes, { prefix: '/api/v1/bazaar' });
 // Cluster 6 — WhatsApp CRM, letterpad documents, audit trail, site content and
 // the settings singletons. The last collections Firestore still owned.
 await app.register(registerCrmRoutes,      { prefix: '/api/v1/crm' });

@@ -19,6 +19,7 @@
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { resolveParty, needsModule } from './portal.routes.js';
 import { notifyWhatsApp } from '../lib/notify.js';
+import { openSettlementInTx } from './bazaarSettlement.routes.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -58,6 +59,16 @@ export function registerCustomerPortalRoutes(app) {
     if (!b.origin || !b.destination) {
       return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'origin and destination are required' });
     }
+    // Book-Now is the one PUBLIC rate: any verified partner may take the load
+    // instantly at this price. Optional; blind bidding runs either way.
+    const bookNow = b.book_now_rate == null || b.book_now_rate === '' ? null : Number(b.book_now_rate);
+    if (bookNow !== null && !(Number.isFinite(bookNow) && bookNow > 0)) {
+      return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'book_now_rate must be a positive amount' });
+    }
+    const closeHours = b.bid_close_hours == null || b.bid_close_hours === '' ? null : Number(b.bid_close_hours);
+    if (closeHours !== null && !(Number.isFinite(closeHours) && closeHours > 0 && closeHours <= 24 * 14)) {
+      return reply.code(400).send({ error: 'BAD_CLOSE', detail: 'bid_close_hours must be 1–336 (14 days)' });
+    }
     try {
       const row = await withTransaction(async (c) => {
         // The customer's own name from THEIR party row, never from the body —
@@ -75,12 +86,15 @@ export function registerCustomerPortalRoutes(app) {
         const { rows } = await c.query(`
           INSERT INTO bazaar_loads (load_id, customer_name, customer_id, origin, destination,
             distance_km, material, weight, target_rate, loading_date, vehicle_type, rate_type,
-            status, posted_by)
-          VALUES ($1,$2,$3::uuid,$4,$5,$6,$7,$8,COALESCE($9,0),$10,$11,$12,'OPEN','CUSTOMER_PORTAL')
+            status, posted_by, book_now_rate, bid_close_at)
+          VALUES ($1,$2,$3::uuid,$4,$5,$6,$7,$8,COALESCE($9,0),$10,$11,$12,'OPEN','CUSTOMER_PORTAL',
+                  $13, CASE WHEN $14::numeric IS NULL THEN NULL
+                            ELSE now() + ($14::numeric * interval '1 hour') END)
           RETURNING *`,
           [loadId, me[0]?.customer_name ?? 'CUSTOMER', req.party.customerId,
            b.origin, b.destination, b.distance_km ?? null, b.material ?? null, b.weight ?? null,
-           b.target_rate ?? null, b.loading_date || null, b.vehicle_type ?? null, b.rate_type ?? null]);
+           b.target_rate ?? null, b.loading_date || null, b.vehicle_type ?? null, b.rate_type ?? null,
+           bookNow, closeHours]);
         return rows[0];
       });
       return reply.code(201).send({
@@ -140,7 +154,10 @@ export function registerCustomerPortalRoutes(app) {
       const { rows: U } = await c.query(
         `UPDATE bazaar_loads SET status = 'AWARDED', updated_at = now() WHERE load_id = $1 RETURNING *`,
         [req.params.loadId]);
-      return { code: 200, body: { load: U[0], bid: W[0] }, vendorMobile: B[0].vendor_mobile };
+      // The money lifecycle opens with the award, in the same transaction —
+      // an awarded load without a settlement row cannot exist.
+      const settlement = await openSettlementInTx(c, U[0], W[0]);
+      return { code: 200, body: { load: U[0], bid: W[0], settlement }, vendorMobile: B[0].vendor_mobile };
     });
 
     if (out.code === 200 && out.vendorMobile) {
@@ -182,5 +199,28 @@ export function registerCustomerPortalRoutes(app) {
       position: fix[0] ?? null,
       trail: trail.reverse(),
     };
+  });
+
+  // ═══ SETTLEMENT TIMELINE (scoped, money-free) ═════════════════════════════
+  // The customer's stepper for an awarded load: confirmed → truck assigned →
+  // in transit → POD → settled. What the vendor is PAID (advance/balance/
+  // deposit amounts) is our cost side and stays out of this payload.
+  app.get('/portal/customer/loads/:loadId/settlement', { preHandler: needsModule('cust.place_order') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`
+      SELECT s.status, s.confirm_deadline, s.vendor_confirmed_at,
+             s.pod_file, s.pod_submitted_at, s.pod_verified_at, s.cancel_reason,
+             s.created_at, s.updated_at,
+             b.vendor_name, b.bid_amount AS awarded_amount,
+             mv.registration_no AS vehicle_reg,
+             md.name AS driver_name, md.mobile AS driver_mobile
+        FROM bazaar_settlements s
+        JOIN bazaar_bids b ON b.id = s.bid_id
+        LEFT JOIN market_vehicles mv ON mv.id = s.market_vehicle_id
+        LEFT JOIN market_drivers md ON md.id = s.market_driver_id
+       WHERE s.load_id = $1 AND s.customer_id = $2::uuid`,
+      [req.params.loadId, req.party.customerId]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no settlement on this load of yours' });
+    return { load_id: req.params.loadId, settlement: rows[0] };
   });
 }

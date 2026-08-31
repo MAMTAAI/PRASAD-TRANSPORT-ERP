@@ -33,6 +33,7 @@ function inferDocType(key) {
   if (/insur/.test(seg)) return 'INSURANCE';
   if (/permit/.test(seg)) return 'PERMIT';
   if (/\brc\b|rc_/.test(seg)) return 'RC';
+  if (/\bpods?\b|pod[_./-]|proof.?of.?delivery/.test(seg)) return 'POD';
   if (/puc|pollution/.test(seg)) return 'PUC';
   if (/fuel|hsd|slip/.test(seg)) return 'FUEL_SLIP';
   if (/toll|fastag/.test(seg)) return 'TOLL';

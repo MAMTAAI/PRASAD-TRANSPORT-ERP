@@ -28,6 +28,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Gavel, Truck, Wallet, Plus, X, MapPin, Package, CalendarDays, Users,
   ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, ArrowRight, Upload, Info,
+  ClipboardList, Zap, FileCheck2, IndianRupee,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 
@@ -128,6 +129,25 @@ const STATUS = {
   PENDING: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Pending' },
   ACCEPTED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Won' },
   WITHDRAWN: { t: 'text-white/40', b: 'bg-white/5 border-white/10', i: XCircle, l: 'Withdrawn' },
+  // Settlement lifecycle (Phase 2) — the same pill component, more stations.
+  AWAITING_CONFIRM: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Confirm needed' },
+  CONFIRMED: { t: 'text-cyan-300', b: 'bg-cyan-400/10 border-cyan-400/25', i: CheckCircle2, l: 'Confirmed' },
+  VEHICLE_ASSIGNED: { t: 'text-cyan-300', b: 'bg-cyan-400/10 border-cyan-400/25', i: Truck, l: 'Truck assigned' },
+  ADVANCE_PAID: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: IndianRupee, l: 'Advance paid' },
+  POD_SUBMITTED: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: FileCheck2, l: 'POD checking' },
+  POD_VERIFIED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: FileCheck2, l: 'POD verified' },
+  SETTLED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Settled' },
+  CANCELLED: { t: 'text-red-300', b: 'bg-red-400/10 border-red-400/25', i: XCircle, l: 'Cancelled' },
+};
+
+// How long until the auction clock runs out — said in human time.
+const closesIn = (iso) => {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  if (ms <= 0) return 'closed';
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h left` : h > 0 ? `${h}h ${m}m left` : `${m}m left`;
 };
 
 function Pill({ status }) {
@@ -156,7 +176,7 @@ const inputCls =
   + 'outline-none transition-colors placeholder:text-white/20 focus:border-cyan-400/60';
 
 // ── document upload with a skeleton while it flies ──────────────────────────
-function DocUpload({ label, value, onUploaded, hint }) {
+function DocUpload({ label, value, onUploaded, hint, pathPrefix = 'partner-docs' }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const id = useMemo(() => `up-${Math.random().toString(36).slice(2)}`, []);
@@ -168,7 +188,7 @@ function DocUpload({ label, value, onUploaded, hint }) {
     try {
       const fd = new FormData();
       fd.append('file', file);
-      fd.append('path', `partner-docs/${Date.now()}-${file.name}`);
+      fd.append('path', `${pathPrefix}/${Date.now()}-${file.name}`);
       const token = localStorage.getItem('prasad_token');
       const r = await fetch(`${API_BASE}/api/v1/files`, {
         method: 'POST',
@@ -228,8 +248,12 @@ export default function FleetPartnerApp() {
   const [bids, setBids] = useState(null);
   const [fleet, setFleet] = useState(null);
   const [earn, setEarn] = useState(null);
+  const [trips, setTrips] = useState(null);       // settlements — the won loads
 
   const [bidFor, setBidFor] = useState(null);
+  const [bookFor, setBookFor] = useState(null);   // Book-Now confirmation sheet
+  const [assignFor, setAssignFor] = useState(null); // settlement getting a truck
+  const [podFor, setPodFor] = useState(null);     // settlement getting its POD
   const [addWhat, setAddWhat] = useState(null);   // 'vehicle' | 'driver'
   const [toast, setToast] = useState(null);
 
@@ -266,13 +290,29 @@ export default function FleetPartnerApp() {
     const r = await api('/portal/vendor/earnings');
     setEarn(r.ok ? r.body : null);
   }, []);
+  const loadTrips = useCallback(async () => {
+    const r = await api('/portal/vendor/settlements');
+    setTrips(r.ok ? (r.body.settlements ?? []) : []);
+    // The assign sheet needs the approved fleet even if the fleet tab was
+    // never opened.
+    const f = await api('/portal/vendor/fleet');
+    if (f.ok) setFleet(f.body);
+  }, []);
 
   useEffect(() => {
     if (gate !== 'ok') return;
     if (tab === 'board') loadBoard();
+    if (tab === 'trips') loadTrips();
     if (tab === 'fleet') loadFleet();
     if (tab === 'wallet') loadEarn();
-  }, [gate, tab, loadBoard, loadFleet, loadEarn]);
+  }, [gate, tab, loadBoard, loadTrips, loadFleet, loadEarn]);
+
+  const confirmTrip = async (s) => {
+    const r = await api(`/portal/vendor/settlements/${s.id}/confirm`, { method: 'POST' });
+    if (!r.ok) { flash(r.body?.detail ?? `Could not confirm (${r.status})`, 'err'); return; }
+    flash(r.body.detail ?? 'Trip confirmed.');
+    loadTrips();
+  };
 
   // ── the gate ──────────────────────────────────────────────────────────────
   if (gate === 'loading') {
@@ -339,6 +379,8 @@ export default function FleetPartnerApp() {
           <div className="space-y-3">
             {loads?.map((l) => {
               const mine = bidByLoad[l.load_id];
+              const clock = closesIn(l.bid_close_at);
+              const closed = clock === 'closed';
               return (
                 <div key={l.load_id}
                   className="fp-rise overflow-hidden rounded-[22px] border border-white/[0.07]
@@ -361,6 +403,19 @@ export default function FleetPartnerApp() {
                     <Cell icon={CalendarDays} label="Loading" value={dmy(l.loading_date)} />
                   </div>
 
+                  {/* Book-Now: the one PUBLIC rate. Take the load instantly. */}
+                  {Number(l.book_now_rate) > 0 && (
+                    <button onClick={() => setBookFor(l)}
+                      className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center justify-between rounded-2xl
+                                 border border-amber-400/30 bg-gradient-to-r from-amber-400/15 to-amber-400/[0.06]
+                                 px-4 py-3 transition-transform active:scale-[0.98]">
+                      <span className="flex items-center gap-2 text-[13px] font-black text-amber-200">
+                        <Zap size={15} className="text-amber-300" /> Book Now — no bidding
+                      </span>
+                      <span className="text-[16px] font-black text-amber-300">₹{inr(l.book_now_rate)}</span>
+                    </button>
+                  )}
+
                   <div className="flex items-center gap-3 px-4 py-3">
                     <div className="min-w-0 flex-1">
                       {mine ? (
@@ -379,12 +434,19 @@ export default function FleetPartnerApp() {
                           </p>
                         </>
                       )}
+                      {clock && (
+                        <p className={`mt-0.5 flex items-center gap-1 text-[11px] font-bold
+                                       ${closed ? 'text-red-300' : 'text-amber-300/80'}`}>
+                          <Clock size={11} /> {closed ? 'Bidding closed' : `Bidding ${clock}`}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => setBidFor(l)}
+                      disabled={closed}
                       className="shrink-0 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3
                                  text-[13px] font-black text-white shadow-[0_8px_24px_rgba(34,211,238,0.25)]
-                                 transition-transform active:scale-[0.97]">
+                                 transition-transform active:scale-[0.97] disabled:opacity-40 disabled:shadow-none">
                       {mine ? 'Revise bid' : 'Submit bid'}
                     </button>
                   </div>
@@ -402,6 +464,16 @@ export default function FleetPartnerApp() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-bold text-white">{b.origin} → {b.destination}</p>
                       <p className="text-[11px] text-white/35">{b.load_id} · {dmy(b.created_at)}</p>
+                      {/* L-rank: your standing among the live offers — L1 is
+                          lowest. No amounts leak; only where you stand. */}
+                      {b.status === 'PENDING' && b.l_rank != null && (
+                        <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black
+                          ${b.l_rank === 1
+                            ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                            : 'border-amber-400/25 bg-amber-400/10 text-amber-300'}`}>
+                          L{b.l_rank}{b.l_rank === 1 ? ' — lowest offer' : ' — you can revise'}
+                        </span>
+                      )}
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-[14px] font-black text-white">₹{inr(b.bid_amount)}</p>
@@ -412,6 +484,132 @@ export default function FleetPartnerApp() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ── MY TRIPS — won loads through the money lifecycle ───────────── */}
+      {tab === 'trips' && (
+        <div className="px-4 pt-4">
+          <Header title="My Trips"
+            sub={trips == null ? 'loading…' : `${trips.length} won ${trips.length === 1 ? 'load' : 'loads'}`} />
+
+          {trips == null && <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div>}
+          {trips?.length === 0 && (
+            <Empty icon={ClipboardList} title="No trips yet"
+                   body="When a bid of yours is accepted — or you Book-Now a load — the trip appears here to confirm, truck-up and deliver." />
+          )}
+
+          <div className="space-y-3 pb-4">
+            {trips?.map((s) => (
+              <div key={s.id}
+                className="fp-rise overflow-hidden rounded-[22px] border border-white/[0.07]
+                           bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl">
+                <div className="flex items-start gap-3 px-4 pt-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 text-[15px] font-black text-white">
+                      <span className="truncate">{s.origin}</span>
+                      <ArrowRight size={14} className="shrink-0 text-cyan-400" />
+                      <span className="truncate">{s.destination}</span>
+                    </div>
+                    <p className="mt-0.5 text-[12px] text-white/40">
+                      {s.load_id} · loading {dmy(s.loading_date)}
+                    </p>
+                  </div>
+                  <Pill status={s.status} />
+                </div>
+
+                <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden border-y border-white/5 bg-white/5">
+                  <Cell icon={IndianRupee} label="Awarded" value={`₹${inr(s.awarded_amount)}`} />
+                  <Cell icon={IndianRupee} label="Advance"
+                        value={s.advance_amount ? `₹${inr(s.advance_amount)}` : `${inr(s.advance_pct)}% at loading`} />
+                  <Cell icon={Truck} label="Truck" value={s.vehicle_reg || '—'} />
+                </div>
+
+                <div className="space-y-2 px-4 py-3">
+                  {s.status === 'AWAITING_CONFIRM' && (
+                    <>
+                      {s.confirm_deadline && (
+                        <p className="flex items-center gap-1.5 text-[11.5px] font-bold text-amber-300/80">
+                          <Clock size={12} /> Confirm by {new Date(s.confirm_deadline).toLocaleString('en-IN',
+                            { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                      <button onClick={() => confirmTrip(s)}
+                        className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 py-3.5
+                                   text-[14px] font-black text-white shadow-[0_8px_24px_rgba(16,185,129,0.25)]
+                                   transition-transform active:scale-[0.98]">
+                        Confirm this trip
+                      </button>
+                    </>
+                  )}
+
+                  {s.status === 'CONFIRMED' && (
+                    <button onClick={() => setAssignFor(s)}
+                      className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3.5
+                                 text-[14px] font-black text-white shadow-[0_8px_24px_rgba(34,211,238,0.25)]
+                                 transition-transform active:scale-[0.98]">
+                      Assign truck & driver
+                    </button>
+                  )}
+
+                  {['VEHICLE_ASSIGNED', 'ADVANCE_PAID', 'POD_SUBMITTED'].includes(s.status) && (
+                    <>
+                      {s.status === 'VEHICLE_ASSIGNED' && (
+                        <p className="text-[11.5px] leading-relaxed text-white/40">
+                          Truck named. The office releases the {inr(s.advance_pct)}% advance at loading.
+                          You can change the truck until then.
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        {s.status !== 'POD_SUBMITTED' && (
+                          <button onClick={() => setAssignFor(s)}
+                            className="rounded-2xl border border-white/10 bg-white/[0.04] py-3 text-[12.5px]
+                                       font-black text-white/70 transition-transform active:scale-[0.98]">
+                            Change truck
+                          </button>
+                        )}
+                        <button onClick={() => setPodFor(s)}
+                          className={`rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-600 py-3 text-[12.5px]
+                                      font-black text-white transition-transform active:scale-[0.98]
+                                      ${s.status === 'POD_SUBMITTED' ? 'col-span-2' : ''}`}>
+                          {s.pod_file ? 'Replace POD photo' : 'Upload POD'}
+                        </button>
+                      </div>
+                      {s.status === 'POD_SUBMITTED' && (
+                        <p className="text-[11.5px] leading-relaxed text-white/40">
+                          POD received {dmy(s.pod_submitted_at)} — the office is checking it. The balance
+                          releases after verification.
+                        </p>
+                      )}
+                    </>
+                  )}
+
+                  {s.status === 'POD_VERIFIED' && (
+                    <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2.5
+                                  text-[12px] leading-relaxed text-emerald-100/80">
+                      POD verified {dmy(s.pod_verified_at)}. The balance of
+                      ₹{inr(Number(s.awarded_amount) - Number(s.advance_amount ?? 0))} is being released.
+                    </p>
+                  )}
+
+                  {s.status === 'SETTLED' && (
+                    <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2.5
+                                  text-[12px] leading-relaxed text-emerald-100/80">
+                      Fully settled — advance ₹{inr(s.advance_amount ?? 0)} + balance ₹{inr(s.balance_amount ?? 0)}.
+                      Thank you for the trip.
+                    </p>
+                  )}
+
+                  {s.status === 'CANCELLED' && s.cancel_reason && (
+                    <p className="rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3 py-2.5
+                                  text-[12px] leading-relaxed text-red-200/80">
+                      Office note: {s.cancel_reason}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -550,6 +748,26 @@ export default function FleetPartnerApp() {
         onDone={(msg) => { setAddWhat(null); flash(msg); loadFleet(); }}
       />
 
+      <BookNowSheet
+        load={bookFor}
+        onClose={() => setBookFor(null)}
+        onDone={(msg) => { setBookFor(null); flash(msg); loadBoard(); setTab('trips'); }}
+      />
+
+      <AssignSheet
+        settlement={assignFor}
+        vehicles={(fleet?.vehicles ?? []).filter((v) => v.system_status === 'System Active')}
+        drivers={(fleet?.drivers ?? []).filter((d) => d.system_status === 'System Active')}
+        onClose={() => setAssignFor(null)}
+        onDone={(msg) => { setAssignFor(null); flash(msg); loadTrips(); }}
+      />
+
+      <PodSheet
+        settlement={podFor}
+        onClose={() => setPodFor(null)}
+        onDone={(msg) => { setPodFor(null); flash(msg); loadTrips(); }}
+      />
+
       {toast && (
         <div className="fixed inset-x-4 bottom-24 z-[9500] fp-rise">
           <div className={`rounded-2xl border px-4 py-3 text-[12.5px] font-semibold backdrop-blur-xl
@@ -567,6 +785,7 @@ export default function FleetPartnerApp() {
         <div className="mx-auto flex max-w-md">
           {[
             { k: 'board', icon: Gavel, label: 'Loads' },
+            { k: 'trips', icon: ClipboardList, label: 'My Trips' },
             { k: 'fleet', icon: Truck, label: 'My Fleet' },
             { k: 'wallet', icon: Wallet, label: 'Earnings' },
           ].map((t) => {
@@ -663,6 +882,190 @@ function BidSheet({ load, existing, onClose, onDone }) {
         It goes straight to the office's approval desk — it is not an award, and nothing is agreed until they respond.
       </p>
 
+      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
+    </Sheet>
+  );
+}
+
+// ── book now — instant award at the public price ────────────────────────────
+// A separate confirmation sheet, not a browser confirm(): booking is binding,
+// so the rate, the route and the consequence are all on screen when the thumb
+// commits.
+function BookNowSheet({ load, onClose, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setErr(''); }, [load]);
+  if (!load) return null;
+
+  const book = async () => {
+    setBusy(true); setErr('');
+    const r = await api(`/portal/vendor/loads/${encodeURIComponent(load.load_id)}/book-now`, { method: 'POST' });
+    setBusy(false);
+    if (!r.ok) { setErr(r.body?.detail ?? `Could not book (${r.status})`); return; }
+    onDone('Load booked! Confirm it under My Trips.');
+  };
+
+  return (
+    <Sheet
+      open={!!load}
+      onClose={onClose}
+      title="Book this load now"
+      subtitle={`${load.origin} → ${load.destination}`}
+      footer={
+        <button onClick={book} disabled={busy}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
+                     from-amber-500 to-orange-600 py-4 text-[15px] font-black text-white
+                     shadow-[0_10px_30px_rgba(245,158,11,0.3)] transition-transform
+                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
+          {busy ? <><Loader2 size={17} className="animate-spin" /> Booking…</>
+                : <><Zap size={17} /> Book at ₹{inr(load.book_now_rate)}</>}
+        </button>
+      }
+    >
+      <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-4 text-center">
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-300/60">Book-Now rate</p>
+        <p className="mt-1 text-[32px] font-black leading-none text-amber-300">₹{inr(load.book_now_rate)}</p>
+      </div>
+      <div className="mb-3 grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-white/5 bg-white/5">
+        <Cell icon={Package} label="Material" value={load.material || '—'} />
+        <Cell icon={Truck} label="Weight" value={load.weight || '—'} />
+        <Cell icon={CalendarDays} label="Loading" value={dmy(load.loading_date)} />
+      </div>
+      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
+        <Info size={14} className="mt-0.5 shrink-0 text-amber-400/70" />
+        Booking is instant and binding — the load is awarded to you at this rate the moment you tap,
+        and every open bid on it closes. You then confirm the trip and name the truck under My Trips.
+      </p>
+      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
+    </Sheet>
+  );
+}
+
+// ── assign an approved truck (and driver) to a won trip ─────────────────────
+function AssignSheet({ settlement, vehicles, drivers, onClose, onDone }) {
+  const [vehicleId, setVehicleId] = useState('');
+  const [driverId, setDriverId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    setVehicleId(settlement?.market_vehicle_id ?? '');
+    setDriverId(settlement?.market_driver_id ?? '');
+    setErr('');
+  }, [settlement]);
+  if (!settlement) return null;
+
+  const submit = async () => {
+    if (!vehicleId) { setErr('Pick the truck that will run this trip.'); return; }
+    setBusy(true); setErr('');
+    const r = await api(`/portal/vendor/settlements/${settlement.id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ market_vehicle_id: vehicleId, market_driver_id: driverId || null }),
+    });
+    setBusy(false);
+    if (!r.ok) { setErr(r.body?.detail ?? `Could not assign (${r.status})`); return; }
+    onDone(r.body.detail ?? 'Truck assigned.');
+  };
+
+  return (
+    <Sheet
+      open={!!settlement}
+      onClose={onClose}
+      title="Assign truck & driver"
+      subtitle={`${settlement.origin} → ${settlement.destination} · ${settlement.load_id}`}
+      footer={
+        <button onClick={submit} disabled={busy || !vehicleId}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
+                     from-cyan-500 to-blue-600 py-4 text-[15px] font-black text-white
+                     shadow-[0_10px_30px_rgba(34,211,238,0.3)] transition-transform
+                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
+          {busy ? <><Loader2 size={17} className="animate-spin" /> Assigning…</> : 'Assign to this trip'}
+        </button>
+      }
+    >
+      {vehicles.length === 0 ? (
+        <p className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3
+                      text-[12.5px] leading-relaxed text-amber-100/70">
+          You have no approved trucks yet. Add one under <b>My Fleet</b> — the office approves it,
+          then it can carry this load.
+        </p>
+      ) : (
+        <Field label="Truck" hint="Only office-approved trucks are listed.">
+          <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className={inputCls}>
+            <option value="">Select truck…</option>
+            {vehicles.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.registration_no}{v.vehicle_class ? ` · ${v.vehicle_class}` : ''}{v.capacity ? ` · ${v.capacity}` : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <Field label="Driver (optional)" hint="Only office-approved drivers are listed.">
+        <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className={inputCls}>
+          <option value="">Name later</option>
+          {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}{d.mobile ? ` · ${d.mobile}` : ''}</option>)}
+        </select>
+      </Field>
+      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
+        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-cyan-400/70" />
+        The office releases the advance only after a verified truck is on the trip — naming it here
+        is what unlocks that step.
+      </p>
+      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
+    </Sheet>
+  );
+}
+
+// ── POD upload — camera-first, then the storage key lands on the settlement ─
+function PodSheet({ settlement, onClose, onDone }) {
+  const [podKey, setPodKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setPodKey(''); setErr(''); }, [settlement]);
+  if (!settlement) return null;
+
+  const submit = async () => {
+    if (!podKey) { setErr('Photograph the signed POD first.'); return; }
+    setBusy(true); setErr('');
+    const r = await api(`/portal/vendor/settlements/${settlement.id}/pod`, {
+      method: 'POST',
+      body: JSON.stringify({ pod_file: podKey }),
+    });
+    setBusy(false);
+    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
+    onDone(r.body.detail ?? 'POD submitted for verification.');
+  };
+
+  return (
+    <Sheet
+      open={!!settlement}
+      onClose={onClose}
+      title="Upload proof of delivery"
+      subtitle={`${settlement.origin} → ${settlement.destination} · ${settlement.load_id}`}
+      footer={
+        <button onClick={submit} disabled={busy || !podKey}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
+                     from-violet-500 to-fuchsia-600 py-4 text-[15px] font-black text-white
+                     shadow-[0_10px_30px_rgba(167,139,250,0.28)] transition-transform
+                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
+          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : 'Send POD to office'}
+        </button>
+      }
+    >
+      <DocUpload
+        label="Signed POD / delivery challan"
+        value={podKey}
+        onUploaded={setPodKey}
+        pathPrefix={`bazaar-pods/${settlement.load_id}`}
+        hint="Photograph the stamped and signed copy — clear enough to read the stamp."
+      />
+      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
+        <FileCheck2 size={14} className="mt-0.5 shrink-0 text-violet-400/70" />
+        The office verifies this photo, the customer is informed, and your balance
+        {settlement.advance_amount
+          ? ` (₹${inr(Number(settlement.awarded_amount) - Number(settlement.advance_amount))})`
+          : ''} releases after verification. A blurry stamp is the usual reason a POD bounces.
+      </p>
       {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
     </Sheet>
   );

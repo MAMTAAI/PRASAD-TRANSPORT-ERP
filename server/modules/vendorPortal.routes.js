@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { resolveParty, visibleModules, needsModule } from './portal.routes.js';
 import { notifyWhatsApp } from '../lib/notify.js';
+import { openSettlementInTx } from './bazaarSettlement.routes.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -94,7 +95,9 @@ export function registerVendorPortalRoutes(app) {
 
     const result = await withTransaction(async (t) => {
       const { rows: load } = await t.query(
-        `SELECT l.load_id, l.status, l.origin, l.destination, c.mobile_no AS customer_mobile
+        `SELECT l.load_id, l.status, l.origin, l.destination, l.bid_close_at,
+                (l.bid_close_at IS NOT NULL AND l.bid_close_at <= now()) AS bidding_closed,
+                c.mobile_no AS customer_mobile
            FROM bazaar_loads l LEFT JOIN customers c ON c.id = l.customer_id
           WHERE l.load_id = $1 FOR UPDATE OF l`, [req.params.loadId]);
       if (!load[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such load' });
@@ -102,6 +105,13 @@ export function registerVendorPortalRoutes(app) {
         return reply.code(409).send({
           error: 'LOAD_CLOSED',
           detail: `this load is ${load[0].status.toLowerCase()} and is no longer taking bids`,
+        });
+      }
+      // The auction clock is enforced where the bid is written, not in a screen.
+      if (load[0].bidding_closed) {
+        return reply.code(409).send({
+          error: 'BIDDING_CLOSED',
+          detail: 'bidding on this load has closed — the customer is choosing between the offers received',
         });
       }
 
@@ -147,12 +157,83 @@ export function registerVendorPortalRoutes(app) {
     return result;
   });
 
+  // ═══ BOOK NOW — take the load instantly at the customer's public price ═══
+  // The same transaction shape as an award: winner accepted, the rest
+  // rejected, load AWARDED, settlement opened. The public book_now_rate is
+  // the ONLY rate involved — nobody's blind bid is revealed by booking.
+  app.post('/portal/vendor/loads/:loadId/book-now', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    let award = null;
+    const result = await withTransaction(async (t) => {
+      const { rows: load } = await t.query(
+        `SELECT l.*, c.mobile_no AS customer_mobile
+           FROM bazaar_loads l LEFT JOIN customers c ON c.id = l.customer_id
+          WHERE l.load_id = $1 FOR UPDATE OF l`, [req.params.loadId]);
+      if (!load[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such load' });
+      if (load[0].status !== 'OPEN') {
+        return reply.code(409).send({
+          error: 'LOAD_CLOSED',
+          detail: `this load is ${load[0].status.toLowerCase()} — somebody may have booked it first`,
+        });
+      }
+      const rate = Number(load[0].book_now_rate);
+      if (!(rate > 0)) {
+        return reply.code(409).send({ error: 'NO_BOOK_NOW', detail: 'this load has no Book-Now price — place a bid instead' });
+      }
+
+      const { rows: vend } = await t.query(
+        `SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
+
+      // The booking replaces every open offer, the booker's own included.
+      await t.query(
+        `UPDATE bazaar_bids SET status='WITHDRAWN', updated_at=now()
+          WHERE load_id=$1 AND vendor_id=$2::uuid AND status='PENDING'`,
+        [req.params.loadId, req.party.vendorId]);
+      await t.query(
+        `UPDATE bazaar_bids SET status='REJECTED', updated_at=now()
+          WHERE load_id=$1 AND status='PENDING'`, [req.params.loadId]);
+
+      const { rows: W } = await t.query(`
+        INSERT INTO bazaar_bids (load_id, vendor_name, vendor_id, bid_amount, remarks, status)
+        VALUES ($1, $2, $3::uuid, $4, 'Book-Now', 'ACCEPTED')
+        RETURNING *`,
+        [req.params.loadId, vend[0]?.vendor_name ?? 'partner', req.party.vendorId, rate]);
+      const { rows: U } = await t.query(
+        `UPDATE bazaar_loads SET status='AWARDED', updated_at=now() WHERE load_id=$1 RETURNING *`,
+        [req.params.loadId]);
+      const settlement = await openSettlementInTx(t, U[0], W[0]);
+
+      award = { customerMobile: load[0].customer_mobile, rate, origin: load[0].origin, destination: load[0].destination };
+      return reply.code(201).send({
+        load: U[0], bid: W[0], settlement,
+        detail: 'Load booked at the Book-Now rate. Confirm it under "My Trips" — '
+              + 'the office will then take the next steps (deposit, vehicle, advance).',
+      });
+    });
+    if (award?.customerMobile) {
+      notifyWhatsApp(award.customerMobile,
+        `⚡ Load Bazaar: aapka load ${req.params.loadId} (${award.origin} → ${award.destination}) `
+        + `Book-Now rate ₹${award.rate.toLocaleString('en-IN')} par turant book ho gaya hai.`);
+    }
+    return result;
+  });
+
   // ONLY the caller's own bids. There is no parameter that widens this.
+  // l_rank: your standing among the LIVE offers on that load — L1 means
+  // lowest. The rank leaks no amounts; it is exactly the Truckstop-style
+  // signal the blueprint calls for.
   app.get('/portal/vendor/bids', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(`
       SELECT b.id, b.load_id, b.bid_amount, b.status, b.remarks, b.created_at,
-             l.origin, l.destination, l.material, l.weight, l.loading_date, l.status AS load_status
+             l.origin, l.destination, l.material, l.weight, l.loading_date, l.status AS load_status,
+             l.bid_close_at,
+             CASE WHEN b.status = 'PENDING' THEN
+               (SELECT count(*) + 1 FROM bazaar_bids x
+                 WHERE x.load_id = b.load_id AND x.status = 'PENDING'
+                   AND (x.bid_amount < b.bid_amount
+                        OR (x.bid_amount = b.bid_amount AND x.created_at < b.created_at)))::int
+             END AS l_rank
         FROM bazaar_bids b
         JOIN bazaar_loads l ON l.load_id = b.load_id
        WHERE b.vendor_id = $1::uuid
@@ -173,6 +254,141 @@ export function registerVendorPortalRoutes(app) {
       });
     }
     return rows[0];
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // 1b. MY TRIPS — the settlement lifecycle of loads this partner has won.
+  // The vendor moves the workflow (confirm, name the truck, upload the POD);
+  // every rupee stays office-side, posted by the admin settlement routes
+  // through TARA. Nothing here can move money.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  app.get('/portal/vendor/settlements', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`
+      SELECT s.id, s.load_id, s.status, s.awarded_amount, s.advance_pct,
+             s.confirm_deadline, s.vendor_confirmed_at,
+             s.deposit_amount, s.advance_amount, s.balance_amount,
+             s.pod_file, s.pod_submitted_at, s.pod_verified_at, s.cancel_reason,
+             s.market_vehicle_id, s.market_driver_id, s.created_at,
+             l.origin, l.destination, l.material, l.weight, l.loading_date,
+             mv.registration_no AS vehicle_reg, md.name AS driver_name
+        FROM bazaar_settlements s
+        JOIN bazaar_loads l ON l.load_id = s.load_id
+        LEFT JOIN market_vehicles mv ON mv.id = s.market_vehicle_id
+        LEFT JOIN market_drivers md ON md.id = s.market_driver_id
+       WHERE s.vendor_id = $1::uuid
+       ORDER BY s.created_at DESC LIMIT 100`, [req.party.vendorId]);
+    return { count: rows.length, settlements: rows };
+  });
+
+  app.post('/portal/vendor/settlements/:id/confirm', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `UPDATE bazaar_settlements
+          SET status = 'CONFIRMED', vendor_confirmed_at = now(), updated_at = now()
+        WHERE id = $1::uuid AND vendor_id = $2::uuid AND status = 'AWAITING_CONFIRM'
+        RETURNING id, load_id, status, vendor_confirmed_at`,
+      [req.params.id, req.party.vendorId]);
+    if (!rows.length) {
+      return reply.code(409).send({
+        error: 'NOT_CONFIRMABLE',
+        detail: 'that trip is not yours, or it is past the confirm stage',
+      });
+    }
+    return { ...rows[0], detail: 'Trip confirmed. Now assign an approved truck (and driver) to it.' };
+  });
+
+  // Only THIS partner's own, office-approved truck and driver can be named.
+  // A pending or blocked vehicle cannot carry a bazaar load — same rule as
+  // the dispatch board.
+  app.post('/portal/vendor/settlements/:id/assign', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const vehicleId = String(req.body?.market_vehicle_id ?? '');
+    const driverId = req.body?.market_driver_id ? String(req.body.market_driver_id) : null;
+    if (!vehicleId) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'market_vehicle_id is required' });
+
+    const { rows: V } = await query(
+      `SELECT id, registration_no, system_status FROM market_vehicles
+        WHERE id = $1::uuid AND vendor_id = $2::uuid`, [vehicleId, req.party.vendorId]);
+    if (!V.length) return reply.code(404).send({ error: 'NO_SUCH_VEHICLE', detail: 'that truck is not on your approved fleet' });
+    if (V[0].system_status !== 'System Active') {
+      return reply.code(409).send({
+        error: 'VEHICLE_NOT_APPROVED',
+        detail: `${V[0].registration_no} is ${V[0].system_status} — only an approved truck can take a bazaar load`,
+      });
+    }
+    if (driverId) {
+      const { rows: D } = await query(
+        `SELECT id, system_status FROM market_drivers
+          WHERE id = $1::uuid AND vendor_id = $2::uuid`, [driverId, req.party.vendorId]);
+      if (!D.length) return reply.code(404).send({ error: 'NO_SUCH_DRIVER', detail: 'that driver is not on your list' });
+      if (D[0].system_status !== 'System Active') {
+        return reply.code(409).send({ error: 'DRIVER_NOT_APPROVED', detail: `driver is ${D[0].system_status}` });
+      }
+    }
+
+    const { rows } = await query(
+      `UPDATE bazaar_settlements
+          SET status = 'VEHICLE_ASSIGNED', market_vehicle_id = $3::uuid,
+              market_driver_id = $4::uuid, updated_at = now()
+        WHERE id = $1::uuid AND vendor_id = $2::uuid
+          AND status IN ('CONFIRMED','VEHICLE_ASSIGNED')
+        RETURNING id, load_id, status`,
+      [req.params.id, req.party.vendorId, vehicleId, driverId]);
+    if (!rows.length) {
+      return reply.code(409).send({
+        error: 'NOT_ASSIGNABLE',
+        detail: 'confirm the trip first — a truck is named after the confirmation, before the advance',
+      });
+    }
+    return {
+      ...rows[0], vehicle_reg: V[0].registration_no,
+      detail: 'Truck assigned. The office can now release the advance.',
+    };
+  });
+
+  // The POD comes from the partner's phone camera; the office verifies it.
+  // The file itself goes up through POST /files first (bazaar-pods/...), and
+  // the storage key lands here. The balance stays locked until the office
+  // marks the POD verified — that gate lives in the admin settlement route.
+  app.post('/portal/vendor/settlements/:id/pod', { preHandler: needsModule('vend.bazaar') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const podFile = String(req.body?.pod_file ?? '').trim();
+    if (!podFile) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'pod_file (the uploaded file key) is required' });
+
+    const { rows: vend } = await query(
+      `SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
+    const { rows } = await query(
+      `UPDATE bazaar_settlements
+          SET status = 'POD_SUBMITTED', pod_file = $3, pod_submitted_at = now(),
+              pod_submitted_by = $4, updated_at = now()
+        WHERE id = $1::uuid AND vendor_id = $2::uuid
+          AND status IN ('VEHICLE_ASSIGNED','ADVANCE_PAID','POD_SUBMITTED')
+        RETURNING id, load_id, status, pod_submitted_at`,
+      [req.params.id, req.party.vendorId, podFile, `portal:${vend[0]?.vendor_name ?? ''}`]);
+    if (!rows.length) {
+      return reply.code(409).send({
+        error: 'NOT_READY',
+        detail: 'a POD lands after the truck is assigned, and not on a settled or cancelled trip',
+      });
+    }
+
+    // The customer hears their goods arrived — the blueprint's auto-forward.
+    const { rows: C } = await query(
+      `SELECT c.mobile_no, l.origin, l.destination FROM bazaar_settlements s
+         JOIN bazaar_loads l ON l.load_id = s.load_id
+         LEFT JOIN customers c ON c.id = s.customer_id
+        WHERE s.id = $1::uuid`, [req.params.id]);
+    if (C[0]?.mobile_no) {
+      notifyWhatsApp(C[0].mobile_no,
+        `📄 Load Bazaar: aapke load ${rows[0].load_id} (${C[0].origin} → ${C[0].destination}) `
+        + `ki delivery ka POD (proof of delivery) upload ho gaya hai. Office verify karke aapko update karega.`);
+    }
+    return {
+      ...rows[0],
+      detail: 'POD submitted. The office will verify it; the balance releases after verification.',
+    };
   });
 
   // ═══════════════════════════════════════════════════════════════════════

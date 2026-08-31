@@ -69,6 +69,60 @@ export default function BazaarAdmin() {
     } catch (e) { console.error("Error fetching market trucks:", e); }
   };
 
+  // ── SETTLEMENTS (Phase 2) — the money desk behind every award ────────────
+  // Every button here asks the server to post a TARA voucher; this screen
+  // holds no money state of its own. The gates (advance only after a truck,
+  // balance only after the POD is verified) live server-side — a disabled
+  // button is a courtesy, the 409 is the law.
+  const [setts, setSetts] = useState([]);
+  const [settLoading, setSettLoading] = useState(false);
+  const [companies, setCompanies] = useState([]);
+  const [openSett, setOpenSett] = useState(null);        // id of the expanded card
+  const [sf, setSf] = useState({});                      // the expanded card's action form
+
+  const fetchSettlements = async () => {
+    setSettLoading(true);
+    try {
+      const j = await fetchJson(`${BAZAAR}/settlements`);
+      setSetts(j.settlements ?? []);
+    } catch (e) { console.error('Error fetching settlements:', e); }
+    setSettLoading(false);
+  };
+  const fetchCompanies = async () => {
+    try {
+      const j = await fetchJson(`${API}/api/v1/finance/masters/companies`);
+      setCompanies(j.companies ?? j.rows ?? []);
+    } catch { setCompanies([]); }
+  };
+  useEffect(() => {
+    if (activeTab === 'ESCROW') { fetchSettlements(); fetchCompanies(); }
+  }, [activeTab]);
+
+  const settAction = async (id, path, body, confirmMsg) => {
+    if (confirmMsg && !window.confirm(confirmMsg)) return;
+    try {
+      await fetchJson(`${BAZAAR}/settlements/${id}${path}`, {
+        method: path === '' ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+      });
+      await fetchSettlements();
+    } catch (e) {
+      alert('❌ ' + ((e as any).message ?? 'failed'));
+    }
+  };
+
+  const viewPod = async (podKey) => {
+    try {
+      const token = localStorage.getItem('prasad_token');
+      const r = await fetch(`${API}/api/v1/files/${podKey}`,
+        { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!r.ok) { alert(`Could not open POD (${r.status})`); return; }
+      const blob = await r.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch (e) { alert('Could not open POD: ' + (e as any).message); }
+  };
+
   // 📍 SMART ROUTE & TOLL CALCULATOR
   //
   // THIS USED TO MAKE THE NUMBERS UP. Distance was Math.random() between 150
@@ -200,7 +254,7 @@ export default function BazaarAdmin() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => setActiveTab('LIVE_BOARD')} style={{ background: activeTab === 'LIVE_BOARD' ? '#3b82f6' : '#1e293b', color: activeTab === 'LIVE_BOARD' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>📦 Live Load Board</button>
             <button onClick={() => setActiveTab('RADAR_MAP')} style={{ background: activeTab === 'RADAR_MAP' ? '#10b981' : '#1e293b', color: activeTab === 'RADAR_MAP' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>📡 Fleet Radar (Map)</button>
-            <button onClick={() => setActiveTab('ESCROW')} style={{ background: activeTab === 'ESCROW' ? '#f59e0b' : '#1e293b', color: activeTab === 'ESCROW' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>💰 Escrow & Finance</button>
+            <button onClick={() => setActiveTab('ESCROW')} style={{ background: activeTab === 'ESCROW' ? '#f59e0b' : '#1e293b', color: activeTab === 'ESCROW' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>💰 Settlements & Finance</button>
           </div>
         </div>
         
@@ -358,13 +412,150 @@ export default function BazaarAdmin() {
         </div>
       )}
 
-      {/* TAB 3: ESCROW */}
+      {/* TAB 3: SETTLEMENTS — award → deposit → advance → POD → balance */}
       {activeTab === 'ESCROW' && (
-        <div style={{ textAlign: 'center', marginTop: '100px' }}>
-          <div style={{ fontSize: '50px', marginBottom: '15px' }}>🏦</div>
-          <h2 style={{ color: '#fff', margin: 0 }}>Escrow & Bazaar Finance</h2>
-          <button style={{ background: '#1e293b', color: '#94a3b8', border: '1px solid #334155', padding: '10px 20px', borderRadius: '8px', marginTop: '15px', cursor: 'not-allowed' }}>Coming Soon</button>
-        </div>
+        settLoading ? (
+          <div style={{ color: '#f59e0b', fontSize: '18px', fontWeight: 'bold' }}>Loading settlements…</div>
+        ) : setts.length === 0 ? (
+          <div style={{ textAlign: 'center', marginTop: '100px' }}>
+            <div style={{ fontSize: '50px', marginBottom: '15px' }}>🏦</div>
+            <h2 style={{ color: '#fff', margin: 0 }}>No settlements yet</h2>
+            <p style={{ color: '#94a3b8', maxWidth: '460px', margin: '10px auto' }}>
+              The moment a load is awarded — by a customer, by Book-Now, or from this desk — its money
+              lifecycle appears here: trip-lock deposit, advance at loading, POD check, balance release.
+              Every rupee posts through TARA into the books.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '25px' }}>
+            {setts.map((s) => {
+              const open = openSett === s.id;
+              const SETT_COLORS = {
+                AWAITING_CONFIRM: '#f59e0b', CONFIRMED: '#38bdf8', VEHICLE_ASSIGNED: '#38bdf8',
+                ADVANCE_PAID: '#10b981', POD_SUBMITTED: '#f59e0b', POD_VERIFIED: '#10b981',
+                SETTLED: '#10b981', CANCELLED: '#ef4444',
+              };
+              const col = SETT_COLORS[s.status] ?? '#94a3b8';
+              const due = Number(s.awarded_amount) - Number(s.advance_amount ?? 0);
+              const editable = !['SETTLED', 'CANCELLED'].includes(s.status);
+              return (
+                <div key={s.id} style={{ background: '#0f172a', border: `1px solid ${col}55`, borderRadius: '15px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+                  <div style={{ padding: '18px 20px', borderBottom: '1px solid #1e293b', cursor: 'pointer' }}
+                       onClick={() => { setOpenSett(open ? null : s.id); setSf({}); }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>
+                          {s.load_id} · <span style={{ color: '#fff' }}>{s.vendor_name}</span>
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '900', color: '#fff', marginTop: '4px' }}>
+                          {s.origin} <span style={{ color: '#f59e0b' }}>➔</span> {s.destination}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>
+                          {s.customer_name} · {s.vehicle_reg ? `🚛 ${s.vehicle_reg}` : 'truck not named'}
+                          {s.driver_name_assigned ? ` · ${s.driver_name_assigned}` : ''}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="status-badge" style={{ background: `${col}22`, color: col }}>{s.status.replaceAll('_', ' ')}</div>
+                        <div style={{ fontSize: '16px', fontWeight: '900', color: '#fff', marginTop: '6px' }}>₹{Number(s.awarded_amount).toLocaleString('en-IN')}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '14px', marginTop: '10px', fontSize: '11px', color: '#94a3b8' }}>
+                      <span>Deposit: <b style={{ color: s.deposit_amount ? '#10b981' : '#64748b' }}>{s.deposit_amount ? `₹${Number(s.deposit_amount).toLocaleString('en-IN')}` : '—'}</b></span>
+                      <span>Advance ({Number(s.advance_pct)}%): <b style={{ color: s.advance_amount ? '#10b981' : '#64748b' }}>{s.advance_amount ? `₹${Number(s.advance_amount).toLocaleString('en-IN')}` : '—'}</b></span>
+                      <span>Balance: <b style={{ color: s.balance_amount ? '#10b981' : '#64748b' }}>{s.balance_amount ? `₹${Number(s.balance_amount).toLocaleString('en-IN')}` : `₹${due.toLocaleString('en-IN')} due`}</b></span>
+                      <span>Firm: <b style={{ color: s.company_id ? '#38bdf8' : '#ef4444' }}>{s.company_id ? (companies.find((c) => c.id === s.company_id)?.company_name ?? 'set') : 'NOT SET'}</b></span>
+                    </div>
+                  </div>
+
+                  {open && (
+                    <div style={{ padding: '16px 20px', background: '#020617', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {/* Firm + advance % — before money moves */}
+                      {editable && (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+                          <div style={{ flex: 2 }}>
+                            <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>FIRM (whose books)</label>
+                            <select className="glass-input" value={s.company_id ?? ''}
+                              onChange={(e) => settAction(s.id, '', { company_id: e.target.value || null })}>
+                              <option value="">— not set —</option>
+                              {companies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>ADVANCE %</label>
+                            <input className="glass-input" type="number" defaultValue={Number(s.advance_pct)}
+                              onBlur={(e) => { const p = Number(e.target.value); if (p !== Number(s.advance_pct)) settAction(s.id, '', { advance_pct: p }); }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Shared money inputs */}
+                      {editable && (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <div style={{ flex: 2 }}>
+                            <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>BANK / CASH LEDGER (for the voucher)</label>
+                            <input className="glass-input" placeholder="e.g. HDFC Bank / Cash" value={sf.account ?? ''}
+                                   onChange={(e) => setSf((p) => ({ ...p, account: e.target.value }))} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>AMOUNT ₹ (blank = auto)</label>
+                            <input className="glass-input" type="number" value={sf.amount ?? ''}
+                                   onChange={(e) => setSf((p) => ({ ...p, amount: e.target.value }))} />
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {editable && !s.vendor_deposit_voucher_id && (
+                          <button onClick={() => settAction(s.id, '/deposit', { side: 'VENDOR', account: sf.account, amount: Number(sf.amount) || undefined }, 'Record the VENDOR trip-lock deposit received?')}
+                            style={{ background: '#1e293b', color: '#fcd34d', border: '1px solid #f59e0b55', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🔒 Vendor deposit in</button>
+                        )}
+                        {editable && !s.customer_deposit_voucher_id && (
+                          <button onClick={() => settAction(s.id, '/deposit', { side: 'CUSTOMER', account: sf.account, amount: Number(sf.amount) || undefined }, 'Record the CUSTOMER trip-lock deposit received?')}
+                            style={{ background: '#1e293b', color: '#fcd34d', border: '1px solid #f59e0b55', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🔒 Customer deposit in</button>
+                        )}
+                        {s.vendor_deposit_voucher_id && !s.vendor_deposit_refund_voucher_id && (
+                          <button onClick={() => settAction(s.id, '/deposit-refund', { side: 'VENDOR', account: sf.account }, 'Refund the VENDOR deposit?')}
+                            style={{ background: '#1e293b', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>↩ Refund vendor dep.</button>
+                        )}
+                        {s.customer_deposit_voucher_id && !s.customer_deposit_refund_voucher_id && (
+                          <button onClick={() => settAction(s.id, '/deposit-refund', { side: 'CUSTOMER', account: sf.account }, 'Refund the CUSTOMER deposit?')}
+                            style={{ background: '#1e293b', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>↩ Refund customer dep.</button>
+                        )}
+                        {s.status === 'VEHICLE_ASSIGNED' && (
+                          <button onClick={() => settAction(s.id, '/advance', { account: sf.account, amount: Number(sf.amount) || undefined }, `Release the advance (default ${Number(s.advance_pct)}% = ₹${Math.round(Number(s.awarded_amount) * Number(s.advance_pct) / 100).toLocaleString('en-IN')})?`)}
+                            style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>💸 Release advance</button>
+                        )}
+                        {s.pod_file && (
+                          <button onClick={() => viewPod(s.pod_file)}
+                            style={{ background: '#1e293b', color: '#a78bfa', border: '1px solid #a78bfa55', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>📄 View POD</button>
+                        )}
+                        {s.pod_file && ['POD_SUBMITTED', 'ADVANCE_PAID'].includes(s.status) && (
+                          <button onClick={() => settAction(s.id, '/pod/verify', { note: sf.note ?? null }, 'Confirm you have checked the POD? This unlocks the balance.')}
+                            style={{ background: 'linear-gradient(135deg,#8b5cf6,#7c3aed)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✅ Verify POD</button>
+                        )}
+                        {s.status === 'POD_VERIFIED' && (
+                          <button onClick={() => settAction(s.id, '/balance', { account: sf.account, amount: Number(sf.amount) || undefined }, `Release the balance (₹${due.toLocaleString('en-IN')} due)?`)}
+                            style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>💰 Release balance</button>
+                        )}
+                        {editable && (
+                          <button onClick={() => { const reason = window.prompt('Why is this settlement being cancelled? (the load reopens for bids)'); if (reason) settAction(s.id, '/cancel', { reason }); }}
+                            style={{ background: '#1e293b', color: '#ef4444', border: '1px solid #ef444455', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✖ Cancel</button>
+                        )}
+                      </div>
+
+                      <div style={{ fontSize: '10.5px', color: '#64748b', lineHeight: 1.6 }}>
+                        Advance releases only after the partner confirms and names an approved truck; the balance only
+                        after the POD is verified — the server refuses anything else. Every button posts a TARA voucher
+                        into the firm's books; nothing here keeps its own khata.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* 📝 MEGA MODAL: POST SMART LOAD */}
