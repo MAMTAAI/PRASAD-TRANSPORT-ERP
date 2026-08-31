@@ -67,37 +67,100 @@ const whatsapp = {
 // ── SMS — a real driver now (2026-08-31), provider chosen by env ────────────
 // The stub this replaces was the single point of failure the owner kept
 // hitting: WhatsApp engine down → every driver login 503, no second wire.
-// Three providers, all plain HTTPS, no SDK:
 //
+// THE PREFERRED PROVIDER IS AWS SNS (owner's directive, 2026-08-31): the box
+// already lives on AWS, so the credential can be the EC2 instance role and no
+// third-party gateway key ever exists. India requires TRAI/DLT registration —
+// the Entity Id and Template Id ride on every publish as message attributes,
+// read dynamically from env, and the message TEXT must match the registered
+// DLT template, so it too is env-configurable.
+//
+//   SMS_PROVIDER=sns        + SMS_ENTITY_ID (DLT PE id)
+//                           + SMS_TEMPLATE_ID (DLT template id)
+//                           + SMS_SENDER_ID (DLT-approved header, e.g. PRASTR)
+//                           [+ SNS_REGION, default ap-south-1]
+//                           [+ SMS_OTP_TEMPLATE with {code} — MUST match the
+//                              DLT-registered wording]
+//                           credentials: EC2 instance role or the standard
+//                              AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY chain
+//
+// The HTTP providers below remain as escape hatches only; nothing selects
+// them unless SMS_PROVIDER says so:
 //   SMS_PROVIDER=fast2sms   + SMS_API_KEY
 //   SMS_PROVIDER=msg91      + SMS_API_KEY (authkey) + SMS_TEMPLATE_ID
 //   SMS_PROVIDER=custom     + SMS_URL_TEMPLATE with {mobile} {code} {message}
-//                             placeholders (GET; for any local gateway)
 //
-// available() is config-only — an SMS gateway has no status socket to probe,
-// so "configured" is the honest answer and a send failure still surfaces as
+// available() is config-only — a gateway has no status socket to probe, so
+// "configured" is the honest answer and a send failure still surfaces as
 // OTP_SEND_FAILED with the provider's own message.
 const SMS_PROVIDER = (process.env.SMS_PROVIDER || '').toLowerCase();
 const SMS_API_KEY = process.env.SMS_API_KEY || '';
 const SMS_TEMPLATE_ID = process.env.SMS_TEMPLATE_ID || '';
 const SMS_URL_TEMPLATE = process.env.SMS_URL_TEMPLATE || '';
+const SMS_ENTITY_ID = process.env.SMS_ENTITY_ID || '';
+const SMS_SENDER_ID = process.env.SMS_SENDER_ID || '';
+const SNS_REGION = process.env.SNS_REGION || process.env.AWS_REGION || 'ap-south-1';
+const SMS_OTP_TEMPLATE = process.env.SMS_OTP_TEMPLATE || '';
 
 const smsConfigured = () => {
+  // DLT is not optional in India: SNS without EntityId/TemplateId delivers
+  // nothing to Indian numbers, so half-configured reads as not configured.
+  if (SMS_PROVIDER === 'sns') return !!(SMS_ENTITY_ID && SMS_TEMPLATE_ID);
   if (SMS_PROVIDER === 'fast2sms') return !!SMS_API_KEY;
   if (SMS_PROVIDER === 'msg91') return !!(SMS_API_KEY && SMS_TEMPLATE_ID);
   if (SMS_PROVIDER === 'custom') return SMS_URL_TEMPLATE.includes('{mobile}');
   return false;
 };
 
+const smsText = (code) => SMS_OTP_TEMPLATE ? SMS_OTP_TEMPLATE.replaceAll('{code}', code) : message(code);
+
+// The SNS client is imported and constructed on first use only — the SDK is
+// ~MBs of modules the API should not pay for on boot when SMS is unconfigured.
+let snsClientPromise = null;
+const snsPublish = async (mobile, code) => {
+  if (!snsClientPromise) {
+    snsClientPromise = import('@aws-sdk/client-sns').then((m) => ({
+      client: new m.SNSClient({ region: SNS_REGION }),
+      PublishCommand: m.PublishCommand,
+    }));
+  }
+  const { client, PublishCommand } = await snsClientPromise;
+  const attrs = {
+    'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
+    // TRAI/DLT compliance for India — these two are what carriers check.
+    'AWS.MM.SMS.EntityId': { DataType: 'String', StringValue: SMS_ENTITY_ID },
+    'AWS.MM.SMS.TemplateId': { DataType: 'String', StringValue: SMS_TEMPLATE_ID },
+  };
+  if (SMS_SENDER_ID) attrs['AWS.SNS.SMS.SenderID'] = { DataType: 'String', StringValue: SMS_SENDER_ID };
+  const out = await client.send(new PublishCommand({
+    PhoneNumber: `+91${mobile}`,
+    Message: smsText(code),
+    MessageAttributes: attrs,
+  }));
+  return out.MessageId;
+};
+
 const sms = {
   async available() {
-    return smsConfigured()
-      ? { ok: true }
-      : { ok: false, reason: SMS_PROVIDER ? `sms provider ${SMS_PROVIDER} is missing its key/template` : 'no SMS_PROVIDER configured' };
+    if (smsConfigured()) return { ok: true };
+    if (SMS_PROVIDER === 'sns') {
+      return { ok: false, reason: 'SNS needs SMS_ENTITY_ID and SMS_TEMPLATE_ID (TRAI/DLT) in env' };
+    }
+    return { ok: false, reason: SMS_PROVIDER ? `sms provider ${SMS_PROVIDER} is missing its key/template` : 'no SMS_PROVIDER configured' };
   },
   async send(mobile, code) {
     if (!smsConfigured()) throw new OtpChannelError('DRIVER_UNAVAILABLE', 'sms gateway is not configured');
     let res;
+    if (SMS_PROVIDER === 'sns') {
+      try {
+        const id = await snsPublish(mobile, code);
+        return { channel: 'sms', message_id: id };
+      } catch (e) {
+        // The SDK's error name is the useful part (AuthorizationErrorException,
+        // InvalidParameterException, ThrottledException …) — carry it.
+        throw new OtpChannelError('SEND_FAILED', `SNS ${e.name ?? 'error'}: ${e.message}`);
+      }
+    }
     if (SMS_PROVIDER === 'fast2sms') {
       const u = new URL('https://www.fast2sms.com/dev/bulkV2');
       u.search = new URLSearchParams({ route: 'otp', variables_values: code, numbers: mobile, flash: '0' });
