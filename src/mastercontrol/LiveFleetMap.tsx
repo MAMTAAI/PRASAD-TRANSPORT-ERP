@@ -83,22 +83,66 @@ export default function LiveFleetMap() {
   const infoRef = useRef(null);
   const pinnedRef = useRef(null);        // trip_id whose window was clicked open
 
+  // ── The map must be told when its box changes ─────────────────────────────
+  // Maps measures its container ONCE, at construction. Put it in a flex child
+  // whose width is decided after that — which is exactly what the split layout
+  // did — and it keeps the size it was born with: the tiles never paint and you
+  // get a large empty rectangle that looks like a dead map rather than a
+  // mis-measured one. A ResizeObserver tells it, and re-centres, because a
+  // resize alone shifts the viewport off whatever was being looked at.
+  useEffect(() => {
+    if (status !== 'ready' || !boxRef.current || typeof ResizeObserver === 'undefined') return;
+    const g = window.google;
+    if (!g?.maps) return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (!mapRef.current) return;
+        const keep = mapRef.current.getCenter();
+        g.maps.event.trigger(mapRef.current, 'resize');
+        if (keep) mapRef.current.setCenter(keep);
+      });
+    });
+    ro.observe(boxRef.current);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [status]);
+
   // ── Focus one trip ────────────────────────────────────────────────────────
   const [focusId, setFocusId] = useState(null);
   const [focusNote, setFocusNote] = useState('');
   const [q, setQ] = useState('');
   const focusRef = useRef({ line: null, marks: [] });
 
-  // Trucks WITH a fix first: the list is a hundred long and the ones actually
-  // reporting are the ones worth looking at, so they do not have to be hunted
-  // for among ninety-nine that are not.
+  // NEWEST LOAD FIRST, not fixes first. An earlier draft put the reporting
+  // trucks at the top, which sounds right and is not: zero of forty report, so
+  // it only shuffled the list away from the order the yard thinks in — what
+  // went out today, then yesterday. The API already sorts this way; sorting
+  // again here means the order survives the withFix/noFix split.
   const visibleTrips = useMemo(() => {
-    const all = [...board.withFix, ...board.noFix];
+    const all = [...board.withFix, ...board.noFix].sort((a, b) => {
+      const at = a.loading_date ? new Date(a.loading_date).getTime() : 0;
+      const bt = b.loading_date ? new Date(b.loading_date).getTime() : 0;
+      return bt - at;
+    });
     const needle = q.trim().toLowerCase();
     if (!needle) return all;
     return all.filter((t) => [t.vehicle_no, t.trip_code, t.loading_point, t.destination, t.driver_name]
       .some((f) => String(f ?? '').toLowerCase().includes(needle)));
   }, [board, q]);
+
+  // TEN PER PAGE, because the list was setting the widget's height. Forty cards
+  // at three lines each ran to roughly 1,700px and the panel simply grew to
+  // hold them — which is why the map beside it became a tall empty rectangle.
+  // A fixed page count gives the panel a predictable height instead.
+  const PAGE = 10;
+  const [page, setPage] = useState(1);
+  const pages = Math.max(1, Math.ceil(visibleTrips.length / PAGE));
+  // Searching or a refreshed board can shrink the list under you; page 9 of 3
+  // shows an empty column and reads as "no trips".
+  useEffect(() => { if (page > pages) setPage(pages); }, [pages, page]);
+  const pageTrips = visibleTrips.slice((page - 1) * PAGE, (page - 1) * PAGE + PAGE);
+  useEffect(() => { setPage(1); }, [q]);
 
   // NOTHING IN THE DATABASE HAS COORDINATES — trips, rtkm_master and locations
   // all keep the loading and unloading points as NAMES ("Lumding Terminal
@@ -504,9 +548,13 @@ export default function LiveFleetMap() {
           hundred trips is a list, so it gets a column of its own and the map
           keeps its whole canvas: choosing is scanning now, not remembering a
           plate number well enough to find it in a menu. */}
-      <div className="flex-1 min-h-[420px] flex gap-2 px-3 pb-3">
+      {/* A FIXED HEIGHT, not min-height. With min-h the list decided how tall
+          the widget was — forty cards ran to about 1,700px and the map beside
+          them became a tall empty rectangle. Ten per page plus a fixed 460px
+          means the panel is the same size whatever the fleet is doing. */}
+      <div className="h-[460px] flex gap-2 px-3 pb-3">
 
-        <div className="w-[30%] min-w-[180px] flex flex-col rounded-xl border border-slate-800/70 bg-[#0b1220]/60 overflow-hidden">
+        <div className="w-1/4 min-w-[190px] max-w-[300px] flex flex-col rounded-xl border border-slate-800/70 bg-[#0b1220]/60 overflow-hidden">
           <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-slate-800/70 shrink-0">
             <Search size={11} className="shrink-0 text-slate-500" />
             <input value={q} onChange={(e) => setQ(e.target.value)}
@@ -521,11 +569,11 @@ export default function LiveFleetMap() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar p-1.5 flex flex-col gap-1">
-            {visibleTrips.length === 0 ? (
+            {pageTrips.length === 0 ? (
               <p className="px-1 py-3 text-[10.5px] leading-relaxed text-slate-500">
                 {board.total === 0 ? 'Koi chalu trip nahi.' : 'Is naam se koi trip nahi mila.'}
               </p>
-            ) : visibleTrips.map((t) => {
+            ) : pageTrips.map((t) => {
               const on = t.id === focusId;
               return (
                 <button key={t.id} type="button" onClick={() => setFocusId(on ? null : t.id)}
@@ -577,6 +625,32 @@ export default function LiveFleetMap() {
               {focusNote}
             </p>
           )}
+
+          {/* Always rendered, even on a single page: a footer that appears and
+              disappears makes the column jump by its own height every time a
+              search narrows the list. */}
+          <div className="shrink-0 flex items-center justify-between gap-1 border-t border-slate-800/70 px-2 py-1.5">
+            <button
+              onClick={() => setPage((n) => Math.max(1, n - 1))}
+              disabled={page <= 1}
+              className="rounded border border-slate-700/60 px-1.5 py-0.5 text-[9px] font-black text-slate-400
+                         transition-colors hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400"
+            >
+              ‹ PICHHLA
+            </button>
+            <span className="text-[9px] font-semibold tabular-nums text-slate-500">
+              {visibleTrips.length === 0 ? '0' : `${(page - 1) * PAGE + 1}–${Math.min(page * PAGE, visibleTrips.length)}`}
+              {' / '}{visibleTrips.length}
+            </span>
+            <button
+              onClick={() => setPage((n) => Math.min(pages, n + 1))}
+              disabled={page >= pages}
+              className="rounded border border-slate-700/60 px-1.5 py-0.5 text-[9px] font-black text-slate-400
+                         transition-colors hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400"
+            >
+              AGLA ›
+            </button>
+          </div>
         </div>
 
         <div className="relative flex-1 min-w-0">
