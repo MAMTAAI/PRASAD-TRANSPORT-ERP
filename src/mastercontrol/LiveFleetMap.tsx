@@ -86,7 +86,19 @@ export default function LiveFleetMap() {
   // ── Focus one trip ────────────────────────────────────────────────────────
   const [focusId, setFocusId] = useState(null);
   const [focusNote, setFocusNote] = useState('');
+  const [q, setQ] = useState('');
   const focusRef = useRef({ line: null, marks: [] });
+
+  // Trucks WITH a fix first: the list is a hundred long and the ones actually
+  // reporting are the ones worth looking at, so they do not have to be hunted
+  // for among ninety-nine that are not.
+  const visibleTrips = useMemo(() => {
+    const all = [...board.withFix, ...board.noFix];
+    const needle = q.trim().toLowerCase();
+    if (!needle) return all;
+    return all.filter((t) => [t.vehicle_no, t.trip_code, t.loading_point, t.destination, t.driver_name]
+      .some((f) => String(f ?? '').toLowerCase().includes(needle)));
+  }, [board, q]);
 
   // NOTHING IN THE DATABASE HAS COORDINATES — trips, rtkm_master and locations
   // all keep the loading and unloading points as NAMES ("Lumding Terminal
@@ -400,6 +412,38 @@ export default function LiveFleetMap() {
       setFocusNote(
         `${trip.vehicle_no} · ${trip.loading_point ?? '?'} → ${trip.destination ?? '?'}${km}`
         + (trip.lat == null ? ' · abhi koi GPS fix nahi, sirf route dikhaya hai' : ` · fix ${trip.source ?? ''}`));
+
+      // ── STEP B — telematics ON TOP of the route, never instead of it ───────
+      // Deliberately after the camera has settled: the route is what makes the
+      // map worth looking at and it resolves from names alone, so it must not
+      // wait on a fix that in most cases will never come. The overlay then adds
+      // whatever tracking exists.
+      //
+      // Priority is GPRS > driver phone > FASTag, and it is NOT re-implemented
+      // here — GET /tracking/:id already elects the best fix (freshest wins,
+      // with a source-quality tiebreak inside five minutes) and the board's
+      // lat/lng is that election's answer. A second opinion in the browser is
+      // how two screens start disagreeing about where a lorry is.
+      //
+      // FASTag is a TRAIL, not a position. A plaza crossing says where the
+      // lorry was at that moment, so the crossings are drawn as small waypoints
+      // along the road rather than as another truck marker competing with the
+      // live one.
+      try {
+        const det = await fetch(`${API_BASE}/api/v1/ops/trips/${trip.id}`).then((x) => x.json());
+        if (dead) return;
+        const tolls = (det?.tolls ?? []).filter((t) => t.lat != null && t.lng != null);
+        tolls.forEach((t) => {
+          focusRef.current.marks.push(new g.maps.Marker({
+            map: mapRef.current,
+            position: { lat: Number(t.lat), lng: Number(t.lng) },
+            title: `FASTag: ${t.plaza_name ?? 'toll'}${t.txn_datetime ? ` · ${new Date(t.txn_datetime).toLocaleString('en-IN')}` : ''}`,
+            icon: { path: 0, fillColor: '#a78bfa', fillOpacity: 0.9, strokeColor: '#0b1220', strokeWeight: 1.5, scale: 4.5 },
+            zIndex: 20,
+          }));
+        });
+        if (tolls.length) setFocusNote((n) => `${n} · ${tolls.length} FASTag toll`);
+      } catch { /* the route is already drawn; tolls are a bonus layer */ }
     })().catch((e) => { if (!dead) setFocusNote(`Route nahi bana: ${e.message}`); });
 
     return () => { dead = true; clear(); };
@@ -454,68 +498,91 @@ export default function LiveFleetMap() {
         }
       />
 
-      {/* ── Pick one lorry ──────────────────────────────────────────────────
-          The board carries 100 trips and none of them has a GPS fix, so the map
-          opened on the whole of the north-east with nothing on it and no way to
-          ask about a particular truck. Choosing one draws its route from the
-          loading point to the unloading point and fits the map to it, which is
-          the answer the yard actually wants — where is this load going — and it
-          does not need a fix to be useful. */}
-      <div className="flex items-center gap-1.5 px-3 pb-2 shrink-0">
-        <Search size={12} className="shrink-0 text-slate-500" />
-        <select
-          value={focusId ?? ''}
-          onChange={(e) => setFocusId(e.target.value || null)}
-          className="min-w-0 flex-1 rounded-lg border border-slate-700/60 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200
-                     outline-none focus:border-cyan-500/60"
-        >
-          <option value="">Poora fleet — {board.total} trip</option>
-          {[...board.withFix, ...board.noFix].map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.vehicle_no}{t.trip_code ? ` · ${t.trip_code}` : ''}
-              {t.destination ? ` → ${t.destination}` : ''}
-              {t.lat == null ? ' (no fix)' : ''}
-            </option>
-          ))}
-        </select>
-        {focusId && (
-          <button onClick={() => setFocusId(null)}
-            className="shrink-0 rounded-md border border-slate-700/60 px-2 py-1 text-[9.5px] font-black text-slate-400 hover:text-slate-200">
-            SAB
-          </button>
-        )}
-      </div>
+      {/* ── Split: the list on the left, the map on the right ──────────────
+          The selector used to sit ON the map as a dropdown, which meant the
+          fleet was a thing you opened rather than a thing you could see. A
+          hundred trips is a list, so it gets a column of its own and the map
+          keeps its whole canvas: choosing is scanning now, not remembering a
+          plate number well enough to find it in a menu. */}
+      <div className="flex-1 min-h-[420px] flex gap-2 px-3 pb-3">
 
-      {focusId && focusNote && (
-        <p className="mx-3 mb-2 shrink-0 rounded-lg border border-slate-700/60 bg-white/[0.02] px-2.5 py-1.5 text-[10px] leading-snug text-slate-400">
-          {focusNote}
-        </p>
-      )}
-
-      <div className="relative flex-1 min-h-[320px] px-3 pb-3">
-        <div ref={boxRef} className="absolute inset-x-3 inset-y-0 rounded-xl overflow-hidden border border-slate-800/70 bg-[#0b1220]" />
-
-        {status !== 'ready' && (
-          <div className="absolute inset-x-3 inset-y-0 grid place-items-center rounded-xl border border-slate-800/70 bg-[#0b1220]">
-            <div className="text-center px-6">
-              {status === 'loading' && <p className="text-[11px] text-slate-500">Loading Google Maps…</p>}
-              {status === 'nokey' && (
-                <>
-                  <AlertTriangle size={22} className="mx-auto text-amber-400 mb-2" />
-                  <p className="text-[11px] font-bold text-amber-300">Google Maps key not configured</p>
-                  <p className="text-[10px] text-slate-500 mt-1">Set VITE_GOOGLE_MAPS_API_KEY and rebuild.</p>
-                </>
-              )}
-              {status === 'error' && (
-                <>
-                  <AlertTriangle size={22} className="mx-auto text-amber-400 mb-2" />
-                  <p className="text-[11px] font-bold text-amber-300">Map unavailable</p>
-                  <p className="text-[10px] text-slate-500 mt-1">{detail}</p>
-                </>
-              )}
-            </div>
+        <div className="w-[30%] min-w-[180px] flex flex-col rounded-xl border border-slate-800/70 bg-[#0b1220]/60 overflow-hidden">
+          <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-slate-800/70 shrink-0">
+            <Search size={11} className="shrink-0 text-slate-500" />
+            <input value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="gaadi ya route…"
+              className="min-w-0 flex-1 bg-transparent text-[11px] text-slate-200 placeholder-slate-600 outline-none" />
+            {focusId && (
+              <button onClick={() => setFocusId(null)} title="poora fleet"
+                className="shrink-0 rounded border border-slate-700/60 px-1.5 py-0.5 text-[8.5px] font-black text-slate-400 hover:text-slate-200">
+                SAB
+              </button>
+            )}
           </div>
-        )}
+
+          <div className="flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar p-1.5 flex flex-col gap-1">
+            {visibleTrips.length === 0 ? (
+              <p className="px-1 py-3 text-[10.5px] leading-relaxed text-slate-500">
+                {board.total === 0 ? 'Koi chalu trip nahi.' : 'Is naam se koi trip nahi mila.'}
+              </p>
+            ) : visibleTrips.map((t) => {
+              const on = t.id === focusId;
+              return (
+                <button key={t.id} type="button" onClick={() => setFocusId(on ? null : t.id)}
+                  className={`rounded-lg border px-2 py-1.5 text-left transition-colors ${on
+                    ? 'border-cyan-500/60 bg-cyan-500/10'
+                    : 'border-transparent hover:border-slate-700/60 hover:bg-white/5'}`}>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${t.lat != null ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                    <span className="truncate text-[11px] font-bold text-slate-200">{t.vehicle_no}</span>
+                    {t.trip_code && <span className="shrink-0 text-[8.5px] text-slate-600">{t.trip_code}</span>}
+                  </div>
+                  <p className="mt-0.5 truncate text-[9px] text-slate-500">
+                    {t.loading_point ?? '?'} → {t.destination ?? '?'}
+                  </p>
+                  <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-wider">
+                    <span className={t.lat != null ? 'text-emerald-400' : 'text-slate-600'}>
+                      {t.lat != null ? (t.source ?? 'fix') : 'no fix'}
+                    </span>
+                    {t.status && <span className="ml-1.5 text-slate-600">{t.status}</span>}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {focusNote && (
+            <p className="shrink-0 border-t border-slate-800/70 px-2 py-1.5 text-[9px] leading-snug text-slate-400">
+              {focusNote}
+            </p>
+          )}
+        </div>
+
+        <div className="relative flex-1 min-w-0">
+          <div ref={boxRef} className="absolute inset-0 rounded-xl overflow-hidden border border-slate-800/70 bg-[#0b1220]" />
+
+          {status !== 'ready' && (
+            <div className="absolute inset-0 grid place-items-center rounded-xl border border-slate-800/70 bg-[#0b1220]">
+              <div className="text-center px-6">
+                {status === 'loading' && <p className="text-[11px] text-slate-500">Loading Google Maps…</p>}
+                {status === 'nokey' && (
+                  <>
+                    <AlertTriangle size={22} className="mx-auto text-amber-400 mb-2" />
+                    <p className="text-[11px] font-bold text-amber-300">Google Maps key not configured</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Set VITE_GOOGLE_MAPS_API_KEY and rebuild.</p>
+                  </>
+                )}
+                {status === 'error' && (
+                  <>
+                    <AlertTriangle size={22} className="mx-auto text-amber-400 mb-2" />
+                    <p className="text-[11px] font-bold text-amber-300">Map unavailable</p>
+                    <p className="text-[10px] text-slate-500 mt-1">{detail}</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* The honest footer: what is on the map, and what cannot be. */}
