@@ -47,9 +47,24 @@ const MIME = { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/
 const isoDate = (s) => {
   if (!s) return null;
   const t = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  const m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+  let iso = null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) iso = t;
+  else {
+    const m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (m) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  if (!iso) return null;
+
+  // A DATE THAT IS ABSURD IS WORSE THAN NO DATE, and this is not theoretical:
+  // the first run read a national permit as expiring 2080-09-22. NULL renders
+  // as "date nahi hai" and keeps the document visible as unknown; a year in the
+  // 2080s renders as comfortably valid and silences the expiry alert for the
+  // rest of the vehicle's life. Anything outside a plausible window is dropped
+  // and left for a human, never stored.
+  const year = Number(iso.slice(0, 4));
+  const now = new Date().getFullYear();
+  if (year < 2000 || year > now + 15) return null;
+  return iso;
 };
 
 await initDb({ attempts: 2 });
