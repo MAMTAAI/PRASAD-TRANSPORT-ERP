@@ -605,11 +605,22 @@ export default function DriverMgmt() {
   // Vehicle numbers compare without spaces/dashes so "WB01 2000" matches "wb012000".
   const normVehicle = (s: any) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const q = searchQuery.trim().toLowerCase();
-  const filteredDrivers = !q ? drivers : drivers.filter(d =>
+  const matchedDrivers = !q ? drivers : drivers.filter(d =>
     (d.name || '').toLowerCase().includes(q) ||
     String(d.mobile || '').includes(q) ||
     linkedVehicles(d).some(v => normVehicle(v).includes(normVehicle(q)))
   );
+
+  // SORTED HERE, NOT LEFT TO THE SERVER'S `ORDER BY d.name`. That sort is at
+  // the mercy of the column's collation and of the data itself: several names
+  // carry a double space ("INNAS  ALI") or arrive part-lower-case ("Bulbul
+  // Bhuyan", "Yumkhaibam sonikson SINGH"), so the register read as though the
+  // rows were in no order at all. Trimming and folding case makes the sequence
+  // the same every time, which is what the Sl. column has to be able to promise
+  // — a number beside an unpredictable order is worse than no number.
+  const filteredDrivers = [...matchedDrivers].sort((a, b) =>
+    String(a.name ?? '').trim().replace(/\s+/g, ' ')
+      .localeCompare(String(b.name ?? '').trim().replace(/\s+/g, ' '), 'en', { sensitivity: 'base', numeric: true }));
   const pgFilteredDrivers = usePagination(filteredDrivers);
 
   const activeDriversCount = drivers.filter(d => d.status === 'ACTIVE' || !d.status).length;
@@ -790,6 +801,7 @@ export default function DriverMgmt() {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: '48px', textAlign: 'center' }}>Sl.</th>
                   <th>Driver Identity</th>
                   <th>Licenses & HZD</th>
                   <th>KYC Documents</th>
@@ -798,9 +810,15 @@ export default function DriverMgmt() {
                 </tr>
               </thead>
               <tbody>
-                {filteredDrivers.length === 0 ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px' }}>{q ? `No drivers match "${searchQuery}".` : 'No Drivers found.'}</td></tr> :
-                  pgFilteredDrivers.slice.map((d) => (
+                {filteredDrivers.length === 0 ? <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px' }}>{q ? `No drivers match "${searchQuery}".` : 'No Drivers found.'}</td></tr> :
+                  pgFilteredDrivers.slice.map((d, i) => (
                   <tr key={d.id}>
+                    {/* Counts across pages, not within one: `from` is the
+                        1-based index of this page's first row, so page 2 starts
+                        at 26 rather than restarting at 1. */}
+                    <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                      {pgFilteredDrivers.from + i}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                         <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: '#1e293b', border: '2px solid #38bdf8', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyItems: 'center' }}>
