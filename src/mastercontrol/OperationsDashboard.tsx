@@ -334,31 +334,15 @@ export default function OperationsDashboard({ live, filter }) {
       </div>
 
       {/* ══════════════ CENTER PANEL ══════════════ */}
+      {/* ══════════════ CENTRE — LIVE DISPATCH CHAT ══════════════
+          The chat moved here from the right column on 2026-09-01. It was the
+          narrowest panel on the screen carrying the widest content: message
+          text wrapped after four words, the vehicle tags fell onto their own
+          line and SEND LR COPY / SCAN FUEL SLIP OCR were squeezed side by
+          side at nine pixels. A conversation is the one thing on this
+          dashboard that is read word by word, so it gets the six-column
+          track and the panels that are read as numbers take the narrow one. */}
       <div className="lg:col-span-6 min-w-0 flex flex-col gap-4">
-
-        {/* Vehicle productivity replaces the old "Best Vehicle Trips" line
-            chart. That chart plotted trips per weekday: a shape with no vehicle
-            in it, so nothing followed from reading it. This names the trucks
-            and puts what they earned and lost on the same row. */}
-        <VehicleRtkmPanel live={live} filter={filter} />
-
-        {/* Shortage recovery sits with operations because collecting it is an
-            operations job, not an accounts one. */}
-        <ShortageRecoveryPanel live={live} filter={filter} />
-
-        {/* Fleet Maintenance Hub removed 2026-09-01 — it was a placeholder: a
-            wireframe truck and a TODO for a three.js model, no data behind it. */}
-
-        {/* Live Fleet Operations removed 2026-09-01 — the same trucks, routes and
-            drivers are on Trip Management, which can also act on them. */}
-      </div>
-
-      {/* ══════════════ RIGHT PANEL — LIVE DISPATCH CHAT ══════════════ */}
-      {/* The right column is a STACK now, not a single panel. `gap-4` matches
-          the left column's rhythm, and the chat panel keeps its own 500px cap
-          while this wrapper stays unbounded — so the loading widget below it
-          adds its own height instead of squeezing the conversation. */}
-      <div className="lg:col-span-3 min-w-0 flex flex-col gap-4">
         {/* HEIGHT-CAPPED, AND THE CAP IS THE POINT.
             This panel had `lg:h-full` and nothing else, so it grew to whatever
             the grid row was and then grew the row: a chat list capped at 240px,
@@ -366,11 +350,14 @@ export default function OperationsDashboard({ live, filter }) {
             underneath added to well over 600px and dragged the dashboard's
             right column past its neighbours. Every one of those pieces was
             individually reasonable; the column had no ceiling.
-            500px is the ceiling. `lg:h-full` stays so it still aligns with the
+            720px is the ceiling now it holds the centre track — the cap exists
+            to stop the column outgrowing its neighbours, and in six columns the
+            neighbours are taller. Raising it was the point of the move: 500px
+            in a wide track wastes the width without showing another message. `lg:h-full` stays so it still aligns with the
             cards beside it when the row is shorter — it fills the row UP TO the
             cap, never past it. overflow-hidden keeps the rounded corner from
             being cut by the panes inside. */}
-        <GlassPanel className="flex flex-col overflow-hidden max-h-[500px] lg:h-full lg:max-h-[500px] border-emerald-500/30 shadow-[0_0_30px_rgba(52,211,153,0.08)]">
+        <GlassPanel className="flex flex-col overflow-hidden max-h-[720px] lg:h-full lg:max-h-[720px] border-emerald-500/30 shadow-[0_0_30px_rgba(52,211,153,0.08)]">
           <PanelHeader
             icon={MessageSquareText}
             title="Live Dispatch Chat"
@@ -742,6 +729,29 @@ export default function OperationsDashboard({ live, filter }) {
           </div>,
           document.body,
         )}
+      </div>
+
+      {/* ══════════════ RIGHT — PRODUCTIVITY AND RECOVERY ══════════════
+          RTKM and shortage recovery read as tables of figures: a narrow column
+          costs them nothing, because nobody reads a rupee total left to right
+          the way they read a sentence. */}
+      <div className="lg:col-span-3 min-w-0 flex flex-col gap-4">
+
+        {/* Vehicle productivity replaces the old "Best Vehicle Trips" line
+            chart. That chart plotted trips per weekday: a shape with no vehicle
+            in it, so nothing followed from reading it. This names the trucks
+            and puts what they earned and lost on the same row. */}
+        <VehicleRtkmPanel live={live} filter={filter} />
+
+        {/* Shortage recovery sits with operations because collecting it is an
+            operations job, not an accounts one. */}
+        <ShortageRecoveryPanel live={live} filter={filter} />
+
+        {/* Fleet Maintenance Hub removed 2026-09-01 — it was a placeholder: a
+            wireframe truck and a TODO for a three.js model, no data behind it. */}
+
+        {/* Live Fleet Operations removed 2026-09-01 — the same trucks, routes and
+            drivers are on Trip Management, which can also act on them. */}
       </div>
       {/* The dispatch map belongs with Operations, not CRM — it is what
           dispatch watches all day.
