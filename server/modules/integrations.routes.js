@@ -182,18 +182,38 @@ export async function registerIntegrationRoutes(app) {
   // Live board: every moving trip with its best fix (map overview page).
   app.get('/tracking', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
+    // ONE ROW PER LORRY — ITS CURRENT LOAD, NOT ITS WHOLE HISTORY.
+    //
+    // 146 trips are open across 40 vehicles, because a trip that is never
+    // marked unloaded stays IN_TRANSIT for ever: NL 01Q 2670 has fourteen of
+    // them, the oldest loaded in April. Listing every open trip meant one lorry
+    // appeared fourteen times and the row you happened to click was almost
+    // always a load it finished months ago — the board was showing the past and
+    // calling it live.
+    //
+    // DISTINCT ON keeps the newest load per vehicle. The stale rows are still
+    // in the database and still wrong; this stops them being mistaken for
+    // today's work, and the Unloading Queue is where they get closed.
     const { rows } = await query(
-      `SELECT t.id, t.trip_code, t.vehicle_no, t.driver_name, t.status,
-              t.loading_point, COALESCE(t.unloading_location, t.consignee_name) AS destination,
-              p.source, p.lat, p.lng, p.recorded_at
-         FROM trips t
-         LEFT JOIN LATERAL (
-           SELECT source, lat, lng, recorded_at FROM trip_gps_pings
-            WHERE trip_id = t.id ORDER BY recorded_at DESC LIMIT 1
-         ) p ON true
-        WHERE t.status IN ('LOADED','IN_TRANSIT','UNLOADING')
-        ORDER BY t.loading_date DESC NULLS LAST
-        LIMIT 100`);
+      `SELECT * FROM (
+         SELECT DISTINCT ON (t.vehicle_no)
+                t.id, t.trip_code, t.vehicle_no, t.driver_name, t.status,
+                t.loading_date, t.loading_point,
+                COALESCE(t.unloading_location, t.consignee_name) AS destination,
+                p.source, p.lat, p.lng, p.recorded_at,
+                (SELECT count(*)::int FROM trips o
+                  WHERE o.vehicle_no = t.vehicle_no
+                    AND o.status IN ('LOADED','IN_TRANSIT','UNLOADING')) AS open_trips
+           FROM trips t
+           LEFT JOIN LATERAL (
+             SELECT source, lat, lng, recorded_at FROM trip_gps_pings
+              WHERE trip_id = t.id ORDER BY recorded_at DESC LIMIT 1
+           ) p ON true
+          WHERE t.status IN ('LOADED','IN_TRANSIT','UNLOADING')
+          ORDER BY t.vehicle_no, t.loading_date DESC NULLS LAST, t.created_at DESC
+       ) latest
+       ORDER BY loading_date DESC NULLS LAST
+       LIMIT 100`);
     return { count: rows.length, trips: rows };
   });
 }

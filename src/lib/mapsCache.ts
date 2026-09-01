@@ -22,6 +22,30 @@ export interface RouteResult {
   cached: boolean;
 }
 
+/**
+ * Turn a depot label into something a map can find.
+ *
+ * The register stores operational names, not addresses: "ZC7A04 - Chabua AFS",
+ * "Rail fed POL Storage Depot (7D18)", "Lumding Terminal (7T04)". The codes are
+ * meaningful inside IOCL and meaningless to Google, and they actively hurt —
+ * a geocoder handed "ZC7A04" looks for somewhere called ZC7A04 and takes the
+ * rest as a weak hint, which is how a Tinsukia depot became a route through
+ * the Altai republic.
+ *
+ * So: drop the codes, drop the leading plant prefix, and say which country.
+ * The cache key is the ORIGINAL string, so cleaning does not orphan anything
+ * already stored.
+ */
+function mapQuery(raw: string): string {
+  let s = String(raw ?? '').trim();
+  s = s.replace(/\(\s*\d[A-Z0-9]*\s*\)/gi, ' ');   // "(7T04)", "(7D18)"
+  s = s.replace(/^\s*[A-Z]{1,3}\d[A-Z0-9]*\s*[-–]\s*/i, ''); // "ZC7A04 - "
+  s = s.replace(/\b\d{4,}\b/g, ' ');               // bare plant numbers
+  s = s.replace(/\s{2,}/g, ' ').replace(/[\s,–-]+$/, '').trim();
+  if (!s) return String(raw ?? '').trim();
+  return /india/i.test(s) ? s : `${s}, India`;
+}
+
 const inFlight = new Map<string, Promise<RouteResult | null>>();
 const localKey = (o: string, d: string) => `${o}→${d}`.toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -75,9 +99,20 @@ export async function getRoute(origin?: string | null, destination?: string | nu
       const result: any = await new Promise((resolve, reject) => {
         svc.route(
           {
-            origin,
-            destination,
+            // Cleaned for the map; the CACHE KEY stays the ORIGINAL string,
+            // so tidying the query does not orphan anything already stored.
+            origin: mapQuery(origin),
+            destination: mapQuery(destination),
             travelMode: g.maps.TravelMode.DRIVING,
+            // WITHOUT THIS THE MAP LANDS IN SIBERIA. Verified: asking for
+            // "Lumding Terminal (7T04)" → "ZC7A04 - Chabua AFS" with no bias
+            // returned a route through the Altai republic, and the camera
+            // dutifully flew to Gorno-Altaysk. Depot names here are short,
+            // abbreviated and locally unique — "Lumding", "NRL", "Chabua" —
+            // which is exactly the shape that matches something unrelated on
+            // the other side of the planet. `region` biases the search to the
+            // Indian ccTLD, which is where every one of these trucks is.
+            region: 'in',
             // Freight reality: trucks are not routed onto ferries here.
             avoidFerries: true,
           },

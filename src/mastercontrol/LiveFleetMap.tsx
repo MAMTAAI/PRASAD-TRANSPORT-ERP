@@ -540,11 +540,32 @@ export default function LiveFleetMap() {
                   <p className="mt-0.5 truncate text-[9px] text-slate-500">
                     {t.loading_point ?? '?'} → {t.destination ?? '?'}
                   </p>
-                  <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-wider">
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[8.5px] font-bold uppercase tracking-wider">
                     <span className={t.lat != null ? 'text-emerald-400' : 'text-slate-600'}>
                       {t.lat != null ? (t.source ?? 'fix') : 'no fix'}
                     </span>
-                    {t.status && <span className="ml-1.5 text-slate-600">{t.status}</span>}
+                    {t.status && <span className="text-slate-600">{t.status}</span>}
+                    {/* A LOAD THAT HAS BEEN "IN TRANSIT" SINCE APRIL IS NOT
+                        LIVE, it is a trip nobody closed — 59 of them are over
+                        sixty days old. The board shows the newest load per
+                        lorry, so these are not hidden; they are dated, because
+                        a stale row that looks current is how the whole screen
+                        stops being believed. */}
+                    {(() => {
+                      if (!t.loading_date) return null;
+                      const d = Math.round((Date.now() - new Date(t.loading_date).getTime()) / 86400000);
+                      if (!Number.isFinite(d) || d < 0) return null;
+                      return (
+                        <span className={d > 60 ? 'text-red-400' : d > 14 ? 'text-amber-400' : 'text-slate-600'}>
+                          {d}d
+                        </span>
+                      );
+                    })()}
+                    {t.open_trips > 1 && (
+                      <span className="text-amber-400/80" title={`${t.open_trips} trips khuli hain — purani band nahi ki gayi`}>
+                        {t.open_trips} open
+                      </span>
+                    )}
                   </p>
                 </button>
               );
