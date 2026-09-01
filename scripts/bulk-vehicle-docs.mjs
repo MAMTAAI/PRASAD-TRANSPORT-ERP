@@ -136,6 +136,7 @@ console.log(`  matched     : ${plan.length} (vehicle + document type both identi
 console.log(`  to upload   : ${finalPlan.length} after one-per-(vehicle,type)`);
 console.log(`  no vehicle  : ${unmatchedVehicle.length}`);
 console.log(`  no doc type : ${unmatchedType.length}`);
+console.log(`  upload bytes: ${(finalPlan.reduce((n, p) => n + p.bytes, 0) / 1048576).toFixed(1)} MB`);
 
 const byType = {};
 for (const p of finalPlan) byType[p.label] = (byType[p.label] ?? 0) + 1;
@@ -150,6 +151,41 @@ if (missing.length) console.log(`  no file found for: ${missing.join(', ')}`);
 if (unmatchedVehicle.length) {
   console.log('\n  first 10 that name no vehicle (left alone, never guessed):');
   unmatchedVehicle.slice(0, 10).forEach((u) => console.log(`    ${basename(u.file)}  — ${u.why}`));
+}
+
+// ── --stage: copy the chosen files and their plan somewhere shippable ───────
+// WHY THIS EXISTS INSTEAD OF AN API TOKEN. Filing these over HTTP needs a staff
+// JWT, and the only way to get one without a person logging in is to mint it
+// from JWT_SECRET — which walks straight past the password and the 2FA code
+// that guard every other staff session. A bulk import is not a good reason to
+// build a second door into the front one.
+//
+// Running on the box needs no token at all: server/db/pool.js and
+// server/lib/storage.js are the same modules the API itself writes through, and
+// services/universalScan.js is the same OCR the /scan route calls. So this
+// stages the 344 files, and the box-side runner does the work as the server
+// rather than as a forged user.
+const STAGE = val('stage', '');
+if (STAGE) {
+  const { mkdirSync, copyFileSync, writeFileSync } = await import('node:fs');
+  mkdirSync(join(STAGE, 'files'), { recursive: true });
+  const manifest = [];
+  for (const [i, p] of finalPlan.entries()) {
+    // Renamed to an index, not the original name: these come off a Windows
+    // desktop and carry spaces, brackets and the odd Devanagari character, none
+    // of which survive a round trip through scp and a Linux filesystem intact.
+    const staged = `${String(i).padStart(4, '0')}${extname(p.name).toLowerCase()}`;
+    copyFileSync(p.file, join(STAGE, 'files', staged));
+    manifest.push({
+      staged, original: p.name, vehicle_id: p.vehicle_id, vehicle_no: p.vehicle_no,
+      doc_type: p.type, doc_name: p.label, bytes: p.bytes,
+    });
+  }
+  writeFileSync(join(STAGE, 'plan.json'), JSON.stringify(manifest, null, 2));
+  console.log(`\n  staged ${manifest.length} files into ${STAGE}`);
+  console.log(`  ship it:  scp -r "${STAGE}" ubuntu@<box>:/home/ubuntu/erp-work/bulk-docs`);
+  console.log(`  then run: node -r dotenv/config scripts/bulk-vehicle-docs-run.mjs --stage /home/ubuntu/erp-work/bulk-docs\n`);
+  process.exit(0);
 }
 
 if (!APPLY) {
