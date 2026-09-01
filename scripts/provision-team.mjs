@@ -160,11 +160,21 @@ try {
           WHERE lower(email::text) = $1`,
         [p.email.toLowerCase(), p.name, p.role, last10(p.mobile)]);
     } else {
+      // users_email_active_uniq (migration 001) is a PARTIAL unique index:
+      //   ON users (email) WHERE status = 'ACTIVE' AND email IS NOT NULL
+      // — two retired rows may share an address, two live ones may not. A bare
+      // ON CONFLICT (email) infers no constraint and Postgres rejects the whole
+      // statement ("no unique or exclusion constraint matching"), so the index
+      // predicate has to be repeated here for the inference to match.
+      //
+      // Note this clause only guards a RACE. The real duplicate check is look()
+      // above, which ignores status and so also catches an INACTIVE row holding
+      // the address — something this partial index deliberately does not.
       await query(
         `INSERT INTO users (full_name, email, mobile, role, status, account_status, approved_at,
                             password_hash, password_salt, must_change_password)
          VALUES ($1,$2,$3,$4::user_role,'ACTIVE','ACTIVE'::account_status, now(), $5, NULL, true)
-         ON CONFLICT (email) DO NOTHING`,
+         ON CONFLICT (email) WHERE status = 'ACTIVE' AND email IS NOT NULL DO NOTHING`,
         [p.name, p.email.toLowerCase(), last10(p.mobile), p.role, PLACEHOLDER]);
     }
   }
