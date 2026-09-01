@@ -51,7 +51,14 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
   // succeeded and the server is holding the session back until the code that
   // went to the registered mobile comes back. Carries the masked number so the
   // screen can say where to look.
-  const [twoFa, setTwoFa] = useState<null | { mobile: string; ttl: number }>(null);
+  // `mobile` is null when only the email lane carried the code, so the OTP step
+  // renders from `delivered` and never assumes a handset.
+  const [twoFa, setTwoFa] = useState<null | {
+    mobile: string | null;
+    email?: string | null;
+    delivered?: { channel: string; to: string }[];
+    ttl: number;
+  }>(null);
   const [twoFaCode, setTwoFaCode] = useState('');
 
   // ==========================================
@@ -76,7 +83,12 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
       // itself. The server has sent a code to the registered mobile and is
       // waiting for it — /login/verify below finishes the login.
       if (r.otp_required) {
-        setTwoFa({ mobile: r.mobile, ttl: r.expires_in_minutes ?? 5 });
+        setTwoFa({
+          mobile: r.mobile ?? null,
+          email: r.email ?? null,
+          delivered: r.delivered ?? [],
+          ttl: r.expires_in_minutes ?? 5,
+        });
         setTwoFaCode('');
         setLoading(false);
         return;
@@ -365,7 +377,19 @@ export default function Login({ onLoginSuccess, onCustomerClick, onPartnerClick,
                 <div className="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center text-3xl mb-3 shadow-inner bg-red-900 text-white border-2 border-red-500">📲</div>
                 <h2 className="text-xl md:text-2xl font-black text-white">OTP Verification</h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Password sahi hai — code aapke mobile <span className="text-white font-bold">{twoFa.mobile}</span> par bheja gaya hai ({twoFa.ttl} min valid)
+                  {twoFa.delivered && twoFa.delivered.length > 0 ? (
+                    <>
+                      Password sahi hai — code bhej diya gaya:{' '}
+                      {twoFa.delivered.map((d, i) => (
+                        <span key={d.channel + i} className="text-white font-bold whitespace-nowrap">
+                          {d.channel === 'email' ? '📧' : '💬'} {d.to}{i < twoFa.delivered!.length - 1 ? '  ' : ''}
+                        </span>
+                      ))}
+                      {' '}({twoFa.ttl} min valid)
+                    </>
+                  ) : (
+                    <>Password sahi hai — code aapke mobile <span className="text-white font-bold">{twoFa.mobile}</span> par bheja gaya hai ({twoFa.ttl} min valid)</>
+                  )}
                 </p>
               </div>
 

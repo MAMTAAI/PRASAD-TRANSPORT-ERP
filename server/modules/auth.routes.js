@@ -300,22 +300,40 @@ export async function registerAuthRoutes(app) {
     // goes to the account's registered mobile and /login/verify finishes the
     // login. Two deliberate degradations, both said out loud in the response
     // and both narrower than they look:
-    //   · no mobile on file  → password-only login. Three real accounts have
-    //     no mobile (admin@ included); enforcing would brick them. The fix is
-    //     to add their mobiles, not to lock the owner out.
-    //   · OTP channel down   → password-only login, logged. A dead WhatsApp
-    //     engine + unconfigured SMS must degrade to yesterday's security, not
-    //     to "nobody can enter the ERP".
-    const { rows: mrow } = await query('SELECT mobile FROM users WHERE id = $1::uuid', [u.id]);
+    //   · no lane at all     → password-only login. Enforcing would brick an
+    //     account with neither a usable mobile nor a working mail channel.
+    //   · every lane down    → password-only login, logged. A dead WhatsApp
+    //     engine plus a dead mail credential must degrade to yesterday's
+    //     security, not to "nobody can enter the ERP".
+    //
+    // WHY EMAIL IS A LANE HERE TOO (2026-09-01). This route used to send over
+    // the mobile alone, and that produced a real lockout: an account whose
+    // `users.mobile` held a number its owner did not physically have could pass
+    // the password stage and then never see the code — while
+    // /password-reset/request, which has always sent over email AND WhatsApp,
+    // reached the same person on the same account fine. One route reachable and
+    // the other not is the bug. `users.email` is the login identifier, so it is
+    // guaranteed present and already known good; the second factor has no
+    // business depending on a handset alone.
+    //
+    // Both lanes carry the SAME code, so whichever arrives first works and
+    // /login/verify — bound to email + code — needs no change.
+    const { rows: mrow } = await query(
+      'SELECT mobile, email::text AS email FROM users WHERE id = $1::uuid', [u.id]);
     const mobile = mrow[0]?.mobile ?? null;
+    const mailTo = mrow[0]?.email ?? null;
+
+    // Probed BEFORE a code is minted: available() answers "could this lane
+    // carry one" WITHOUT sending, so an unusable lane never becomes a row in
+    // auth_otp that nothing will ever deliver.
+    const waLane = mobile ? await otp.available() : { ok: false, reason: 'no mobile on file' };
+    const mailLane = mailTo ? await mail.available() : { ok: false, reason: 'no email on file' };
+
     let otpSkipped = null;
-    if (!mobile) otpSkipped = 'no_mobile_on_file';
-    else {
-      const ch = await otp.available();
-      if (!ch.ok) {
-        otpSkipped = 'otp_channel_down';
-        req.log.warn({ user: u.id, reason: ch.reason }, '2FA skipped — otp channel unavailable');
-      }
+    if (!waLane.ok && !mailLane.ok) {
+      otpSkipped = (!mobile && !mailTo) ? 'no_contact_on_file' : 'otp_channel_down';
+      req.log.warn({ user: u.id, mobile: waLane.reason, email: mailLane.reason },
+        '2FA skipped — no delivery lane available');
     }
 
     if (!otpSkipped) {
@@ -326,26 +344,58 @@ export async function registerAuthRoutes(app) {
       await query(
         `INSERT INTO auth_otp (user_id, mobile, code_hash, code_salt, channel, purpose, expires_at)
          VALUES ($1::uuid, $2, $3, $4, $5, 'LOGIN_2FA', now() + ($6 || ' minutes')::interval)`,
-        [u.id, mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
-      try {
-        const sent = await otp.send(mobile, code);
-        if (sent?.channel && sent.channel !== otp.CHANNEL_NAME) {
-          await query(`UPDATE auth_otp SET channel = $2
-                        WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'LOGIN_2FA'`,
-            [u.id, sent.channel]);
-        }
-      } catch (e) {
-        req.log.error({ err: e }, '2fa otp send failed');
-        return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: e.message });
+        [u.id, mobile, hashHex, saltHex, 'pending', String(OTP_TTL_MIN)]);
+
+      // Sent side by side, failures COLLECTED rather than thrown — the same
+      // shape as /password-reset/request, so one dead lane cannot mask a live
+      // one and a half-delivery is never reported as a clean send.
+      const delivered = [];
+      const failed = [];
+      await Promise.all([
+        waLane.ok
+          ? otp.send(mobile, code)
+              .then((s) => delivered.push({ channel: s?.channel ?? otp.CHANNEL_NAME, to: maskMobile(mobile) }))
+              .catch((e) => { req.log.error({ err: e }, '2fa whatsapp send failed'); failed.push(`mobile: ${e.message}`); })
+          : Promise.resolve(failed.push(`mobile: ${waLane.reason}`)),
+        mailLane.ok
+          ? mail.send(mailTo, 'Prasad Transport ERP — login OTP',
+              `${code} — Prasad Transport ERP login OTP.\n\n`
+              + `Ye code ${OTP_TTL_MIN} minute me expire ho jayega. Kisi ko na batayein.\n`
+              + 'Agar aapne abhi login nahi kiya tha to apna password turant badlein.')
+              .then(() => delivered.push({ channel: 'email', to: maskEmail(mailTo) }))
+              .catch((e) => { req.log.error({ err: e }, '2fa mail send failed'); failed.push(`email: ${e.message}`); })
+          : Promise.resolve(failed.push(`email: ${mailLane.reason}`)),
+      ]);
+
+      // Every lane dead AFTER a live probe said otherwise: retire the code
+      // rather than leave a valid one nobody was told about, and say so instead
+      // of parking somebody on a screen waiting for what is not coming.
+      if (!delivered.length) {
+        await query(`UPDATE auth_otp SET consumed_at = now()
+                      WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'LOGIN_2FA'`, [u.id]);
+        req.log.error({ user: u.id, failed }, '2fa otp send failed on every lane');
+        return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: failed.join('; '), channels: failed });
       }
+
+      // The row records the wires that ACTUALLY carried it, not a mode name.
+      await query(`UPDATE auth_otp SET channel = $2
+                    WHERE user_id = $1::uuid AND consumed_at IS NULL AND purpose = 'LOGIN_2FA'`,
+        [u.id, delivered.map((d) => d.channel).join('+')]);
       // The password stage is done and said so; no token yet. failed_logins
       // clears here — the password was right, and the OTP has its own counter.
       await query('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1::uuid', [u.id]);
+      const viaMobile = delivered.find((d) => d.channel !== 'email');
+      const viaEmail = delivered.find((d) => d.channel === 'email');
       return {
         otp_required: true,
-        mobile: `******${String(mobile).slice(-4)}`,
+        // `mobile` is kept because the SPA reads it directly, but it is now
+        // NULL when only the email lane carried the code — the screen must not
+        // assume a handset (see the OTP step in src/Login.tsx).
+        mobile: viaMobile ? viaMobile.to : null,
+        email: viaEmail ? viaEmail.to : null,
+        delivered,
         expires_in_minutes: OTP_TTL_MIN,
-        detail: 'Password sahi hai — ab mobile par aaya OTP daaliye.',
+        detail: 'Password sahi hai — ab aaya hua OTP daaliye.',
       };
     }
 
