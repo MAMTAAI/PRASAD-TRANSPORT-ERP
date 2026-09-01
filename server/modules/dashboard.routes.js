@@ -570,21 +570,69 @@ export function registerDashboardRoutes(app) {
       };
     }, { threshold_days: 10, expired: [], expiring: [], last_sweep: null });
 
+    // ── Driver Command Center ────────────────────────────────────────────────
+    // THE OLD FILTER HID EXACTLY THE DRIVERS THIS PANEL EXISTS TO CATCH. It read
+    //   WHERE license_expiry IS NOT NULL OR hzd_expiry IS NOT NULL
+    // so a driver whose expiry dates were never recorded — 22 of 54 on
+    // 2026-09-01 — could not appear at all, and neither could the 25 with no DL
+    // scan. The panel showed six drivers whose paperwork was complete enough to
+    // have a date on it, while the ones with nothing on file stayed invisible.
+    // A compliance panel that can only see the drivers who are already halfway
+    // compliant is worse than no panel, because it reads as "all clear".
+    //
+    // So every ACTIVE driver is scored, missing DOCUMENTS count alongside
+    // expiring ones, and `id` travels so the row can open that driver.
     const drivers = await safe(errors, 'drivers', async () => {
       const { rows } = await query(`
-        SELECT name, license_expiry, hzd_expiry,
+        SELECT id, name, mobile, license_expiry, hzd_expiry,
                (license_expiry - CURRENT_DATE) AS dl_days,
-               (hzd_expiry     - CURRENT_DATE) AS hzd_days
+               (hzd_expiry     - CURRENT_DATE) AS hzd_days,
+               (profile_pic_url  IS NULL) AS no_photo,
+               (dl_photo_url     IS NULL) AS no_dl,
+               (aadhar_photo_url IS NULL) AS no_aadhaar,
+               (pan_photo_url    IS NULL) AS no_pan,
+               (bank_photo_url   IS NULL) AS no_bank,
+               (hzd_photo_url    IS NULL) AS no_hzd
         FROM drivers
-        WHERE status = 'ACTIVE' AND (license_expiry IS NOT NULL OR hzd_expiry IS NOT NULL)
-        ORDER BY LEAST(COALESCE(license_expiry,'9999-12-31'::date),
-                       COALESCE(hzd_expiry,'9999-12-31'::date)) ASC
-        LIMIT 6`);
-      return rows.map((r) => ({
-        name: r.name, dl_days: r.dl_days == null ? null : num(r.dl_days),
-        hzd_days: r.hzd_days == null ? null : num(r.hzd_days),
-      }));
-    }, []);
+        WHERE status = 'ACTIVE'`);
+
+      const mapped = rows.map((r) => {
+        const missing = [];
+        if (r.no_photo) missing.push('Photo');
+        if (r.no_dl) missing.push('DL');
+        if (r.no_aadhaar) missing.push('Aadhaar');
+        if (r.no_pan) missing.push('PAN');
+        if (r.no_bank) missing.push('Bank');
+        if (r.no_hzd) missing.push('HZD');
+        if (r.license_expiry == null) missing.push('DL-expiry');
+        const dl_days = r.dl_days == null ? null : num(r.dl_days);
+        const hzd_days = r.hzd_days == null ? null : num(r.hzd_days);
+        return { id: r.id, name: r.name, mobile: r.mobile, dl_days, hzd_days, missing };
+      });
+
+      // Worst first, and "expired" outranks "many documents missing": an expired
+      // licence is a truck that must not roll today, while a missing passbook is
+      // paperwork. Sorted here rather than in SQL because the rank mixes three
+      // things and 54 rows cost nothing to sort in memory.
+      const expiredDays = (d) => Math.min(
+        d.dl_days == null ? Infinity : d.dl_days,
+        d.hzd_days == null ? Infinity : d.hzd_days);
+      mapped.sort((a, b) => {
+        const ax = expiredDays(a); const bx = expiredDays(b);
+        const aExp = ax < 0 ? 0 : 1; const bExp = bx < 0 ? 0 : 1;
+        if (aExp !== bExp) return aExp - bExp;          // expired first
+        if (aExp === 0) return ax - bx;                 // most overdue first
+        if (a.missing.length !== b.missing.length) return b.missing.length - a.missing.length;
+        return ax - bx;                                 // then soonest to expire
+      });
+
+      return {
+        rows: mapped.slice(0, 12),
+        total_active: mapped.length,
+        with_gaps: mapped.filter((d) => d.missing.length > 0).length,
+        expired: mapped.filter((d) => expiredDays(d) < 0).length,
+      };
+    }, { rows: [], total_active: 0, with_gaps: 0, expired: 0 });
 
     const trips_by_day = await safe(errors, 'trips_by_day', async () => {
       const { rows } = await query(`

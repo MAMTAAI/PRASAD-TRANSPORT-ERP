@@ -11,7 +11,7 @@
 // Document photos upload through uploadMedia() → POST /api/v1/files (the ERP's
 // own document store on UPLOAD_DIR). Firebase Storage is gone with the rest of
 // Firebase; the stored value is the permanent /api/v1/files/<key> URL.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import AuthImg from './components/AuthImg';
 import { openDocument } from './lib/openDocument';
@@ -425,11 +425,34 @@ export default function DriverMgmt() {
 
   const openEditModal = (driver: any) => {
     // Make sure additional_docs is always an array when editing
-    setDriverData({ ...driver, additional_docs: driver.additional_docs || [] }); 
-    setEditingId(driver.id); 
-    setLocalPicPreview(driver.profile_pic || null); 
+    setDriverData({ ...driver, additional_docs: driver.additional_docs || [] });
+    setEditingId(driver.id);
+    setLocalPicPreview(driver.profile_pic || null);
     setIsModalOpen(true);
   };
+
+  // ── ?driver=<id> opens that man's KYC form on arrival ─────────────────────
+  // The Driver Command Center on Master Control links here in a new tab so a
+  // pending document can be filled without losing the dashboard. Landing on a
+  // 54-row list and making the user search for the name they just clicked is
+  // what this avoids.
+  //
+  // It waits for `drivers` because the row has to exist before it can be
+  // opened, and fires once per mount: re-opening the form every poll would
+  // fight whoever is typing in it.
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current || !drivers.length) return;
+    let wanted: string | null = null;
+    try { wanted = new URLSearchParams(window.location.search).get('driver'); } catch { /* no URL */ }
+    if (!wanted) return;
+    deepLinked.current = true;
+    const d = drivers.find((x: any) => String(x.id) === String(wanted));
+    if (d) openEditModal(d);
+    // Named rather than silent: a stale or mistyped link otherwise looks like
+    // the screen simply ignored the click.
+    else setErr(`No driver matches the id in this link (${wanted}) — they may have been removed.`);
+  }, [drivers]);
 
   const closeModal = () => {
     setIsModalOpen(false); setEditingId(null); setLocalPicPreview(null); setScannedAIData(null);
@@ -549,6 +572,23 @@ export default function DriverMgmt() {
         </div>
         <button className="glow-btn" onClick={() => setIsModalOpen(true)}>👨‍✈️ + Register New Driver</button>
       </div>
+
+      {/* `err` was written in three places and rendered in none, so "Driver
+          master could not load" has been invisible: the screen showed an empty
+          register and looked like a business with no drivers. */}
+      {err && (
+        <div style={{
+          marginBottom: '20px', padding: '12px 16px', borderRadius: '12px',
+          background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.45)',
+          color: '#fca5a5', fontSize: '13px', fontWeight: 600,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+        }}>
+          <span>⚠️ {err}</span>
+          <button onClick={() => setErr('')}
+            style={{ background: 'none', border: 'none', color: '#fca5a5', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}
+            title="Dismiss">✕</button>
+        </div>
+      )}
 
       {/* 📊 SMART DASHBOARD STATS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>

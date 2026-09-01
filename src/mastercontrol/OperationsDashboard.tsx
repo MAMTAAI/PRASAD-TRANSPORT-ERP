@@ -299,7 +299,12 @@ export default function OperationsDashboard({ live, filter }) {
   };
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
-  const driverRows = ops?.drivers?.length ? ops.drivers : [];
+  // `drivers` became {rows, total_active, with_gaps, expired} when the panel
+  // started counting missing DOCUMENTS and not only expiring ones. The array
+  // form is still accepted so a cached older payload renders instead of
+  // blanking the panel while the API restarts.
+  const driverPayload = Array.isArray(ops?.drivers) ? { rows: ops.drivers } : (ops?.drivers ?? {});
+  const driverRows = driverPayload.rows ?? [];
   const vault = ops?.doc_vault ?? [];
 
   return (
@@ -357,22 +362,58 @@ export default function OperationsDashboard({ live, filter }) {
 
         {/* Driver Command Center */}
         <GlassPanel>
-          <PanelHeader icon={Users} title="Driver Command Center" accent="text-cyan-400" />
+          <PanelHeader icon={Users} title="Driver Command Center" accent="text-cyan-400"
+            sub={driverPayload.total_active
+              ? `${driverPayload.with_gaps ?? 0} of ${driverPayload.total_active} need papers · ${driverPayload.expired ?? 0} expired`
+              : undefined} />
           <div className="px-4 pb-4 flex flex-col gap-2">
             {driverRows.length === 0 ? (
-              <EmptyNote>No driver licence / hazardous-cert expiry dates recorded yet.</EmptyNote>
-            ) : driverRows.map((d) => (
-              <div key={d.name} className="flex items-center justify-between gap-2 rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Avatar name={d.name} />
-                  <span className="text-[12px] font-semibold text-slate-200 truncate">{d.name}</span>
+              <EmptyNote>No active drivers on file.</EmptyNote>
+            ) : driverRows.map((d) => {
+              // A plain <a target="_blank"> rather than an onClick router push:
+              // the ask was explicitly for a SEPARATE TAB, and an anchor also
+              // gives middle-click and "open in new window" for free. The screen
+              // reads ?driver= and opens that man's KYC form straight away.
+              const href = `?module=OPERATION&screen=DRIVER&driver=${encodeURIComponent(d.id ?? '')}`;
+              const row = (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Avatar name={d.name} />
+                      <span className="text-[12px] font-semibold text-slate-200 truncate">{d.name}</span>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
+                      <StatusPill tone={expiryTone(d.dl_days)}>DL: {expiryLabel(d.dl_days)}</StatusPill>
+                      <StatusPill tone={expiryTone(d.hzd_days)}>HZD: {expiryLabel(d.hzd_days)}</StatusPill>
+                    </div>
+                  </div>
+                  {d.missing?.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-[34px]">
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">pending</span>
+                      {d.missing.map((m) => (
+                        <span key={m}
+                          className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded
+                                     bg-amber-500/15 text-amber-300 border border-amber-500/30">{m}</span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+              // Without an id there is nothing to open, so it stays a plain row
+              // rather than a link that lands on an empty form.
+              return d.id ? (
+                <a key={d.id} href={href} target="_blank" rel="noopener noreferrer"
+                  title={`Open ${d.name}'s KYC in a new tab`}
+                  className="block rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5
+                             hover:bg-white/10 hover:border-cyan-500/40 transition-colors cursor-pointer">
+                  {row}
+                </a>
+              ) : (
+                <div key={d.name} className="block rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5">
+                  {row}
                 </div>
-                <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
-                  <StatusPill tone={expiryTone(d.dl_days)}>DL: {expiryLabel(d.dl_days)}</StatusPill>
-                  <StatusPill tone={expiryTone(d.hzd_days)}>HZD: {expiryLabel(d.hzd_days)}</StatusPill>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </GlassPanel>
       </div>
