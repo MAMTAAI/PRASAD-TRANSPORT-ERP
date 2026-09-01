@@ -541,6 +541,67 @@ export function registerDashboardRoutes(app) {
       return rows.map((r) => ({ doc: r.doc, expiry: r.soonest, days: num(r.days) }));
     }, []);
 
+    // ── Fleet Document Vault — the two panels merged, per LORRY ──────────────
+    // doc_vault answers "which KIND of paper expires soonest" and compliance_alerts
+    // answers "whose paper expires next", and they were drawn as two panels stacked
+    // on each other. Neither could be acted on alone: the first never names a
+    // vehicle, the second names one but says nothing about the rest of its file.
+    // This is one row per lorry — what is expired, what is due, what has no file —
+    // so the answer and the thing you act on are the same object.
+    //
+    // AND IT CARRIES THE FEE, which is the part nothing on this dashboard showed.
+    // vehicle_documents.amount is filled for 79 rows totalling ₹11,11,030 and every
+    // one has voucher_id NULL: the 2026-08 Firestore import wrote the table
+    // directly and so bypassed POST /vehicle-documents, which is what queues the
+    // expense_approvals row. That money has never reached the cashbook or the P&L.
+    // Reported here, never posted from here — ₹11 lakh of historical expense is an
+    // owner's decision and the approval queue is where it belongs.
+    const fleet_vault = await safe(errors, 'fleet_vault', async () => {
+      const { rows } = await query(`
+        SELECT v.id, v.vehicle_no,
+               count(*) FILTER (WHERE c.compliance_state = 'EXPIRED')::int  AS expired,
+               count(*) FILTER (WHERE c.compliance_state = 'EXPIRING')::int AS expiring,
+               count(*) FILTER (WHERE c.document_url IS NULL)::int          AS no_file,
+               count(*)::int                                               AS docs,
+               min(c.next_due_date) FILTER (
+                 WHERE c.compliance_state IN ('EXPIRED','EXPIRING'))        AS soonest,
+               count(*) FILTER (WHERE c.amount > 0 AND c.voucher_id IS NULL)::int AS unposted_fees,
+               COALESCE(sum(c.amount) FILTER (
+                 WHERE c.amount > 0 AND c.voucher_id IS NULL), 0)::numeric  AS unposted_rs
+          FROM vehicles v
+          LEFT JOIN v_vehicle_compliance c ON c.vehicle_id = v.id
+         WHERE v.status = 'ACTIVE'
+         GROUP BY v.id, v.vehicle_no`);
+
+      const mapped = rows.map((r) => ({
+        id: r.id, vehicle_no: r.vehicle_no,
+        expired: num(r.expired), expiring: num(r.expiring),
+        no_file: num(r.no_file), docs: num(r.docs),
+        soonest: r.soonest,
+        soonest_days: r.soonest ? Math.round((new Date(r.soonest) - new Date(new Date().toDateString())) / 86400000) : null,
+        unposted_fees: num(r.unposted_fees), unposted_rs: Number(r.unposted_rs ?? 0),
+      }));
+
+      // Expired first and most-overdue within that, because an expired paper is a
+      // lorry that must not roll today; everything else is scheduling.
+      mapped.sort((a, b) => {
+        if (!!a.expired !== !!b.expired) return b.expired - a.expired;
+        if (a.expired && b.expired) return (a.soonest_days ?? 0) - (b.soonest_days ?? 0);
+        if (!!a.expiring !== !!b.expiring) return b.expiring - a.expiring;
+        return (a.soonest_days ?? 99999) - (b.soonest_days ?? 99999);
+      });
+
+      return {
+        rows: mapped.slice(0, 12),
+        total_vehicles: mapped.length,
+        with_expired: mapped.filter((v) => v.expired > 0).length,
+        with_expiring: mapped.filter((v) => v.expiring > 0).length,
+        no_docs: mapped.filter((v) => v.docs === 0).length,
+        unposted_fees: mapped.reduce((n, v) => n + v.unposted_fees, 0),
+        unposted_rs: mapped.reduce((n, v) => n + v.unposted_rs, 0),
+      };
+    }, { rows: [], total_vehicles: 0, with_expired: 0, with_expiring: 0, no_docs: 0, unposted_fees: 0, unposted_rs: 0 });
+
     // THE 10-DAY RED ALERT. doc_vault above shows the soonest expiry per document
     // TYPE across the fleet — useful as a summary, useless for acting, because it
     // never names the lorry. This names every vehicle AND driver whose paper
@@ -1749,7 +1810,7 @@ export function registerDashboardRoutes(app) {
       // Echoed back so the UI can label the page with what it actually applied,
       // rather than with what the user believes they selected.
       filter: F,
-      ops: { ...fleet, doc_vault, drivers, trips_by_day, live_fleet, unloading_queue,
+      ops: { ...fleet, doc_vault, fleet_vault, drivers, trips_by_day, live_fleet, unloading_queue,
              vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
              loading_activity, unloading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },

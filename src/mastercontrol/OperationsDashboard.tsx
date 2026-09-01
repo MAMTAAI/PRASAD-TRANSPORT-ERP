@@ -23,12 +23,13 @@ import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import LiveFleetMap from './LiveFleetMap';
 import { UnloadingQueue } from './OpsWidgets';
-import { VehicleRtkmPanel, ShortageRecoveryPanel, ComplianceAlertsPanel } from './FleetProductivity';
+import { VehicleRtkmPanel, ShortageRecoveryPanel } from './FleetProductivity';
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
 import UnloadingActivity from './UnloadingActivity';
 import DispatchConsole from './DispatchConsole';
 import DriverCommandCenter from './DriverCommandCenter';
+import FleetDocumentVault from './FleetDocumentVault';
 
 // The left-column panel kit (TONE_CHIP / chipCls / PANEL_SHELL / SCROLL_PANE /
 // ROW_CLS / BADGE_CLS) now lives in ./shared so Compliance Expiry, which is in
@@ -305,7 +306,6 @@ export default function OperationsDashboard({ live, filter }) {
   };
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
-  const vault = ops?.doc_vault ?? [];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -321,56 +321,12 @@ export default function OperationsDashboard({ live, filter }) {
           ))}
         </div>
 
-        {/* Master Document Vault — same shell as Today's Loading Activity */}
-        <GlassPanel className={`${PANEL_SHELL} border-red-500/25 shadow-[0_0_30px_rgba(248,113,113,0.06)]`}>
-          <PanelHeader
-            icon={FileWarning}
-            title="Master Document Vault"
-            onTitleClick={() => openDrilldown('ops.doc_expiry', null)}
-            accent="text-red-400"
-            sub="vehicle papers, soonest first"
-            right={
-              <a
-                href="?module=OPERATION&screen=DOCS"
-                target="_blank" rel="noopener noreferrer"
-                title="Vehicle Documents nayi tab mein — yahin se date aur file update hoti hai"
-                className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5
-                           text-[9px] font-black text-red-300 transition-colors hover:bg-red-500/20"
-              >
-                <ExternalLink size={10} /> UPDATE
-              </a>
-            }
-          />
-          <div className={SCROLL_PANE}>
-            {vault.length === 0 ? (
-              <EmptyNote>
-                No vehicle document expiry dates are recorded in the ERP yet — all
-                {' '}{ops ? ops.fleet_size : 0} active vehicles have insurance, fitness,
-                permit, PUC and tax dates blank. Fill them in <span className="text-slate-300 font-semibold">Vehicle Documents</span>
-                {' '}and this vault starts warning you before anything expires.
-              </EmptyNote>
-            ) : vault.map((d) => {
-              const tone = expiryTone(d.days);
-              return (
-                <div key={d.doc} className={ROW_CLS}>
-                  <span className={BADGE_CLS(tone)}>
-                    <FileWarning size={11} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <span className="block truncate text-[11px] font-bold text-slate-200">{d.doc}</span>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                      <span className={chipCls(tone)}>{expiryLabel(d.days)}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </GlassPanel>
-
-        {/* The 10-day red alert, directly under the vault it belongs to. The
-            vault says WHICH KIND of paper expires soonest; this says whose. */}
-        <ComplianceAlertsPanel live={live} />
+        {/* Fleet Document Vault — Master Document Vault and the 10-Day Watch,
+            merged. One answered which KIND of paper expires soonest and never
+            named a lorry; the other named one but said nothing about the rest of
+            its file. Stacked they cost twice the height and still sent you to
+            another screen to act. One row per LORRY, its whole file in the sheet. */}
+        <FleetDocumentVault vault={ops?.fleet_vault} />
 
         {/* Driver Command Center — its own file now. The panel answers WHO and
             HOW BAD in one line; WHAT exactly is missing is the overlay it opens,
