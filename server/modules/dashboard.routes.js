@@ -28,7 +28,7 @@ const num = (v) => (v == null ? 0 : Number(v));
 const mapAlert = (r) => ({
   kind: r.subject_kind, subject: r.subject, owner: r.owner_name,
   doc_type: r.doc_type, doc_name: r.doc_name,
-  expires_on: r.expires_on, days: num(r.days), source: r.source,
+  expires_on: r.expires_on, renewed_on: r.renewed_on, days: num(r.days), source: r.source,
 });
 
 /** Run one aggregate; on failure record it and hand back a fallback. */
@@ -642,7 +642,7 @@ export function registerDashboardRoutes(app) {
       const { rows } = await query(`
         SELECT subject_kind, subject, owner_name, doc_type,
                COALESCE(doc_name, doc_type) AS doc_name,
-               expires_on, (expires_on - CURRENT_DATE)::int AS days, source
+               expires_on, renewed_on, (expires_on - CURRENT_DATE)::int AS days, source
           FROM v_compliance_alerts
          WHERE expires_on - CURRENT_DATE <= compliance_alert_days()
          ORDER BY expires_on ASC
@@ -652,10 +652,35 @@ export function registerDashboardRoutes(app) {
       const { rows: run } = await query(`
         SELECT ran_on, threshold_days, checked, expired, expiring
           FROM compliance_alert_runs ORDER BY ran_on DESC LIMIT 1`);
+      // COUNTED IN SQL, NOT FROM THE ARRAY ABOVE. That array is LIMIT 60, so
+      // once the window holds more than sixty papers every headline built from
+      // `.length` would quietly stop rising — the one failure a compliance
+      // count must never have. 46 today, which is close enough to matter.
+      //
+      // And split by kind, because a lorry panel counting drivers is how the
+      // Fleet vault came to show 40 expired when 33 of them were vehicles: the
+      // number was true of the feed and wrong about the panel it sat on.
+      const { rows: cnt } = await query(`
+        SELECT subject_kind,
+               count(*) FILTER (WHERE expires_on <  CURRENT_DATE)::int AS expired,
+               count(*) FILTER (WHERE expires_on >= CURRENT_DATE)::int AS expiring
+          FROM v_compliance_alerts
+         WHERE expires_on - CURRENT_DATE <= compliance_alert_days()
+         GROUP BY subject_kind`);
+      const bucket = (k) => cnt.find((c) => c.subject_kind === k) ?? { expired: 0, expiring: 0 };
+      const veh = bucket('VEHICLE');
+      const drv = bucket('DRIVER');
+
       return {
         threshold_days: 10,
         expired: rows.filter((r) => r.days < 0).map(mapAlert),
         expiring: rows.filter((r) => r.days >= 0).map(mapAlert),
+        counts: {
+          vehicle_expired: num(veh.expired), vehicle_expiring: num(veh.expiring),
+          driver_expired: num(drv.expired), driver_expiring: num(drv.expiring),
+          listed: rows.length,
+          total: num(veh.expired) + num(veh.expiring) + num(drv.expired) + num(drv.expiring),
+        },
         last_sweep: run[0] ?? null,
       };
     }, { threshold_days: 10, expired: [], expiring: [], last_sweep: null });

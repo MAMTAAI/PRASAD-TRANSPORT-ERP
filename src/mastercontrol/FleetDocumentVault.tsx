@@ -72,10 +72,21 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
   const payload = Array.isArray(vault) ? { rows: vault } : (vault ?? {});
   const rows = payload.rows ?? [];
 
-  // The 10-day watch covers LORRIES AND DRIVERS in one feed. That is why the
-  // old Compliance panel could be deleted without losing anything: a driver's
-  // lapsed licence stops a truck exactly as a lapsed fitness certificate does,
-  // and splitting them across two panels only made you check twice.
+  // THE TILES COUNT LORRIES ONLY. The feed carries drivers too, and building
+  // the headline from it made this vehicle panel announce 40 expired when 33
+  // were vehicles and 7 were driver licences — a number true of the feed and
+  // wrong about the panel it sat on. Driver figures belong on the driver panel.
+  //
+  // `counts` is summed in SQL rather than from the arrays below, which are
+  // LIMIT 60: past sixty papers a .length headline would silently stop rising,
+  // which is the one failure a compliance count must never have.
+  const counts = alerts?.counts ?? {};
+  const vehExpired = counts.vehicle_expired ?? 0;
+  const vehExpiring = counts.vehicle_expiring ?? 0;
+
+  // The sheet still shows BOTH kinds — a lapsed licence stops a truck exactly
+  // as a lapsed fitness certificate does, and that is the one place the two
+  // belong side by side.
   const expired = alerts?.expired ?? [];
   const expiring = alerts?.expiring ?? [];
   const hist = history ?? [];
@@ -194,20 +205,20 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
       <div className="grid grid-cols-2 gap-1.5 px-2.5 pt-1.5 shrink-0">
         <button onClick={() => setWatch('10din')}
           className={`rounded-lg border px-2 py-1.5 text-left transition-colors
-            ${expired.length ? 'border-red-500/45 bg-red-500/10 hover:bg-red-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+            ${vehExpired ? 'border-red-500/45 bg-red-500/10 hover:bg-red-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
           <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-red-300">
             <ShieldAlert size={10} /> Expired
           </p>
-          <p className="text-[19px] font-black leading-tight text-slate-100">{expired.length}</p>
-          <p className="text-[9px] text-slate-500">gaadi + driver</p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{vehExpired}</p>
+          <p className="text-[9px] text-slate-500">gaadi ke kaagaz</p>
         </button>
         <button onClick={() => setWatch('10din')}
           className={`rounded-lg border px-2 py-1.5 text-left transition-colors
-            ${expiring.length ? 'border-amber-500/45 bg-amber-500/10 hover:bg-amber-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+            ${vehExpiring ? 'border-amber-500/45 bg-amber-500/10 hover:bg-amber-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
           <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-amber-300">
             <CalendarClock size={10} /> Agle 10 din
           </p>
-          <p className="text-[19px] font-black leading-tight text-slate-100">{expiring.length}</p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{vehExpiring}</p>
           <p className="text-[9px] text-slate-500">renew karne hain</p>
         </button>
       </div>
@@ -415,13 +426,30 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
                       return (
                         <div key={`${a.kind}-${a.subject}-${a.doc_type}-${i}`}
                           className={`${ROW_CLS} items-center ${gone ? 'border-red-500/40 bg-red-500/10' : ''}`}>
+                          {/* Sl. across the whole list, lorries and drivers in one
+                              run, so "number 12 of 46" means the same thing to two
+                              people reading it aloud to each other. */}
+                          <span className="shrink-0 w-5 text-right text-[10px] font-black tabular-nums text-slate-600">{i + 1}</span>
                           <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider
                             ${a.kind === 'DRIVER' ? 'bg-violet-500/20 text-violet-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
                             {a.kind === 'DRIVER' ? 'DRV' : 'VEH'}
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[11px] font-bold text-slate-100">{a.subject}</p>
-                            <p className="truncate text-[9px] text-slate-500">{a.doc_name}</p>
+                            <p className="truncate text-[9px] text-slate-500">
+                              {a.doc_name}
+                              {/* Both dates, because they answer different
+                                  questions: eight days left on a paper renewed
+                                  last week is a follow-up, the same eight days
+                                  on one renewed in 2023 is a document nobody has
+                                  touched. Renewal is blank for bare expiry
+                                  columns and driver licences, which keep no
+                                  issue date — shown as — rather than guessed. */}
+                              <span className="mx-1 text-slate-700">|</span>
+                              renew {a.renewed_on ? dayLabel(a.renewed_on) : '—'}
+                              <span className="mx-1 text-slate-700">→</span>
+                              expiry <span className={gone ? 'text-red-300' : 'text-amber-300'}>{dayLabel(a.expires_on)}</span>
+                            </p>
                           </div>
                           <span className={`${chipCls(gone ? 'red' : 'amber')} shrink-0`}>
                             {gone ? `${Math.abs(a.days)}d expired` : `${a.days}d left`}

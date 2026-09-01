@@ -31,7 +31,7 @@
 // ============================================================================
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, ExternalLink, ShieldAlert, CheckCircle2, CircleSlash, Paperclip, Loader2 } from 'lucide-react';
+import { Users, ExternalLink, ShieldAlert, CheckCircle2, CircleSlash, Paperclip, Loader2, CalendarClock } from 'lucide-react';
 import { GlassPanel, PanelHeader, PANEL_SHELL, SCROLL_PANE, ROW_CLS, chipCls, TONE_CHIP } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
 import { uploadMedia, slug } from '../lib/uploadMedia';
@@ -91,9 +91,17 @@ function isoDate(s) {
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
 }
 
-export default function DriverCommandCenter({ drivers }) {
+export default function DriverCommandCenter({ drivers, alerts }) {
   const payload = Array.isArray(drivers) ? { rows: drivers } : (drivers ?? {});
   const rows = payload.rows ?? [];
+
+  // DRIVER-ONLY, deliberately. The compliance feed carries lorries too, and
+  // counting the whole feed here would repeat the mistake the Fleet vault made
+  // in the other direction — a driver panel announcing vehicle fitness
+  // certificates. Counted in SQL, not from the LIMIT 60 array.
+  const counts = alerts?.counts ?? {};
+  const drvExpired = counts.driver_expired ?? 0;
+  const drvExpiring = counts.driver_expiring ?? 0;
   const [open, setOpen] = useState(null);
   // Papers filed during this sheet's life. The dashboard polls on its own
   // schedule, and waiting for that to come round would leave a document the
@@ -186,12 +194,31 @@ export default function DriverCommandCenter({ drivers }) {
         }
       />
 
+      {/* Same two tiles as the Fleet vault, so the stacked pair reads as one
+          dashboard rather than two widgets — but counting DRIVER licences,
+          never lorries. */}
+      <div className="grid grid-cols-2 gap-1.5 px-2.5 pt-1.5 shrink-0">
+        <div className={`rounded-lg border px-2 py-1.5 ${drvExpired ? 'border-red-500/45 bg-red-500/10' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+          <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-red-300">
+            <ShieldAlert size={10} /> Expired
+          </p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{drvExpired}</p>
+          <p className="text-[9px] text-slate-500">DL / HZD licence</p>
+        </div>
+        <div className={`rounded-lg border px-2 py-1.5 ${payload.with_gaps ? 'border-amber-500/45 bg-amber-500/10' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+          <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-amber-300">
+            <CalendarClock size={10} /> Kaagaz baaki
+          </p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{payload.with_gaps ?? 0}</p>
+          <p className="text-[9px] text-slate-500">
+            {drvExpiring > 0 ? `${drvExpiring} agle 10 din mein` : 'driver files adhoori'}
+          </p>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
-        <span className={chipCls(payload.expired ? 'red' : 'green')}>
-          {payload.expired ?? 0} <span className="font-normal opacity-70">expired</span>
-        </span>
-        <span className={chipCls(payload.with_gaps ? 'amber' : 'green')}>
-          {payload.with_gaps ?? 0} <span className="font-normal opacity-70">papers pending</span>
+        <span className={chipCls('slate')}>
+          {payload.total_active ?? 0} <span className="font-normal opacity-70">active</span>
         </span>
         {rows.length < (payload.with_gaps ?? 0) && (
           <span className="text-[9px] font-semibold text-slate-500">worst {rows.length} shown</span>

@@ -331,7 +331,7 @@ export default function OperationsDashboard({ live, filter }) {
         {/* Driver Command Center — its own file now. The panel answers WHO and
             HOW BAD in one line; WHAT exactly is missing is the overlay it opens,
             the same split Loading Activity makes with its 7 DIN sheet. */}
-        <DriverCommandCenter drivers={ops?.drivers} />
+        <DriverCommandCenter drivers={ops?.drivers} alerts={ops?.compliance_alerts} />
       </div>
 
       {/* ══════════════ CENTER PANEL ══════════════ */}
