@@ -22,7 +22,7 @@
 // animates when a newer ping actually moves it.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Satellite, AlertTriangle, MapPin, Navigation, Wifi } from 'lucide-react';
+import { Satellite, AlertTriangle, MapPin, Navigation, Wifi, Search } from 'lucide-react';
 import { GlassPanel, PanelHeader, StatusPill, HoverCard, HoverTitle, HoverKv, HoverNote } from './shared';
 import { loadGoogleMaps } from '../lib/maps';
 import { API_BASE } from '../lib/apiBase';
@@ -82,6 +82,23 @@ export default function LiveFleetMap() {
   // a trail of them open behind the pointer.
   const infoRef = useRef(null);
   const pinnedRef = useRef(null);        // trip_id whose window was clicked open
+
+  // ── Focus one trip ────────────────────────────────────────────────────────
+  const [focusId, setFocusId] = useState(null);
+  const [focusNote, setFocusNote] = useState('');
+  const focusRef = useRef({ line: null, marks: [] });
+
+  // NOTHING IN THE DATABASE HAS COORDINATES — trips, rtkm_master and locations
+  // all keep the loading and unloading points as NAMES ("Lumding Terminal
+  // (7T04)"). So the route is resolved from the names through getRoute(), the
+  // same helper the fleet view already uses, which returns a real road overview
+  // polyline and — the part that matters — reads and writes a SERVER-side cache
+  // at /api/v1/maps/cache.
+  //
+  // A local geocoder would have worked and would have been the wrong tool: it
+  // draws a straight line through the hills instead of the road, and it caches
+  // per browser, so the same twenty depots would be billed again for every
+  // member of staff. This way the second person to open a trip pays nothing.
 
   // ── data ──────────────────────────────────────────────────────────────────
   const fetchBoard = useCallback(async () => {
@@ -320,6 +337,74 @@ export default function LiveFleetMap() {
 
   const plotted = board.withFix.length;
 
+  // Draw (or clear) the focused trip: origin, destination, the line between
+  // them, and the truck if it has a fix. Runs on selection only — the fleet
+  // view is untouched, so clearing puts everything back as it was.
+  useEffect(() => {
+    let dead = false;
+    const clear = () => {
+      focusRef.current.line?.setMap(null);
+      focusRef.current.marks.forEach((m) => m.setMap(null));
+      focusRef.current = { line: null, marks: [] };
+    };
+    clear();
+    if (!focusId || status !== 'ready' || !mapRef.current) { setFocusNote(''); return; }
+
+    const trip = [...board.withFix, ...board.noFix].find((t) => t.id === focusId);
+    if (!trip) return;
+    setFocusNote('Route dekha ja raha hai…');
+
+    (async () => {
+      const g = await loadGoogleMaps();
+      const r = await getRoute(trip.loading_point, trip.destination);
+      if (dead) return;
+
+      const path = r?.polyline ? g.maps.geometry.encoding.decodePath(r.polyline) : null;
+      const pts = [];
+      const mk = (pos, color, title) => new g.maps.Marker({
+        map: mapRef.current, position: pos, title,
+        icon: { path: 0, fillColor: color, fillOpacity: 1, strokeColor: '#0b1220', strokeWeight: 2, scale: 7 },
+        zIndex: 40,
+      });
+
+      if (path?.length) {
+        focusRef.current.line = new g.maps.Polyline({
+          map: mapRef.current, path, strokeColor: '#22d3ee', strokeOpacity: 0.75, strokeWeight: 4,
+        });
+        focusRef.current.marks.push(mk(path[0], '#22d3ee', `Loading: ${trip.loading_point}`));
+        focusRef.current.marks.push(mk(path[path.length - 1], '#f59e0b', `Unloading: ${trip.destination}`));
+        pts.push(...path);
+      }
+
+      // A truck is drawn ONLY with a real fix — the same rule the fleet view
+      // follows. A pin at the origin "for now" reads as "the lorry is still at
+      // the refinery", which is a statement nobody has the data to make.
+      if (trip.lat != null && trip.lng != null) {
+        const at = { lat: Number(trip.lat), lng: Number(trip.lng) };
+        focusRef.current.marks.push(mk(at, '#34d399', `${trip.vehicle_no} — ${trip.source ?? 'fix'}`));
+        pts.push(at);
+      }
+
+      if (!pts.length) {
+        setFocusNote(`${trip.vehicle_no}: "${trip.loading_point ?? '?'}" se "${trip.destination ?? '?'}" ka rasta nahi mila — naam se jagah nahi pehchani gayi.`);
+        return;
+      }
+
+      const b = new g.maps.LatLngBounds();
+      pts.forEach((p) => b.extend(p));
+      // One point cannot make a box; without this the map zooms to maximum.
+      if (pts.length === 1) { mapRef.current.setCenter(pts[0]); mapRef.current.setZoom(11); }
+      else mapRef.current.fitBounds(b, 56);
+
+      const km = r?.distance_m ? ` · ${Math.round(r.distance_m / 1000)} km` : '';
+      setFocusNote(
+        `${trip.vehicle_no} · ${trip.loading_point ?? '?'} → ${trip.destination ?? '?'}${km}`
+        + (trip.lat == null ? ' · abhi koi GPS fix nahi, sirf route dikhaya hai' : ` · fix ${trip.source ?? ''}`));
+    })().catch((e) => { if (!dead) setFocusNote(`Route nahi bana: ${e.message}`); });
+
+    return () => { dead = true; clear(); };
+  }, [focusId, status, board]);
+
   return (
     <GlassPanel className="h-full flex flex-col">
       <PanelHeader
@@ -368,6 +453,44 @@ export default function LiveFleetMap() {
           </span>
         }
       />
+
+      {/* ── Pick one lorry ──────────────────────────────────────────────────
+          The board carries 100 trips and none of them has a GPS fix, so the map
+          opened on the whole of the north-east with nothing on it and no way to
+          ask about a particular truck. Choosing one draws its route from the
+          loading point to the unloading point and fits the map to it, which is
+          the answer the yard actually wants — where is this load going — and it
+          does not need a fix to be useful. */}
+      <div className="flex items-center gap-1.5 px-3 pb-2 shrink-0">
+        <Search size={12} className="shrink-0 text-slate-500" />
+        <select
+          value={focusId ?? ''}
+          onChange={(e) => setFocusId(e.target.value || null)}
+          className="min-w-0 flex-1 rounded-lg border border-slate-700/60 bg-slate-950/60 px-2 py-1 text-[11px] text-slate-200
+                     outline-none focus:border-cyan-500/60"
+        >
+          <option value="">Poora fleet — {board.total} trip</option>
+          {[...board.withFix, ...board.noFix].map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.vehicle_no}{t.trip_code ? ` · ${t.trip_code}` : ''}
+              {t.destination ? ` → ${t.destination}` : ''}
+              {t.lat == null ? ' (no fix)' : ''}
+            </option>
+          ))}
+        </select>
+        {focusId && (
+          <button onClick={() => setFocusId(null)}
+            className="shrink-0 rounded-md border border-slate-700/60 px-2 py-1 text-[9.5px] font-black text-slate-400 hover:text-slate-200">
+            SAB
+          </button>
+        )}
+      </div>
+
+      {focusId && focusNote && (
+        <p className="mx-3 mb-2 shrink-0 rounded-lg border border-slate-700/60 bg-white/[0.02] px-2.5 py-1.5 text-[10px] leading-snug text-slate-400">
+          {focusNote}
+        </p>
+      )}
 
       <div className="relative flex-1 min-h-[320px] px-3 pb-3">
         <div ref={boxRef} className="absolute inset-x-3 inset-y-0 rounded-xl overflow-hidden border border-slate-800/70 bg-[#0b1220]" />
