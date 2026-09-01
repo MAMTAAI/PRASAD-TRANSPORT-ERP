@@ -269,7 +269,12 @@ export default function VehicleDocs() {
     setScannedAIData(null);
 
     const vNo = slug(plateOf(selectedVehicle) || 'vehicle');
-    const uploadPromise = uploadMedia(file, `vehicle-docs/${vNo}/${slug(activeTab.id)}_${Date.now()}.jpg`);
+    // The extension has to come from the file. Hard-coded ".jpg" stored every
+    // PDF certificate under an image name, so "View Document" handed the
+    // browser a PDF labelled as a picture and it rendered as broken.
+    const ext = (file.name?.match(/\.([A-Za-z0-9]+)$/)?.[1]
+      || (file.type === 'application/pdf' ? 'pdf' : 'jpg')).toLowerCase();
+    const uploadPromise = uploadMedia(file, `vehicle-docs/${vNo}/${slug(activeTab.id)}_${Date.now()}.${ext}`);
 
     // A dead Ollama must not lose the document — store the file regardless.
     let storedUrl = '';
@@ -297,8 +302,15 @@ export default function VehicleDocs() {
         next_due_date: formatForDatePicker(ex.expiry_date) || prev.next_due_date || '',
       }));
       setScannedAIData(ex);
-      const note = ex._lowConfidence.length ? ` (check: ${ex._lowConfidence.join(', ')})` : '';
-      alert(`✅ File saved + Mamta AI ne ${activeTab.name} padh liya. Kripya verify karein.${note}`);
+      // SAY WHICH OF THE TWO HAPPENED. extractDocument does not throw when it
+      // reads nothing — it returns empty strings — so this line claimed "padh
+      // liya" over a scan that had filled not one field, and the operator was
+      // left looking for data the message promised. Report what actually landed.
+      const got = [docNum && 'number', ex.issue_date && 'issue date', ex.expiry_date && 'expiry date']
+        .filter(Boolean);
+      alert(got.length
+        ? `✅ File save + ${activeTab.name} se mila: ${got.join(', ')}. Kripya verify karein.`
+        : `✅ File save ho gayi — lekin scan se koi field nahi nikli.\nFields haath se bharein aur SAVE dabayein.`);
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
       alert(`✅ File save ho gayi.\n${offline ? '⚠️ Local AI engine (Ollama) band hai — scan nahi hua, fields manually bharein.' : '⚠️ Document scan nahi ho paya (file phir bhi save hai) — fields manually bharein.'}`);

@@ -110,7 +110,24 @@ async function scanOnServer(file: File, local: any): Promise<ExtractedDoc> {
   form.append('source', 'erp-web');
   form.append('file', file, file.name || 'document');
 
-  const res = await fetch(`${API_BASE}/api/v1/scan`, { method: 'POST', body: form });
+  // THE HEADER IS THE WHOLE FEATURE. /api/v1/scan is not in apiGuard's public
+  // list, so this call has been answering 401 since it was written — and the
+  // 401 was invisible: extractDocument catches the throw and returns its empty
+  // local result, so the screen reported "scan complete", filled nothing, and
+  // every operator concluded the AI simply could not read Indian paperwork.
+  //
+  // The local Ollama pass cannot cover for it either. VITE_LLM_BASE_URL is
+  // baked at build time as http://localhost:11434 — the OPERATOR'S OWN PC, not
+  // the server — so on production the local pass always fails and this fallback
+  // is the ONLY scanner there is. Unauthenticated, there was none at all.
+  const token = (() => {
+    try { return localStorage.getItem('prasad_token') || ''; } catch { return ''; }
+  })();
+  const res = await fetch(`${API_BASE}/api/v1/scan`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
   const body: any = await res.json().catch(() => ({}));
   if (!res.ok || body.ok === false) {
     throw new Error(body.detail || body.error || `Scan failed (HTTP ${res.status})`);
