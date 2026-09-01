@@ -30,7 +30,6 @@ import UnloadingActivity from './UnloadingActivity';
 import DispatchConsole from './DispatchConsole';
 import DriverCommandCenter from './DriverCommandCenter';
 import FleetDocumentVault from './FleetDocumentVault';
-import FeeApprovalQueue from './FeeApprovalQueue';
 
 // The left-column panel kit (TONE_CHIP / chipCls / PANEL_SHELL / SCROLL_PANE /
 // ROW_CLS / BADGE_CLS) now lives in ./shared so Compliance Expiry, which is in
@@ -327,12 +326,8 @@ export default function OperationsDashboard({ live, filter }) {
             named a lorry; the other named one but said nothing about the rest of
             its file. Stacked they cost twice the height and still sent you to
             another screen to act. One row per LORRY, its whole file in the sheet. */}
-        <FleetDocumentVault vault={ops?.fleet_vault} alerts={ops?.compliance_alerts} history={ops?.doc_history} />
+        <FleetDocumentVault vault={ops?.fleet_vault} alerts={ops?.compliance_alerts} history={ops?.doc_history} fees={ops?.pending_fees} />
 
-        {/* Directly under the vault, because it is the same paperwork seen from
-            the money side: the vault says which certificate is missing, this says
-            which one was paid for and never reached the cashbook. */}
-        <FeeApprovalQueue fees={ops?.pending_fees} />
 
         {/* Driver Command Center — its own file now. The panel answers WHO and
             HOW BAD in one line; WHAT exactly is missing is the overlay it opens,

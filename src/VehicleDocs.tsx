@@ -726,16 +726,36 @@ export default function VehicleDocs() {
               {docTypes.map((tab) => {
                 const docData = selectedVehicle.documents && selectedVehicle.documents[tab.id];
                 const isUpdated = !!docData;
-                
+
                 let dateColor = '#94a3b8';
+                let daysLeft = null;
                 if(isUpdated && docData.next_due_date) {
                    // toISODate handles legacy DD-MM-YYYY strings that new Date() misparses
                    const expDate = new Date(toISODate(docData.next_due_date) || docData.next_due_date);
                    const today = new Date();
-                   if (expDate < today) dateColor = '#ef4444'; 
-                   else if ((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24) < 15) dateColor = '#f59e0b'; 
-                   else dateColor = '#10b981'; 
+                   daysLeft = Math.round((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
+                   if (expDate < today) dateColor = '#ef4444';
+                   else if ((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24) < 15) dateColor = '#f59e0b';
+                   else dateColor = '#10b981';
                 }
+
+                // THE TICK USED TO MEAN "A ROW EXISTS", which is not what a
+                // green tick says to anybody reading it. AS19C8666's calibration
+                // is 139 days expired and carried a ✅ beside a red date — the
+                // badge and the date directly contradicting each other on the
+                // same line. A tick has to mean the paper is GOOD: file
+                // attached, date recorded, and that date still in the future.
+                //
+                // The three failing states are named rather than collapsed into
+                // "not green", because each needs a different action: chase the
+                // renewal, attach the scan, or type the date in.
+                const hasFile = !!getVal(docData, ['document_url', 'document_file', 'file_url'], '');
+                const badge = !isUpdated ? null
+                  : daysLeft === null ? { icon: '📅', tone: '#64748b', bg: 'rgba(100,116,139,0.18)', title: 'date darj nahi hai' }
+                  : daysLeft < 0 ? { icon: '⚠️', tone: '#ef4444', bg: 'rgba(239,68,68,0.18)', title: `${Math.abs(daysLeft)} din pehle expire ho gaya` }
+                  : !hasFile ? { icon: '📎', tone: '#f59e0b', bg: 'rgba(245,158,11,0.18)', title: 'date hai par file nahi lagi' }
+                  : daysLeft <= 10 ? { icon: '⏳', tone: '#f59e0b', bg: 'rgba(245,158,11,0.18)', title: `${daysLeft} din baaki` }
+                  : { icon: '✅', tone: '#10b981', bg: 'rgba(16,185,129,0.2)', title: 'valid, file lagi hui hai' };
 
                 return (
                   <div 
@@ -751,7 +771,12 @@ export default function VehicleDocs() {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '13px', fontWeight: activeTab.id === tab.id ? 'bold' : 'normal' }}>{tab.name}</span>
-                      {isUpdated && <span style={{ fontSize: '12px', background: 'rgba(16,185,129,0.2)', color: '#10b981', padding: '2px 6px', borderRadius: '5px' }}>✅</span>}
+                      {badge && (
+                        <span title={badge.title}
+                          style={{ fontSize: '12px', background: badge.bg, color: badge.tone, padding: '2px 6px', borderRadius: '5px' }}>
+                          {badge.icon}
+                        </span>
+                      )}
                     </div>
                     {isUpdated && (
                        <div style={{ fontSize: '11px', color: dateColor, marginTop: '5px', fontWeight: 'bold' }}>

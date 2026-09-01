@@ -43,7 +43,11 @@ const rs = (n) => `₹${Number(n || 0).toLocaleString('en-IN', { maximumFraction
 const dayLabel = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`)
   .toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—');
 
-export default function FeeApprovalQueue({ fees, onDone }) {
+/** `embedded` renders the list and its sheet WITHOUT the panel shell, so the
+ *  Fleet Document Vault can show it under a tab. The paperwork and the money it
+ *  cost are the same subject seen twice, and two stacked panels made you scroll
+ *  between them; a tab keeps both a click apart in the same box. */
+export default function FeeApprovalQueue({ fees, onDone, embedded = false }) {
   const payload = Array.isArray(fees) ? { rows: fees } : (fees ?? {});
   const [rows, setRows] = useState(payload.rows ?? []);
   useEffect(() => { setRows(payload.rows ?? []); }, [payload.rows]);
@@ -120,9 +124,9 @@ export default function FeeApprovalQueue({ fees, onDone }) {
 
   const total = rows.reduce((n, r) => n + Number(r.amount || 0), 0);
 
-  return (
-    <GlassPanel className={`${PANEL_SHELL} border-amber-500/25 shadow-[0_0_30px_rgba(245,158,11,0.06)]`}>
-      <PanelHeader
+  const body = (
+    <>
+      {!embedded && <PanelHeader
         icon={IndianRupee}
         title="Fee Approval Queue"
         accent="text-amber-400"
@@ -135,7 +139,7 @@ export default function FeeApprovalQueue({ fees, onDone }) {
             <ExternalLink size={10} /> LEDGER
           </a>
         }
-      />
+      />}
 
       <div className="grid grid-cols-2 gap-1.5 px-2.5 pt-1.5 shrink-0">
         <div className={`rounded-lg border px-2 py-1.5 ${rows.length ? 'border-amber-500/45 bg-amber-500/10' : 'border-slate-700/60 bg-white/[0.02]'}`}>
@@ -183,6 +187,11 @@ export default function FeeApprovalQueue({ fees, onDone }) {
         ))}
       </div>
 
+    </>
+  );
+
+  const sheet = (
+    <>
       {open && createPortal(
         <div onClick={() => !busy && setOpen(null)}
           className="fixed inset-0 z-[1400] grid place-items-center bg-slate-950/85 p-5">
@@ -263,6 +272,14 @@ export default function FeeApprovalQueue({ fees, onDone }) {
             </div>
           </div>
         </div>, document.body)}
+    </>
+  );
+
+  if (embedded) return (<>{body}{sheet}</>);
+
+  return (
+    <GlassPanel className={`${PANEL_SHELL} border-amber-500/25 shadow-[0_0_30px_rgba(245,158,11,0.06)]`}>
+      {body}{sheet}
     </GlassPanel>
   );
 }

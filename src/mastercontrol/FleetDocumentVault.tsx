@@ -31,6 +31,7 @@ import { GlassPanel, PanelHeader, PANEL_SHELL, SCROLL_PANE, ROW_CLS, chipCls, TO
 import { uploadMedia, slug } from '../lib/uploadMedia';
 import { extractDocument } from '../lib/aiScanner';
 import { API_BASE } from '../lib/apiBase';
+import FeeApprovalQueue from './FeeApprovalQueue';
 
 const MASTERS = `${API_BASE}/api/v1/masters`;
 
@@ -68,7 +69,7 @@ function isoDate(s) {
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
 }
 
-export default function FleetDocumentVault({ vault, alerts, history }) {
+export default function FleetDocumentVault({ vault, alerts, history, fees }) {
   const payload = Array.isArray(vault) ? { rows: vault } : (vault ?? {});
   const rows = payload.rows ?? [];
 
@@ -96,6 +97,8 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
   const [watch, setWatch] = useState(null);     // '10din' | 'history' — the overview sheet
+  const [tab, setTab] = useState('docs');      // 'docs' | 'fees'
+  const feeCount = (Array.isArray(fees) ? fees.length : (fees?.rows?.length ?? 0));
 
   const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('prasad_token') || ''}` });
 
@@ -223,6 +226,22 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
         </button>
       </div>
 
+      {/* The paperwork and the money it cost are the same subject seen twice.
+          Two stacked panels made you scroll between them; a tab keeps both one
+          click apart in the same box. */}
+      <div className="flex gap-1 px-2.5 pt-1.5 shrink-0">
+        {[['docs', 'Kaagaz'], ['fees', `Fee${feeCount ? ` (${feeCount})` : ''}`]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`rounded-lg border px-2.5 py-1 text-[10.5px] font-bold transition-colors ${
+              tab === id ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200'
+                : 'border-slate-700/60 text-slate-400 hover:text-slate-200'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'fees' ? <FeeApprovalQueue fees={fees} embedded /> : (<>
+
       <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
         <span className={chipCls(payload.with_expired ? 'red' : 'green')}>
           {payload.with_expired ?? 0} <span className="font-normal opacity-70">lorries</span>
@@ -256,11 +275,25 @@ export default function FleetDocumentVault({ vault, alerts, history }) {
               {v.expired > 0 && <span className={`${chipCls('red')} shrink-0`}>{v.expired} expired</span>}
               {v.expired === 0 && v.expiring > 0 && <span className={`${chipCls('amber')} shrink-0`}>{v.expiring} due</span>}
               {v.docs === 0 && <span className={`${chipCls('slate')} shrink-0`}>koi file nahi</span>}
-              {v.expired === 0 && v.expiring === 0 && v.docs > 0 && <span className={`${chipCls('green')} shrink-0`}>current</span>}
+              {/* A GREEN TICK HAS TO MEAN ALL THREE, or it is worse than none:
+                  nothing expired, nothing due inside the window, and every
+                  document actually carrying its file. A lorry with a valid date
+                  and a missing scan is not compliant — it just looks it — so
+                  that case keeps the amber "file baaki" instead. */}
+              {v.expired === 0 && v.expiring === 0 && v.docs > 0 && v.no_file === 0 && (
+                <span className={`${chipCls('green')} shrink-0`} title="sab kaagaz valid, file bhi lagi hui">✅ pura</span>
+              )}
+              {v.expired === 0 && v.expiring === 0 && v.docs > 0 && v.no_file > 0 && (
+                <span className={`${chipCls('amber')} shrink-0`} title={`${v.no_file} document par file nahi lagi`}>
+                  {v.no_file} file baaki
+                </span>
+              )}
             </button>
           );
         })}
       </div>
+
+      </>)}
 
       {open && createPortal(
         <div onClick={() => setOpen(null)}
