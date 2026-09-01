@@ -155,6 +155,41 @@ export async function requireAdminOrService(req, reply) {
   return requireAdminRole(req, reply);
 }
 
+// ── The SUPER_ADMIN lock (2026-09-01) ─────────────────────────────────────
+// Nine people now hold admin rights, and requireAdmin ranks ADMIN and
+// SUPER_ADMIN equally. That made every ADMIN a master key: /users/:id/password
+// resets another account WITHOUT knowing its password — deliberately, that is
+// what a reset is for — so any one of the eight could take the owner's account
+// and log in as him. Maker-Checker means nothing while that is true.
+//
+// The rule: a SUPER_ADMIN row is not administrable from below. A SUPER_ADMIN
+// still administers themselves and everyone else; nothing changes for them.
+//
+// ⚠️ LOCKING THE MUTATION ROUTES IS NOT ENOUGH ON ITS OWN, and that is the
+// whole design. Two paths would walk straight around it:
+//   · PATCH /users/:id carries `role`, so an ADMIN could promote THEMSELVES to
+//     SUPER_ADMIN and come back as a peer.
+//   · POST /users could mint a NEW SUPER_ADMIN at an address the caller owns,
+//     and /password-reset/request would then send them its code.
+// So the rank is only grantable by somebody who already holds it. Both gates
+// below are load-bearing — removing either one re-opens the takeover.
+const isSuper = (req) => req.user?.role === 'SUPER_ADMIN';
+
+/** Refuses when the TARGET outranks the caller. Answers the request itself and
+ *  returns true, so callers read `if (await superAdminLocked(...)) return;`. */
+async function superAdminLocked(req, reply, targetId) {
+  if (isSuper(req)) return false;                                // a peer may act
+  if (String(targetId) === String(req.user?.sub)) return false;  // self is never blocked
+  const { rows } = await query('SELECT role::text AS role FROM users WHERE id = $1::uuid', [targetId]);
+  if (!rows.length) return false;                // NOT_FOUND is the route's own to send
+  if (rows[0].role !== 'SUPER_ADMIN') return false;
+  reply.code(403).send({
+    error: 'SUPER_ADMIN_PROTECTED',
+    detail: 'Ye account SUPER_ADMIN ka hai — ise sirf SUPER_ADMIN hi badal sakta hai.',
+  });
+  return true;
+}
+
 export async function registerAuthRoutes(app) {
   // ── Health ───────────────────────────────────────────────────────────────
   // Deploy-time question: "can anyone log in?" Answers without a credential.
@@ -994,6 +1029,7 @@ export async function registerAuthRoutes(app) {
     if (!['PENDING', 'ACTIVE', 'SUSPENDED'].includes(next)) {
       return reply.code(400).send({ error: 'BAD_STATUS', detail: 'PENDING | ACTIVE | SUSPENDED' });
     }
+    if (await superAdminLocked(req, reply, id)) return;
     // An admin suspending themselves locks the office out of its own approvals
     // screen — and the only way back is a shell on the box. Refuse it here.
     if (id === req.user.sub && next !== 'ACTIVE') {
@@ -1040,6 +1076,9 @@ export async function registerAuthRoutes(app) {
   app.post('/users', { preHandler: requireAdmin }, async (req, reply) => {
     const b = req.body ?? {};
     if (!b.email || !b.full_name) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'email and full_name are required' });
+    if (String(b.role ?? '').toUpperCase() === 'SUPER_ADMIN' && !isSuper(req)) {
+      return reply.code(403).send({ error: 'SUPER_ADMIN_PROTECTED', detail: 'SUPER_ADMIN account sirf SUPER_ADMIN hi bana sakta hai.' });
+    }
     // No password at creation: the account is created in the same
     // must_change_password state as the migrated ones, and an admin sets the
     // password through the endpoint below. One code path for "give this person
@@ -1073,6 +1112,10 @@ export async function registerAuthRoutes(app) {
     const b = req.body ?? {};
     const cols = USER_COLS.filter((c) => b[c] !== undefined);
     if (!cols.length) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
+    if (String(b.role ?? '').toUpperCase() === 'SUPER_ADMIN' && !isSuper(req)) {
+      return reply.code(403).send({ error: 'SUPER_ADMIN_PROTECTED', detail: 'SUPER_ADMIN role sirf SUPER_ADMIN hi de sakta hai.' });
+    }
+    if (await superAdminLocked(req, reply, req.params.id)) return;
     if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
     const vals = cols.map((c) => {
       if (c === 'permissions') return permsIn(b.permissions);
@@ -1099,6 +1142,7 @@ export async function registerAuthRoutes(app) {
     if (req.params.id === req.user.sub && status === 'INACTIVE') {
       return reply.code(409).send({ error: 'CANNOT_DISABLE_SELF' });
     }
+    if (await superAdminLocked(req, reply, req.params.id)) return;
     const { rows } = await query(
       `UPDATE users SET status = $2::record_status, updated_at = now() WHERE id = $1::uuid RETURNING ${SAFE}`,
       [req.params.id, status]);
@@ -1112,6 +1156,7 @@ export async function registerAuthRoutes(app) {
   app.delete('/users/:id', { preHandler: requireAdmin }, async (req, reply) => {
     if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
     if (req.params.id === req.user.sub) return reply.code(409).send({ error: 'CANNOT_DELETE_SELF' });
+    if (await superAdminLocked(req, reply, req.params.id)) return;
     try {
       const { rowCount } = await query('DELETE FROM users WHERE id = $1::uuid', [req.params.id]);
       if (!rowCount) return reply.code(404).send({ error: 'NOT_FOUND' });
@@ -1132,6 +1177,7 @@ export async function registerAuthRoutes(app) {
     const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(req.user.role);
     if (!isSelf && !isAdmin) return reply.code(403).send({ error: 'FORBIDDEN' });
     if (!UUID_RE.test(String(target))) return reply.code(400).send({ error: 'BAD_ID' });
+    if (await superAdminLocked(req, reply, target)) return;
 
     const password = String(req.body?.password ?? '');
     if (password.length < 8) return reply.code(400).send({ error: 'WEAK_PASSWORD', detail: 'minimum 8 characters' });
