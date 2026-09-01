@@ -3,7 +3,6 @@
 // MODULE 1 — OPERATIONS FLEET COMMAND (Ops View)
 // Left: KPIs · Document Vault · Driver Command Center
 // Center: Vehicle RTKM productivity · Driver shortage recovery ·
-//         Fleet Maintenance Hub · Live Fleet table
 // Right: Live Dispatch Chat (Driver Vijay Singh — PT00409)
 // ============================================================================
 import React, { useCallback, useEffect, useState } from 'react';
@@ -22,7 +21,6 @@ import {
 import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import LiveFleetMap from './LiveFleetMap';
-import { UnloadingQueue } from './OpsWidgets';
 import { VehicleRtkmPanel, ShortageRecoveryPanel } from './FleetProductivity';
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
@@ -348,83 +346,11 @@ export default function OperationsDashboard({ live, filter }) {
             operations job, not an accounts one. */}
         <ShortageRecoveryPanel live={live} filter={filter} />
 
-        {/* Fleet Maintenance Hub */}
-        <GlassPanel>
-          <PanelHeader icon={Wrench} title="Fleet Maintenance Hub" accent="text-amber-400" />
-          <div className="relative mx-4 mb-4 h-52 rounded-xl overflow-hidden border border-slate-700/50 bg-gradient-to-br from-slate-950 via-[#061019] to-slate-950">
-            {/* Wireframe grid ground */}
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  'linear-gradient(rgba(34,211,238,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,0.12) 1px, transparent 1px)',
-                backgroundSize: '28px 28px',
-              }}
-            />
-            {/* 3D truck placeholder */}
-            <div className="absolute inset-0 grid place-items-center">
-              <div className="relative">
-                <Truck size={110} strokeWidth={0.8} className="text-cyan-400/80 drop-shadow-[0_0_18px_rgba(34,211,238,0.45)]" />
-                {/* TODO: replace with the interactive 3D truck model (three.js) */}
-              </div>
-            </div>
-            {/* Glowing red alert badges */}
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 sm:left-[14%]">
-              <div className="mc-glow-pulse flex items-center gap-1.5 rounded-lg border border-red-500/60 bg-red-950/70 backdrop-blur-sm px-2.5 py-1.5 shadow-[0_0_18px_rgba(248,113,113,0.4)]">
-                <AlertTriangle size={12} className="text-red-400" />
-                <span className="text-[10px] font-black text-red-300 whitespace-nowrap">TYRE — LOW TREAD</span>
-              </div>
-              <div className="ml-6 h-6 w-px bg-red-500/50" />
-            </div>
-            <div className="absolute right-3 top-6 sm:right-[14%]">
-              <div className="mc-glow-pulse flex items-center gap-1.5 rounded-lg border border-red-500/60 bg-red-950/70 backdrop-blur-sm px-2.5 py-1.5 shadow-[0_0_18px_rgba(248,113,113,0.4)]">
-                <Gauge size={12} className="text-red-400" />
-                <span className="text-[10px] font-black text-red-300 whitespace-nowrap">ENGINE — SERVICE DUE</span>
-              </div>
-              <div className="ml-6 h-6 w-px bg-red-500/50" />
-            </div>
-            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[9px] tracking-[0.3em] font-bold text-cyan-500/60 uppercase">
-              Digital Twin · AS 25C 9908
-            </div>
-          </div>
-        </GlassPanel>
+        {/* Fleet Maintenance Hub removed 2026-09-01 — it was a placeholder: a
+            wireframe truck and a TODO for a three.js model, no data behind it. */}
 
-        {/* Live Fleet Operations */}
-        <GlassPanel>
-          <PanelHeader
-            icon={Radio}
-            title="Live Fleet Operations"
-            accent="text-emerald-400"
-            right={<Dot color="bg-emerald-400" pulse />}
-          />
-          {/* horizontal scroll wrapper keeps the table usable on mobile */}
-          <div className="px-4 pb-4 overflow-x-auto">
-            <table className="w-full min-w-[520px] text-left">
-              <thead>
-                <tr className="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-700/50">
-                  <th className="py-2 pr-3 font-bold">Vehicle No.</th>
-                  <th className="py-2 pr-3 font-bold">Route</th>
-                  <th className="py-2 pr-3 font-bold">Status</th>
-                  <th className="py-2 font-bold">Last Location</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fleetRows.length === 0 ? (
-                  <tr><td colSpan={4} className="py-4 text-[11px] text-slate-500">
-                    {offline ? 'Live data unavailable — API not reachable.' : 'No trips are in transit right now.'}
-                  </td></tr>
-                ) : fleetRows.map((v, i) => (
-                  <tr key={`${v.vehicle}-${i}`} className="border-b border-slate-800/60 last:border-0 hover:bg-white/5 transition-colors">
-                    <td className="py-2.5 pr-3 text-[12px] font-black text-slate-100 whitespace-nowrap">{v.vehicle}</td>
-                    <td className="py-2.5 pr-3 text-[11px] text-slate-400 whitespace-nowrap">{v.route}</td>
-                    <td className="py-2.5 pr-3"><StatusPill tone="green">{v.status}</StatusPill></td>
-                    <td className="py-2.5 text-[11px] text-slate-500 whitespace-nowrap">{v.driver || v.product || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </GlassPanel>
+        {/* Live Fleet Operations removed 2026-09-01 — the same trucks, routes and
+            drivers are on Trip Management, which can also act on them. */}
       </div>
 
       {/* ══════════════ RIGHT PANEL — LIVE DISPATCH CHAT ══════════════ */}
@@ -828,9 +754,12 @@ export default function OperationsDashboard({ live, filter }) {
           waiting queue folded into a pair of unreadable ribbons with their
           labels stacked on top of each other. Anything appended to this grid
           from here on needs a span for the same reason. */}
-      <div className="lg:col-span-12 grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch [&>*]:min-w-0">
+      {/* Unloading Queue removed 2026-09-01 — 144 rows of "still not unloaded"
+          that nobody cleared from here; the same list is actionable on Trip
+          Management, where the Unload button actually lives. The map takes the
+          full width it was always cramped out of. */}
+      <div className="lg:col-span-12 [&>*]:min-w-0">
         <LiveFleetMap />
-        <UnloadingQueue live={live} />
       </div>
 
       {/* Owner fleet sits with the fleet. Clicking a row scopes the whole dashboard,
