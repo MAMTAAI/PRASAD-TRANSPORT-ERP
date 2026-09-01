@@ -419,7 +419,13 @@ export async function registerMastersRoutes(app) {
   const DRIVER_COLS = ['name', 'mobile', 'alt_mobile', 'address', 'profile_pic_url', 'license_no',
     'license_expiry', 'dl_photo_url', 'hzd_cert_no', 'hzd_expiry', 'hzd_photo_url', 'aadhar_no',
     'aadhar_hash', 'aadhar_last4',
-    'aadhar_photo_url', 'pan_no', 'bank_name', 'account_no', 'ifsc_code', 'bank_photo_url',
+    // pan_photo_url was missing from this list while the other five *_photo_url
+    // columns were present, and buildUpdate drops anything not named here — so
+    // a PAN card uploaded through Driver Master went into the vault, showed in
+    // the open form, and was silently discarded on save. It came back as
+    // "Upload PAN File" on the next load with no error anywhere, which is why
+    // PAN is the document most often missing (27 of 54 drivers on 2026-09-01).
+    'aadhar_photo_url', 'pan_no', 'pan_photo_url', 'bank_name', 'account_no', 'ifsc_code', 'bank_photo_url',
     'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status', 'status', 'remarks',
     'company_id', 'additional_docs'];
 

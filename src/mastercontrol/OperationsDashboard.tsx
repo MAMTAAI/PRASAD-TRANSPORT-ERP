@@ -12,7 +12,7 @@ import {
   Truck, Route, PackageOpen, FileWarning, ShieldAlert, FileCheck2,
   Users, Wrench, Radio, MessageSquareText, Send, Mic,
   FileText, ScanLine, Phone, Video, AlertTriangle, Gauge,
-  Plus, Search, X, Maximize2, Paperclip,
+  Plus, Search, X, Maximize2, Paperclip, ExternalLink,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 import {
@@ -366,7 +366,11 @@ export default function OperationsDashboard({ live, filter }) {
             sub={driverPayload.total_active
               ? `${driverPayload.with_gaps ?? 0} of ${driverPayload.total_active} need papers · ${driverPayload.expired ?? 0} expired`
               : undefined} />
-          <div className="px-4 pb-4 flex flex-col gap-2">
+          {/* Adding the pending chips roughly tripled each row's height, and 12
+              of them pushed the whole right-hand column off screen. The panel
+              scrolls in its own box instead of growing the page. */}
+          <div className="px-4 pb-4 flex flex-col gap-2 max-h-[24rem] overflow-y-auto
+                          [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.35)_transparent]">
             {driverRows.length === 0 ? (
               <EmptyNote>No active drivers on file.</EmptyNote>
             ) : driverRows.map((d) => {
@@ -381,6 +385,9 @@ export default function OperationsDashboard({ live, filter }) {
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Avatar name={d.name} />
                       <span className="text-[12px] font-semibold text-slate-200 truncate">{d.name}</span>
+                      {/* Nothing else on the row said it was clickable, so the
+                          new tab went undiscovered. */}
+                      {d.id && <ExternalLink size={11} className="text-cyan-400/70 shrink-0" />}
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
                       <StatusPill tone={expiryTone(d.dl_days)}>DL: {expiryLabel(d.dl_days)}</StatusPill>

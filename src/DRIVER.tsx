@@ -240,6 +240,33 @@ export default function DriverMgmt() {
   // The old flow ran OCR then DISCARDED the file, storing the literal string
   // 'local-scan' — every "View File" link was permanently broken. Now the file
   // is stored and its permanent URL saved; OCR remains a best-effort bonus.
+  /** Writes ONE document pointer to Postgres the moment its file lands.
+   *
+   *  WHY THIS EXISTS, and it is the real "PDF save nahi ho raha": the upload put
+   *  the file in the vault but only ever set React state, so the column was
+   *  written when — and only when — somebody went on to press "Update Driver
+   *  Profile". Upload a licence, get the success alert, close the modal, and the
+   *  file was in storage with nothing in the database pointing at it. The screen
+   *  still showed "Upload DL" and the work looked lost, because as far as the
+   *  driver row was concerned it was.
+   *
+   *  Only the URL column is sent. The scanned NUMBER and DATE stay in the form
+   *  for review, because a file is a fact while an OCR reading is a guess.
+   *
+   *  Silent on failure by design — the full form save still carries the same
+   *  value, so a blip here costs nothing and an alert would only confuse. */
+  const persistDocUrl = async (field: string, url: string) => {
+    if (!editingId || !url || field.startsWith('custom_')) return;
+    const pg = PHOTO_FIELDS.find(([legacy]) => legacy === field)?.[1];
+    if (!pg) return;
+    try {
+      await fetchJson(`${MASTERS}/drivers/${editingId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [pg]: url }),
+      });
+    } catch { /* the form save carries it */ }
+  };
+
   const handleDocUpload = async (e: any, field: string) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -251,12 +278,20 @@ export default function DriverMgmt() {
     setScannedAIData(null);
 
     const ownerKey = slug(driverData.mobile || driverData.name || 'new-driver');
-    const uploadPromise = uploadMedia(file, `drivers/${ownerKey}/${slug(field)}_${Date.now()}.jpg`);
+    // THE EXTENSION HAS TO COME FROM THE FILE. This was hard-coded ".jpg", so
+    // every PDF licence was stored as <name>.jpg — the bytes were fine but the
+    // browser was told it was an image, so "View File" showed a broken picture
+    // instead of the document. That is the "PDF save nahi ho raha" report: the
+    // upload worked, the name lied about it.
+    const ext = (file.name?.match(/\.([A-Za-z0-9]+)$/)?.[1]
+      || (file.type === 'application/pdf' ? 'pdf' : 'jpg')).toLowerCase();
+    const uploadPromise = uploadMedia(file, `drivers/${ownerKey}/${slug(field)}_${Date.now()}.${ext}`);
 
     if (field === 'profile_pic') {
       try {
         const { url } = await uploadPromise;
         setDriverData(prev => ({ ...prev, profile_pic: url }));
+        await persistDocUrl(field, url);
       } catch { alert('❌ Photo upload nahi hui — network check karein.'); }
       setUploadingField(null);
       return;
@@ -274,6 +309,7 @@ export default function DriverMgmt() {
         setDriverData(prev => ({ ...prev, additional_docs: prev.additional_docs.map((d: any) => d.id === field ? { ...d, link: url } : d) }));
       } else {
         setDriverData(prev => ({ ...prev, [field]: url }));
+        await persistDocUrl(field, url);
       }
     } catch (err) {
       console.error(err);
@@ -283,15 +319,80 @@ export default function DriverMgmt() {
     }
 
     try {
-      // 🤖 100% LOCAL extraction: Tesseract OCR -> DeepSeek (no cloud).
+      // 🤖 Extraction: local Tesseract -> DeepSeek, falling back to the server's
+      // own OCR + pattern tables (POST /api/v1/scan) when no local model answers.
       const ex = await extractDocument(file, docType);
       setScannedAIData({ documentNumber: ex.document_number, documentDate: ex.expiry_date || ex.issue_date, extraDetails: ex.holder_name, partyName: ex.holder_name });
-      alert(`✅ File saved + Mamta AI (local DeepSeek) ne ${docType} padh liya. "Scan & Fill" dabakar verify karein.`);
+
+      // ── The scan now FILLS the form instead of just offering to ────────────
+      // It used to stop here and tell the operator to press "Scan & Fill", so
+      // the number sat read-but-unwritten and most people typed it in by hand
+      // anyway. Uploading a document is already the instruction to read it.
+      //
+      // ONLY EMPTY FIELDS ARE TOUCHED. Overwriting a value somebody typed with
+      // an OCR guess is how a correct licence number silently becomes a wrong
+      // one, and OCR is confident even when it misreads. Anything already
+      // filled — including a masked Aadhaar — is left exactly as it is, and the
+      // alert names what changed so it can be checked before saving.
+      const filled = applyScanToForm(field, ex);
+      alert(filled.length
+        ? `✅ ${docType} save + scan ho gaya.\n\nBhara gaya: ${filled.join(', ')}\n\nCheck karke "Update Driver Profile" dabayein.`
+        : `✅ ${docType} save ho gaya.\n\nScan se koi nayi field nahi mili (ya pehle se bhari hui hai) — number/date haath se daal dein.`);
     } catch (error: any) {
       const offline = error?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(error?.message || '');
       alert(`✅ File saved ho gayi.\n${offline ? '⚠️ Local AI engine (Ollama) band hai — scan nahi hua.' : '⚠️ Document scan nahi ho paya (file phir bhi save hai).'}`);
     }
     setUploadingField(null);
+  };
+
+  /** Which form fields each document can populate. Bank passbook maps only to
+   *  the account number: OCR reads an IFSC reliably far less often, and a wrong
+   *  IFSC sends a driver's wages to the wrong branch. */
+  const SCAN_TARGETS: Record<string, { num?: string; exp?: string }> = {
+    dl_photo: { num: 'license_no', exp: 'license_expiry' },
+    hzd_photo: { num: 'hzd_cert_no', exp: 'hzd_expiry' },
+    aadhar_photo: { num: 'aadhar_no' },
+    pan_photo: { num: 'pan_no' },
+    bank_photo: { num: 'account_no' },
+  };
+  const FIELD_LABEL: Record<string, string> = {
+    license_no: 'Licence number', license_expiry: 'Licence expiry',
+    hzd_cert_no: 'HZD number', hzd_expiry: 'HZD expiry',
+    aadhar_no: 'Aadhaar number', pan_no: 'PAN number', account_no: 'Account number',
+  };
+
+  /** Writes the scan into blank fields and returns the human names of what it
+   *  filled, so the caller can show it rather than change things invisibly. */
+  const applyScanToForm = (field: string, ex: any): string[] => {
+    const target = SCAN_TARGETS[field];
+    if (!target) return [];
+    const num = ex?.document_number ? String(ex.document_number).replace(/[^A-Za-z0-9/-]/g, '').trim() : '';
+    const exp = formatForDatePicker(ex?.expiry_date || '');
+
+    // Decided against the current state and NOT inside the setDriverData
+    // updater: React runs that callback when it re-renders, which is after this
+    // function has already returned, so a list built in there would still be
+    // empty and the alert would report "nothing filled" every time.
+    const filled: string[] = [];
+    const patch: any = {};
+    const blank = (k: string) => !String(driverData[k] ?? '').trim();
+    if (target.num && num && blank(target.num)) {
+      patch[target.num] = num; filled.push(`${FIELD_LABEL[target.num]} (${num})`);
+    }
+    if (target.exp && exp && blank(target.exp)) {
+      patch[target.exp] = exp; filled.push(`${FIELD_LABEL[target.exp]} (${exp})`);
+    }
+    // The functional form still re-checks emptiness, so the upload's own
+    // setDriverData (which lands first and writes the file URL) cannot be
+    // clobbered by this patch.
+    if (filled.length) {
+      setDriverData((prev: any) => {
+        const next = { ...prev };
+        for (const [k, v] of Object.entries(patch)) if (!String(prev[k] ?? '').trim()) next[k] = v;
+        return next;
+      });
+    }
+    return filled;
   };
 
   // 🌟 NEW: ADD CUSTOM DOCUMENT CARD
