@@ -326,7 +326,7 @@ export default function OperationsDashboard({ live, filter }) {
             named a lorry; the other named one but said nothing about the rest of
             its file. Stacked they cost twice the height and still sent you to
             another screen to act. One row per LORRY, its whole file in the sheet. */}
-        <FleetDocumentVault vault={ops?.fleet_vault} />
+        <FleetDocumentVault vault={ops?.fleet_vault} alerts={ops?.compliance_alerts} history={ops?.doc_history} />
 
         {/* Driver Command Center — its own file now. The panel answers WHO and
             HOW BAD in one line; WHAT exactly is missing is the overlay it opens,

@@ -602,6 +602,35 @@ export function registerDashboardRoutes(app) {
       };
     }, { rows: [], total_vehicles: 0, with_expired: 0, with_expiring: 0, no_docs: 0, unposted_fees: 0, unposted_rs: 0 });
 
+    // ── Document history ─────────────────────────────────────────────────────
+    // "Kab kya renew hua" had no answer anywhere on this dashboard. Every panel
+    // showed the CURRENT state, so a document renewed this morning and one
+    // untouched since the import looked identical, and there was no way to see
+    // whether the office is keeping up or the pile is simply growing.
+    //
+    // updated_at, not created_at: the row is upserted on (vehicle_id, doc_type),
+    // so renewing a fitness certificate updates the same row it has always had.
+    // created_at would date every one of them to the August import and show a
+    // year of renewals as a single day's work.
+    const doc_history = await safe(errors, 'doc_history', async () => {
+      const { rows } = await query(`
+        SELECT v.vehicle_no AS subject, COALESCE(d.doc_name, d.doc_type) AS doc_name,
+               d.updated_at, d.next_due_date, d.amount,
+               (d.document_url IS NOT NULL) AS has_file,
+               (d.voucher_id IS NOT NULL)   AS fee_posted
+          FROM vehicle_documents d
+          JOIN vehicles v ON v.id = d.vehicle_id
+         WHERE v.status = 'ACTIVE'
+         ORDER BY d.updated_at DESC
+         LIMIT 40`);
+      return rows.map((r) => ({
+        subject: r.subject, doc_name: r.doc_name,
+        at: r.updated_at, next_due_date: r.next_due_date,
+        amount: r.amount == null ? null : Number(r.amount),
+        has_file: !!r.has_file, fee_posted: !!r.fee_posted,
+      }));
+    }, []);
+
     // THE 10-DAY RED ALERT. doc_vault above shows the soonest expiry per document
     // TYPE across the fleet — useful as a summary, useless for acting, because it
     // never names the lorry. This names every vehicle AND driver whose paper
@@ -1810,7 +1839,7 @@ export function registerDashboardRoutes(app) {
       // Echoed back so the UI can label the page with what it actually applied,
       // rather than with what the user believes they selected.
       filter: F,
-      ops: { ...fleet, doc_vault, fleet_vault, drivers, trips_by_day, live_fleet, unloading_queue,
+      ops: { ...fleet, doc_vault, fleet_vault, doc_history, drivers, trips_by_day, live_fleet, unloading_queue,
              vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
              loading_activity, unloading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },

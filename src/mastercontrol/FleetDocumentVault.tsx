@@ -26,7 +26,7 @@
 // ============================================================================
 import React, { useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { FileWarning, ExternalLink, ShieldAlert, CheckCircle2, CircleSlash, Paperclip, Loader2, IndianRupee } from 'lucide-react';
+import { FileWarning, ExternalLink, ShieldAlert, CheckCircle2, CircleSlash, Paperclip, Loader2, IndianRupee, CalendarClock } from 'lucide-react';
 import { GlassPanel, PanelHeader, PANEL_SHELL, SCROLL_PANE, ROW_CLS, chipCls, TONE_CHIP } from './shared';
 import { uploadMedia, slug } from '../lib/uploadMedia';
 import { extractDocument } from '../lib/aiScanner';
@@ -68,14 +68,23 @@ function isoDate(s) {
   return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
 }
 
-export default function FleetDocumentVault({ vault }) {
+export default function FleetDocumentVault({ vault, alerts, history }) {
   const payload = Array.isArray(vault) ? { rows: vault } : (vault ?? {});
   const rows = payload.rows ?? [];
+
+  // The 10-day watch covers LORRIES AND DRIVERS in one feed. That is why the
+  // old Compliance panel could be deleted without losing anything: a driver's
+  // lapsed licence stops a truck exactly as a lapsed fitness certificate does,
+  // and splitting them across two panels only made you check twice.
+  const expired = alerts?.expired ?? [];
+  const expiring = alerts?.expiring ?? [];
+  const hist = history ?? [];
 
   const [open, setOpen] = useState(null);       // vehicle whose sheet is showing
   const [docs, setDocs] = useState(null);       // its documents, fetched on open
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
+  const [watch, setWatch] = useState(null);     // '10din' | 'history' — the overview sheet
 
   const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('prasad_token') || ''}` });
 
@@ -158,26 +167,65 @@ export default function FleetDocumentVault({ vault }) {
         accent="text-red-400"
         sub={`${payload.total_vehicles ?? 0} lorries · vehicle-wise`}
         right={
-          <a href="?module=OPERATION&screen=DOCS" target="_blank" rel="noopener noreferrer"
-            title="Poora Vehicle Documents screen nayi tab mein"
-            className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5
-                       text-[9px] font-black text-red-300 transition-colors hover:bg-red-500/20">
-            <ExternalLink size={10} /> SAB
-          </a>
+          <div className="flex items-center gap-1.5">
+            {/* Same affordance as Loading Activity's 7 DIN: a button that names
+                what it opens, rather than a panel that silently is a link. */}
+            <button
+              onClick={() => setWatch('10din')}
+              title="Agle 10 din — gaadi aur driver, dono ke kaagaz"
+              className="flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5
+                         text-[9px] font-black text-amber-300 transition-colors hover:bg-amber-500/20">
+              <CalendarClock size={10} /> 10 DIN
+            </button>
+            <a href="?module=OPERATION&screen=DOCS" target="_blank" rel="noopener noreferrer"
+              title="Poora Vehicle Documents screen nayi tab mein"
+              className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5
+                         text-[9px] font-black text-red-300 transition-colors hover:bg-red-500/20">
+              <ExternalLink size={10} /> SAB
+            </a>
+          </div>
         }
       />
 
+      {/* The two numbers that decide the day, as tiles rather than chips — the
+          shape Today's Loading Activity uses for exactly the same reason: a
+          count you act on should not be the same size as a label. Both count
+          LORRIES AND DRIVERS, so nothing is hidden by being the other kind. */}
+      <div className="grid grid-cols-2 gap-1.5 px-2.5 pt-1.5 shrink-0">
+        <button onClick={() => setWatch('10din')}
+          className={`rounded-lg border px-2 py-1.5 text-left transition-colors
+            ${expired.length ? 'border-red-500/45 bg-red-500/10 hover:bg-red-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+          <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-red-300">
+            <ShieldAlert size={10} /> Expired
+          </p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{expired.length}</p>
+          <p className="text-[9px] text-slate-500">gaadi + driver</p>
+        </button>
+        <button onClick={() => setWatch('10din')}
+          className={`rounded-lg border px-2 py-1.5 text-left transition-colors
+            ${expiring.length ? 'border-amber-500/45 bg-amber-500/10 hover:bg-amber-500/15' : 'border-slate-700/60 bg-white/[0.02]'}`}>
+          <p className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-amber-300">
+            <CalendarClock size={10} /> Agle 10 din
+          </p>
+          <p className="text-[19px] font-black leading-tight text-slate-100">{expiring.length}</p>
+          <p className="text-[9px] text-slate-500">renew karne hain</p>
+        </button>
+      </div>
+
       <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
         <span className={chipCls(payload.with_expired ? 'red' : 'green')}>
-          {payload.with_expired ?? 0} <span className="font-normal opacity-70">expired</span>
-        </span>
-        <span className={chipCls(payload.with_expiring ? 'amber' : 'green')}>
-          {payload.with_expiring ?? 0} <span className="font-normal opacity-70">10 din</span>
+          {payload.with_expired ?? 0} <span className="font-normal opacity-70">lorries</span>
         </span>
         {payload.unposted_fees > 0 && (
           <span className={chipCls('amber')} title="Document fees recorded against vehicles that never reached the ledger">
             {rs(payload.unposted_rs)} <span className="font-normal opacity-70">ledger baaki</span>
           </span>
+        )}
+        {hist.length > 0 && (
+          <button onClick={() => setWatch('history')}
+            className="text-[9px] font-semibold text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline">
+            history
+          </button>
         )}
       </div>
 
@@ -305,6 +353,112 @@ export default function FleetDocumentVault({ vault }) {
                 pehle se koi date na ho. Fee aur payment mode poore Vehicle Documents screen se, kyunki wahan
                 account chunna padta hai.
               </p>
+            </div>
+          </div>
+        </div>, document.body)}
+
+      {/* ── 10 DIN / History — the fleet-wide view ───────────────────────────
+          Two questions asked seconds apart by the same person: "kya expire ho
+          raha hai" and "kya hua hai abhi tak". The first is the deleted
+          Compliance panel, restored as a sheet and now covering LORRIES AND
+          DRIVERS together instead of one panel each. The second had no answer
+          anywhere: every panel showed current state, so a document renewed this
+          morning looked identical to one untouched since the import. */}
+      {watch && createPortal(
+        <div onClick={() => setWatch(null)}
+          className="fixed inset-0 z-[1400] grid place-items-center bg-slate-950/85 p-5">
+          <div onClick={(e) => e.stopPropagation()}
+            className="w-[min(620px,100%)] max-h-[calc(100vh-48px)] flex flex-col rounded-2xl border border-slate-700/60
+                       bg-slate-900 shadow-[0_20px_60px_rgba(0,0,0,0.6)]">
+            <div className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-2">
+              <div>
+                <p className="text-[13px] font-black text-slate-100">Document Watch</p>
+                <p className="text-[10px] text-slate-500">
+                  {alerts?.threshold_days ?? 10} din ki window · gaadi aur driver dono
+                </p>
+              </div>
+              <button onClick={() => setWatch(null)}
+                className="text-slate-500 hover:text-slate-300 leading-none text-xl">×</button>
+            </div>
+
+            <div className="flex gap-1 px-4 pb-2">
+              {[['10din', `Expiry (${expired.length + expiring.length})`], ['history', `History (${hist.length})`]].map(([id, label]) => (
+                <button key={id} onClick={() => setWatch(id)}
+                  className={`rounded-lg border px-2.5 py-1 text-[10.5px] font-bold transition-colors ${
+                    watch === id ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200'
+                      : 'border-slate-700/60 text-slate-400 hover:text-slate-200'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* The sweep line: an empty list means "nothing expires soon" AND
+                "the background check died three weeks ago", and only its date
+                tells them apart. */}
+            {watch === '10din' && alerts?.last_sweep && (
+              <p className="mx-4 mb-2 text-[9px] text-slate-600">
+                Background sweep last ran {String(alerts.last_sweep.ran_on).slice(0, 10)} —
+                checked {alerts.last_sweep.checked}, {alerts.last_sweep.expired} expired.
+              </p>
+            )}
+
+            <div className="flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar px-4 pb-4">
+              {watch === '10din' ? (
+                (expired.length + expiring.length) === 0 ? (
+                  <p className="py-4 text-[11.5px] text-slate-500">
+                    Agle {alerts?.threshold_days ?? 10} din mein kuch expire nahi ho raha.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {[...expired, ...expiring].map((a, i) => {
+                      const gone = a.days < 0;
+                      return (
+                        <div key={`${a.kind}-${a.subject}-${a.doc_type}-${i}`}
+                          className={`${ROW_CLS} items-center ${gone ? 'border-red-500/40 bg-red-500/10' : ''}`}>
+                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider
+                            ${a.kind === 'DRIVER' ? 'bg-violet-500/20 text-violet-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
+                            {a.kind === 'DRIVER' ? 'DRV' : 'VEH'}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[11px] font-bold text-slate-100">{a.subject}</p>
+                            <p className="truncate text-[9px] text-slate-500">{a.doc_name}</p>
+                          </div>
+                          <span className={`${chipCls(gone ? 'red' : 'amber')} shrink-0`}>
+                            {gone ? `${Math.abs(a.days)}d expired` : `${a.days}d left`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              ) : hist.length === 0 ? (
+                <p className="py-4 text-[11.5px] text-slate-500">Abhi tak koi document update nahi hua.</p>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {hist.map((h, i) => (
+                    <div key={`${h.subject}-${h.doc_name}-${i}`} className={`${ROW_CLS} items-center`}>
+                      <span className="shrink-0 grid place-items-center w-5 h-5 rounded-md border border-slate-600/50 bg-slate-700/20">
+                        {h.has_file ? <CheckCircle2 size={11} className="text-emerald-400" />
+                          : <CircleSlash size={11} className="text-amber-400" />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[11px] font-bold text-slate-100">
+                          {h.subject} <span className="font-normal text-slate-400">· {h.doc_name}</span>
+                        </p>
+                        <p className="truncate text-[9px] text-slate-500">
+                          {new Date(h.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {h.next_due_date && <> · valid tak {dayLabel(h.next_due_date)}</>}
+                        </p>
+                      </div>
+                      {h.amount > 0 && (
+                        <span className={`${chipCls(h.fee_posted ? 'green' : 'amber')} shrink-0`}>
+                          {rs(h.amount)} {h.fee_posted ? '' : 'baaki'}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>, document.body)}
