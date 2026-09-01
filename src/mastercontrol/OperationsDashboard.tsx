@@ -635,11 +635,9 @@ export default function OperationsDashboard({ live, filter }) {
 
         <LoadingActivity activity={ops?.loading_activity ?? null} offline={offline} />
 
-        {/* AND UNLOADING DIRECTLY UNDER IT, because a trip is the pair and the
-            two questions are asked in the same breath: what came in, and what
-            is still out. The header's "PENDING UNLOADING 137" was the whole of
-            the second answer until now — a number with nothing behind it. */}
-        <UnloadingActivity activity={ops?.unloading_activity ?? null} offline={offline} />
+        {/* Unloading Activity moved to the right column 2026-09-01 — the
+            centre is the reading column (chat, then what came in today) and
+            the right is the counting column. */}
 
         {/* ── CONTACT PICKER ────────────────────────────────────────────────
             PORTALLED, for the same reason the My WhatsApp dialog is: the shell
@@ -746,6 +744,12 @@ export default function OperationsDashboard({ live, filter }) {
         {/* Shortage recovery sits with operations because collecting it is an
             operations job, not an accounts one. */}
         <ShortageRecoveryPanel live={live} filter={filter} />
+
+        {/* WHAT IS STILL OUT, under what it cost. 144 loads are waiting to be
+            unloaded and 59 of them left over sixty days ago; that is a figure
+            to be counted against the fleet, not a conversation, so it belongs
+            on the counting side with productivity and recovery. */}
+        <UnloadingActivity activity={ops?.unloading_activity ?? null} offline={offline} />
 
         {/* Fleet Maintenance Hub removed 2026-09-01 — it was a placeholder: a
             wireframe truck and a TODO for a three.js model, no data behind it. */}

@@ -30,6 +30,13 @@ import {
 import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
 
+/** A CEILING FOR THE NARROW COLUMN. These two moved to the three-column side
+ *  and were the only panels there with no height cap, so they decided how tall
+ *  the whole right side was and it overran the centre. The header is pinned
+ *  while the body scrolls — a panel whose title scrolls away is one you cannot
+ *  identify halfway down. */
+const CAPPED = "max-h-[400px] overflow-y-auto mc-thin-scrollbar [&>*:first-child]:sticky [&>*:first-child]:top-0 [&>*:first-child]:z-10 [&>*:first-child]:bg-slate-900/95 [&>*:first-child]:backdrop-blur";
+
 const km = (n) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '--');
 
 /** Shortage severity. Thresholds are set off the real spread in the books —
@@ -375,7 +382,7 @@ export function VehicleRtkmPanel({ live, filter }) {
   ];
 
   return (
-    <GlassPanel className="border-cyan-500/25">
+    <GlassPanel className={`border-cyan-500/25 ${CAPPED}`}>
       <PanelHeader
         icon={Gauge}
         title="Vehicle Productivity — RTKM"
@@ -834,7 +841,7 @@ export function ShortageRecoveryPanel({ live, filter }) {
   ];
 
   return (
-    <GlassPanel className={pending.length ? 'border-red-500/40' : 'border-emerald-500/25'}>
+    <GlassPanel className={`${pending.length ? 'border-red-500/40' : 'border-emerald-500/25'} ${CAPPED}`}>
       <PanelHeader
         icon={pending.length ? HandCoins : ShieldCheck}
         title="Driver Shortage Recovery"
