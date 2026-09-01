@@ -28,6 +28,7 @@ import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
 import UnloadingActivity from './UnloadingActivity';
 import DispatchConsole from './DispatchConsole';
+import DriverCommandCenter from './DriverCommandCenter';
 
 // The left-column panel kit (TONE_CHIP / chipCls / PANEL_SHELL / SCROLL_PANE /
 // ROW_CLS / BADGE_CLS) now lives in ./shared so Compliance Expiry, which is in
@@ -304,12 +305,6 @@ export default function OperationsDashboard({ live, filter }) {
   };
 
   const fleetRows = ops?.live_fleet?.length ? ops.live_fleet : [];
-  // `drivers` became {rows, total_active, with_gaps, expired} when the panel
-  // started counting missing DOCUMENTS and not only expiring ones. The array
-  // form is still accepted so a cached older payload renders instead of
-  // blanking the panel while the API restarts.
-  const driverPayload = Array.isArray(ops?.drivers) ? { rows: ops.drivers } : (ops?.drivers ?? {});
-  const driverRows = driverPayload.rows ?? [];
   const vault = ops?.doc_vault ?? [];
 
   return (
@@ -377,92 +372,10 @@ export default function OperationsDashboard({ live, filter }) {
             vault says WHICH KIND of paper expires soonest; this says whose. */}
         <ComplianceAlertsPanel live={live} />
 
-        {/* Driver Command Center — same shell as Today's Loading Activity */}
-        <GlassPanel className={`${PANEL_SHELL} border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]`}>
-          <PanelHeader
-            icon={Users}
-            title="Driver Command Center"
-            accent="text-cyan-400"
-            sub={`${driverPayload.total_active ?? 0} active drivers`}
-            right={
-              // A BUTTON, NOT A CLICKABLE PANEL — the rule Loading Activity
-              // sets. The panel shows the worst 12; this is the way to the
-              // other 25, and it says so instead of hiding them behind a scroll
-              // that ends without explanation.
-              <a
-                href="?module=OPERATION&screen=DRIVER"
-                target="_blank" rel="noopener noreferrer"
-                title="Poori driver list nayi tab mein"
-                className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5
-                           text-[9px] font-black text-cyan-300 transition-colors hover:bg-cyan-500/20"
-              >
-                <ExternalLink size={10} /> SAB
-              </a>
-            }
-          />
-
-          {/* The two numbers that decide whether anyone acts today, above the
-              rows rather than buried in a subtitle. */}
-          <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
-            <span className={chipCls(driverPayload.expired ? 'red' : 'green')}>
-              {driverPayload.expired ?? 0} <span className="font-normal opacity-70">expired</span>
-            </span>
-            <span className={chipCls(driverPayload.with_gaps ? 'amber' : 'green')}>
-              {driverPayload.with_gaps ?? 0} <span className="font-normal opacity-70">papers pending</span>
-            </span>
-            {driverRows.length < (driverPayload.with_gaps ?? 0) && (
-              <span className="text-[9px] font-semibold text-slate-500">worst {driverRows.length} shown</span>
-            )}
-          </div>
-
-          <div className={SCROLL_PANE}>
-            {driverRows.length === 0 ? (
-              <EmptyNote>No active drivers on file.</EmptyNote>
-            ) : driverRows.map((d) => {
-              // A plain <a target="_blank"> rather than an onClick router push:
-              // the ask was explicitly for a SEPARATE TAB, and an anchor also
-              // gives middle-click and "open in new window" for free. The screen
-              // reads ?driver= and opens that man's KYC form straight away.
-              const href = `?module=OPERATION&screen=DRIVER&driver=${encodeURIComponent(d.id ?? '')}`;
-              const worst = expiryTone(d.dl_days) === 'red' || expiryTone(d.hzd_days) === 'red'
-                ? 'red' : d.missing?.length ? 'amber' : 'slate';
-              const initials = String(d.name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-              const body = (
-                <>
-                  {/* The badge leads the row and carries its worst state, so a
-                      column of rows can be triaged without reading any text. */}
-                  <span className={`${BADGE_CLS(worst)} text-[8px] font-black`}>
-                    {initials}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1 min-w-0">
-                      <span className="truncate text-[11px] font-bold text-slate-200">{d.name}</span>
-                      {d.id && <ExternalLink size={9} className="shrink-0 text-cyan-400/60" />}
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
-                      <span className={chipCls(expiryTone(d.dl_days))}>DL {expiryLabel(d.dl_days)}</span>
-                      <span className={chipCls(expiryTone(d.hzd_days))}>HZD {expiryLabel(d.hzd_days)}</span>
-                      {d.missing?.map((m) => (
-                        <span key={m} className={chipCls('amber')}>{m}</span>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              );
-              // Without an id there is nothing to open, so it stays a plain row
-              // rather than a link that lands on an empty form.
-              return d.id ? (
-                <a key={d.id} href={href} target="_blank" rel="noopener noreferrer"
-                  title={`${d.name} ka KYC nayi tab mein kholein`}
-                  className={`${ROW_CLS} hover:border-cyan-500/40`}>
-                  {body}
-                </a>
-              ) : (
-                <div key={d.name} className={ROW_CLS}>{body}</div>
-              );
-            })}
-          </div>
-        </GlassPanel>
+        {/* Driver Command Center — its own file now. The panel answers WHO and
+            HOW BAD in one line; WHAT exactly is missing is the overlay it opens,
+            the same split Loading Activity makes with its 7 DIN sheet. */}
+        <DriverCommandCenter drivers={ops?.drivers} />
       </div>
 
       {/* ══════════════ CENTER PANEL ══════════════ */}
