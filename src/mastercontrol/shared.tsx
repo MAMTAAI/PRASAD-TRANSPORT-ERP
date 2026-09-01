@@ -437,3 +437,45 @@ export function HoverKv({ k, v, tone = 'text-slate-200', mono = true, strong = f
 export function HoverNote({ children, tone = 'text-slate-400' }) {
   return <p className={`mt-2 border-t border-slate-700/60 pt-1.5 text-[9.5px] leading-relaxed ${tone}`}>{children}</p>;
 }
+
+// ---------------------------------------------------------------------------
+// The left-column panel kit — one row treatment for every stacked panel
+// ---------------------------------------------------------------------------
+// Today's Loading Activity is the panel that reads correctly in a 340px column,
+// so its measurements are the standard here rather than one more variation.
+// Driver Command Center, Master Document Vault and Compliance Expiry each had
+// their own row height, chip size and hover, which made a stack of three read
+// as three unrelated widgets and forced the eye to re-learn the layout at every
+// boundary. Import these instead of re-inventing them.
+//
+// The rule the same panel sets, worth repeating because it is easy to undo:
+// a panel is not a click target. Put an explicit button or link in
+// PanelHeader's `right`, so the action names itself.
+export const TONE_CHIP = {
+  red: 'text-red-300 border-red-500/40 bg-red-500/10',
+  amber: 'text-amber-300 border-amber-500/40 bg-amber-500/10',
+  green: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
+  emerald: 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10',
+  slate: 'text-slate-400 border-slate-600/50 bg-slate-700/20',
+};
+
+/** One chip scale for the whole column. */
+export const chipCls = (tone) =>
+  `rounded-md border px-1.5 py-0.5 text-[9.5px] font-bold whitespace-nowrap ${TONE_CHIP[tone] || TONE_CHIP.slate}`;
+
+/** Fixed height + its own scroll, so a long list never pushes the column off
+ *  screen. Pair with SCROLL_PANE; the panel must not also be given a height. */
+export const PANEL_SHELL = 'flex flex-col overflow-hidden max-h-[340px]';
+
+/** flex-1 + min-h-0 so this pane, and only this pane, absorbs the leftover
+ *  height and scrolls instead of stretching the panel. */
+export const SCROLL_PANE = 'flex-1 min-h-0 overflow-y-auto mc-thin-scrollbar px-2 py-1.5 flex flex-col gap-1';
+
+/** Transparent border at rest, revealed on hover — a stack of solid cards in a
+ *  narrow column reads as noise long before it reads as data. */
+export const ROW_CLS = 'flex items-start gap-2 rounded-lg border border-transparent px-1.5 py-1 transition-colors hover:border-slate-700/60 hover:bg-white/5';
+
+/** Small square badge that leads a row and carries its worst state, so a column
+ *  can be triaged without reading any text. */
+export const BADGE_CLS = (tone) =>
+  `mt-px shrink-0 grid place-items-center w-5 h-5 rounded-md border ${TONE_CHIP[tone] || TONE_CHIP.slate}`;

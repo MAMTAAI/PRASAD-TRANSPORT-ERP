@@ -25,7 +25,8 @@ import {
   ShieldAlert, CalendarClock, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
-  GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote, Drillable,} from './shared';
+  GlassPanel, PanelHeader, StatusPill, useHoverCard, HoverTitle, HoverKv, HoverNote, Drillable,
+  PANEL_SHELL, SCROLL_PANE, ROW_CLS, chipCls,} from './shared';
 import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
 
@@ -995,7 +996,10 @@ export function ComplianceAlertsPanel({ live }) {
     : false;
 
   return (
-    <GlassPanel className={expired.length ? 'border-red-500/50' : total ? 'border-amber-500/40' : 'border-slate-700/50'}>
+    // Same shell as Today's Loading Activity: fixed height, its own scroll, so
+    // three stacked panels in this column keep their proportions instead of one
+    // long list pushing the others off screen.
+    <GlassPanel className={`${PANEL_SHELL} ${expired.length ? 'border-red-500/40 shadow-[0_0_30px_rgba(248,113,113,0.06)]' : total ? 'border-amber-500/30' : 'border-slate-700/50'}`}>
       <PanelHeader
         icon={expired.length ? ShieldAlert : CalendarClock}
         title="Compliance Expiry — 10 Day Watch"
@@ -1008,37 +1012,41 @@ export function ComplianceAlertsPanel({ live }) {
         }
       />
 
-      <div className="px-3 pb-3">
-        {expired.length > 0 && (
-          <div className="mb-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 shadow-[0_0_20px_rgba(248,113,113,0.18)]">
-            <p className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-300">
-              <ShieldAlert size={13} /> {expired.length} document{expired.length === 1 ? '' : 's'} already expired
-            </p>
-            <p className="mt-0.5 text-[9.5px] leading-relaxed text-red-200/80">
-              These are not reminders. A lapsed licence or fitness certificate stops the vehicle at the first check.
-            </p>
-          </div>
-        )}
-
-        {total === 0 ? (
-          <p className="py-3 text-center text-[11px] text-slate-500">
-            Nothing expires within {data?.threshold_days ?? 10} days.
+      {/* The warning stays pinned above the list rather than scrolling with it:
+          read after the rows, "already expired" is a summary; read before them
+          it is the reason to keep reading. */}
+      {expired.length > 0 && (
+        <div className="mx-2.5 mt-1.5 shrink-0 rounded-lg border border-red-500/50 bg-red-500/10 px-2 py-1.5">
+          <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-red-300">
+            <ShieldAlert size={12} /> {expired.length} document{expired.length === 1 ? '' : 's'} already expired
           </p>
-        ) : (
-          <div className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
-            {[...expired, ...expiring].map((r, i) => (
-              <AlertRow key={`${r.kind}-${r.subject}-${r.doc_type}-${i}`} r={r} />
-            ))}
-          </div>
-        )}
+          <p className="mt-0.5 text-[9.5px] leading-snug text-red-200/80">
+            These are not reminders. A lapsed licence or fitness certificate stops the vehicle at the first check.
+          </p>
+        </div>
+      )}
 
-        <p className={`mt-2 border-t border-slate-800 pt-1.5 text-[9px] ${sweepToday ? 'text-slate-600' : 'text-amber-400/80'}`}>
-          {sweep
-            ? `Background sweep last ran ${String(sweep.ran_on).slice(0, 10)} — checked ${sweep.checked}, ${sweep.expired} expired.`
-              + (sweepToday ? '' : ' ⚠ That is not today; the check may not be running.')
-            : '⚠ The background sweep has never recorded a run — this list is live, but nothing is watching it.'}
+      {total === 0 ? (
+        <p className="px-3 py-3 text-center text-[11px] text-slate-500">
+          Nothing expires within {data?.threshold_days ?? 10} days.
         </p>
-      </div>
+      ) : (
+        <div className={SCROLL_PANE}>
+          {[...expired, ...expiring].map((r, i) => (
+            <AlertRow key={`${r.kind}-${r.subject}-${r.doc_type}-${i}`} r={r} />
+          ))}
+        </div>
+      )}
+
+      {/* shrink-0 so the sweep line cannot be squeezed out of a full panel — it
+          is the only thing that distinguishes "nothing expiring" from "nothing
+          checking". */}
+      <p className={`shrink-0 mx-2.5 mb-2 border-t border-slate-800 pt-1.5 text-[9px] ${sweepToday ? 'text-slate-600' : 'text-amber-400/80'}`}>
+        {sweep
+          ? `Background sweep last ran ${String(sweep.ran_on).slice(0, 10)} — checked ${sweep.checked}, ${sweep.expired} expired.`
+            + (sweepToday ? '' : ' ⚠ That is not today; the check may not be running.')
+          : '⚠ The background sweep has never recorded a run — this list is live, but nothing is watching it.'}
+      </p>
     </GlassPanel>
   );
 }
@@ -1065,16 +1073,15 @@ function AlertRow({ r }) {
 
   return (
     <>
+      {/* ROW_CLS keeps this the same weight as every other row in the column;
+          only a genuinely expired document still earns a filled background,
+          because when every row is coloured none of them is a warning. */}
       <div
         {...triggerProps}
         tabIndex={0}
-        className={`touch-manipulation flex items-center gap-2.5 rounded-lg border px-2.5 py-2 outline-none
-                    transition-colors duration-100 focus-visible:ring-1 focus-visible:ring-cyan-400/60
-          ${gone
-            ? 'border-red-500/50 bg-red-500/10 hover:bg-red-500/15'
-            : r.days <= 3
-              ? 'border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/15'
-              : 'border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/10'}`}
+        className={`${ROW_CLS} touch-manipulation items-center outline-none focus-visible:ring-1 focus-visible:ring-cyan-400/60
+          ${gone ? 'border-red-500/40 bg-red-500/10 hover:bg-red-500/15'
+                 : r.days <= 3 ? 'hover:border-orange-500/50' : 'hover:border-amber-500/40'}`}
       >
         <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider
           ${r.kind === 'DRIVER' ? 'bg-violet-500/20 text-violet-300' : 'bg-cyan-500/20 text-cyan-300'}`}>
@@ -1084,14 +1091,12 @@ function AlertRow({ r }) {
           <p className="truncate text-[11px] font-bold text-slate-100">{r.subject}</p>
           <p className="truncate text-[9px] text-slate-500">{r.doc_name}</p>
         </div>
-        <div className="shrink-0 text-right">
-          <p className={`text-[11px] font-black ${gone ? 'text-red-400' : r.days <= 3 ? 'text-orange-300' : 'text-amber-300'}`}>
-            {gone ? `${Math.abs(r.days)}d ago` : `${r.days}d`}
-          </p>
-          <p className="text-[8.5px] uppercase tracking-wider text-slate-600">
-            {gone ? 'expired' : 'left'}
-          </p>
-        </div>
+        {/* One chip on the same scale as the rest of the column, instead of a
+            two-line number+caption stack that made this row taller than every
+            other row beside it. */}
+        <span className={`${chipCls(gone ? 'red' : 'amber')} shrink-0`}>
+          {gone ? `${Math.abs(r.days)}d expired` : `${r.days}d left`}
+        </span>
       </div>
       {overlay}
     </>

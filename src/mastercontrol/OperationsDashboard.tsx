@@ -17,6 +17,7 @@ import {
 import { API_BASE } from '../lib/apiBase';
 import {
   GlassPanel, PanelHeader, KpiCard, StatusPill, Dot, Avatar, openDrilldown,
+  TONE_CHIP, chipCls, PANEL_SHELL, SCROLL_PANE, ROW_CLS, BADGE_CLS,
 } from './shared';
 import { expiryTone, expiryLabel } from './useDashboardData';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
@@ -27,6 +28,10 @@ import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import LoadingActivity from './LoadingActivity';
 import UnloadingActivity from './UnloadingActivity';
 import DispatchConsole from './DispatchConsole';
+
+// The left-column panel kit (TONE_CHIP / chipCls / PANEL_SHELL / SCROLL_PANE /
+// ROW_CLS / BADGE_CLS) now lives in ./shared so Compliance Expiry, which is in
+// another file, renders from the same tokens instead of a second copy.
 
 // The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
 // these four: it is a real state — a number that has written in and sits on no
@@ -321,16 +326,27 @@ export default function OperationsDashboard({ live, filter }) {
           ))}
         </div>
 
-        {/* Master Document Vault */}
-        <GlassPanel>
+        {/* Master Document Vault — same shell as Today's Loading Activity */}
+        <GlassPanel className={`${PANEL_SHELL} border-red-500/25 shadow-[0_0_30px_rgba(248,113,113,0.06)]`}>
           <PanelHeader
             icon={FileWarning}
             title="Master Document Vault"
             onTitleClick={() => openDrilldown('ops.doc_expiry', null)}
             accent="text-red-400"
-            right={<StatusPill tone="red" pulse>Compliance Alerts</StatusPill>}
+            sub="vehicle papers, soonest first"
+            right={
+              <a
+                href="?module=OPERATION&screen=DOCS"
+                target="_blank" rel="noopener noreferrer"
+                title="Vehicle Documents nayi tab mein — yahin se date aur file update hoti hai"
+                className="flex items-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-0.5
+                           text-[9px] font-black text-red-300 transition-colors hover:bg-red-500/20"
+              >
+                <ExternalLink size={10} /> UPDATE
+              </a>
+            }
           />
-          <div className="px-4 pb-4 flex flex-col gap-2">
+          <div className={SCROLL_PANE}>
             {vault.length === 0 ? (
               <EmptyNote>
                 No vehicle document expiry dates are recorded in the ERP yet — all
@@ -341,15 +357,16 @@ export default function OperationsDashboard({ live, filter }) {
             ) : vault.map((d) => {
               const tone = expiryTone(d.days);
               return (
-                <div key={d.doc}
-                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 bg-white/5
-                    ${tone === 'red' ? 'border-red-500/50 shadow-[0_0_18px_rgba(248,113,113,0.18)]'
-                      : tone === 'amber' ? 'border-amber-500/40' : 'border-slate-700/50'}`}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileWarning size={15} className={tone === 'red' ? 'text-red-400' : tone === 'amber' ? 'text-amber-400' : 'text-slate-400'} />
-                    <span className="text-[11px] font-bold text-slate-200 truncate">{d.doc}</span>
+                <div key={d.doc} className={ROW_CLS}>
+                  <span className={BADGE_CLS(tone)}>
+                    <FileWarning size={11} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-bold text-slate-200">{d.doc}</span>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      <span className={chipCls(tone)}>{expiryLabel(d.days)}</span>
+                    </div>
                   </div>
-                  <StatusPill tone={tone} pulse={tone === 'red'}>{expiryLabel(d.days)}</StatusPill>
                 </div>
               );
             })}
@@ -360,17 +377,45 @@ export default function OperationsDashboard({ live, filter }) {
             vault says WHICH KIND of paper expires soonest; this says whose. */}
         <ComplianceAlertsPanel live={live} />
 
-        {/* Driver Command Center */}
-        <GlassPanel>
-          <PanelHeader icon={Users} title="Driver Command Center" accent="text-cyan-400"
-            sub={driverPayload.total_active
-              ? `${driverPayload.with_gaps ?? 0} of ${driverPayload.total_active} need papers · ${driverPayload.expired ?? 0} expired`
-              : undefined} />
-          {/* Adding the pending chips roughly tripled each row's height, and 12
-              of them pushed the whole right-hand column off screen. The panel
-              scrolls in its own box instead of growing the page. */}
-          <div className="px-4 pb-4 flex flex-col gap-2 max-h-[24rem] overflow-y-auto
-                          [scrollbar-width:thin] [scrollbar-color:rgba(148,163,184,0.35)_transparent]">
+        {/* Driver Command Center — same shell as Today's Loading Activity */}
+        <GlassPanel className={`${PANEL_SHELL} border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]`}>
+          <PanelHeader
+            icon={Users}
+            title="Driver Command Center"
+            accent="text-cyan-400"
+            sub={`${driverPayload.total_active ?? 0} active drivers`}
+            right={
+              // A BUTTON, NOT A CLICKABLE PANEL — the rule Loading Activity
+              // sets. The panel shows the worst 12; this is the way to the
+              // other 25, and it says so instead of hiding them behind a scroll
+              // that ends without explanation.
+              <a
+                href="?module=OPERATION&screen=DRIVER"
+                target="_blank" rel="noopener noreferrer"
+                title="Poori driver list nayi tab mein"
+                className="flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 py-0.5
+                           text-[9px] font-black text-cyan-300 transition-colors hover:bg-cyan-500/20"
+              >
+                <ExternalLink size={10} /> SAB
+              </a>
+            }
+          />
+
+          {/* The two numbers that decide whether anyone acts today, above the
+              rows rather than buried in a subtitle. */}
+          <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
+            <span className={chipCls(driverPayload.expired ? 'red' : 'green')}>
+              {driverPayload.expired ?? 0} <span className="font-normal opacity-70">expired</span>
+            </span>
+            <span className={chipCls(driverPayload.with_gaps ? 'amber' : 'green')}>
+              {driverPayload.with_gaps ?? 0} <span className="font-normal opacity-70">papers pending</span>
+            </span>
+            {driverRows.length < (driverPayload.with_gaps ?? 0) && (
+              <span className="text-[9px] font-semibold text-slate-500">worst {driverRows.length} shown</span>
+            )}
+          </div>
+
+          <div className={SCROLL_PANE}>
             {driverRows.length === 0 ? (
               <EmptyNote>No active drivers on file.</EmptyNote>
             ) : driverRows.map((d) => {
@@ -379,46 +424,41 @@ export default function OperationsDashboard({ live, filter }) {
               // gives middle-click and "open in new window" for free. The screen
               // reads ?driver= and opens that man's KYC form straight away.
               const href = `?module=OPERATION&screen=DRIVER&driver=${encodeURIComponent(d.id ?? '')}`;
-              const row = (
+              const worst = expiryTone(d.dl_days) === 'red' || expiryTone(d.hzd_days) === 'red'
+                ? 'red' : d.missing?.length ? 'amber' : 'slate';
+              const initials = String(d.name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+              const body = (
                 <>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <Avatar name={d.name} />
-                      <span className="text-[12px] font-semibold text-slate-200 truncate">{d.name}</span>
-                      {/* Nothing else on the row said it was clickable, so the
-                          new tab went undiscovered. */}
-                      {d.id && <ExternalLink size={11} className="text-cyan-400/70 shrink-0" />}
+                  {/* The badge leads the row and carries its worst state, so a
+                      column of rows can be triaged without reading any text. */}
+                  <span className={`${BADGE_CLS(worst)} text-[8px] font-black`}>
+                    {initials}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="truncate text-[11px] font-bold text-slate-200">{d.name}</span>
+                      {d.id && <ExternalLink size={9} className="shrink-0 text-cyan-400/60" />}
                     </div>
-                    <div className="flex flex-wrap justify-end gap-1.5 shrink-0">
-                      <StatusPill tone={expiryTone(d.dl_days)}>DL: {expiryLabel(d.dl_days)}</StatusPill>
-                      <StatusPill tone={expiryTone(d.hzd_days)}>HZD: {expiryLabel(d.hzd_days)}</StatusPill>
-                    </div>
-                  </div>
-                  {d.missing?.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-[34px]">
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500">pending</span>
-                      {d.missing.map((m) => (
-                        <span key={m}
-                          className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded
-                                     bg-amber-500/15 text-amber-300 border border-amber-500/30">{m}</span>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                      <span className={chipCls(expiryTone(d.dl_days))}>DL {expiryLabel(d.dl_days)}</span>
+                      <span className={chipCls(expiryTone(d.hzd_days))}>HZD {expiryLabel(d.hzd_days)}</span>
+                      {d.missing?.map((m) => (
+                        <span key={m} className={chipCls('amber')}>{m}</span>
                       ))}
                     </div>
-                  )}
+                  </div>
                 </>
               );
               // Without an id there is nothing to open, so it stays a plain row
               // rather than a link that lands on an empty form.
               return d.id ? (
                 <a key={d.id} href={href} target="_blank" rel="noopener noreferrer"
-                  title={`Open ${d.name}'s KYC in a new tab`}
-                  className="block rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5
-                             hover:bg-white/10 hover:border-cyan-500/40 transition-colors cursor-pointer">
-                  {row}
+                  title={`${d.name} ka KYC nayi tab mein kholein`}
+                  className={`${ROW_CLS} hover:border-cyan-500/40`}>
+                  {body}
                 </a>
               ) : (
-                <div key={d.name} className="block rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5">
-                  {row}
-                </div>
+                <div key={d.name} className={ROW_CLS}>{body}</div>
               );
             })}
           </div>
