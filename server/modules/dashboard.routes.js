@@ -602,6 +602,42 @@ export function registerDashboardRoutes(app) {
       };
     }, { rows: [], total_vehicles: 0, with_expired: 0, with_expiring: 0, no_docs: 0, unposted_fees: 0, unposted_rs: 0 });
 
+    // ── Fee approval queue ───────────────────────────────────────────────────
+    // 75 of these carry a real scanned document and ₹10,66,381 between them, and
+    // not one has ever reached the cashbook: the 2026-08 Firestore import wrote
+    // vehicle_documents directly and so skipped POST /vehicle-documents, which is
+    // the call that queues the expense. They were only visible as a chip on the
+    // vault until now, which is a fine way to be reminded and no way to act.
+    //
+    // Ordered by amount because that is the order somebody clearing a backlog
+    // wants: the ₹55,810 insurance matters more than a ₹120 PUC receipt.
+    const pending_fees = await safe(errors, 'pending_fees', async () => {
+      const { rows } = await query(`
+        SELECT d.id, d.vehicle_id, v.vehicle_no,
+               d.doc_type, COALESCE(d.doc_name, d.doc_type) AS doc_name,
+               d.amount, d.receipt_no, d.application_no,
+               d.inspected_on, d.next_due_date,
+               (d.document_url IS NOT NULL) AS has_file,
+               v.is_company_owned
+          FROM vehicle_documents d
+          JOIN vehicles v ON v.id = d.vehicle_id
+         WHERE d.amount > 0 AND d.voucher_id IS NULL AND v.status = 'ACTIVE'
+         ORDER BY d.amount DESC
+         LIMIT 200`);
+      return {
+        rows: rows.map((r) => ({
+          id: r.id, vehicle_id: r.vehicle_id, vehicle_no: r.vehicle_no,
+          doc_type: r.doc_type, doc_name: r.doc_name,
+          amount: Number(r.amount), receipt_no: r.receipt_no, application_no: r.application_no,
+          inspected_on: r.inspected_on, next_due_date: r.next_due_date,
+          has_file: !!r.has_file, is_company_owned: !!r.is_company_owned,
+        })),
+        count: rows.length,
+        total_rs: rows.reduce((n, r) => n + Number(r.amount || 0), 0),
+        with_file: rows.filter((r) => r.has_file).length,
+      };
+    }, { rows: [], count: 0, total_rs: 0, with_file: 0 });
+
     // ── Document history ─────────────────────────────────────────────────────
     // "Kab kya renew hua" had no answer anywhere on this dashboard. Every panel
     // showed the CURRENT state, so a document renewed this morning and one
@@ -1864,7 +1900,7 @@ export function registerDashboardRoutes(app) {
       // Echoed back so the UI can label the page with what it actually applied,
       // rather than with what the user believes they selected.
       filter: F,
-      ops: { ...fleet, doc_vault, fleet_vault, doc_history, drivers, trips_by_day, live_fleet, unloading_queue,
+      ops: { ...fleet, doc_vault, fleet_vault, doc_history, pending_fees, drivers, trips_by_day, live_fleet, unloading_queue,
              vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
              loading_activity, unloading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
