@@ -42,9 +42,15 @@ const authHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+// Three services, three clocks — the owner's own intervals (migration 124):
+// oil 40,000 km, greasing 10,000 km, tyre rotation 15,000 km. Greasing came out
+// of the engine bucket when it got its own cadence; at 10,000 km it comes round
+// four times per oil change, and sharing a bucket would let one greasing log
+// reset the oil clock.
 const TABS = [
   ['ENGINE_OIL', 'Engine / Oil'],
-  ['TYRES_SPARES', 'Tyres / Spares'],
+  ['GREASING', 'Greasing'],
+  ['TYRES_SPARES', 'Tyres'],
 ];
 
 const STATE = {
@@ -305,7 +311,12 @@ function VehicleSheet({ v, group, onClose, onSaved }) {
           // The service_type is what puts the log in a tab — maintenance_group()
           // reads these words. Sent explicitly rather than left to the operator
           // to phrase, or the log lands in OTHER and the tab stays empty.
-          service_type: group === 'ENGINE_OIL' ? 'Engine Oil Change' : 'Tyres / Spares',
+          // maintenance_group() reads these words to decide the tab. Sent
+          // explicitly rather than left to the operator to phrase, or the log
+          // lands in OTHER and the tab it was entered from stays empty.
+          service_type: group === 'ENGINE_OIL' ? 'Engine Oil & Filter'
+            : group === 'GREASING' ? 'Greasing & Checkup'
+            : 'Tyre Rotation & Alignment',
           odometer_km: reading,
           next_due_km: nextKm ? Number(nextKm) : null,
           garage_name: garage || null,

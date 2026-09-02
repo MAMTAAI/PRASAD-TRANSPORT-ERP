@@ -163,3 +163,7 @@ ERP_HEALER.KILL
 # box's deploy position to every other checkout and to the box itself, which
 # is how --if-changed would start skipping real deploys again.
 .last-deployed-sha
+
+# Importer output — rewritten by the cron every 10 minutes on the box. A copy
+# pulled down for a dry run is a snapshot of that machine, not source.
+reports/iocl_recon/
