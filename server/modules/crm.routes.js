@@ -452,18 +452,28 @@ export async function registerCrmRoutes(app) {
   });
 
   // ═══ THREADS ══════════════════════════════════════════════════════════════
-  // The Dispatch Console's left pane: one row per number, newest first, with
-  // the directory's identity attached — so the tabs (Driver/Pump/Vendor/…)
-  // are the DATABASE's answer to who this is, not a guess in the browser.
-  // The dashboard's 24-thread embed stays for the compact panel; this is the
-  // full inbox.
+  // The Dispatch Console's left pane, and since 2026-09-02 the Drivers /
+  // Pump-Vendors tabs on the dashboard: one row per number, newest first, with
+  // the directory's identity attached — so the tabs are the DATABASE's answer
+  // to who this is, not a guess in the browser.
+  //
+  // THIS ROUTE 500'd ON EVERY CALL FROM THE DAY IT SHIPPED. It selected
+  // `d.name`, and the `dir` CTE has no such column — it is `contact_name`
+  // (contactDirectory.js). Postgres answered `column d.name does not exist`
+  // 42703 every time, and nobody saw it for two days because the console turns
+  // a failed fetch into an empty thread list, which looks exactly like "nobody
+  // has written in yet". It only became visible when the dashboard started
+  // calling it too and the API log filled up.
+  //
+  // Aliased back to `name` so the callers, which were written against the
+  // intended shape, do not have to change.
   app.get('/threads', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { kind, q, limit } = req.query ?? {};
     const args = [clamp(limit, 100, 300)];
     let where = '';
     if (kind && kind !== 'ALL') { args.push(String(kind).toUpperCase()); where += ` AND COALESCE(d.kind,'UNKNOWN') = $${args.length}`; }
-    if (q) { args.push(`%${String(q).slice(0, 60)}%`); where += ` AND (d.name ILIKE $${args.length} OR t.phone LIKE $${args.length})`; }
+    if (q) { args.push(`%${String(q).slice(0, 60)}%`); where += ` AND (d.contact_name ILIKE $${args.length} OR t.phone LIKE $${args.length})`; }
     const { rows } = await query(`
       WITH ${DIRECTORY_CTE},
       t AS (
@@ -477,7 +487,7 @@ export async function registerCrmRoutes(app) {
       SELECT t.phone, t.text AS last_text, t.direction AS last_direction, t.ts AS last_ts,
              t.media_type AS last_media_type, t.sent_by_user_name AS last_sender,
              n.messages, n.media_count,
-             COALESCE(d.kind,'UNKNOWN') AS kind, d.name
+             COALESCE(d.kind,'UNKNOWN') AS kind, d.contact_name AS name
         FROM t
         JOIN n ON n.phone = t.phone
         LEFT JOIN dir d ON d.phone = t.phone

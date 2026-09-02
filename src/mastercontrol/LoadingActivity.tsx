@@ -93,6 +93,18 @@ export default function LoadingActivity({ activity, offline }) {
   // thing somebody has to go and fix, and only a person can fix it — an expired
   // OAuth token needs a human to sign in again.
   const deadBoxes = a?.sync?.mailboxes_failed ?? [];
+  // ── AND THE THIRD WAY THIS PANEL CAN LIE ────────────────────────────────
+  // syncState().last_run lives in the API process's MEMORY. Every restart —
+  // every deploy, and there were four on 2026-09-02 — wipes it back to null,
+  // and null renders as no dead boxes, no refused inserts and no timestamp:
+  // an all-clear from a check that has not run once. On 2-Sep that is exactly
+  // what the owner was looking at when he concluded the parser had died; the
+  // parser was fine, the panel simply had nothing to say and said it silently.
+  //
+  // Not knowing is a third state and it gets its own line. The cron ticks
+  // every 10 minutes, so this clears itself — the point is that it is VISIBLE
+  // while it lasts instead of looking like health.
+  const neverChecked = !!a && !a.sync?.checked_at && !a.sync?.running;
   // AND THE OTHER HALF OF THE CHAIN. A readable mailbox whose invoices cannot be
   // WRITTEN looks identical from here: zero auto entries, no dead box, panel
   // green. That is what happened from 21-08 — every insert answered 401 and the
@@ -159,6 +171,20 @@ export default function LoadingActivity({ activity, offline }) {
         </div>
       )}
 
+      {/* SILENCE IS NOT HEALTH. Shown only when the two banners above have
+          nothing to report, because "we have not looked" is weaker news than
+          "we looked and it is broken". */}
+      {!deadBoxes.length && !refused && neverChecked && (
+        <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-slate-600/60 bg-white/[0.03] px-2 py-1.5">
+          <AlertTriangle size={12} className="mt-px shrink-0 text-slate-400" />
+          <p className="text-[10px] leading-snug text-slate-300">
+            Server abhi restart hua hai — mailbox sync is ke baad ek baar bhi nahi chala, isliye
+            neeche ka “sab theek hai” abhi <b>jaanch ke bina</b> hai. Har 10 minute par apne aap
+            chalta hai; agli baar chalte hi yahan uska waqt dikhne lagega.
+          </p>
+        </div>
+      )}
+
       {stale && (
         <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
           <AlertTriangle size={12} className="mt-px shrink-0 text-amber-400" />
@@ -166,6 +192,8 @@ export default function LoadingActivity({ activity, offline }) {
             Aaj koi loading entry nahi aayi. Neeche <b>{dayLabel(a.day)}</b> ka din dikha rahe hain
             {gap ? ` — ${gap} din purana` : ''}.
             {a.last_7d_count <= 1 && ' Poore hafte mein bhi lagbhag kuch nahi aaya — Gmail sync check karein.'}
+            {!neverChecked && !deadBoxes.length && !refused
+              && ' Dono mailbox padhe ja chuke hain aur unmein nayi koi loading nahi thi — yeh sync ki kharabi nahi hai.'}
           </p>
         </div>
       )}
