@@ -75,6 +75,7 @@ const CustomerPortal = lazy(() => import('./CustomerPortal'));
 const FleetPartnerPortal = lazy(() => import('./FleetPartnerPortal'));
 const FleetPartnerApp = lazy(() => import('./portal/FleetPartnerApp'));
 const CustomerApp = lazy(() => import('./portal/CustomerApp'));
+const CustomerPreview = lazy(() => import('./portal/CustomerPreview'));
 const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
@@ -548,7 +549,10 @@ function AppShell() {
       case 'CUSTOMER_PORTAL_PREVIEW': 
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
-            <CustomerPortal onLogout={() => handleComponentChange('CUSTOMER')} />
+            {/* The REAL signed-in Customer App, scoped read-only to a chosen
+                customer (2026-09-02). The legacy CustomerPortal.tsx stays as
+                the pre-login onboarding door only. */}
+            <CustomerPreview onExit={() => handleComponentChange('CUSTOMER')} />
           </div>
         );
       case 'DRIVER_PORTAL_PREVIEW': 

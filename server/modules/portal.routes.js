@@ -32,9 +32,51 @@ const dbGate = (reply) =>
  *  cannot exist unscoped (migration 048's users_portal_scope CHECK), so a null
  *  link here means the account was tampered with or the role was changed out
  *  from under it — either way it is not a session that should read anything. */
+const VIEW_AS_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function resolveParty(req, reply) {
   const done = await requireAuth(req, reply);
   if (done !== undefined) return done;                 // requireAuth already replied
+
+  // ── STAFF "VIEW AS" (2026-09-02) ────────────────────────────────────────
+  // The office previews the REAL customer / vendor app scoped to one party by
+  // naming it in a header — X-View-As-Customer or X-View-As-Vendor — instead
+  // of the hardcoded legacy portal. Three rules keep it a preview and not an
+  // impersonation: only ADMIN / SUPER_ADMIN may; the party must exist; and it
+  // is READ-ONLY — any non-GET is refused before a route runs, so nothing can
+  // be posted, accepted, booked or uploaded on a party's behalf. The 31-Aug
+  // portal-approval gate does not apply: staff may look at an unapproved
+  // party's empty app, which is exactly what they need to see before approving.
+  const viewCustomer = String(req.headers['x-view-as-customer'] ?? '').trim();
+  const viewVendor = String(req.headers['x-view-as-vendor'] ?? '').trim();
+  if (viewCustomer || viewVendor) {
+    const staffRole = String(req.user?.role ?? '').toUpperCase();
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(staffRole)) {
+      return reply.code(403).send({ error: 'FORBIDDEN', detail: 'view-as is for office staff' });
+    }
+    if (!['GET', 'HEAD'].includes(String(req.method).toUpperCase())) {
+      return reply.code(405).send({
+        error: 'VIEW_AS_READ_ONLY',
+        detail: 'Preview is read-only — nothing is posted, accepted, booked or uploaded on a party\'s behalf.',
+      });
+    }
+    const isCustomer = !!viewCustomer;
+    const id = isCustomer ? viewCustomer : viewVendor;
+    if (!VIEW_AS_UUID.test(id)) return reply.code(400).send({ error: 'BAD_PARTY_ID' });
+    const { rows } = await query(
+      isCustomer
+        ? `SELECT id, customer_name AS name, COALESCE(portal_features, '{}'::jsonb) AS features FROM customers WHERE id = $1::uuid`
+        : `SELECT id, vendor_name AS name, COALESCE(portal_features, '{}'::jsonb) AS features FROM vendors WHERE id = $1::uuid`,
+      [id]);
+    if (!rows.length) return reply.code(404).send({ error: 'NO_SUCH_PARTY' });
+    req.party = {
+      role: isCustomer ? 'CUSTOMER' : 'VENDOR',
+      customerId: isCustomer ? id : null, vendorId: isCustomer ? null : id,
+      features: rows[0].features ?? {},
+      viewAs: true, viewAsName: rows[0].name, viewAsBy: req.user?.sub ?? null,
+    };
+    return;
+  }
 
   // One query answers the role, the scope AND the gate. Fetching the party
   // separately would leave a window where a route could read data for an

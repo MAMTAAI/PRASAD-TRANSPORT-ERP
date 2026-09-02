@@ -1060,7 +1060,7 @@ function BookNowSheet({ load, onClose, onDone }) {
     const r = await api(`/portal/vendor/loads/${encodeURIComponent(load.load_id)}/book-now`, { method: 'POST' });
     setBusy(false);
     if (!r.ok) { setErr(r.body?.detail ?? `Could not book (${r.status})`); return; }
-    onDone('Load booked! Confirm it under My Trips.');
+    onDone(r.body?.detail ?? 'Book-Now request sent — the office confirms the award, then the load appears under My Trips.');
   };
 
   return (

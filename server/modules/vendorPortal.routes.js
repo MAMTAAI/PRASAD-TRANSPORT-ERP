@@ -184,36 +184,44 @@ export function registerVendorPortalRoutes(app) {
       const { rows: vend } = await t.query(
         `SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
 
-      // The booking replaces every open offer, the booker's own included.
+      // THE DESK DECIDES THE AWARD (owner's rule, 2026-09-02). Book-Now used to
+      // reject every other offer, accept its own and open the settlement in
+      // this request. Now it is a REQUEST at the Book-Now rate: the booker's
+      // earlier offer is withdrawn (one live offer per vendor per load — the
+      // partial unique index), the new one is a PENDING bid the load names as
+      // its requested award, the load leaves OPEN so nobody else can bid, and
+      // the other offers stay on the table until the office decides.
       await t.query(
         `UPDATE bazaar_bids SET status='WITHDRAWN', updated_at=now()
           WHERE load_id=$1 AND vendor_id=$2::uuid AND status='PENDING'`,
         [req.params.loadId, req.party.vendorId]);
-      await t.query(
-        `UPDATE bazaar_bids SET status='REJECTED', updated_at=now()
-          WHERE load_id=$1 AND status='PENDING'`, [req.params.loadId]);
 
       const { rows: W } = await t.query(`
         INSERT INTO bazaar_bids (load_id, vendor_name, vendor_id, bid_amount, remarks, status)
-        VALUES ($1, $2, $3::uuid, $4, 'Book-Now', 'ACCEPTED')
+        VALUES ($1, $2, $3::uuid, $4, 'Book-Now', 'PENDING')
         RETURNING *`,
         [req.params.loadId, vend[0]?.vendor_name ?? 'partner', req.party.vendorId, rate]);
       const { rows: U } = await t.query(
-        `UPDATE bazaar_loads SET status='AWARDED', updated_at=now() WHERE load_id=$1 RETURNING *`,
-        [req.params.loadId]);
-      const settlement = await openSettlementInTx(t, U[0], W[0]);
+        `UPDATE bazaar_loads
+            SET status='AWARD_REQUESTED',
+                award_requested_bid_id=$2::uuid, award_requested_by='VENDOR', award_requested_at=now(),
+                award_reviewed_by=NULL, award_reviewed_at=NULL, award_reject_reason=NULL,
+                updated_at=now()
+          WHERE load_id=$1 RETURNING *`,
+        [req.params.loadId, W[0].id]);
 
       award = { customerMobile: load[0].customer_mobile, rate, origin: load[0].origin, destination: load[0].destination };
-      return reply.code(201).send({
-        load: U[0], bid: W[0], settlement,
-        detail: 'Load booked at the Book-Now rate. Confirm it under "My Trips" — '
-              + 'the office will then take the next steps (deposit, vehicle, advance).',
+      return reply.code(202).send({
+        load: U[0], bid: W[0], award_requested: true,
+        detail: 'Book-Now request sent. The Prasad Transport office confirms the award — you will get a '
+              + 'WhatsApp, and the load then appears under "My Trips" to confirm.',
       });
     });
     if (award?.customerMobile) {
       notifyWhatsApp(award.customerMobile,
         `⚡ Load Bazaar: aapka load ${req.params.loadId} (${award.origin} → ${award.destination}) `
-        + `Book-Now rate ₹${award.rate.toLocaleString('en-IN')} par turant book ho gaya hai.`);
+        + `Book-Now rate ₹${award.rate.toLocaleString('en-IN')} par book karne ki request aayi hai — `
+        + `Prasad Transport office confirm karega, uske baad award hoga.`);
     }
     return result;
   });

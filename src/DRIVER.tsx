@@ -515,6 +515,22 @@ export default function DriverMgmt() {
     }
   };
 
+  // ONE-TIME LOGIN LINK — the WhatsApp-free door into the driver app
+  // (2026-09-02). The server mints a single-use token (72 h); staff paste the
+  // link into any channel the driver actually reads. Pairs with the OTP dev
+  // bypass for test numbers; this one works for every driver, today.
+  const handleLoginLink = async (d: any) => {
+    try {
+      const j = await fetchJson(`${API}/api/v1/auth/driver/link`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_id: d.id, valid_hours: 72 }),
+      });
+      const url = j.url ?? j.link ?? j.login_url ?? '';
+      if (!url) { alert('Link ban gaya par URL nahi mila — DRIVER_APP_URL / PUBLIC_APP_URL set karein.'); return; }
+      window.prompt(`${d.name} ka login link — 1 baar chalega, 72 ghante. WhatsApp/SMS se bhej dein:`, url);
+    } catch (e) { alert('Link nahi bana: ' + (e as any).message); }
+  };
+
   const handleDeleteDriver = async (id: string, name: string) => {
     if (!window.confirm(`Remove ${name}?\n\nIf they have trips or khata entries the record is marked INACTIVE instead of deleted, so the money that references them stays resolvable.`)) return;
     try {
@@ -869,6 +885,7 @@ export default function DriverMgmt() {
                       </div>
                       <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                         <button className="action-btn" onClick={() => openEditModal(d)}>Configure</button>
+                        <button className="action-btn" title="One-time login link for the driver app (72 h)" onClick={() => handleLoginLink(d)}>🔗 Login link</button>
                         <button className="action-btn delete" onClick={() => handleDeleteDriver(d.id, d.name)}>Erase</button>
                       </div>
                     </td>

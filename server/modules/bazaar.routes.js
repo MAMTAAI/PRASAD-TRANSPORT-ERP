@@ -163,6 +163,107 @@ export async function registerBazaarRoutes(app) {
     } catch (e) { return pgErr(reply, e); }
   });
 
+  // ── Award review — the desk's decision on a phone-side award request ─────
+  // Owner's rule, 2026-09-02: a customer's accept-bid and a vendor's Book-Now
+  // land the load in AWARD_REQUESTED with the chosen bid named on the row
+  // (migration 127). Nothing is awarded until a person here APPROVEs — which
+  // runs exactly the award the staff button runs: reject the rest, accept the
+  // winner, open the settlement in the same transaction. REJECT reopens the
+  // load; the requested offer stays on the table as a plain PENDING bid.
+  async function awardInTx(c, loadId, bidId, by) {
+    const { rows: B } = await c.query(
+      'SELECT * FROM bazaar_bids WHERE id = $1::uuid AND load_id = $2 FOR UPDATE', [bidId, loadId]);
+    if (!B.length) return { code: 404, body: { error: 'NO_SUCH_BID' } };
+    if (B[0].status !== 'PENDING') return { code: 409, body: { error: 'BID_NOT_PENDING', detail: `bid is ${B[0].status}` } };
+    await c.query(`UPDATE bazaar_bids SET status = 'REJECTED', updated_at = now()
+                    WHERE load_id = $1 AND id <> $2::uuid AND status = 'PENDING'`, [loadId, bidId]);
+    const { rows: W } = await c.query(`UPDATE bazaar_bids SET status = 'ACCEPTED', updated_at = now()
+                                        WHERE id = $1::uuid RETURNING *`, [bidId]);
+    const { rows: U } = await c.query(`UPDATE bazaar_loads
+                                          SET status = 'AWARDED', award_reviewed_by = $2::uuid, award_reviewed_at = now(),
+                                              award_reject_reason = NULL, updated_at = now()
+                                        WHERE load_id = $1 RETURNING *`, [loadId, by]);
+    const settlement = await openSettlementInTx(c, U[0], W[0]);
+    const { rows: VM } = await c.query('SELECT mobile_no FROM vendors WHERE id = $1::uuid', [W[0].vendor_id]);
+    const { rows: CM } = U[0].customer_id
+      ? await c.query('SELECT mobile_no FROM customers WHERE id = $1::uuid', [U[0].customer_id])
+      : { rows: [] };
+    return {
+      code: 200, body: { load: U[0], bid: W[0], settlement },
+      vendorMobile: VM[0]?.mobile_no ?? null, customerMobile: CM[0]?.mobile_no ?? null,
+    };
+  }
+
+  app.post('/loads/:loadId/award-review', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const action = String(req.body?.action ?? '').toUpperCase();
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!['APPROVE', 'REJECT'].includes(action)) {
+      return reply.code(400).send({ error: 'BAD_ACTION', detail: 'action must be APPROVE or REJECT' });
+    }
+    if (action === 'REJECT' && !reason) {
+      return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the requester reads it' });
+    }
+    const by = UUID_RE.test(String(req.user?.sub ?? '')) ? req.user.sub : null;
+    try {
+      const out = await withTransaction(async (c) => {
+        const { rows: L } = await c.query(
+          'SELECT * FROM bazaar_loads WHERE load_id = $1 FOR UPDATE', [req.params.loadId]);
+        if (!L.length) return { code: 404, body: { error: 'NO_SUCH_LOAD' } };
+        if (L[0].status !== 'AWARD_REQUESTED') {
+          return { code: 409, body: { error: 'NOT_REQUESTED', detail: `load is ${L[0].status} — nothing is waiting for a decision` } };
+        }
+        if (!L[0].award_requested_bid_id) {
+          return { code: 409, body: { error: 'NO_REQUESTED_BID', detail: 'the request names no bid — reopen the load' } };
+        }
+        if (action === 'APPROVE') {
+          const r = await awardInTx(c, req.params.loadId, L[0].award_requested_bid_id, by);
+          return { ...r, requestedBy: L[0].award_requested_by };
+        }
+        const { rows: U } = await c.query(
+          `UPDATE bazaar_loads
+              SET status = 'OPEN', award_reviewed_by = $2::uuid, award_reviewed_at = now(),
+                  award_reject_reason = $3, updated_at = now()
+            WHERE load_id = $1 RETURNING *`, [req.params.loadId, by, reason]);
+        const { rows: B } = await c.query(
+          `SELECT b.*, v.mobile_no AS vendor_mobile FROM bazaar_bids b
+             LEFT JOIN vendors v ON v.id = b.vendor_id WHERE b.id = $1::uuid`, [L[0].award_requested_bid_id]);
+        const { rows: CM } = U[0].customer_id
+          ? await c.query('SELECT mobile_no FROM customers WHERE id = $1::uuid', [U[0].customer_id])
+          : { rows: [] };
+        return {
+          code: 200, body: { load: U[0], reopened: true, bid: B[0] ?? null },
+          requestedBy: L[0].award_requested_by,
+          vendorMobile: B[0]?.vendor_mobile ?? null, customerMobile: CM[0]?.mobile_no ?? null,
+        };
+      });
+      if (out.code === 200) {
+        const load = out.body.load;
+        const route = `${load.origin} → ${load.destination}`;
+        if (action === 'APPROVE') {
+          if (out.vendorMobile) {
+            notifyWhatsApp(out.vendorMobile,
+              `🎉 Load Bazaar: aapki bid ₹${out.body.bid.bid_amount} load ${load.load_id} (${route}) ke liye `
+              + `AWARD ho gayi hai — office ne confirm kar diya. "My Trips" mein confirm karein.`);
+          }
+          if (out.customerMobile) {
+            notifyWhatsApp(out.customerMobile,
+              `✅ Load Bazaar: aapka load ${load.load_id} (${route}) ${out.body.bid.vendor_name} ko `
+              + `₹${out.body.bid.bid_amount} par award ho gaya — office ne confirm kiya.`);
+          }
+        } else {
+          const to = out.requestedBy === 'VENDOR' ? out.vendorMobile : out.customerMobile;
+          if (to) {
+            notifyWhatsApp(to,
+              `ℹ️ Load Bazaar: load ${load.load_id} (${route}) ka award request office ne approve nahi kiya. `
+              + `Kaaran: ${reason}. Load dobara bidding ke liye khula hai.`);
+          }
+        }
+      }
+      return reply.code(out.code).send(out.body);
+    } catch (e) { return pgErr(reply, e); }
+  });
+
   // ── Award ────────────────────────────────────────────────────────────────
   app.post('/loads/:loadId/award', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -176,7 +277,9 @@ export async function registerBazaarRoutes(app) {
         const { rows: L } = await c.query(
           'SELECT * FROM bazaar_loads WHERE load_id = $1 FOR UPDATE', [req.params.loadId]);
         if (!L.length) return { code: 404, body: { error: 'NO_SUCH_LOAD' } };
-        if (L[0].status !== 'OPEN') return { code: 409, body: { error: 'LOAD_NOT_OPEN', detail: `load is ${L[0].status}` } };
+        // A staff award is itself the desk's decision, so it may also settle a
+        // phone-side request directly (any bid, not only the requested one).
+        if (!['OPEN', 'AWARD_REQUESTED'].includes(L[0].status)) return { code: 409, body: { error: 'LOAD_NOT_OPEN', detail: `load is ${L[0].status}` } };
 
         const { rows: B } = await c.query(
           'SELECT * FROM bazaar_bids WHERE id = $1::uuid AND load_id = $2 FOR UPDATE', [bid_id, req.params.loadId]);
@@ -186,8 +289,11 @@ export async function registerBazaarRoutes(app) {
                         WHERE load_id = $1 AND id <> $2::uuid AND status = 'PENDING'`, [req.params.loadId, bid_id]);
         const { rows: W } = await c.query(`UPDATE bazaar_bids SET status = 'ACCEPTED', updated_at = now()
                                             WHERE id = $1::uuid RETURNING *`, [bid_id]);
-        const { rows: U } = await c.query(`UPDATE bazaar_loads SET status = 'AWARDED', updated_at = now()
-                                            WHERE load_id = $1 RETURNING *`, [req.params.loadId]);
+        const { rows: U } = await c.query(`UPDATE bazaar_loads
+                                              SET status = 'AWARDED', award_reviewed_by = $2::uuid, award_reviewed_at = now(),
+                                                  award_reject_reason = NULL, updated_at = now()
+                                            WHERE load_id = $1 RETURNING *`,
+          [req.params.loadId, UUID_RE.test(String(req.user?.sub ?? '')) ? req.user.sub : null]);
         // The money lifecycle opens with the award, in the same transaction —
         // an awarded load without a settlement row cannot exist.
         const settlement = await openSettlementInTx(c, U[0], W[0]);

@@ -557,6 +557,29 @@ export async function registerAuthRoutes(app) {
     // One live code per number: re-requesting replaces the previous one so an
     // attacker cannot keep five guessable codes alive at once.
     if (who.length) {
+      // ── DEV BYPASS, UNTIL THE SMS GATEWAY KEY EXISTS (2026-09-02) ──────────
+      // WhatsApp is the only OTP channel and it is down whenever the engine is
+      // unlinked, so no driver has ever logged in. For the numbers listed in
+      // OTP_DEV_BYPASS_MOBILES — and only those — the code is OTP_DEV_CODE and
+      // nothing is sent. It is stored hashed and burned exactly like a real
+      // code (same TTL, same attempt cap), so the rest of the login path is
+      // exercised as it will be in production. Both variables unset = no
+      // bypass. Never list a customer's or a vendor's number here.
+      const devMobiles = String(process.env.OTP_DEV_BYPASS_MOBILES ?? '')
+        .split(',').map((m) => last10(m)).filter((m) => m.length === 10);
+      const devCode = String(process.env.OTP_DEV_CODE ?? '').replace(/\D/g, '');
+      if (devMobiles.includes(mobile) && devCode.length === 6) {
+        const { saltHex, hashHex } = hashCode(devCode);
+        await query(`UPDATE auth_otp SET consumed_at = now()
+                      WHERE mobile = $1 AND consumed_at IS NULL AND purpose = 'LOGIN'`, [mobile]);
+        await query(
+          `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, purpose, expires_at)
+           VALUES ($1,$2,$3,'dev','LOGIN', now() + ($4 || ' minutes')::interval)`,
+          [mobile, hashHex, saltHex, String(OTP_TTL_MIN)]);
+        req.log.warn({ mobile_tail: mobile.slice(-4) }, 'OTP dev bypass: code stored, nothing sent');
+        return { sent: true, channel: 'dev', dev: true, expires_in_minutes: OTP_TTL_MIN };
+      }
+
       const channel = await otp.available();
       if (!channel.ok) {
         return reply.code(503).send({ error: 'OTP_CHANNEL_UNAVAILABLE', detail: channel.reason });

@@ -41,6 +41,10 @@ const api = async (path, opts = {}) => {
   const token = localStorage.getItem('prasad_token');
   const headers = { ...(opts.headers ?? {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
+  // Staff preview (CustomerPreview.tsx): the server scopes every read to this
+  // customer and refuses every write. Absent for a real customer session.
+  const viewAs = localStorage.getItem('prasad_view_as_customer');
+  if (viewAs) headers['X-View-As-Customer'] = viewAs;
   if (opts.body) headers['Content-Type'] = 'application/json';
   const r = await fetch(`${API_BASE}/api/v1${path}`, { ...opts, headers });
   let body = null;
@@ -104,6 +108,8 @@ function Sheet({ open, onClose, title, subtitle, children, footer }) {
 const STATUS = {
   PENDING_REVIEW: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Office reviewing' },
   OPEN: { t: 'text-sky-300', b: 'bg-sky-400/10 border-sky-400/25', i: Gavel, l: 'Taking bids' },
+  // The desk decides the award (2-Sep-2026): a chosen bid waits here.
+  AWARD_REQUESTED: { t: 'text-orange-300', b: 'bg-orange-400/10 border-orange-400/25', i: Clock, l: 'Office confirming award' },
   AWARDED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Awarded' },
   CLOSED: { t: 'text-white/40', b: 'bg-white/5 border-white/10', i: XCircle, l: 'Closed' },
   CANCELLED: { t: 'text-red-300', b: 'bg-red-400/10 border-red-400/25', i: XCircle, l: 'Cancelled' },
@@ -220,7 +226,7 @@ export default function CustomerApp() {
           )}
           {loads?.map((l) => (
             <button key={l.load_id}
-              onClick={() => l.status === 'AWARDED' ? setStatusFor(l) : l.status === 'OPEN' ? setBidsFor(l) : null}
+              onClick={() => l.status === 'AWARDED' ? setStatusFor(l) : (l.status === 'OPEN' || l.status === 'AWARD_REQUESTED') ? setBidsFor(l) : null}
               className="ca-rise mb-3 block w-full rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 text-left
                          transition-colors active:bg-white/[0.06]">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -241,6 +247,10 @@ export default function CustomerApp() {
                 {l.status === 'AWARDED' ? (
                   <span className="font-bold text-emerald-300">
                     Awarded to {l.awarded_to} — ₹{inr(l.awarded_amount)} · tap for status
+                  </span>
+                ) : l.status === 'AWARD_REQUESTED' ? (
+                  <span className="font-bold text-orange-300">
+                    Your choice is with the Prasad Transport office — bidding closed, award follows their confirmation
                   </span>
                 ) : (
                   <span className={l.pending_bids > 0 ? 'font-bold text-sky-300' : 'text-white/35'}>
@@ -534,7 +544,8 @@ function BidsSheet({ load, onClose, onAccepted }) {
       { method: 'POST', body: JSON.stringify({ bid_id: bid.id }) });
     setBusy(false);
     if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `failed (${r.status})`); return; }
-    onAccepted(`${bid.vendor_name} ko award ho gaya — ₹${inr(bid.bid_amount)}. Office agla step karega.`);
+    onAccepted(r.body?.detail
+      ?? `${bid.vendor_name} ki bid ₹${inr(bid.bid_amount)} office ko bhej di — office confirm karega, phir award hoga.`);
   };
 
   return (

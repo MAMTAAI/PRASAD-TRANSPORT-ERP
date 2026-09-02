@@ -219,6 +219,27 @@ export default function BazaarAdmin() {
     }
   };
 
+  // The desk's decision on a phone-side award request (customer accept-bid or
+  // vendor Book-Now). APPROVE = the real award, one transaction, settlement
+  // opened; REJECT = load back to OPEN, reason goes to the requester.
+  const reviewAward = async (loadId, action, req) => {
+    let reason = null;
+    if (action === 'REJECT') {
+      reason = window.prompt('Reopen kyon? (yeh kaaran request karne wale ko WhatsApp par jayega)');
+      if (!reason) return;
+    } else if (!window.confirm(`Award ${loadId} to ${req?.vendor_name ?? 'the requested bidder'} at ₹${Number(req?.bid_amount ?? 0).toLocaleString('en-IN')}? Baaki bids reject hongi aur settlement khulega.`)) return;
+    setLoading(true);
+    try {
+      await fetchJson(`${BAZAAR}/loads/${loadId}/award-review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason }),
+      });
+      logAudit({ action: `BAZAAR_AWARD_${action}`, target: loadId, details: reason ?? (req?.vendor_name ?? '') });
+      fetchLoadsAndBids();
+    } catch (e) { alert('❌ ' + (e as any).message); }
+    setLoading(false);
+  };
+
   // Maker-checker: a customer-posted load waits here until the office opens it.
   const reviewLoad = async (loadId, action) => {
     let reason = null;
@@ -298,7 +319,7 @@ export default function BazaarAdmin() {
               {loads.map(load => {
                 const loadBids = getBidsForLoad(load.load_id);
                 return (
-                  <div key={load.id} style={{ background: '#0f172a', border: load.status === 'OPEN' ? '1px solid #3b82f6' : '1px solid #10b981', borderRadius: '15px', overflow: 'hidden', position: 'relative', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
+                  <div key={load.id} style={{ background: '#0f172a', border: load.status === 'OPEN' ? '1px solid #3b82f6' : load.status === 'AWARD_REQUESTED' ? '1px solid #f97316' : '1px solid #10b981', borderRadius: '15px', overflow: 'hidden', position: 'relative', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}>
                     <div style={{ background: load.status === 'OPEN' ? 'rgba(59,130,246,0.1)' : 'rgba(16,185,129,0.1)', padding: '20px', borderBottom: '1px solid #1e293b' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
                         <div>
@@ -306,9 +327,9 @@ export default function BazaarAdmin() {
                           <div style={{ fontSize: '16px', fontWeight: '900', color: load.status === 'OPEN' ? '#38bdf8' : '#10b981', marginTop: '5px' }}>{load.customer_name || 'Direct Party'}</div>
                         </div>
                         <div className="status-badge" style={{
-                          background: load.status === 'PENDING_REVIEW' ? 'rgba(245,158,11,0.2)' : load.status === 'OPEN' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)',
-                          color: load.status === 'PENDING_REVIEW' ? '#f59e0b' : load.status === 'OPEN' ? '#38bdf8' : '#10b981' }}>
-                          {load.status === 'PENDING_REVIEW' ? '🟡 AWAITING REVIEW' : load.status === 'OPEN' ? '🟢 ACCEPTING BIDS' : '✅ ASSIGNED'}
+                          background: load.status === 'PENDING_REVIEW' ? 'rgba(245,158,11,0.2)' : load.status === 'AWARD_REQUESTED' ? 'rgba(249,115,22,0.2)' : load.status === 'OPEN' ? 'rgba(59,130,246,0.2)' : 'rgba(16,185,129,0.2)',
+                          color: load.status === 'PENDING_REVIEW' ? '#f59e0b' : load.status === 'AWARD_REQUESTED' ? '#fb923c' : load.status === 'OPEN' ? '#38bdf8' : '#10b981' }}>
+                          {load.status === 'PENDING_REVIEW' ? '🟡 AWAITING REVIEW' : load.status === 'AWARD_REQUESTED' ? '🟠 AWARD REQUESTED' : load.status === 'OPEN' ? '🟢 ACCEPTING BIDS' : '✅ ASSIGNED'}
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -367,6 +388,37 @@ export default function BazaarAdmin() {
                         </div>
                       </div>
                     )}
+                    {load.status === 'AWARD_REQUESTED' && (() => {
+                      // THE DESK'S DECISION (2-Sep-2026). A customer's accept-bid or a
+                      // vendor's Book-Now lands here; nothing is awarded until a person
+                      // approves. Approve runs the same one-transaction award as the
+                      // AWARD button; reject reopens the load with a reason the
+                      // requester reads on WhatsApp.
+                      const req = loadBids.find((b) => b.id === load.award_requested_bid_id);
+                      return (
+                        <div style={{ padding: '15px 20px', background: 'rgba(249,115,22,0.07)', borderBottom: '1px solid rgba(249,115,22,0.3)' }}>
+                          <div style={{ fontSize: '11px', color: '#fdba74', marginBottom: '6px', fontWeight: 'bold' }}>
+                            🟠 {load.award_requested_by === 'VENDOR' ? 'Vendor ne Book-Now maanga hai' : 'Customer ne bid chuni hai'} — award aapke approve ke baad hoga.
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#f8fafc', marginBottom: '10px' }}>
+                            {req
+                              ? <>Requested: <b>{req.vendor_name}</b> · <b>₹{Number(req.bid_amount).toLocaleString('en-IN')}</b>{req.remarks ? ` · ${req.remarks}` : ''}</>
+                              : <span style={{ color: '#f87171' }}>Requested bid not in the list — reopen the load.</span>}
+                            {load.award_requested_at && <span style={{ color: '#94a3b8' }}> · {new Date(load.award_requested_at).toLocaleString('en-IN')}</span>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={() => reviewAward(load.load_id, 'APPROVE', req)}
+                              style={{ flex: 1, background: 'linear-gradient(135deg,#f97316,#ea580c)', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                              ✅ Approve award{req ? ` — ${req.vendor_name}` : ''}
+                            </button>
+                            <button onClick={() => reviewAward(load.load_id, 'REJECT', req)}
+                              style={{ flex: 1, background: '#1e293b', color: '#ef4444', border: '1px solid #ef444455', padding: '10px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                              ↩ Reopen for bidding (with reason)
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{ padding: '20px' }}>
                       <div style={{ fontSize: '12px', color: '#cbd5e1', fontWeight: 'bold', marginBottom: '10px', display: 'flex', justifyContent: 'space-between' }}>
                         <span>LATEST BIDS ({loadBids.length})</span>

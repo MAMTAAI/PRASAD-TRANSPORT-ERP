@@ -150,26 +150,39 @@ export function registerCustomerPortalRoutes(app) {
         return { code: 409, body: { error: 'BID_NOT_PENDING', detail: `bid is ${B[0].status}` } };
       }
 
-      await c.query(`UPDATE bazaar_bids SET status = 'REJECTED', updated_at = now()
-                      WHERE load_id = $1 AND id <> $2::uuid AND status = 'PENDING'`,
-        [req.params.loadId, bidId]);
-      const { rows: W } = await c.query(
-        `UPDATE bazaar_bids SET status = 'ACCEPTED', updated_at = now() WHERE id = $1::uuid RETURNING *`, [bidId]);
+      // THE DESK DECIDES THE AWARD (owner's rule, 2026-09-02). This used to
+      // reject the other bids, accept this one and open the settlement in the
+      // same request — an external write landing live. Now the customer's
+      // choice is a REQUEST: the load leaves OPEN (bidding freezes, the vendor
+      // feed no longer lists it), the chosen bid is named on the row, and the
+      // office approves or reopens it from Bazaar Admin
+      // (POST /bazaar/loads/:id/award-review). The money chain starts there.
       const { rows: U } = await c.query(
-        `UPDATE bazaar_loads SET status = 'AWARDED', updated_at = now() WHERE load_id = $1 RETURNING *`,
-        [req.params.loadId]);
-      // The money lifecycle opens with the award, in the same transaction —
-      // an awarded load without a settlement row cannot exist.
-      const settlement = await openSettlementInTx(c, U[0], W[0]);
-      return { code: 200, body: { load: U[0], bid: W[0], settlement }, vendorMobile: B[0].vendor_mobile };
+        `UPDATE bazaar_loads
+            SET status = 'AWARD_REQUESTED',
+                award_requested_bid_id = $2::uuid, award_requested_by = 'CUSTOMER', award_requested_at = now(),
+                award_reviewed_by = NULL, award_reviewed_at = NULL, award_reject_reason = NULL,
+                updated_at = now()
+          WHERE load_id = $1 RETURNING *`,
+        [req.params.loadId, bidId]);
+      const { vendor_mobile: _vm, ...bid } = B[0];
+      return {
+        code: 202,
+        body: {
+          load: U[0], bid, award_requested: true,
+          detail: 'Award request sent to the Prasad Transport office. The award is confirmed there — '
+                + 'you will hear on WhatsApp, and the status here changes to Awarded.',
+        },
+        vendorMobile: B[0].vendor_mobile,
+      };
     });
 
-    if (out.code === 200 && out.vendorMobile) {
-      // After commit, never inside it — a slow engine must not hold the award.
+    if (out.code === 202 && out.vendorMobile) {
+      // After commit, never inside it — a slow engine must not hold the request.
       notifyWhatsApp(out.vendorMobile,
-        `🎉 Load Bazaar: aapki bid ₹${out.body.bid.bid_amount} load ${req.params.loadId} `
-        + `(${out.body.load.origin} → ${out.body.load.destination}) ke liye ACCEPT ho gayi hai. `
-        + `Prasad Transport office se agla step confirm hoga.`);
+        `🔔 Load Bazaar: load ${req.params.loadId} (${out.body.load.origin} → ${out.body.load.destination}) `
+        + `ke customer ne aapki bid ₹${out.body.bid.bid_amount} chuni hai. Prasad Transport office confirm karega — `
+        + `award uske baad hoga.`);
     }
     return reply.code(out.code).send(out.body);
   });

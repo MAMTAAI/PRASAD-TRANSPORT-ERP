@@ -1,0 +1,95 @@
+// @ts-nocheck
+// ============================================================================
+// CUSTOMER APP — STAFF PREVIEW
+//
+// "What a customer sees", for real. Until 2026-09-02 the Preview Portal menu
+// opened the legacy CustomerPortal.tsx — hardcoded numbers, dead buttons —
+// while the actual signed-in app (CustomerApp.tsx) was only reachable with a
+// customer login. This wrapper mounts the real app under a staff session,
+// scoped to one customer through the X-View-As-Customer header that
+// server/modules/portal.routes.js honours for ADMIN / SUPER_ADMIN, read-only:
+// every write is refused by the server (405 VIEW_AS_READ_ONLY), so nothing
+// can be posted, accepted or uploaded in a customer's name from here.
+//
+// The chosen customer lives in localStorage under prasad_view_as_customer;
+// CustomerApp's api() helper adds the header when that key is present and
+// the wrapper clears it on exit, so a staff tab cannot keep speaking as a
+// customer by accident.
+// ============================================================================
+import React, { useEffect, useState, lazy, Suspense } from 'react';
+import { API_BASE } from '../lib/apiBase';
+
+const CustomerApp = lazy(() => import('./CustomerApp'));
+export const VIEW_AS_KEY = 'prasad_view_as_customer';
+
+export default function CustomerPreview({ onExit }) {
+  const [parties, setParties] = useState(null);
+  const [q, setQ] = useState('');
+  const [err, setErr] = useState('');
+  const [viewAs, setViewAs] = useState(() => {
+    try { return localStorage.getItem(VIEW_AS_KEY) || ''; } catch { return ''; }
+  });
+
+  useEffect(() => {
+    const token = localStorage.getItem('prasad_token');
+    fetch(`${API_BASE}/api/v1/masters/customers?limit=500`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`customers list: HTTP ${r.status}`))))
+      .then((j) => setParties(j.customers ?? []))
+      .catch((e) => { setErr(e.message); setParties([]); });
+  }, []);
+
+  const choose = (id) => {
+    try { if (id) localStorage.setItem(VIEW_AS_KEY, id); else localStorage.removeItem(VIEW_AS_KEY); } catch { /* private mode */ }
+    setViewAs(id);
+  };
+  const exit = () => { choose(''); onExit?.(); };
+
+  const list = (parties ?? []).filter((c) => !q || String(c.customer_name ?? '').toLowerCase().includes(q.toLowerCase()));
+  const current = (parties ?? []).find((c) => c.id === viewAs);
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#020617', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
+                    padding: '8px 14px', background: '#0b1220', borderBottom: '1px solid #1e293b', fontSize: 12 }}>
+        <b style={{ fontSize: 13 }}>Customer App — preview</b>
+        <span style={{ color: '#94a3b8' }}>read-only · the real signed-in app, as this customer sees it</span>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter customers…"
+          style={{ background: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, width: 160 }} />
+        <select value={viewAs} onChange={(e) => choose(e.target.value)}
+          style={{ background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, maxWidth: 360 }}>
+          <option value="">— choose a customer —</option>
+          {list.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.customer_name}{c.is_approved_for_portal ? '' : '  (portal not approved)'}
+            </option>
+          ))}
+        </select>
+        {parties === null && <span style={{ color: '#94a3b8' }}>loading customers…</span>}
+        {err && <span style={{ color: '#f87171' }}>{err}</span>}
+        {current && !current.is_approved_for_portal && (
+          <span style={{ color: '#fbbf24' }}>not portal-approved: a customer login would be refused; staff preview still shows the app</span>
+        )}
+        <button onClick={exit}
+          style={{ marginLeft: 'auto', background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
+          Exit preview
+        </button>
+      </div>
+
+      {!viewAs ? (
+        <div style={{ padding: '48px 24px', textAlign: 'center', color: '#94a3b8', maxWidth: 560, margin: '0 auto', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
+          <div style={{ fontSize: 15, color: '#e2e8f0', fontWeight: 700 }}>Choose a customer above</div>
+          <div style={{ marginTop: 6, fontSize: 13 }}>
+            You will see the real Customer App — loads, bids, shipment tracker, bills — scoped to that party.
+            Any button that would write is refused by the server while previewing.
+          </div>
+        </div>
+      ) : (
+        <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Opening the app…</div>}>
+          {/* key = party id: choosing another customer remounts the app cleanly */}
+          <CustomerApp key={viewAs} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
