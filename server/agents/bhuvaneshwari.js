@@ -242,7 +242,7 @@ export default defineAgent({
   subscribes: [
     // A driver's or partner's photographed paper landed in partner_documents
     // (2026-09-02). Read it, write the proposal beside it, never post.
-    'partner_document.submitted',
+    'partner.document.submitted',
     'document.uploaded',
     'document.reparse.requested',
     'email.attachment.received',
@@ -315,9 +315,9 @@ export default defineAgent({
       case 'document.reparse.requested':
         return ok('reparse queued — human-verified fields will be preserved');
 
-      case 'partner_document.submitted': {
+      case 'partner.document.submitted': {
         const id = event.payload?.id ?? event.aggregate_id;
-        if (!id) return failed('partner_document.submitted carried no id');
+        if (!id) return failed('partner.document.submitted carried no id');
         const kind = event.payload?.doc_type ?? 'paper';
         const who = String(event.payload?.uploader_role ?? '').toLowerCase() || 'app';
         const r = await ocrPartnerDocument(id);

@@ -1,7 +1,7 @@
 // scripts/ocr-live-check.mjs — end-to-end proof of the driver → OCR → desk
 // pipeline on a box, against the RUNNING API and agent loop:
 //   dev-bypass driver logs in → uploads a generated PNG to the vault → files it
-//   as a staged paper → partner_document.submitted fires → BHUVANESHWARI reads
+//   as a staged paper → partner.document.submitted fires → BHUVANESHWARI reads
 //   it (ocr_status PENDING → DONE/FAILED) → the row carries ocr_data.
 // Everything it creates is deleted at the end (the staged row and the file).
 //   cd /var/www/prasad-erp && DOTENV_CONFIG_PATH=/var/www/prasad-erp/.env node scripts/ocr-live-check.mjs

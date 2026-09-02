@@ -167,12 +167,12 @@ export function registerDriverPortalRoutes(app) {
     // Announce the paper. agent_events is a staging table, so the fence lets
     // the driver's request write it; the OCR itself runs in the agent loop.
     try {
-      await emit('partner_document.submitted', {
+      await emit('partner.document.submitted', {
         aggregate: 'partner_document', aggregateId: rows[0].id,
         payload: { id: rows[0].id, doc_type: docType, file_key: fileKey, uploader_role: 'DRIVER', driver_id: req.driver.id, trip_id: tripId },
         emittedBy: 'driverPortal',
       });
-    } catch (e) { req.log?.warn({ err: e.message }, 'partner_document.submitted not emitted'); }
+    } catch (e) { req.log?.warn({ err: e.message }, 'partner.document.submitted not emitted'); }
     return reply.code(201).send({
       ...rows[0],
       detail: 'Document office ko pahunch gaya. Staff check karke approve karega — '
