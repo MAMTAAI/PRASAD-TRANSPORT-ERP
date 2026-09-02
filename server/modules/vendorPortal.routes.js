@@ -23,6 +23,7 @@ import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { resolveParty, visibleModules, needsModule } from './portal.routes.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
+import { emit } from '../agents/bus.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -545,6 +546,14 @@ export function registerVendorPortalRoutes(app) {
        RETURNING id, doc_type, status, created_at`,
       [req.party.vendorId, vend[0]?.vendor_name ?? 'partner', docType, fileKey,
        b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
+    // BHUVANESHWARI reads the paper off the request path (migration 132).
+    try {
+      await emit('partner_document.submitted', {
+        aggregate: 'partner_document', aggregateId: rows[0].id,
+        payload: { id: rows[0].id, doc_type: docType, file_key: fileKey, uploader_role: 'VENDOR', vendor_id: req.party.vendorId },
+        emittedBy: 'vendorPortal',
+      });
+    } catch (e) { req.log?.warn({ err: e.message }, 'partner_document.submitted not emitted'); }
     return reply.code(201).send({
       ...rows[0],
       detail: 'Bill submitted to the Prasad Transport office. It reaches your account '

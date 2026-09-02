@@ -470,6 +470,62 @@ export async function registerQueueRoutes(app) {
     TOLL_BILL: 'TOLL', OTHER_BILL: 'OTHER',
   };
 
+  // ── SAFE SQL COMMIT (owner directive, 2026-09-02) ────────────────────────
+  // The ONLY moment a driver's paper touches the core. Runs inside the approve
+  // transaction with the admin's final values (b) — OCR was a proposal, the
+  // desk showed it beside the photo, the admin confirmed or corrected it.
+  // Every column written is listed in the returned summary (applied_to).
+  const applyToCore = async (t, doc, b) => {
+    const applied = { table: null, columns: [], note: null };
+    const val = (k) => (b[k] === '' || b[k] === undefined ? null : b[k]);
+    if (doc.uploader_role === 'DRIVER' && doc.driver_id && ['DL', 'AADHAAR', 'BANK_BOOK'].includes(doc.doc_type)) {
+      applied.table = 'drivers';
+      if (doc.doc_type === 'DL') {
+        await t.query(
+          `UPDATE drivers SET dl_photo_url = $2,
+                  license_no = COALESCE(NULLIF($3, ''), license_no),
+                  license_expiry = COALESCE($4::date, license_expiry)
+            WHERE id = $1::uuid`, [doc.driver_id, doc.file_key, val('license_no'), val('license_expiry')]);
+        applied.columns = ['dl_photo_url', ...(val('license_no') ? ['license_no'] : []), ...(val('license_expiry') ? ['license_expiry'] : [])];
+      } else if (doc.doc_type === 'AADHAAR') {
+        await t.query(
+          `UPDATE drivers SET aadhar_photo_url = $2, aadhar_no = COALESCE(NULLIF($3, ''), aadhar_no)
+            WHERE id = $1::uuid`, [doc.driver_id, doc.file_key, val('aadhar_no')]);
+        applied.columns = ['aadhar_photo_url', ...(val('aadhar_no') ? ['aadhar_no'] : [])];
+      } else {
+        await t.query(
+          `UPDATE drivers SET bank_photo_url = $2,
+                  bank_name = COALESCE(NULLIF($3, ''), bank_name),
+                  account_no = COALESCE(NULLIF($4, ''), account_no),
+                  ifsc_code = COALESCE(NULLIF($5, ''), ifsc_code)
+            WHERE id = $1::uuid`, [doc.driver_id, doc.file_key, val('bank_name'), val('account_no'), val('ifsc_code')]);
+        applied.columns = ['bank_photo_url', ...['bank_name', 'account_no', 'ifsc_code'].filter((k) => val(k))];
+      }
+      return applied;
+    }
+    if (doc.trip_id && ['POD', 'LOADING_QTY', 'UNLOADING_QTY'].includes(doc.doc_type)) {
+      applied.table = 'trips';
+      const qty = b.qty === '' || b.qty == null ? (doc.qty == null ? null : Number(doc.qty)) : Number(b.qty);
+      if (doc.doc_type === 'LOADING_QTY') {
+        if (!(qty >= 0)) throw Object.assign(new Error('a loading quantity needs a number'), { code: 'BAD_QTY' });
+        await t.query(`UPDATE trips SET driver_loaded_qty = $2 WHERE id = $1::uuid`, [doc.trip_id, qty]);
+        applied.columns = ['driver_loaded_qty'];
+      } else if (doc.doc_type === 'UNLOADING_QTY') {
+        if (!(qty >= 0)) throw Object.assign(new Error('an unloading quantity needs a number'), { code: 'BAD_QTY' });
+        await t.query(
+          `UPDATE trips SET driver_unloaded_qty = $2, driver_unloading_photo = $3, office_approved_unloading = true
+            WHERE id = $1::uuid`, [doc.trip_id, qty, doc.file_key]);
+        applied.columns = ['driver_unloaded_qty', 'driver_unloading_photo', 'office_approved_unloading'];
+      } else {
+        await t.query(`UPDATE trips SET driver_unloading_photo = $2 WHERE id = $1::uuid`, [doc.trip_id, doc.file_key]);
+        applied.columns = ['driver_unloading_photo'];
+      }
+      return applied;
+    }
+    applied.note = 'verified only — this kind of paper writes no core column';
+    return applied;
+  };
+
   const docWithUploader = async (id) => {
     const { rows } = await query(
       `SELECT p.*, t.trip_code, t.vehicle_no AS trip_vehicle,
@@ -533,13 +589,23 @@ export async function registerQueueRoutes(app) {
            doc.vendor_id ?? null, doc.file_key ?? null]);
         expenseId = exp.id;
       }
+      let applied = null;
+      try {
+        applied = await applyToCore(t, doc, b);
+      } catch (e) {
+        if (e.code === 'BAD_QTY') throw Object.assign(e, { statusCode: 400 });
+        throw e;
+      }
       const { rows: [upd] } = await t.query(
         `UPDATE partner_documents
             SET status = 'APPROVED', reviewed_by = $2, reviewed_at = now(),
-                expense_approval_id = $3::uuid, updated_at = now()
+                expense_approval_id = $3::uuid, applied_to = $4::jsonb,
+                qty = COALESCE($5::numeric, qty), updated_at = now()
           WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`,
-        [doc.id, b.reviewed_by ?? null, expenseId]);
-      return { doc: upd, expenseId };
+        [doc.id, b.reviewed_by ?? null, expenseId, JSON.stringify(applied),
+         b.qty === '' || b.qty == null ? null : Number(b.qty)]);
+      if (!upd) throw Object.assign(new Error('already decided'), { statusCode: 409 });
+      return { doc: upd, expenseId, applied };
     });
 
     const mobile = doc.driver_mobile ?? doc.vendor_mobile;
@@ -558,9 +624,12 @@ export async function registerQueueRoutes(app) {
     if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the uploader is told why' });
     const doc = await docWithUploader(req.params.id);
     if (!doc) return reply.code(404).send({ error: 'NOT_FOUND' });
+    // NEEDS_CORRECTION, not a dead end (owner's Tier 4, 2026-09-02): the
+    // paper goes back to the uploader's own portal with the reason, and the
+    // corrected photo arrives as a new PENDING row.
     const { rows } = await query(
       `UPDATE partner_documents
-          SET status = 'REJECTED', reviewed_by = $2, reviewed_at = now(),
+          SET status = 'NEEDS_CORRECTION', reviewed_by = $2, reviewed_at = now(),
               reject_reason = $3, updated_at = now()
         WHERE id = $1::uuid AND status = 'PENDING' RETURNING *`,
       [doc.id, req.body?.reviewed_by ?? null, reason]);

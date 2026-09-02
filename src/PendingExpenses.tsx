@@ -21,6 +21,7 @@ import BottomSheet from './ui/BottomSheet';
 // The Smart Approval Desk drawer (2026-09-02): the bill rendered in place,
 // fields editable beside it, Approve / Reject / Print next to the paper.
 import ApprovalDrawer from './components/ApprovalDrawer';
+import { partnerDocDrawerProps } from './components/ApprovalDesk';
 
 const STATUS_META = {
   PENDING: { label: 'Pending Approval', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
@@ -152,38 +153,22 @@ function PartnerDocsQueue({ userName, onFiled }) {
         </div>
       ))}
 
-      <ApprovalDrawer
-        open={!!open}
-        onClose={() => setOpen(null)}
-        title={open ? `${DOC_LABEL[open.doc_type] ?? open.doc_type} · ${open.uploader_name}` : ''}
-        subtitle={open ? `${String(open.uploader_role ?? '').toLowerCase()} app upload · ${new Date(open.created_at).toLocaleString('en-IN')}${open.trip_code ? ` · trip ${open.trip_code}` : ''}` : ''}
-        accent="#f59e0b"
-        fileKey={open?.file_key ?? null}
-        fileLabel={open ? (DOC_LABEL[open.doc_type] ?? 'Document') : 'Document'}
-        amount={open && BILL_TYPES.has(open.doc_type) ? Number(amounts[open.id] ?? open.amount ?? 0) : null}
-        amountLabel="Bill amount"
-        chips={open ? [{ label: 'PENDING', tone: 'amber' }, { label: String(open.uploader_role ?? ''), tone: 'cyan' }] : []}
-        canDecide
-        fields={open ? [
-          ...(BILL_TYPES.has(open.doc_type) ? [{ key: 'amount', label: 'Amount (₹)', value: amounts[open.id] ?? open.amount ?? '', editable: true, type: 'number', hint: 'Files into the money queue below on Verify.' }] : []),
-          { key: 'bill_no', label: 'Bill no', value: open.bill_no ?? '', editable: true },
-          { key: 'bill_date', label: 'Bill date', value: String(open.bill_date ?? '').slice(0, 10), editable: true, type: 'date' },
-          { key: 'vehicle_no', label: 'Vehicle', value: open.vehicle_no ?? '', editable: true },
-          { key: 'remarks', label: 'Uploader remarks', value: open.remarks ?? '', wide: true },
-        ] : []}
-        approveLabel={open && BILL_TYPES.has(open.doc_type) ? '✅ Verify & file expense' : '✅ Verify'}
-        onApprove={async (edits) => {
-          const isBill = BILL_TYPES.has(open.doc_type);
-          const amt = Number(edits.amount ?? amounts[open.id] ?? open.amount);
-          if (isBill && !(amt > 0)) throw new Error('Bill ka amount bharein — tabhi expense queue mein jayega.');
-          const body = isBill ? { amount: amt } : {};
-          for (const k of ['bill_no', 'bill_date', 'vehicle_no']) if (k in edits) body[k] = edits[k] || null;
-          await decideWith(open, 'approve', body);
-          setOpen(null);
-        }}
-        onReject={async (reason) => { await decideWith(open, 'reject', { reason }); setOpen(null); }}
-        footnote="Verify marks the paper as checked and tells the uploader on WhatsApp. A bill then waits in the money queue below — TARA posts only on that second approval."
-      />
+      {/* The same Milan drawer the embedded desk uses: photo, OCR read, the
+          admin's values side by side; the server applies them on approve. */}
+      {open && (() => {
+        const p = partnerDocDrawerProps({ ...open, amount: amounts[open.id] ?? open.amount }, {
+          userName, decide: (action, body) => decideWith(open, action, body),
+        });
+        return (
+          <ApprovalDrawer
+            open
+            onClose={() => setOpen(null)}
+            {...p}
+            onApprove={async (edits) => { await p.onApprove(edits); setOpen(null); }}
+            onReject={async (reason) => { await p.onReject(reason); setOpen(null); }}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -42,6 +42,15 @@ const CSS = `
 .ad-amount { font-size: 34px; font-weight: 900; letter-spacing: -.02em; line-height: 1.1; }
 .ad-reason { animation: adPop .16s ease; background: rgba(239,68,68,.06); border: 1px dashed rgba(239,68,68,.5); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
 .ad-note { font-size: 11.5px; color: #64748b; line-height: 1.55; }
+.ad-milan { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
+.ad-mhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; font-weight: 900; color: #c4b5fd; }
+.ad-mrow { display: grid; grid-template-columns: minmax(70px, .8fr) 1fr 1fr auto; gap: 8px; align-items: center; font-size: 12px; padding: 6px 8px; border-radius: 9px; background: rgba(2,6,23,.45); }
+.ad-mrow .k { color: #94a3b8; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+.ad-mrow .v { color: #f1f5f9; word-break: break-word; }
+.ad-mrow .ocr { color: #c4b5fd; font-weight: 700; word-break: break-word; }
+.ad-mbtn { min-height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid rgba(139,92,246,.5); background: rgba(139,92,246,.15); color: #e9d5ff; font-size: 11px; font-weight: 800; cursor: pointer; }
+.ad-mbtn:disabled { opacity: .4; cursor: not-allowed; }
+.ad-raw { font-size: 11px; color: #94a3b8; white-space: pre-wrap; max-height: 160px; overflow: auto; background: rgba(2,6,23,.5); border-radius: 8px; padding: 8px; }
 @media (max-width: 860px) { .ad-body { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr } .ad-viewer { border-right: 0; border-bottom: 1px solid #1e293b } .ad-panel { width: 100vw } }
 `;
 
@@ -105,6 +114,10 @@ export default function ApprovalDrawer({
   onSaveEdits,                // optional async (edits) => void — "Save changes" without deciding
   footnote,
   children,                   // extra side content
+  // THE "MILAN" (audit) PANEL — what BHUVANESHWARI read on the paper, shown
+  // against the fields so the admin matches by eye and takes a value with one
+  // click: { status, engine, at, error, kind, confident, suggest: {field: value}, raw: {k: v}, text }
+  ocr = null,
 }) {
   useCss();
   const blob = useVaultBlob(fileKey, open);
@@ -115,6 +128,7 @@ export default function ApprovalDrawer({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
+  const [rawOpen, setRawOpen] = useState(false);   // the Milan panel's "everything the reader saw"
 
   useEffect(() => {
     if (!open) return;
@@ -163,6 +177,28 @@ export default function ApprovalDrawer({
   if (!open) return null;
   const liveAmount = fields.find((f) => f.key === 'amount' && f.editable) ? Number(draft.amount) : amount;
 
+  // ── Milan: OCR proposal vs the admin's values ──
+  const norm = (v) => String(v ?? '').toLowerCase().replace(/[^a-z0-9.]/g, '');
+  const sameValue = (a, b) => {
+    if (a === '' || a == null || b === '' || b == null) return false;
+    const na = Number(a); const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb) && String(a).trim() !== '' && String(b).trim() !== '') return Math.abs(na - nb) < 0.005;
+    return norm(a) === norm(b);
+  };
+  const ocrRows = ocr?.status === 'DONE'
+    ? Object.entries(ocr.suggest ?? {}).map(([key, value]) => {
+        const f = fields.find((x) => x.key === key);
+        return { key, value, label: f?.label ?? key.replace(/_/g, ' '), editable: !!f?.editable, current: f ? (draft[key] ?? f.value ?? '') : null };
+      })
+    : [];
+  const useOcr = (key, value) => { setDraft((d) => ({ ...d, [key]: value })); setEditing(true); };
+  const useAllOcr = () => {
+    const next = {};
+    for (const r of ocrRows) if (r.editable && !sameValue(r.current, r.value)) next[r.key] = r.value;
+    if (Object.keys(next).length) { setDraft((d) => ({ ...d, ...next })); setEditing(true); }
+  };
+  const OCR_TONE = { DONE: 'violet', PENDING: 'slate', RUNNING: 'cyan', FAILED: 'red', SKIPPED: 'slate' };
+
   return (
     <div className="ad-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div className="ad-panel" role="dialog" aria-modal="true">
@@ -209,6 +245,81 @@ export default function ApprovalDrawer({
               <div>
                 <div className="ad-label">{amountLabel}</div>
                 <div className="ad-amount" style={{ color: accent }}>₹{Number(liveAmount).toLocaleString('en-IN')}</div>
+              </div>
+            )}
+
+            {ocr && (
+              <div className="ad-milan">
+                <div className="ad-mhead">
+                  <span>🔍 Milan — OCR vs paper</span>
+                  <Pill tone={OCR_TONE[ocr.status] ?? 'slate'}>{ocr.status ?? 'PENDING'}</Pill>
+                  {ocr.kind && <span className="ad-note">read as {String(ocr.kind).toLowerCase().replace(/_/g, ' ')}</span>}
+                  {ocr.engine && <span className="ad-note">· {ocr.engine}</span>}
+                  {ocr.at && <span className="ad-note">· {new Date(ocr.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+                  <span style={{ flex: 1 }} />
+                  {canDecide && ocrRows.some((r) => r.editable && !sameValue(r.current, r.value)) && (
+                    <button className="ad-mbtn" onClick={useAllOcr}>Use all OCR values</button>
+                  )}
+                </div>
+                {ocr.status === 'DONE' && ocr.match && ocr.match.total > 0 && (
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                      <span style={{ fontWeight: 900, color: ocr.match.score >= 80 ? '#34d399' : ocr.match.score >= 50 ? '#fbbf24' : '#f87171' }}>
+                        Milan score {ocr.match.score}%
+                      </span>
+                      <span className="ad-note">{ocr.match.passed}/{ocr.match.total} checks against the trip and the masters</span>
+                    </div>
+                    {ocr.match.checks.map((c, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, fontSize: 11.5, alignItems: 'baseline' }}>
+                        <span style={{ fontWeight: 900, color: c.ok ? '#34d399' : '#f87171' }}>{c.ok ? '✓' : '✗'}</span>
+                        <span style={{ color: '#e2e8f0' }}>{c.name}</span>
+                        {c.note && <span className="ad-note">— {c.note}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(ocr.status === 'PENDING' || ocr.status === 'RUNNING') && (
+                  <div className="ad-note">BHUVANESHWARI has not read this paper yet — papers are read one at a time off the request path. Refresh in a minute; the photo and the fields are already here to decide on.</div>
+                )}
+                {ocr.status === 'FAILED' && <div className="ad-note" style={{ color: '#fca5a5' }}>The reader could not read this paper{ocr.error ? ` — ${ocr.error}` : ''}. Decide from the photo; the fields are yours to fill.</div>}
+                {ocr.status === 'DONE' && ocrRows.length === 0 && <div className="ad-note">The reader found no field it could name on this paper{ocr.confident === false ? '' : ''}. Everything it saw is below.</div>}
+                {ocrRows.length > 0 && (
+                  <div style={{ display: 'grid', gap: 5 }}>
+                    <div className="ad-mrow" style={{ background: 'transparent', padding: '0 8px' }}>
+                      <span className="k">field</span><span className="k">OCR read</span><span className="k">your value</span><span className="k" />
+                    </div>
+                    {ocrRows.map((r) => {
+                      const match = sameValue(r.current, r.value);
+                      const empty = r.current === '' || r.current == null;
+                      return (
+                        <div key={r.key} className="ad-mrow">
+                          <span className="k">{r.label}</span>
+                          <span className="ocr">{String(r.value)}</span>
+                          <span className="v">{empty ? <span style={{ color: '#475569' }}>—</span> : String(r.current)}</span>
+                          <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                            <span title={match ? 'matches' : empty ? 'not filled yet' : 'differs from OCR'} style={{ fontWeight: 900, color: match ? '#34d399' : empty ? '#94a3b8' : '#fbbf24' }}>{match ? '✓' : empty ? '·' : '⚠'}</span>
+                            {canDecide && r.editable && !match && <button className="ad-mbtn" onClick={() => useOcr(r.key, r.value)}>Use</button>}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {ocr.status === 'DONE' && (Object.keys(ocr.raw ?? {}).length > 0 || ocr.text) && (
+                  <div>
+                    <button className="ad-btn ad-btn--ghost" style={{ minHeight: 26, fontSize: 11 }} onClick={() => setRawOpen((v) => !v)}>
+                      {rawOpen ? '▴ hide' : '▾ everything the reader saw'} ({Object.keys(ocr.raw ?? {}).length} values{ocr.text ? ' + text' : ''})
+                    </button>
+                    {rawOpen && (
+                      <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                        {Object.keys(ocr.raw ?? {}).length > 0 && (
+                          <div className="ad-raw">{Object.entries(ocr.raw).map(([k, v]) => `${k}: ${v}`).join('\n')}</div>
+                        )}
+                        {ocr.text && <div className="ad-raw">{ocr.text}</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

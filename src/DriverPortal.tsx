@@ -33,9 +33,10 @@ const REQ_STATUS = {
 interface DriverPortalProps {
   onBack?: () => void;
   preview?: boolean; // staff preview from the ERP — demo data, no real OTP
+  session?: { token: string; driver: any } | null; // handed over by the universal gateway (SUPER_APP)
 }
 
-export default function DriverPortal({ onBack, preview = false }: DriverPortalProps) {
+export default function DriverPortal({ onBack, preview = false, session = null }: DriverPortalProps) {
   // 🔐 LOGIN & DATA STATES
   const [mobileNo, setMobileNo] = useState('');
   const [driver, setDriver] = useState<any>(null);
@@ -45,6 +46,19 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
 
   // 🔥 DRIVER TYPE TOGGLE STATE
   const [driverType, setDriverType] = useState('OWN'); // 'OWN' or 'MARKET'
+
+  // A session the universal gateway already established (mobile + OTP there):
+  // adopt it instead of asking for the OTP a second time.
+  useEffect(() => {
+    if (preview || !session?.token || !session?.driver) return;
+    try {
+      localStorage.setItem('prasad_driver_token', session.token);
+      localStorage.setItem('prasad_driver', JSON.stringify(session.driver));
+    } catch { /* private mode */ }
+    setDriver(session.driver);
+    setDriverType(session.driver?.driver_type || 'OWN');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 📡 AUTO GPS TRACKING STATES
   const [isTracking, setIsTracking] = useState(false);
@@ -69,14 +83,21 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
   const [sendingExp, setSendingExp] = useState(false);
   // 📑 Document upload (2026-08-31): every paper from the cab, photographed,
   // staged PENDING for the office. Photo-first types for low-literacy users.
+  // 2026-09-02: the driver's own KYC papers and the loading / unloading
+  // quantity reports join the same staged path — photo + number, PENDING for
+  // the office, BHUVANESHWARI reads the paper, the desk audits, approve writes.
   const DOC_KINDS = [
-    ['LOADING_INVOICE', '📄 लोडिंग इनवॉइस'], ['CHALLAN', '🧾 चालान'],
+    ['LOADING_INVOICE', '📄 लोडिंग इनवॉइस'], ['CHALLAN', '🧾 चालान'], ['POD', '📦 उतराई पर्ची (POD)'],
+    ['LOADING_QTY', '⚖️ लोडिंग मात्रा'], ['UNLOADING_QTY', '⚖️ उतराई मात्रा'],
     ['HSD_BILL', '⛽ डीज़ल बिल'], ['TYRE_BILL', '🛞 टायर बिल'],
     ['MAINTENANCE_BILL', '🔧 मरम्मत बिल'], ['TOLL_BILL', '🛣️ टोल बिल'],
-    ['KYC', '🪪 कागज़ात (KYC)'], ['OTHER_DOC', '📎 और कुछ'],
+    ['DL', '🪪 ड्राइविंग लाइसेंस'], ['AADHAAR', '🪪 आधार'], ['BANK_BOOK', '🏦 बैंक पासबुक'],
+    ['OTHER_DOC', '📎 और कुछ'],
   ];
+  const QTY_KINDS = ['LOADING_QTY', 'UNLOADING_QTY'];
   const [docKind, setDocKind] = useState('LOADING_INVOICE');
   const [docAmount, setDocAmount] = useState('');
+  const [docQty, setDocQty] = useState('');
   const [docFile, setDocFile] = useState(null);
   const [sendingDoc, setSendingDoc] = useState(false);
   const [myDocs, setMyDocs] = useState([]);
@@ -91,11 +112,12 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
         body: JSON.stringify({
           doc_type: docKind, file_key: up.path,
           amount: docAmount ? Number(docAmount) : null,
+          qty: QTY_KINDS.includes(docKind) && docQty ? Number(docQty) : null,
           trip_id: activeTrips[0]?.id ?? null,
         }),
       });
       alert('✅ कागज़ ऑफिस को पहुँच गया! स्टाफ चेक करके अप्रूव करेगा।');
-      setDocFile(null); setDocAmount('');
+      setDocFile(null); setDocAmount(''); setDocQty('');
       fetchDriverExtras(driver);
     } catch (e) { console.error(e); alert('❌ नहीं गया — नेटवर्क देखकर दोबारा भेजो।'); }
     setSendingDoc(false);
@@ -522,6 +544,16 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
     setUploadingDoc(null);
   };
 
+  // STAGED, NEVER DIRECT (owner's Tier 2, 2026-09-02). This used to write the
+  // driver master from the phone (a Firestore updateDoc that no longer existed
+  // and failed silently). A KYC photo now goes to the office's quarantine like
+  // every other paper; BHUVANESHWARI reads it; the driver record changes only
+  // when the office approves on the desk.
+  const KYC_DOC_TYPE = (fieldType: string) =>
+    /dl|licen/i.test(fieldType) ? 'DL' : /aadha?r/i.test(fieldType) ? 'AADHAAR'
+      : /bank|passbook|account/i.test(fieldType) ? 'BANK_BOOK' : 'OTHER_DOC';
+  const [kycDraft, setKycDraft] = useState<any>({});
+
   const handleDriverDocumentUpload = async (e: any, fieldType: string) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -531,9 +563,14 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
       if (driver.id.includes('DEMO')) {
         setDriver({ ...driver, [fieldType]: URL.createObjectURL(file) });
       } else {
-        const { url } = await uploadMedia(file, `drivers/${slug(driver.id)}/${slug(fieldType)}_${Date.now()}.jpg`);
-        await updateDriverKYC(fieldType, url);
-        alert(`✅ ${fieldType} upload ho gaya! (Uploaded)`);
+        const up = await uploadMedia(file, `driver-kyc/${slug(fieldType)}_${Date.now()}.jpg`);
+        const typed = Object.entries(kycDraft).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ');
+        await api('/portal/driver/documents', {
+          method: 'POST',
+          body: JSON.stringify({ doc_type: KYC_DOC_TYPE(fieldType), file_key: up.path, remarks: `KYC · ${fieldType}${typed ? ` · ${typed}` : ''}` }),
+        });
+        alert('✅ कागज़ ऑफिस को पहुँच गया! ऑफिस चेक करके अप्रूव करेगा — तभी रिकॉर्ड में लगेगा।');
+        fetchDriverExtras(driver);
       }
     } catch (err) {
       console.error(err);
@@ -542,12 +579,12 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
     setUploadingDoc(null);
   };
 
+  // A typed number (Aadhaar, A/C, IFSC) never touches the master from here: it
+  // rides along with the next KYC photo as remarks, and the office approves it
+  // into the record from the desk.
   const updateDriverKYC = async (fieldName: string, value: any) => {
-    if(driver.id.includes('DEMO')) { setDriver({ ...driver, [fieldName]: value }); return; }
-    try {
-      await updateDoc(doc(db, "DRIVERS", driver.id), { [fieldName]: value });
-      setDriver({ ...driver, [fieldName]: value });
-    } catch (e) { console.error("Error updating details!"); }
+    if (driver.id.includes('DEMO')) { setDriver({ ...driver, [fieldName]: value }); return; }
+    setKycDraft((d: any) => ({ ...d, [fieldName]: value }));
   };
 
   // ==========================================
@@ -1017,6 +1054,11 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
                     </button>
                   ))}
                 </div>
+                {QTY_KINDS.includes(docKind) && (
+                  <input type="number" inputMode="decimal" value={docQty} onChange={e => setDocQty(e.target.value)}
+                    placeholder={docKind === 'LOADING_QTY' ? 'कितना लोड हुआ? (KL / MT)' : 'कितना उतरा? (KL / MT)'}
+                    className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-amber-500 transition-all placeholder:text-white/30 mb-4" />
+                )}
                 {['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL'].includes(docKind) && (
                   <input type="number" inputMode="decimal" value={docAmount} onChange={e => setDocAmount(e.target.value)}
                     placeholder="बिल कितने रुपये का? (₹)"
@@ -1048,8 +1090,9 @@ export default function DriverPortal({ onBack, preview = false }: DriverPortalPr
                         <span className={`text-[12px] font-black px-3 py-1.5 rounded-full whitespace-nowrap
                           ${d.status === 'APPROVED' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
                             : d.status === 'REJECTED' ? 'text-red-400 bg-red-500/10 border border-red-500/30'
+                            : d.status === 'NEEDS_CORRECTION' ? 'text-orange-300 bg-orange-500/10 border border-orange-500/30'
                             : 'text-amber-400 bg-amber-500/10 border border-amber-500/30'}`}>
-                          {d.status === 'APPROVED' ? '✅ हो गया' : d.status === 'REJECTED' ? '❌ वापस' : '⏳ चेक हो रहा'}
+                          {d.status === 'APPROVED' ? '✅ हो गया' : d.status === 'REJECTED' ? '❌ वापस' : d.status === 'NEEDS_CORRECTION' ? '🔁 सुधार कर दोबारा भेजो' : '⏳ चेक हो रहा'}
                         </span>
                       </div>
                     ))}

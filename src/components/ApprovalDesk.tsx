@@ -46,12 +46,133 @@ const when = (v) => (v ? new Date(v).toLocaleString('en-IN', { dateStyle: 'mediu
 const isVaultKey = (v) => typeof v === 'string' && /^(up|drivers|wa-media|bazaar)\//.test(v);
 
 const EXPENSE_TYPES = { FUEL: '⛽ Fuel', TYRE: '🛞 Tyre', MAINTENANCE: '🔧 Maintenance', TOLL: '🛣️ Toll', OTHER: '🧾 Other' };
-const DOC_LABEL = {
+export const DOC_LABEL = {
   LOADING_INVOICE: '📄 Loading invoice', CHALLAN: '🧾 Challan', POD: '📦 POD',
   HSD_BILL: '⛽ HSD bill', TYRE_BILL: '🛞 Tyre bill', MAINTENANCE_BILL: '🔧 Maintenance bill',
   TOLL_BILL: '🛣️ Toll bill', OTHER_BILL: '🧾 Bill', KYC: '🪪 KYC', OTHER_DOC: '📎 Document',
+  // 2026-09-02: the driver's own papers and quantity reports (migration 132)
+  DL: '🪪 Driving licence', AADHAAR: '🪪 Aadhaar', BANK_BOOK: '🏦 Bank passbook',
+  LOADING_QTY: '⚖️ Loading quantity', UNLOADING_QTY: '⚖️ Unloading quantity',
 };
-const BILL_TYPES = new Set(['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL']);
+export const BILL_TYPES = new Set(['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL']);
+const QTY_TYPES = new Set(['LOADING_QTY', 'UNLOADING_QTY']);
+const KYC_TYPES = new Set(['DL', 'AADHAAR', 'BANK_BOOK']);
+
+/** What the OCR proposal on a staged paper looks like to the drawer. */
+export const partnerDocOcr = (r) => ({
+  status: r.ocr_status ?? 'PENDING', engine: r.ocr_engine ?? null, at: r.ocr_at ?? null, error: r.ocr_error ?? null,
+  kind: r.ocr_data?.kind ?? null, confident: r.ocr_data?.confident ?? null,
+  suggest: r.ocr_data?.suggest ?? {}, raw: r.ocr_data?.raw ?? {}, text: r.ocr_text ?? null,
+  match: r.ocr_data?.match ?? null,   // { score, passed, total, checks[] } — the read against the records
+});
+
+/** The drawer for one staged paper (partner_documents) — shared by the embedded
+ *  desk and the Pending Expenses screen. `decide(action, body)` is the caller's
+ *  POST to /queues/partner-documents/:id/<action>; the body carries the admin's
+ *  final values, which the server applies to drivers / trips on approve. */
+export function partnerDocDrawerProps(r, { userName, decide, isAdmin = true }) {
+  const isBill = BILL_TYPES.has(r.doc_type);
+  const isQty = QTY_TYPES.has(r.doc_type);
+  const d = String(r.bill_date ?? '').slice(0, 10);
+  const common = [
+    { key: 'vehicle_no', label: 'Vehicle', value: r.vehicle_no ?? '', editable: true },
+    ...(r.trip_code || r.trip_id ? [{ key: 'trip', label: 'Trip', value: r.trip_code ?? r.trip_id ?? '' }] : []),
+    { key: 'remarks', label: 'Uploader remarks', value: r.remarks ?? '', wide: true },
+  ];
+  let fields; let approveLabel; let footnote; let amountLabel = 'Bill amount'; let amount = null;
+  if (isBill) {
+    amount = Number(r.amount ?? 0);
+    fields = [
+      { key: 'amount', label: 'Amount (₹)', value: r.amount ?? '', editable: true, type: 'number', hint: 'Files into the expense queue on Verify.' },
+      { key: 'bill_no', label: 'Bill no', value: r.bill_no ?? '', editable: true },
+      { key: 'bill_date', label: 'Bill date', value: d, editable: true, type: 'date' },
+      ...common,
+    ];
+    approveLabel = '✅ Verify & file expense';
+    footnote = 'Verify marks the paper checked and tells the uploader on WhatsApp. The bill then waits in Expense bills — TARA posts only on that second approval.';
+  } else if (isQty) {
+    amountLabel = r.doc_type === 'LOADING_QTY' ? 'Loaded (driver)' : 'Unloaded (driver)';
+    amount = r.qty == null ? null : Number(r.qty);
+    fields = [
+      { key: 'qty', label: r.doc_type === 'LOADING_QTY' ? 'Loaded quantity' : 'Unloaded quantity', value: r.qty ?? '', editable: true, type: 'number',
+        hint: r.doc_type === 'LOADING_QTY' ? 'Approve writes trips.driver_loaded_qty.' : 'Approve writes trips.driver_unloaded_qty, keeps the photo on the trip and marks the unloading office-approved.' },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & write to trip';
+    footnote = 'The driver\'s figure lands in the trip\'s driver_* columns only — the office quantity from the IOCL documents is untouched, so a shortage stays visible.';
+  } else if (r.doc_type === 'DL') {
+    fields = [
+      { key: 'license_no', label: 'Licence no', value: '', editable: true, hint: 'Blank keeps the number already on file.' },
+      { key: 'license_expiry', label: 'Licence expiry', value: '', editable: true, type: 'date' },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & update driver';
+    footnote = 'Approve stores the photo on the driver record and updates the licence number / expiry if you fill them (blank keeps the existing value).';
+  } else if (r.doc_type === 'AADHAAR') {
+    fields = [
+      { key: 'aadhaar_last4', label: 'Aadhaar (last 4, read)', value: r.ocr_data?.suggest?.aadhaar_last4 ?? '' },
+      { key: 'aadhar_no', label: 'Aadhaar number', value: '', editable: true, hint: 'Stored only if you type it. The reader never proposes the full number.' },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & update driver';
+    footnote = 'Approve stores the photo on the driver record; the number is written only if you typed it.';
+  } else if (r.doc_type === 'BANK_BOOK') {
+    fields = [
+      { key: 'bank_name', label: 'Bank', value: '', editable: true },
+      { key: 'account_no', label: 'Account no', value: '', editable: true },
+      { key: 'ifsc_code', label: 'IFSC', value: '', editable: true },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & update driver';
+    footnote = 'Approve stores the passbook photo and updates the bank fields you fill (blank keeps the existing value). Driver payments use these.';
+  } else {
+    fields = [
+      { key: 'bill_no', label: 'Reference no', value: r.bill_no ?? '', editable: true },
+      { key: 'bill_date', label: 'Date', value: d, editable: true, type: 'date' },
+      ...common,
+    ];
+    approveLabel = r.doc_type === 'POD' ? '✅ Verify POD' : '✅ Verify';
+    footnote = r.doc_type === 'POD'
+      ? 'Verify keeps the POD photo on the trip (driver_unloading_photo) and tells the driver. Freight and settlement are untouched.'
+      : 'Verify marks the paper checked and tells the uploader on WhatsApp. This kind of paper writes no core column.';
+  }
+  const EDIT_KEYS = ['bill_no', 'bill_date', 'vehicle_no', 'qty', 'license_no', 'license_expiry', 'aadhar_no', 'bank_name', 'account_no', 'ifsc_code'];
+  return {
+    title: `${DOC_LABEL[r.doc_type] ?? r.doc_type} · ${r.uploader_name}`,
+    subtitle: `${String(r.uploader_role ?? '').toLowerCase()} app upload · ${when(r.created_at)}${r.trip_code ? ` · trip ${r.trip_code}` : ''}`,
+    accent: KYC_TYPES.has(r.doc_type) ? '#22d3ee' : isQty ? '#34d399' : '#f59e0b',
+    fileKey: r.file_key ?? null,
+    fileLabel: DOC_LABEL[r.doc_type] ?? 'Document',
+    amount, amountLabel,
+    chips: [
+      { label: 'PENDING', tone: 'amber' },
+      { label: String(r.uploader_role ?? ''), tone: 'cyan' },
+      { label: `OCR ${String(r.ocr_status ?? 'PENDING').toLowerCase()}`, tone: r.ocr_status === 'DONE' ? 'violet' : r.ocr_status === 'FAILED' ? 'red' : 'slate' },
+    ],
+    canDecide: isAdmin,
+    fields,
+    ocr: partnerDocOcr(r),
+    approveLabel,
+    onApprove: async (edits) => {
+      const body = { reviewed_by: userName };
+      if (isBill) {
+        const amt = Number(edits.amount ?? r.amount);
+        if (!(amt > 0)) throw new Error('Bill ka amount bharein — tabhi expense queue mein jayega.');
+        body.amount = amt;
+      }
+      if (isQty) {
+        const q = Number(edits.qty ?? r.qty);
+        if (!(q >= 0)) throw new Error('Quantity bharein — tabhi trip par likhega.');
+        body.qty = q;
+      }
+      for (const k of EDIT_KEYS) if (k in edits) body[k] = edits[k] === '' ? null : edits[k];
+      await decide('approve', body);
+    },
+    rejectLabel: '🔁 Needs correction',
+    onReject: async (reason) => { await decide('reject', { reason, reviewed_by: userName }); },
+    footnote: `${footnote} Reject sends it back to the uploader's own portal as NEEDS CORRECTION with your reason; a corrected photo arrives as a new row.`,
+  };
+}
 
 // ── The queues. One entry per staging table an outside party can fill. ──────
 export const SECTIONS = [
@@ -167,8 +288,12 @@ function describe(section, r) {
     };
     case 'docs': return {
       title: `${DOC_LABEL[r.doc_type] ?? r.doc_type} · ${r.uploader_name}`,
-      sub: `${String(r.uploader_role ?? '').toLowerCase()} app · ${when(r.created_at)}${r.trip_code ? ` · trip ${r.trip_code}` : ''}`,
-      amount: BILL_TYPES.has(r.doc_type) ? r.amount : null, fileKey: r.file_key ?? null, quick: !BILL_TYPES.has(r.doc_type) || Number(r.amount) > 0,
+      sub: `${String(r.uploader_role ?? '').toLowerCase()} app · ${when(r.created_at)}${r.trip_code ? ` · trip ${r.trip_code}` : ''} · OCR ${String(r.ocr_status ?? 'pending').toLowerCase()}${r.ocr_data?.kind ? ` (${String(r.ocr_data.kind).toLowerCase().replace(/_/g, ' ')})` : ''}`,
+      amount: BILL_TYPES.has(r.doc_type) ? r.amount : QTY_TYPES.has(r.doc_type) ? r.qty : null,
+      fileKey: r.file_key ?? null,
+      // Quick ✓ only where nothing has to be typed; KYC papers and quantity
+      // reports are audited in the drawer against the OCR read.
+      quick: !KYC_TYPES.has(r.doc_type) && !QTY_TYPES.has(r.doc_type) && (!BILL_TYPES.has(r.doc_type) || Number(r.amount) > 0),
     };
     case 'kyc': return {
       title: `${r.type === 'CUSTOMER' ? '🏢' : '🚚'} ${r.corporate_name ?? r.agency_name ?? '—'}`,
@@ -239,29 +364,14 @@ function drawerFor(section, r, ctx) {
       onReject: async (reason) => { await api(`/queues/expenses/${r.id}/reject`, { method: 'POST', body: JSON.stringify({ reason, rejected_by: who }) }); },
       footnote: 'Approve runs one transaction on the server: the row leaves the staging queue, TARA posts the JOURNAL (Dr expense / Cr creditor or cash) and the trip P&L is retro-adjusted. Edits are saved to the pending row first.',
     };
-    case 'docs': {
-      const isBill = BILL_TYPES.has(r.doc_type);
-      return { ...base, fileLabel: DOC_LABEL[r.doc_type] ?? 'Document', amountLabel: 'Bill amount',
-        chips: [{ label: 'PENDING', tone: 'amber' }, { label: String(r.uploader_role ?? ''), tone: 'cyan' }],
-        fields: [
-          ...(isBill ? [{ key: 'amount', label: 'Amount (₹)', value: r.amount ?? '', editable: true, type: 'number', hint: 'Files into the expense queue on Verify.' }] : []),
-          { key: 'bill_no', label: 'Bill no', value: r.bill_no ?? '', editable: true },
-          { key: 'bill_date', label: 'Bill date', value: String(r.bill_date ?? '').slice(0, 10), editable: true, type: 'date' },
-          { key: 'vehicle_no', label: 'Vehicle', value: r.vehicle_no ?? '', editable: true },
-          { key: 'remarks', label: 'Uploader remarks', value: r.remarks ?? '', wide: true },
-        ],
-        approveLabel: isBill ? '✅ Verify & file expense' : '✅ Verify',
-        onApprove: async (edits) => {
-          const amt = Number(edits.amount ?? r.amount);
-          if (isBill && !(amt > 0)) throw new Error('Bill ka amount bharein — tabhi expense queue mein jayega.');
-          const body = { reviewed_by: who, ...(isBill ? { amount: amt } : {}) };
-          for (const k of ['bill_no', 'bill_date', 'vehicle_no']) if (k in edits) body[k] = edits[k] || null;
-          await api(`/queues/partner-documents/${r.id}/approve`, { method: 'POST', body: JSON.stringify(body) });
-        },
-        onReject: async (reason) => { await api(`/queues/partner-documents/${r.id}/reject`, { method: 'POST', body: JSON.stringify({ reason, reviewed_by: who }) }); },
-        footnote: 'Verify marks the paper checked and tells the uploader on WhatsApp. A bill then waits in Expense bills — TARA posts only on that second approval.',
-      };
-    }
+    case 'docs':
+      // The Milan view: photo, OCR proposal, the admin's values — one drawer,
+      // shared with Pending Expenses. Approve carries the final values; the
+      // server applies them to drivers / trips inside its transaction.
+      return partnerDocDrawerProps(r, {
+        userName: who, isAdmin: ctx.isAdmin,
+        decide: (action, body) => api(`/queues/partner-documents/${r.id}/${action}`, { method: 'POST', body: JSON.stringify(body) }),
+      });
     case 'kyc': {
       const isCustomer = r.type === 'CUSTOMER';
       const docs = Object.entries(r.documents ?? {});

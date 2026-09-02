@@ -21,6 +21,9 @@
 // ═══════════════════════════════════════════════════════════════════════════
 import { query, isDegraded } from '../db/pool.js';
 import { requireAuth } from './auth.routes.js';
+// Every staged paper announces itself; BHUVANESHWARI reads it off the request
+// path and writes her proposal beside the photo (migration 132).
+import { emit } from '../agents/bus.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -103,7 +106,10 @@ export function registerDriverPortalRoutes(app) {
   // a PENDING row the office reviews. Nothing reaches a trip, a khata or a
   // ledger from this route.
   const DOC_TYPES = new Set(['LOADING_INVOICE', 'CHALLAN', 'POD',
-    'TYRE_BILL', 'MAINTENANCE_BILL', 'HSD_BILL', 'TOLL_BILL', 'OTHER_BILL', 'KYC', 'OTHER_DOC']);
+    'TYRE_BILL', 'MAINTENANCE_BILL', 'HSD_BILL', 'TOLL_BILL', 'OTHER_BILL', 'KYC', 'OTHER_DOC',
+    // 2026-09-02: the driver's own KYC papers and quantity reports — staged
+    // like every other paper; approve is what touches drivers / trips.
+    'DL', 'AADHAAR', 'BANK_BOOK', 'LOADING_QTY', 'UNLOADING_QTY']);
   const normalizeKey = (v) => String(v ?? '').replace(/^\/?api\/v1\/files\//, '').replace(/^\/+/, '');
 
   app.get('/portal/driver/documents', { preHandler: resolveDriver }, async (req, reply) => {
@@ -143,14 +149,30 @@ export function registerDriverPortalRoutes(app) {
     if (amount !== null && !(Number.isFinite(amount) && amount >= 0)) {
       return reply.code(400).send({ error: 'BAD_AMOUNT' });
     }
+    const qty = b.qty == null || b.qty === '' ? null : Number(b.qty);
+    if (qty !== null && !(Number.isFinite(qty) && qty >= 0)) {
+      return reply.code(400).send({ error: 'BAD_QTY' });
+    }
+    if (['LOADING_QTY', 'UNLOADING_QTY'].includes(docType) && !tripId) {
+      return reply.code(400).send({ error: 'TRIP_REQUIRED', detail: 'a quantity report belongs to a trip' });
+    }
     const { rows } = await query(
       `INSERT INTO partner_documents
          (uploader_role, driver_id, uploader_name, doc_type, file_key, trip_id,
-          vehicle_no, amount, bill_no, bill_date, remarks)
-       VALUES ('DRIVER', $1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9::date, $10)
+          vehicle_no, amount, bill_no, bill_date, remarks, qty)
+       VALUES ('DRIVER', $1::uuid, $2, $3, $4, $5::uuid, $6, $7, $8, $9::date, $10, $11)
        RETURNING id, doc_type, status, created_at`,
       [req.driver.id, req.driver.name, docType, fileKey, tripId,
-       b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
+       b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null, qty]);
+    // Announce the paper. agent_events is a staging table, so the fence lets
+    // the driver's request write it; the OCR itself runs in the agent loop.
+    try {
+      await emit('partner_document.submitted', {
+        aggregate: 'partner_document', aggregateId: rows[0].id,
+        payload: { id: rows[0].id, doc_type: docType, file_key: fileKey, uploader_role: 'DRIVER', driver_id: req.driver.id, trip_id: tripId },
+        emittedBy: 'driverPortal',
+      });
+    } catch (e) { req.log?.warn({ err: e.message }, 'partner_document.submitted not emitted'); }
     return reply.code(201).send({
       ...rows[0],
       detail: 'Document office ko pahunch gaya. Staff check karke approve karega — '

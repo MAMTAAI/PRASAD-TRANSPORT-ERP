@@ -129,6 +129,11 @@ function AppShell() {
   });
   const [isCustomerMode, setIsCustomerMode] = useState(false); 
   const [isPartnerMode, setIsPartnerMode] = useState(false);
+  // THE UNIVERSAL GATEWAY (owner's Tier 1, 2026-09-02): one door for every
+  // outside party — /app or ?gateway — mobile + OTP, and the server's role
+  // decides which isolated workspace opens. No staff login stands in front.
+  const isGatewayMode = typeof window !== 'undefined'
+    && (/^\/app\/?$/i.test(window.location.pathname) || new URLSearchParams(window.location.search).has('gateway'));
 
   // Set when the server says this account may not be used yet (403
   // ACCOUNT_PENDING_APPROVAL / ACCOUNT_SUSPENDED). Held separately from `user`
@@ -271,6 +276,21 @@ function AppShell() {
       setIsTransitioning(false); 
     }, 200); 
   };
+
+  // A preview is never a place to get stuck (owner, 2026-09-02): Escape leaves
+  // any portal preview and lands on Master Control v5.0, the same as every
+  // preview's Exit button. The view-as keys are cleared so the next staff call
+  // is not scoped to a party by accident.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !String(activeComponent).endsWith('_PREVIEW')) return;
+      try { localStorage.removeItem('prasad_view_as_customer'); localStorage.removeItem('prasad_view_as_vendor'); } catch { /* private mode */ }
+      handleComponentChange('MASTER_CONTROL_V5');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeComponent]);
 
   const handleModuleChange = (mod: string) => {
     setActiveModule(mod);
@@ -495,6 +515,13 @@ function AppShell() {
       </Suspense>
     );
   }
+  if (isGatewayMode && !user) {
+    return (
+      <Suspense fallback={<ModuleLoader />}>
+        <div style={{ position: 'fixed', inset: 0, overflowY: 'auto', background: '#080c14' }}><MobileSuiteApp /></div>
+      </Suspense>
+    );
+  }
   if (isDriverMode) return <Suspense fallback={<ModuleLoader />}><DriverPortal onBack={() => { setIsDriverMode(false); setShowPublicWebsite(true); }} /></Suspense>;
   
   if (!user && !showPublicWebsite && !isDriverMode && !isCustomerMode && !isPartnerMode) {
@@ -551,7 +578,7 @@ function AppShell() {
             {/* The REAL signed-in Fleet Partner App, scoped read-only to a chosen
                 partner (2026-09-02). FleetPartnerPortal.tsx stays as the
                 pre-login onboarding door only. */}
-            <FleetPartnerPreview onExit={() => handleComponentChange('MARKET_VEHICLE')} />
+            <FleetPartnerPreview onExit={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
       case 'CUSTOMER_PORTAL_PREVIEW': 
@@ -560,13 +587,13 @@ function AppShell() {
             {/* The REAL signed-in Customer App, scoped read-only to a chosen
                 customer (2026-09-02). The legacy CustomerPortal.tsx stays as
                 the pre-login onboarding door only. */}
-            <CustomerPreview onExit={() => handleComponentChange('CUSTOMER')} />
+            <CustomerPreview onExit={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
       case 'SERVICE_VENDOR_PORTAL_PREVIEW':
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
-            <ServiceVendorPreview onExit={() => handleComponentChange('VENDOR')} />
+            <ServiceVendorPreview onExit={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
       case 'DRIVER_PORTAL_PREVIEW':

@@ -178,6 +178,9 @@ export async function scanDocument(buffer, {
     ocr_error: ocrError,
     ocr_source: ocrSource,
     text_chars: text.length,
+    // What the reader saw, for the desk's side-by-side audit (2026-09-02). An
+    // excerpt: the record is the parsed fields, this is the evidence trail.
+    text_excerpt: text.slice(0, 2500),
     hash,
     filename,
     ...parsed,

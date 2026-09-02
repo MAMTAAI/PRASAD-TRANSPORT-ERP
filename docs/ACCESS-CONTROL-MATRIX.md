@@ -171,6 +171,17 @@ Everything not in this table — `trips`, `ledger_entries`, `vouchers`, `custome
 
 ---
 
+## 7b. The frozen 4-tier pipeline (owner's architectural lock, 2026-09-02 evening)
+
+| Tier | What | Where |
+|---|---|---|
+| 1 · Universal gateway | One door: `/app` (or `?gateway`) and the ERP's SUPER_APP screen. Mobile + OTP (or email + password + 2FA for staff); the server's role decides the workspace: CUSTOMER → Customer App, VENDOR → Fleet Partner or Service Vendor app (by `vendor_kind`), DRIVER → Driver App, staff → office console. The session is handed to the real app (`prasad_token`, and the driver's own keys); a floating Sign out ends it. | `src/modules/mobile/MobileSuiteApp.tsx`, `UniversalLogin.tsx`, `auth/AuthProvider.tsx`, `App.tsx` (`isGatewayMode`) |
+| 2 · Quarantine | Every external write lands in a staging table (section 4); the pool refuses anything else with 403 STAGING_ONLY (section 6). Driver papers now include DL / Aadhaar / bank passbook and loading / unloading quantity reports (migration 132). | `server/lib/staging.js`, `db/pool.js`, `driverPortal.routes.js` |
+| 3 · BHUVANESHWARI OCR + Milan | `partner_document.submitted` fires on every upload; the agent reads the paper off the request path (tesseract + patterns + local model, one at a time, memory-gated), writes the proposal beside the photo (`ocr_data.suggest / raw`) and scores it against the records (`ocr_data.match`: vehicle vs the trip's lorry or the fleet master, date inside the trip window, GST vs vendors, amount / quantity vs what was typed, licence vs the driver on file). A 10-minute catch-up sweep reads anything missed. | `server/agents/bhuvaneshwari.js`, `services/universalScan.js` |
+| 4 · Single-pane approval | The Pending Approvals strip on Master Control v5.0 aggregates every queue; opening a row shows the photo, the OCR read, the Milan score and the admin's fields side by side, with one-click "Use". **Approve** runs one server transaction: staging → core (drivers' KYC columns, trips' driver_* quantity / POD columns, expense_approvals → TARA JOURNAL) and records `applied_to`. **Reject** demands a reason, sets `NEEDS_CORRECTION`, and the uploader's own portal shows the reason (driver app label "सुधार कर दोबारा भेजो", partner app office note). | `src/components/ApprovalDesk.tsx`, `ApprovalDrawer.tsx`, `queues.routes.js applyToCore` |
+
+Vendor bills uploaded from the Service Vendor portal are `expense_approvals` rows; their rejection stays `REJECTED` with the reason shown in the vendor app (that table's states are the money queue's own).
+
 ## 8. Gaps found in this analysis and what was done
 
 | Finding | Decision |
