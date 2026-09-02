@@ -154,7 +154,9 @@ export default function OperationsDashboard({ live, filter }) {
   // the failure useDashboardData's own honesty contract exists to forbid, and
   // it is where the "14 pending unloading" that nobody could reconcile came
   // from: it was never a query result, it was a constant from the design mock.
-  ] : kpis.map((k) => ({ ...k, value: '--', sub: offline ? 'API unreachable' : 'no data', metric: null, raw: null }));
+  // "no data" while the first poll is still in flight read as a broken screen
+  // (2-Sep-2026, owner's screenshot): say "loading…" until the answer lands.
+  ] : kpis.map((k) => ({ ...k, value: '--', sub: offline ? 'API unreachable' : (live?.loading ? 'loading…' : 'no data'), metric: null, raw: null }));
 
   /** Send a one-off message to somebody the picker chose. Not a thread: the
    *  conversation itself lives in the Dispatch Console once it exists, and

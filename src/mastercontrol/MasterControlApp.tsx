@@ -24,7 +24,9 @@ const MODULES = [
 ];
 
 const MODULE_TITLES = {
-  ops: { title: 'Command Center: Transport Fleet Ops', sub: 'Bongaigaon Refinery Hub' },
+  // The OWN + permanently attached fleet — the family's trucks. Market
+  // vehicles and fleet partners live on the Command Deck (owner, 2-Sep-2026).
+  ops: { title: 'Command Center: Transport Fleet Ops', sub: 'Own & attached fleet · Bongaigaon Refinery Hub' },
   finance: { title: 'Master Finance Hub', sub: 'Executive Command' },
   crm: { title: 'Prasad Master Control', sub: 'Enterprise ERP' },
 };

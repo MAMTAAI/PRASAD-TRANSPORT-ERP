@@ -435,6 +435,129 @@ export async function registerBazaarRoutes(app) {
     return { deleted: true };
   });
 
+  // ═══ MARKET OVERVIEW — the Command Deck's one read ════════════════════════
+  // The owner's dual-fleet rule (2026-09-02): the Command Deck is the MARKET
+  // fleet — fleet partners, market vehicles, Load Bazaar bidding and its
+  // settlements — and nothing of the own fleet, which is Master Control's.
+  // One round trip, all staff-scoped: counts for the tiles, the queues a
+  // person clears, the boards, and the market side of the books from
+  // v_fleet_segment_totals (migration 129). Today most of it is zero, which
+  // is the truth: no market vehicle exists yet.
+  app.get('/overview', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const q = (sql, p = []) => query(sql, p).then((r) => r.rows);
+    const [loadsByStatus, awardRequests, openLoads, settleByStatus, settlements, mvByStatus, mvPending,
+           mdByStatus, vendorCounts, kycByType, docsPending, marketBooks, monthMoney] = await Promise.all([
+      q(`SELECT status, count(*)::int AS n FROM bazaar_loads GROUP BY 1`),
+      q(`SELECT l.load_id, l.origin, l.destination, l.customer_name, l.loading_date, l.material,
+                l.award_requested_by, l.award_requested_at,
+                b.vendor_name, b.bid_amount, b.remarks
+           FROM bazaar_loads l LEFT JOIN bazaar_bids b ON b.id = l.award_requested_bid_id
+          WHERE l.status = 'AWARD_REQUESTED'
+          ORDER BY l.award_requested_at NULLS LAST LIMIT 20`),
+      q(`SELECT l.load_id, l.status, l.origin, l.destination, l.customer_name, l.loading_date,
+                l.material, l.weight, l.vehicle_type, l.target_rate, l.book_now_rate, l.bid_close_at, l.created_at,
+                (SELECT count(*) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING')::int AS bids,
+                (SELECT min(b.bid_amount) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING') AS l1_amount
+           FROM bazaar_loads l
+          WHERE l.status IN ('OPEN', 'PENDING_REVIEW')
+          ORDER BY l.created_at DESC LIMIT 12`),
+      q(`SELECT status, count(*)::int AS n, COALESCE(sum(awarded_amount), 0)::numeric(14,2) AS amount
+           FROM bazaar_settlements GROUP BY 1`),
+      q(`SELECT s.id, s.load_id, s.status, s.awarded_amount, s.advance_pct, s.advance_amount, s.balance_amount,
+                s.deposit_amount, s.company_id, s.confirm_deadline, s.pod_submitted_at, s.pod_verified_at, s.created_at,
+                v.vendor_name, l.origin, l.destination, l.customer_name, mv.registration_no
+           FROM bazaar_settlements s
+           LEFT JOIN vendors v ON v.id = s.vendor_id
+           LEFT JOIN bazaar_loads l ON l.load_id = s.load_id
+           LEFT JOIN market_vehicles mv ON mv.id = s.market_vehicle_id
+          WHERE s.status NOT IN ('SETTLED', 'CANCELLED')
+          ORDER BY s.created_at DESC LIMIT 12`),
+      q(`SELECT system_status, count(*)::int AS n FROM market_vehicles GROUP BY 1`),
+      q(`SELECT mv.id, mv.registration_no, mv.vendor_agency, mv.vehicle_class, mv.capacity, mv.system_status,
+                mv.driver_name, mv.driver_mobile, mv.rc_expiry, mv.ins_expiry, mv.fit_expiry, mv.created_at,
+                md.name AS market_driver, v.mobile_no AS vendor_mobile,
+                (SELECT count(*) FROM bazaar_settlements s
+                  WHERE s.market_vehicle_id = mv.id AND s.status NOT IN ('SETTLED', 'CANCELLED'))::int AS on_load
+           FROM market_vehicles mv
+           LEFT JOIN market_drivers md ON md.id = mv.market_driver_id
+           LEFT JOIN vendors v ON v.id = mv.vendor_id
+          ORDER BY (mv.system_status = 'PENDING APPROVAL') DESC, mv.created_at DESC LIMIT 20`),
+      q(`SELECT system_status, count(*)::int AS n FROM market_drivers GROUP BY 1`),
+      q(`SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE is_approved_for_portal)::int AS portal
+           FROM vendors`),
+      q(`SELECT type, count(*)::int AS n FROM onboarding_applications WHERE status = 'SUBMITTED' GROUP BY 1`),
+      q(`SELECT count(*)::int AS n FROM partner_documents WHERE status = 'PENDING' AND uploader_role = 'VENDOR'`),
+      q(`SELECT group_head, ledger_name, dr, cr, entries, last_entry
+           FROM v_fleet_segment_totals WHERE fleet_segment = 'MARKET' ORDER BY group_head, ledger_name`),
+      q(`SELECT source_type, COALESCE(sum(amount), 0)::numeric(14,2) AS amount, count(DISTINCT source_ref)::int AS vouchers
+           FROM ledger_entries
+          WHERE fleet_segment = 'MARKET' AND dr_cr = 'DR'
+            AND entry_date >= date_trunc('month', now())::date
+          GROUP BY 1`),
+    ]);
+
+    const byKey = (rows, key) => Object.fromEntries(rows.map((r) => [r[key], r]));
+    const loads = byKey(loadsByStatus, 'status');
+    const settle = byKey(settleByStatus, 'status');
+    const mv = byKey(mvByStatus, 'system_status');
+    const md = byKey(mdByStatus, 'system_status');
+    const kyc = byKey(kycByType, 'type');
+    const n = (r) => Number(r?.n ?? 0);
+    const sumBal = (group) => marketBooks
+      .filter((r) => r.group_head === group)
+      .reduce((s, r) => s + (Number(r.cr) - Number(r.dr)), 0);
+    // What the settlements say is still to be paid, by stage — the market
+    // fleet's forward commitment, not yet in the ledger.
+    const advanceDue = settlements
+      .filter((s) => s.status === 'VEHICLE_ASSIGNED')
+      .reduce((s, r) => s + Number(r.awarded_amount) * Number(r.advance_pct) / 100, 0);
+    const balanceDue = settlements
+      .filter((s) => ['ADVANCE_PAID', 'POD_SUBMITTED', 'POD_VERIFIED'].includes(s.status))
+      .reduce((s, r) => s + (Number(r.awarded_amount) - Number(r.advance_amount ?? 0)), 0);
+
+    return {
+      generated_at: new Date().toISOString(),
+      loads: {
+        pending_review: n(loads.PENDING_REVIEW), open: n(loads.OPEN), award_requested: n(loads.AWARD_REQUESTED),
+        awarded: n(loads.AWARDED), closed: n(loads.CLOSED), cancelled: n(loads.CANCELLED),
+        board: openLoads, award_requests: awardRequests,
+      },
+      settlements: {
+        by_status: Object.fromEntries(settleByStatus.map((r) => [r.status, { n: n(r), amount: Number(r.amount) }])),
+        in_progress: settlements,
+        committed: settlements.reduce((s, r) => s + Number(r.awarded_amount), 0),
+        advance_due: Number(advanceDue.toFixed(2)),
+        balance_due: Number(balanceDue.toFixed(2)),
+        no_firm: settlements.filter((s) => !s.company_id).length,
+      },
+      market_fleet: {
+        active: n(mv['System Active']), pending: n(mv['PENDING APPROVAL']),
+        blocked: n(mv.BLOCKED), rejected: n(mv.REJECTED),
+        // Every partner truck, pending first — the deck's "who brings what".
+        trucks: mvPending,
+        pending_list: mvPending.filter((v) => v.system_status === 'PENDING APPROVAL'),
+        drivers_active: n(md['System Active']), drivers_pending: n(md['PENDING APPROVAL']),
+      },
+      partners: {
+        vendors_total: Number(vendorCounts[0]?.total ?? 0),
+        vendors_portal: Number(vendorCounts[0]?.portal ?? 0),
+        kyc_vendor: n(kyc.VENDOR) + n(kyc.FLEET_PARTNER), kyc_customer: n(kyc.CUSTOMER),
+        docs_pending: Number(docsPending[0]?.n ?? 0),
+      },
+      money: {
+        // Liabilities carry a CR balance; positive = we owe / we hold.
+        partner_payables: Number(sumBal('Market Fleet Payables (Partners)').toFixed(2)),
+        deposits_held: Number(sumBal('Market Fleet Deposits Held').toFixed(2)),
+        income: Number((-sumBal('Market Fleet Income')).toFixed(2)) * -1,
+        this_month: Object.fromEntries(monthMoney.map((r) => [r.source_type, { amount: Number(r.amount), vouchers: r.vouchers }])),
+        ledgers: marketBooks,
+        segment_rule: 'Market-fleet vouchers post only to Market Fleet groups or bank/cash; the database refuses a crossover (migration 129).',
+      },
+    };
+  });
+
   // ═══ ONBOARDING ═══════════════════════════════════════════════════════════
   // The response carries `agency_name` / `owner_name` aliases so the portal and
   // the approvals screen keep reading the names they already know, while the

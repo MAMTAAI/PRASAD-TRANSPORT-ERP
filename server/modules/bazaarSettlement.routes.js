@@ -165,8 +165,11 @@ export function registerBazaarSettlementRoutes(app) {
       const voucher = await postVoucher({
         type: 'RECEIPT',
         account: b.account,
-        party_ledger: side === 'VENDOR' ? `Creditors: ${s.vendor_name}` : `Debtors: ${s.customer_name}`,
-        party_group: side === 'VENDOR' ? 'Sundry Creditors (Vendors)' : 'Sundry Debtors (Customers)',
+        // MARKET FLEET, ITS OWN SIDE OF THE BOOKS (migration 129). A trip-lock
+        // deposit is money we hold for a bazaar party — never that party's
+        // ordinary khata, which may also carry own-fleet business.
+        party_ledger: side === 'VENDOR' ? `Market Deposit: ${s.vendor_name}` : `Market Deposit: ${s.customer_name}`,
+        party_group: 'Market Fleet Deposits Held',
         amount,
         ref_no: `BZDEP-${s.id}-${side[0]}`,
         entry_date: b.entry_date ?? today(),
@@ -207,8 +210,11 @@ export function registerBazaarSettlementRoutes(app) {
       const voucher = await postVoucher({
         type: 'PAYMENT',
         account: b.account,
-        party_ledger: side === 'VENDOR' ? `Creditors: ${s.vendor_name}` : `Debtors: ${s.customer_name}`,
-        party_group: side === 'VENDOR' ? 'Sundry Creditors (Vendors)' : 'Sundry Debtors (Customers)',
+        // MARKET FLEET, ITS OWN SIDE OF THE BOOKS (migration 129). A trip-lock
+        // deposit is money we hold for a bazaar party — never that party's
+        // ordinary khata, which may also carry own-fleet business.
+        party_ledger: side === 'VENDOR' ? `Market Deposit: ${s.vendor_name}` : `Market Deposit: ${s.customer_name}`,
+        party_group: 'Market Fleet Deposits Held',
         amount,
         ref_no: `BZDEPREF-${s.id}-${side[0]}`,
         entry_date: b.entry_date ?? today(),
@@ -250,8 +256,10 @@ export function registerBazaarSettlementRoutes(app) {
       const voucher = await postVoucher({
         type: 'PAYMENT',
         account: b.account,
-        party_ledger: `Creditors: ${s.vendor_name}`,
-        party_group: 'Sundry Creditors (Vendors)',
+        // Market-fleet partner payable — never `Creditors: <vendor>`, where a
+        // fuel pump or a tyre shop of the OWN fleet may sit under the same name.
+        party_ledger: `Market Partner: ${s.vendor_name}`,
+        party_group: 'Market Fleet Payables (Partners)',
         amount,
         ref_no: `BZADV-${s.id}`,
         entry_date: b.entry_date ?? today(),
@@ -327,8 +335,10 @@ export function registerBazaarSettlementRoutes(app) {
       const voucher = await postVoucher({
         type: 'PAYMENT',
         account: b.account,
-        party_ledger: `Creditors: ${s.vendor_name}`,
-        party_group: 'Sundry Creditors (Vendors)',
+        // Market-fleet partner payable — never `Creditors: <vendor>`, where a
+        // fuel pump or a tyre shop of the OWN fleet may sit under the same name.
+        party_ledger: `Market Partner: ${s.vendor_name}`,
+        party_group: 'Market Fleet Payables (Partners)',
         amount,
         ref_no: `BZBAL-${s.id}`,
         entry_date: b.entry_date ?? today(),
