@@ -6,6 +6,7 @@ import { logAudit } from './lib/audit';
 import { API_BASE } from './lib/apiBase';
 import RouteMap from './lib/RouteMap';
 import PlaceInput from './lib/PlaceInput';
+import ApprovalDrawer from './components/ApprovalDrawer';
 const API = API_BASE;
 const BAZAAR = `${API}/api/v1/bazaar`;
 
@@ -36,7 +37,8 @@ export default function BazaarAdmin() {
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [customVehicleType, setCustomVehicleType] = useState(''); 
   const [isAddingCustomVehicle, setIsAddingCustomVehicle] = useState(false);
-  const [showMap, setShowMap] = useState(false); 
+  const [showMap, setShowMap] = useState(false);
+  const [podView, setPodView] = useState(null);   // settlement whose POD is open in the approval drawer 
 
   const [loadForm, setLoadForm] = useState({
     customer_name: '', origin: '', destination: '', distance_km: '', toll_plazas: '', toll_amount: '', material: '', weight: '', target_rate: '', loading_date: '',
@@ -617,7 +619,7 @@ export default function BazaarAdmin() {
                             style={{ background: 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>💸 Release advance</button>
                         )}
                         {s.pod_file && (
-                          <button onClick={() => viewPod(s.pod_file)}
+                          <button onClick={() => setPodView(s)}
                             style={{ background: '#1e293b', color: '#a78bfa', border: '1px solid #a78bfa55', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>📄 View POD</button>
                         )}
                         {s.pod_file && ['POD_SUBMITTED', 'ADVANCE_PAID'].includes(s.status) && (
@@ -633,6 +635,38 @@ export default function BazaarAdmin() {
                             style={{ background: '#1e293b', color: '#ef4444', border: '1px solid #ef444455', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✖ Cancel</button>
                         )}
                       </div>
+
+                      {/* The Smart Approval Desk for a POD: the paper in place, the verdict beside it. */}
+                      {podView?.id === s.id && (
+                        <ApprovalDrawer
+                          open
+                          onClose={() => setPodView(null)}
+                          title={`POD · ${s.load_id} · ${s.vendor_name ?? 'partner'}`}
+                          subtitle={`${s.origin ?? ''} → ${s.destination ?? ''} · ${s.customer_name ?? ''} · settlement ${s.status}`}
+                          accent="#8b5cf6"
+                          fileKey={s.pod_file}
+                          fileLabel="Proof of delivery"
+                          amount={due}
+                          amountLabel="Balance due after verification"
+                          chips={[{ label: s.status, tone: s.status === 'POD_VERIFIED' ? 'green' : ['POD_SUBMITTED', 'ADVANCE_PAID'].includes(s.status) ? 'violet' : 'slate' }]}
+                          canDecide={['POD_SUBMITTED', 'ADVANCE_PAID'].includes(s.status)}
+                          fields={[
+                            { key: 'load', label: 'Load', value: s.load_id ?? '' },
+                            { key: 'partner', label: 'Fleet partner', value: s.vendor_name ?? '' },
+                            { key: 'vehicle', label: 'Truck', value: s.vehicle_reg ?? '' },
+                            { key: 'driver', label: 'Driver named', value: s.driver_name_assigned ?? '' },
+                            { key: 'awarded', label: 'Awarded (₹)', value: Number(s.awarded_amount ?? 0).toLocaleString('en-IN') },
+                            { key: 'material', label: 'Material', value: `${s.material ?? ''}${s.weight ? ` · ${s.weight}` : ''}` },
+                            { key: 'note', label: 'Verification note', value: sf.note ?? '', editable: true, wide: true, hint: 'Kept on the settlement with your name and the time.' },
+                          ]}
+                          approveLabel="✅ Verify POD"
+                          onApprove={async (edits) => {
+                            await settAction(s.id, '/pod/verify', { note: edits.note ?? sf.note ?? null }, null);
+                            setPodView(null);
+                          }}
+                          footnote="Verifying the POD unlocks 'Release balance'. The rupees still move only through that button — a TARA voucher in the market-fleet segment, never the own-fleet books."
+                        />
+                      )}
 
                       <div style={{ fontSize: '10.5px', color: '#64748b', lineHeight: 1.6 }}>
                         Advance releases only after the partner confirms and names an approved truck; the balance only

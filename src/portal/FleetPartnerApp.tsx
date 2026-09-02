@@ -49,6 +49,10 @@ const api = async (path, opts = {}) => {
   const token = localStorage.getItem('prasad_token');
   const headers = { ...(opts.headers ?? {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
+  // Staff preview (FleetPartnerPreview.tsx): the server scopes every read to
+  // this partner and refuses every write. Absent for a real partner session.
+  const viewAs = localStorage.getItem('prasad_view_as_vendor');
+  if (viewAs) headers['X-View-As-Vendor'] = viewAs;
   if (opts.body) headers['Content-Type'] = 'application/json';
   const r = await fetch(`${API_BASE}/api/v1${path}`, { ...opts, headers });
   let body = null;

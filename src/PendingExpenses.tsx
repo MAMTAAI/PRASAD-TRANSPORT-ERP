@@ -18,6 +18,9 @@ import {
 } from './lib/postTripEngine';
 import { getField, toISODate } from './lib/accounting/tripMath';
 import BottomSheet from './ui/BottomSheet';
+// The Smart Approval Desk drawer (2026-09-02): the bill rendered in place,
+// fields editable beside it, Approve / Reject / Print next to the paper.
+import ApprovalDrawer from './components/ApprovalDrawer';
 
 const STATUS_META = {
   PENDING: { label: 'Pending Approval', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
@@ -59,6 +62,7 @@ function PartnerDocsQueue({ userName, onFiled }) {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState('');
   const [amounts, setAmounts] = useState({});
+  const [open, setOpen] = useState(null);   // the upload open in the drawer
   const authed = (path, opts = {}) => {
     const token = localStorage.getItem('prasad_token');
     return fetch(`${API}/api/v1${path}`, {
@@ -74,38 +78,40 @@ function PartnerDocsQueue({ userName, onFiled }) {
   };
   useEffect(() => { load(); }, []);
 
-  const viewPhoto = async (key) => {
-    try {
-      const r = await authed(`/files/${key}`);
-      if (!r.ok) { alert(`Photo nahi khuli (${r.status})`); return; }
-      const blob = await r.blob();
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
-    } catch (e) { alert('Photo nahi khuli: ' + e.message); }
-  };
+  // "View" opens the drawer: photo/PDF in place, fields editable beside it,
+  // Verify / Reject / Print next to the paper.
+  const viewPhoto = (doc) => setOpen(doc);
 
-  const decide = async (doc, action) => {
-    let body = { reviewed_by: userName };
-    if (action === 'reject') {
-      const reason = window.prompt('Reject kyon? (yeh kaaran uploader ko WhatsApp par jayega)');
-      if (!reason) return;
-      body.reason = reason;
-    } else {
-      const isBill = BILL_TYPES.has(doc.doc_type);
-      const amt = Number(amounts[doc.id] ?? doc.amount);
-      if (isBill && !(amt > 0)) { alert('⚠️ Bill ka amount bharein — tabhi expense queue mein jayega.'); return; }
-      if (isBill) body.amount = amt;
-      if (!window.confirm(`Approve ${DOC_LABEL[doc.doc_type] ?? doc.doc_type} from ${doc.uploader_name}?${isBill ? ` ₹${amt.toLocaleString('en-IN')} expense queue mein file hoga.` : ''}`)) return;
-    }
+  const decideWith = async (doc, action, body) => {
     setBusy(doc.id);
     try {
       const r = await authed(`/queues/partner-documents/${doc.id}/${action}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewed_by: userName, ...body }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) alert('❌ ' + (j.detail ?? j.error ?? r.status));
-      else if (action === 'approve' && j.expenseId) onFiled?.();
+      if (!r.ok) throw new Error(j.detail ?? j.error ?? `HTTP ${r.status}`);
+      if (action === 'approve' && j.expenseId) onFiled?.();
       await load();
+      return j;
     } finally { setBusy(''); }
+  };
+
+  // The quick buttons on the card keep working without opening the drawer.
+  const decide = async (doc, action) => {
+    try {
+      if (action === 'reject') {
+        const reason = window.prompt('Reject kyon? (yeh kaaran uploader ko WhatsApp par jayega)');
+        if (!reason) return;
+        await decideWith(doc, 'reject', { reason });
+      } else {
+        const isBill = BILL_TYPES.has(doc.doc_type);
+        const amt = Number(amounts[doc.id] ?? doc.amount);
+        if (isBill && !(amt > 0)) { alert('⚠️ Bill ka amount bharein — tabhi expense queue mein jayega.'); return; }
+        if (!window.confirm(`Approve ${DOC_LABEL[doc.doc_type] ?? doc.doc_type} from ${doc.uploader_name}?${isBill ? ` ₹${amt.toLocaleString('en-IN')} expense queue mein file hoga.` : ''}`)) return;
+        await decideWith(doc, 'approve', isBill ? { amount: amt } : {});
+      }
+    } catch (e) { alert('❌ ' + e.message); }
   };
 
   return (
@@ -137,7 +143,7 @@ function PartnerDocsQueue({ userName, onFiled }) {
           )}
           <div style={{ display: 'flex', gap: '8px' }}>
             <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#a78bfa' }}
-                    onClick={() => viewPhoto(d.file_key)}>📷 View</button>
+                    onClick={() => viewPhoto(d)}>🔍 View</button>
             <button className="pt-btn pt-btn--success" style={{ minHeight: '36px', fontSize: '12px' }}
                     disabled={busy === d.id} onClick={() => decide(d, 'approve')}>✅ Approve</button>
             <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ef4444', borderColor: '#ef444455' }}
@@ -145,6 +151,39 @@ function PartnerDocsQueue({ userName, onFiled }) {
           </div>
         </div>
       ))}
+
+      <ApprovalDrawer
+        open={!!open}
+        onClose={() => setOpen(null)}
+        title={open ? `${DOC_LABEL[open.doc_type] ?? open.doc_type} · ${open.uploader_name}` : ''}
+        subtitle={open ? `${String(open.uploader_role ?? '').toLowerCase()} app upload · ${new Date(open.created_at).toLocaleString('en-IN')}${open.trip_code ? ` · trip ${open.trip_code}` : ''}` : ''}
+        accent="#f59e0b"
+        fileKey={open?.file_key ?? null}
+        fileLabel={open ? (DOC_LABEL[open.doc_type] ?? 'Document') : 'Document'}
+        amount={open && BILL_TYPES.has(open.doc_type) ? Number(amounts[open.id] ?? open.amount ?? 0) : null}
+        amountLabel="Bill amount"
+        chips={open ? [{ label: 'PENDING', tone: 'amber' }, { label: String(open.uploader_role ?? ''), tone: 'cyan' }] : []}
+        canDecide
+        fields={open ? [
+          ...(BILL_TYPES.has(open.doc_type) ? [{ key: 'amount', label: 'Amount (₹)', value: amounts[open.id] ?? open.amount ?? '', editable: true, type: 'number', hint: 'Files into the money queue below on Verify.' }] : []),
+          { key: 'bill_no', label: 'Bill no', value: open.bill_no ?? '', editable: true },
+          { key: 'bill_date', label: 'Bill date', value: String(open.bill_date ?? '').slice(0, 10), editable: true, type: 'date' },
+          { key: 'vehicle_no', label: 'Vehicle', value: open.vehicle_no ?? '', editable: true },
+          { key: 'remarks', label: 'Uploader remarks', value: open.remarks ?? '', wide: true },
+        ] : []}
+        approveLabel={open && BILL_TYPES.has(open.doc_type) ? '✅ Verify & file expense' : '✅ Verify'}
+        onApprove={async (edits) => {
+          const isBill = BILL_TYPES.has(open.doc_type);
+          const amt = Number(edits.amount ?? amounts[open.id] ?? open.amount);
+          if (isBill && !(amt > 0)) throw new Error('Bill ka amount bharein — tabhi expense queue mein jayega.');
+          const body = isBill ? { amount: amt } : {};
+          for (const k of ['bill_no', 'bill_date', 'vehicle_no']) if (k in edits) body[k] = edits[k] || null;
+          await decideWith(open, 'approve', body);
+          setOpen(null);
+        }}
+        onReject={async (reason) => { await decideWith(open, 'reject', { reason }); setOpen(null); }}
+        footnote="Verify marks the paper as checked and tells the uploader on WhatsApp. A bill then waits in the money queue below — TARA posts only on that second approval."
+      />
     </div>
   );
 }
@@ -236,6 +275,22 @@ export default function PendingExpenses() {
   const [rows, setRows] = useState([]);
   const [statusTab, setStatusTab] = useState('PENDING');
   const [busyId, setBusyId] = useState('');
+  const [view, setView] = useState(null);   // the expense open in the approval drawer
+
+  // Edit-before-approve: the pending row is corrected first (PATCH, admin only,
+  // refused once it is no longer PENDING), so the voucher carries the fixed figures.
+  const patchExpense = async (id, edits) => {
+    const token = localStorage.getItem('prasad_token');
+    const body = Object.fromEntries(Object.entries(edits).map(([k, v]) => [k, v === '' ? null : v]));
+    const r = await fetch(`${API}/api/v1/queues/expenses/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail ?? j.error ?? `HTTP ${r.status}`);
+    return j;
+  };
 
   // ── Entry form state ──
   const [showForm, setShowForm] = useState(false);
@@ -550,7 +605,13 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
               <div key={r.id} className={`pt-card ${accent}`} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
                   <div style={{ fontWeight: 900, fontSize: '16px' }}>{meta.icon} {meta.label}</div>
-                  <span className={`pt-badge ${badgeMod}`}>{sm.label}</span>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <button type="button" onClick={() => setView(r)} title="Open in the approval desk — bill, details, decision"
+                      style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '8px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>
+                      🔍 View
+                    </button>
+                    <span className={`pt-badge ${badgeMod}`}>{sm.label}</span>
+                  </div>
                 </div>
                 <div style={{ fontSize: '30px', fontWeight: 900, color: sm.color }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
                 <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -559,7 +620,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                     {r.source === 'VENDOR_PORTAL' && <span className="pt-badge pt-badge--warning" style={{ marginLeft: '6px' }}>🏪 Vendor portal</span>}
                     {/* A bill a service vendor uploaded from its own portal carries its PDF/photo here (migration 130). */}
                     {r.file_key && (
-                      <button type="button" onClick={() => viewBillFile(r.file_key)}
+                      <button type="button" onClick={() => setView(r)}
                         style={{ marginLeft: '8px', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
                         📎 View bill
                       </button>
@@ -595,6 +656,52 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
           })}
         </div>
       )}
+
+      {/* ── The Smart Approval Desk: bill in place, fields editable, decision beside the paper ── */}
+      <ApprovalDrawer
+        open={!!view}
+        onClose={() => setView(null)}
+        title={view ? `${(EXPENSE_TYPE_META[view.expense_type] || EXPENSE_TYPE_META.OTHER).icon} ${(EXPENSE_TYPE_META[view.expense_type] || EXPENSE_TYPE_META.OTHER).label} — ${view.vendor_name || 'no vendor named'}` : ''}
+        subtitle={view ? `${view.trip_id ? `Trip ${view.trip_id} · ${view.vehicle_no ?? ''}` : 'General expense (no trip)'} · filed by ${view.entered_by ?? '—'} · ${view.source ?? 'manual'}` : ''}
+        accent={view?.status === 'APPROVED' ? '#10b981' : view?.status === 'REJECTED' ? '#ef4444' : '#f59e0b'}
+        fileKey={view?.file_key ?? null}
+        fileLabel={view?.source === 'VENDOR_PORTAL' ? 'Vendor bill' : view?.source === 'PARTNER_APP' ? 'App upload' : 'Bill'}
+        amount={view ? Number(view.amount ?? 0) : null}
+        chips={view ? [
+          { label: (STATUS_META[view.status] || STATUS_META.PENDING).label, tone: view.status === 'APPROVED' ? 'green' : view.status === 'REJECTED' ? 'red' : 'amber' },
+          ...(view.source === 'VENDOR_PORTAL' ? [{ label: '🏪 Vendor portal', tone: 'cyan' }] : []),
+          ...(view.source === 'PARTNER_APP' ? [{ label: '📱 App upload', tone: 'violet' }] : []),
+          ...(view.source === 'ai_scan' ? [{ label: '🤖 AI scan', tone: 'violet' }] : []),
+          ...(view.trip_status_at_entry === 'COMPLETED' ? [{ label: 'Closed trip · retro', tone: 'amber' }] : []),
+          ...(view.match_confidence === 'AMBIGUOUS' ? [{ label: '⚠ verify trip', tone: 'amber' }] : []),
+        ] : []}
+        canDecide={isAdmin && (view?.status || 'PENDING') === 'PENDING'}
+        fields={view ? [
+          { key: 'amount', label: 'Amount (₹)', value: view.amount ?? '', editable: true, type: 'number' },
+          { key: 'expense_type', label: 'Type', value: view.expense_type ?? 'OTHER', editable: true, type: 'select',
+            options: Object.entries(EXPENSE_TYPE_META).map(([k, m]) => ({ value: k, label: `${m.icon} ${m.label}` })),
+            render: (v) => { const m = EXPENSE_TYPE_META[v] || EXPENSE_TYPE_META.OTHER; return `${m.icon} ${m.label}`; } },
+          { key: 'vendor_name', label: 'Vendor / pump', value: view.vendor_name ?? '', editable: true },
+          { key: 'bill_no', label: 'Bill no', value: view.bill_no ?? '', editable: true },
+          { key: 'bill_date', label: 'Bill date', value: String(view.bill_date ?? '').slice(0, 10), editable: true, type: 'date' },
+          { key: 'vehicle_no', label: 'Vehicle', value: view.vehicle_no ?? '', editable: true },
+          { key: 'description', label: 'Description', value: view.description ?? '', editable: true, wide: true },
+          ...(view.status === 'APPROVED' ? [{ key: 'approved_by', label: 'Posted by', value: view.approved_by ?? '' }] : []),
+          ...(view.status === 'REJECTED' ? [{ key: 'rejection_reason', label: 'Rejected because', value: view.rejection_reason ?? '', wide: true }] : []),
+        ] : []}
+        approveLabel="✅ Approve & Post"
+        onSaveEdits={async (edits) => { await patchExpense(view.id, edits); await reload(); }}
+        onApprove={async (edits) => {
+          if (Object.keys(edits).length) await patchExpense(view.id, edits);
+          const amount = Number(edits.amount ?? view.amount);
+          if (!(amount > 0)) throw new Error('Amount must be more than zero');
+          await approveRetroExpense({ ...view, ...edits, amount }, userName);
+          await reload();
+          setView(null);
+        }}
+        onReject={async (reason) => { await rejectRetroExpense(view.id, reason, userName); await reload(); setView(null); }}
+        footnote="Approve posts the JOURNAL through TARA and retro-adjusts the trip's P&L in one transaction. Edits are saved to the pending row first, so the voucher carries the corrected figures."
+      />
     </div>
   );
 }

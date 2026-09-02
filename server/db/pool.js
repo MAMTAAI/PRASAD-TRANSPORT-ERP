@@ -19,6 +19,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { existsSync, readFileSync } from 'node:fs';
 import pg from 'pg';
+// THE QUARANTINE FENCE (2026-09-02): an external or public HTTP session may
+// write staging tables only. Consulted before every statement — see
+// server/lib/staging.js and docs/ACCESS-CONTROL-MATRIX.md §6.
+import { assertExternalWrite } from '../lib/staging.js';
 
 const { Pool, types } = pg;
 
@@ -253,6 +257,10 @@ export async function query(text, params) {
     await initDb({ quiet: true });
     if (!active) throw new DbUnavailableError();
   }
+  // Refused here — before a connection is even acquired — when an external
+  // session tries to write a core table. Throws 403 STAGING_ONLY.
+  assertExternalWrite(text);
+
   // SEPARATE THE WAIT FROM THE WORK.
   //
   // This used to time pool.query() as a whole and call the total "slow query".
@@ -310,6 +318,25 @@ export async function queryOne(text, params) {
   return rows[0] ?? null;
 }
 
+/** The same client with one extra step: every statement inside a transaction
+ *  asks the quarantine fence first, exactly like query() does. A Proxy rather
+ *  than a wrapper object so pg's own methods keep their `this` and everything
+ *  else (release, escapeIdentifier, events) passes straight through. */
+function guardedClient(client) {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop === 'query') {
+        return (text, ...rest) => {
+          assertExternalWrite(typeof text === 'string' ? text : text?.text);
+          return target.query(text, ...rest);
+        };
+      }
+      const v = target[prop];
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+}
+
 /**
  * Run `fn` inside a transaction on one dedicated client.
  *
@@ -325,7 +352,7 @@ export async function withTransaction(fn) {
   const client = await active.pool.connect();
   try {
     await client.query('BEGIN');
-    const result = await fn(client);
+    const result = await fn(guardedClient(client));
     await client.query('COMMIT');
     return result;
   } catch (err) {

@@ -79,6 +79,8 @@ const CustomerPreview = lazy(() => import('./portal/CustomerPreview'));
 // Fleet Partner app or the Service Vendor portal (2026-09-02).
 const VendorGate = lazy(() => import('./portal/ServiceVendorApp').then((m) => ({ default: m.VendorGate })));
 const ServiceVendorPreview = lazy(() => import('./portal/ServiceVendorPreview'));
+const FleetPartnerPreview = lazy(() => import('./portal/FleetPartnerPreview'));
+const AccessHub = lazy(() => import('./AccessHub'));
 const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
@@ -324,7 +326,7 @@ function AppShell() {
   const hasPermission = (itemId: string, module: string) => {
     if (!user) return false;
 
-    if (itemId === 'UGER' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS' || itemId === 'EMAIL_PARSER') {
+    if (itemId === 'UGER' || itemId === 'ACCESS_HUB' || itemId === 'COMPANY' || itemId === 'BRANCH' || itemId === 'WEB_SETTINGS' || itemId === 'EMAIL_PARSER') {
       return isAdmin(user);
     }
 
@@ -546,7 +548,10 @@ function AppShell() {
       case 'PARTNER_PORTAL_PREVIEW': 
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
-            <FleetPartnerPortal onBack={() => handleComponentChange('MARKET_VEHICLE')} />
+            {/* The REAL signed-in Fleet Partner App, scoped read-only to a chosen
+                partner (2026-09-02). FleetPartnerPortal.tsx stays as the
+                pre-login onboarding door only. */}
+            <FleetPartnerPreview onExit={() => handleComponentChange('MARKET_VEHICLE')} />
           </div>
         );
       case 'CUSTOMER_PORTAL_PREVIEW': 
@@ -574,6 +579,7 @@ function AppShell() {
       case 'COMPANY': return <COMPANY />; 
       case 'BRANCH': return <BRANCH />; 
       case 'UGER': return <UGER />;
+      case 'ACCESS_HUB': return <AccessHub onNavigate={handleComponentChange} />;
       case 'AI_DOCS': return <AiLetterPad />;
       case 'WHATSAPP': return <WhatsappDashboard />;
       case 'AI_SETTINGS': return <AiSettings />; 

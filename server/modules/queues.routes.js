@@ -23,6 +23,9 @@
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
 import { notifyWhatsApp } from '../lib/notify.js';
+// Decisions are admin work. The UI hid the buttons from other roles; since
+// 2026-09-02 the server refuses them too (docs/ACCESS-CONTROL-MATRIX.md §5).
+import { requireAdminRole } from './auth.routes.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -73,7 +76,7 @@ export async function registerQueueRoutes(app) {
     } catch (e) { return pgErr(reply, e); }
   });
 
-  app.patch('/expenses/:id', async (req, reply) => {
+  app.patch('/expenses/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     const cols = EXPENSE_COLS.filter((c) => b[c] !== undefined);
@@ -89,7 +92,7 @@ export async function registerQueueRoutes(app) {
     return { expense: rows[0] };
   });
 
-  const decide = (verb, sql, extra) => app.post(`/expenses/:id/${verb}`, async (req, reply) => {
+  const decide = (verb, sql, extra) => app.post(`/expenses/:id/${verb}`, { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const idCol = UUID_RE.test(String(req.params.id)) ? 'id = $1::uuid' : 'legacy_id = $1';
     const { rows } = await query(sql.replace('$IDCOL', idCol), [req.params.id, ...extra(req.body ?? {})]);
@@ -118,7 +121,7 @@ export async function registerQueueRoutes(app) {
     OTHER: 'Purchases / Expense',
   };
 
-  app.post('/expenses/:id/approve', async (req, reply) => {
+  app.post('/expenses/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const idCol = UUID_RE.test(String(req.params.id)) ? 'id = $1::uuid' : 'legacy_id = $1';
     const { rows: found } = await query(`SELECT * FROM expense_approvals WHERE ${idCol}`, [req.params.id]);
@@ -490,7 +493,7 @@ export async function registerQueueRoutes(app) {
     return { count: rows.length, documents: rows };
   });
 
-  app.post('/partner-documents/:id/approve', async (req, reply) => {
+  app.post('/partner-documents/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     const doc = await docWithUploader(req.params.id);
@@ -514,8 +517,8 @@ export async function registerQueueRoutes(app) {
         const { rows: [exp] } = await t.query(
           `INSERT INTO expense_approvals
              (trip_id, trip_ref, vehicle_no, driver_name, vendor_name, expense_type,
-              bill_no, bill_date, amount, description, source, entered_by)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9, $10, 'PARTNER_APP', $11)
+              bill_no, bill_date, amount, description, source, entered_by, vendor_id, file_key)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9, $10, 'PARTNER_APP', $11, $12::uuid, $13)
            RETURNING id`,
           [doc.trip_id, doc.trip_code ?? null,
            b.vehicle_no ?? doc.vehicle_no ?? doc.trip_vehicle ?? null,
@@ -524,7 +527,10 @@ export async function registerQueueRoutes(app) {
            b.expense_type ?? DOC_EXPENSE_TYPE[doc.doc_type],
            b.bill_no ?? doc.bill_no, b.bill_date ?? doc.bill_date, amount,
            `[${doc.doc_type} via ${doc.uploader_role.toLowerCase()} app] ${b.description ?? doc.remarks ?? ''}`.trim(),
-           b.reviewed_by ?? null]);
+           b.reviewed_by ?? null,
+           // The paper travels with the money row, so the Smart Approval Desk
+           // shows the photo/PDF beside the amount when it decides (130).
+           doc.vendor_id ?? null, doc.file_key ?? null]);
         expenseId = exp.id;
       }
       const { rows: [upd] } = await t.query(
@@ -546,7 +552,7 @@ export async function registerQueueRoutes(app) {
     return { approved: true, ...out };
   });
 
-  app.post('/partner-documents/:id/reject', async (req, reply) => {
+  app.post('/partner-documents/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const reason = String(req.body?.reason ?? '').trim();
     if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the uploader is told why' });

@@ -69,7 +69,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (isAdmin(user)) return true;
     
     // 🔒 SECURITY: आम स्टाफ को Master Setup नहीं दिखेगा
-    if (['COMPANY', 'BRANCH', 'UGER', 'WEB_SETTINGS', 'EMAIL_PARSER'].includes(itemId)) {
+    if (['COMPANY', 'BRANCH', 'UGER', 'ACCESS_HUB', 'WEB_SETTINGS', 'EMAIL_PARSER'].includes(itemId)) {
       return false;
     }
     

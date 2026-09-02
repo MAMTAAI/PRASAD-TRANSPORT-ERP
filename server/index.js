@@ -37,6 +37,7 @@ import 'dotenv/config';
 import './config/init_drives.js';
 import Fastify from 'fastify';
 import { makeApiGuard } from './lib/apiGuard.js';
+import { stagingContextHook } from './lib/staging.js';
 import cors from '@fastify/cors';
 import { healthCheck, initDb, closePool, isDegraded, DB_TARGET } from './db/pool.js';
 import { registerVehicleRoutes } from './modules/vehicles.routes.js';
@@ -77,6 +78,7 @@ import { registerAuditLogger } from './lib/auditLogger.js';
 import { registerMapsRoutes } from './modules/maps.routes.js';
 import { registerOwnerRoutes } from './modules/owners.routes.js';
 import { registerGovernanceRoutes } from './modules/governance.routes.js';
+import { registerAccessRoutes } from './modules/access.routes.js';
 import { registerVendorPortalRoutes } from './modules/vendorPortal.routes.js';
 import { registerCustomerPortalRoutes } from './modules/customerPortal.routes.js';
 import { registerDriverPortalRoutes } from './modules/driverPortal.routes.js';
@@ -143,6 +145,11 @@ app.setErrorHandler((err, req, reply) => {
     // client (and any load balancer) to retry later rather than report a crash.
     return reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'no PostgreSQL target reachable — see /readyz' });
   }
+  if (pgCode === 'STAGING_ONLY') {
+    // The quarantine fence (server/lib/staging.js): an external session tried
+    // to write a core table. The statement never reached PostgreSQL.
+    return reply.code(403).send({ error: 'STAGING_ONLY', detail: err.message, table: err.table });
+  }
   if (pgCode === '23505') {
     // unique_violation — e.g. this vehicle number already exists
     return reply.code(409).send({ error: 'DUPLICATE', detail: err.detail ?? err.message });
@@ -196,6 +203,12 @@ if (!SERVICE_TOKEN || SERVICE_TOKEN.length < 24) {
 }
 
 app.addHook('onRequest', makeApiGuard({ requireAuth, serviceToken: SERVICE_TOKEN }));
+// THE QUARANTINE FENCE (owner directive, 2026-09-02). Opens the per-request
+// context db/pool.js consults: an external or public session may write the
+// staging tables only; every core write is refused with 403 STAGING_ONLY before
+// it reaches PostgreSQL. After apiGuard on purpose, so req.user is known.
+// See server/lib/staging.js and docs/ACCESS-CONTROL-MATRIX.md §6.
+app.addHook('onRequest', stagingContextHook);
 
 await app.register(registerVehicleRoutes, { prefix: '/api/vehicles' });
 await app.register(registerAgentRoutes,   { prefix: '/api/agents' });
@@ -300,6 +313,9 @@ await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 await app.register(registerDrilldownRoutes, { prefix: '/api/v1' });
 // MDM + maker-checker + provisional accrual (migrations 059-063).
 await app.register(registerGovernanceRoutes, { prefix: '/api/v1' });
+// The Admin Control Hub: one API over every outside party's portal access —
+// activate / block / archive / edit, feature toggles, sessions, audit. Admin only.
+await app.register(registerAccessRoutes, { prefix: '/api/v1/access' });
 // Fleet Partner app: blind-bid load board, own fleet, earnings.
 await app.register(registerVendorPortalRoutes, { prefix: '/api/v1' });
 // Customer app: post loads, see bids on own loads, accept, scoped tracking.

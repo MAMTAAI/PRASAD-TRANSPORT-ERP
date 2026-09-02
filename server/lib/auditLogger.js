@@ -24,6 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomUUID } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
+import { asSystem } from './staging.js';
 import { verifyToken, bearer } from './auth.js';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -165,7 +166,9 @@ export function registerAuditLogger(app) {
       const actor = actorOf(req);
       const action = `${req.method} ${ctx.entity ?? 'request'}`;
 
-      await query(
+      // The audit row is the system's fact about the request, not the party's
+      // write — so it runs outside the quarantine fence (staging.js asSystem).
+      await asSystem(() => query(
         `INSERT INTO audit_logs
            (request_id, actor_user_id, actor_driver_id, actor_name, actor_role,
             ip, user_agent, method, path, route, action, entity, entity_id,
@@ -182,7 +185,7 @@ export function registerAuditLogger(app) {
           ctx.before ? JSON.stringify(ctx.before) : null,
           after ? JSON.stringify(after) : (payloadFallback ? JSON.stringify(payloadFallback) : null),
           status, Date.now() - ctx.startedAt,
-        ]);
+        ]));
     } catch (err) {
       // Log where an operator will see it; never re-throw into the response
       // cycle, which has already completed.
@@ -198,8 +201,8 @@ export function registerAuditLogger(app) {
     try {
       const claims = req.user ?? verifyToken(bearer(req));
       if (!claims?.jti || isDegraded()) return;
-      await query(
-        'UPDATE auth_sessions SET last_seen_at = now() WHERE jti = $1::uuid', [claims.jti]);
+      await asSystem(() => query(
+        'UPDATE auth_sessions SET last_seen_at = now() WHERE jti = $1::uuid', [claims.jti]));
     } catch { /* liveness is best-effort */ }
   });
 }
