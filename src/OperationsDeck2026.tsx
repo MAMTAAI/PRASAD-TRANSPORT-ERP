@@ -20,6 +20,10 @@
 // ============================================================================
 import React, { useEffect, useState, useCallback } from 'react';
 import { API_BASE } from './lib/apiBase';
+// The same drawer Master Control's tiles open: rows straight from the metric
+// registry (server/lib/drilldownRegistry.js), paged, exportable as CSV, and
+// counted by the same query that lists them.
+import DrillDownViewer from './mastercontrol/DrillDownViewer';
 
 const API = API_BASE;
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -50,6 +54,23 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [at, setAt] = useState(null);
+  // A tile is a question; its drawer is the answer. `expected` is the number
+  // on the tile, so the drawer says so if its rows disagree with it.
+  const [drill, setDrill] = useState(null);
+  const [flash, setFlash] = useState(null);
+  const openTile = (metric, expected, panelId) => {
+    const el = panelId ? document.getElementById(panelId) : null;
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setFlash(panelId);
+      setTimeout(() => setFlash((f) => (f === panelId ? null : f)), 1800);
+    }
+    setDrill({ metric, expected });
+  };
+  const tileKeys = (fn) => ({
+    role: 'button', tabIndex: 0, onClick: fn,
+    onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } },
+  });
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -122,6 +143,12 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         .od-kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;font-weight:650;letter-spacing:-.02em;margin:6px 0 2px;}
         .od-kpi .v small{font-size:13px;color:var(--ink3);font-weight:500;}
         .od-kpi .s{font-size:11.5px;color:var(--ink3);}
+        .od-kpi.click{cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s;}
+        .od-kpi.click:hover,.od-kpi.click:focus-visible{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.25);outline:none;}
+        .od-kpi .go{position:absolute;right:12px;top:11px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);}
+        .od-kpi.click:hover .go{color:var(--ink2);}
+        .od-panel.flash{box-shadow:0 0 0 2px var(--violet),0 0 24px rgba(167,139,250,.35);transition:box-shadow .3s;}
+        .od-panel>header .m button{font:inherit;font-size:11px;cursor:pointer;background:none;border:0;color:var(--ink2);text-decoration:underline;padding:0;}
         .od-desk{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:16px;}
         .od-desk .t{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);font-weight:700;margin-right:6px;}
         .od-desk button{font:inherit;cursor:pointer;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface2);color:var(--ink2);padding:7px 12px;border-radius:10px;font-size:12.5px;font-weight:600;transition:.15s;}
@@ -202,23 +229,34 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         </div>
       )}
 
+      {/* EVERY TILE OPENS ITS ROWS — the same drawer as Master Control, and a
+          scroll to the panel beneath. The number on the tile is the count of
+          the rows the drawer lists; the drawer flags it if not. */}
       <section className="od-kpis">
-        <div className="od-kpi">
+        <div className="od-kpi click" title="Every open or under-review load, with live bids and L1"
+          {...tileKeys(() => openTile('market.loads_open', (L.open ?? 0) + (L.pending_review ?? 0), 'panel-board'))}>
+          <span className="go">rows ↗</span>
           <div className="l">Loads on the board</div>
-          <div className="v od-num">{loading && !ov ? '—' : (L.open ?? 0)} <small>open</small></div>
+          <div className="v od-num">{loading && !ov ? '—' : (L.open ?? 0) + (L.pending_review ?? 0)} <small>{L.open ?? 0} open</small></div>
           <div className="s">{L.pending_review ?? 0} awaiting review · {L.award_requested ?? 0} award requested · {L.awarded ?? 0} awarded</div>
         </div>
-        <div className="od-kpi gold">
+        <div className="od-kpi gold click" title="Every award request waiting for the desk"
+          {...tileKeys(() => openTile('market.award_requests', L.award_requested ?? 0, 'panel-award'))}>
+          <span className="go">rows ↗</span>
           <div className="l">Award requests — desk decides</div>
           <div className="v od-num">{loading && !ov ? '—' : (L.award_requested ?? 0)}</div>
           <div className="s">{awardReq.length ? `oldest ${when(awardReq[0]?.award_requested_at)}` : 'nothing waiting'}</div>
         </div>
-        <div className="od-kpi good">
+        <div className="od-kpi good click" title="Every open settlement, with the money at each stage"
+          {...tileKeys(() => openTile('market.settlements_open', S.committed ?? 0, 'panel-settle'))}>
+          <span className="go">rows ↗</span>
           <div className="l">Settlements in progress</div>
           <div className="v od-num">{loading && !ov ? '—' : inProgress.length} <small>{rL(S.committed)} committed</small></div>
           <div className="s">advance due {rL(S.advance_due)} · balance due {rL(S.balance_due)}</div>
         </div>
-        <div className="od-kpi sky">
+        <div className="od-kpi sky click" title="Every partner truck — active, pending, blocked, rejected"
+          {...tileKeys(() => openTile('market.fleet', (F.active ?? 0) + (F.pending ?? 0) + (F.blocked ?? 0) + (F.rejected ?? 0), 'panel-fleet'))}>
+          <span className="go">rows ↗</span>
           <div className="l">Market fleet</div>
           <div className="v od-num">{loading && !ov ? '—' : (F.active ?? 0)} <small>trucks active</small></div>
           <div className="s">{F.pending ?? 0} awaiting approval · {F.drivers_active ?? 0} market drivers · {P.vendors_portal ?? 0}/{P.vendors_total ?? 0} partners on portal</div>
@@ -237,8 +275,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
       </section>
 
       <div className="od-grid">
-        <section className="od-panel">
-          <header><h2>Award requests</h2><span className="m">customer chose a bid · partner pressed Book-Now</span></header>
+        <section className={'od-panel' + (flash === 'panel-award' ? ' flash' : '')} id="panel-award">
+          <header><h2>Award requests</h2><span className="m">customer chose a bid · partner pressed Book-Now · <button onClick={() => openTile('market.award_requests', L.award_requested ?? 0, null)}>all rows ↗</button></span></header>
           <div className="od-body od-scroll">
             {awardReq.length === 0 ? <div className="od-empty">{loading && !ov ? 'Loading…' : 'Nothing waiting for a decision.'}</div> : (
               <table className="od-tb"><thead><tr><th>Load</th><th>Requested</th><th className="r">Offer</th></tr></thead>
@@ -253,8 +291,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
           </div>
         </section>
 
-        <section className="od-panel">
-          <header><h2>Load board</h2><span className="m">{L.open ?? 0} open · L1 is staff-only</span></header>
+        <section className={'od-panel' + (flash === 'panel-board' ? ' flash' : '')} id="panel-board">
+          <header><h2>Load board</h2><span className="m">{L.open ?? 0} open · L1 is staff-only · <button onClick={() => openTile('market.loads_open', (L.open ?? 0) + (L.pending_review ?? 0), null)}>all rows ↗</button></span></header>
           <div className="od-body od-scroll">
             {board.length === 0 ? <div className="od-empty">{loading && !ov ? 'Loading…' : 'No load posted. Customers post from their app; staff from Bazaar Admin.'}</div> : (
               <table className="od-tb"><thead><tr><th>Load</th><th>Bids</th><th className="r">L1 / Book-Now</th><th className="r">Closes</th></tr></thead>
@@ -273,8 +311,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
       </div>
 
       <div className="od-grid">
-        <section className="od-panel">
-          <header><h2>Settlements in progress</h2><span className="m">award → confirm → truck → advance → POD → balance</span></header>
+        <section className={'od-panel' + (flash === 'panel-settle' ? ' flash' : '')} id="panel-settle">
+          <header><h2>Settlements in progress</h2><span className="m">award → confirm → truck → advance → POD → balance · <button onClick={() => openTile('market.settlements_open', S.committed ?? 0, null)}>all rows ↗</button></span></header>
           <div className="od-body od-scroll">
             {inProgress.length === 0 ? <div className="od-empty">{loading && !ov ? 'Loading…' : 'No settlement open. One opens the moment the desk approves an award.'}</div> : (
               <table className="od-tb"><thead><tr><th>Load · partner</th><th>Stage</th><th className="r">Awarded</th></tr></thead>
@@ -315,10 +353,10 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
           partner truck, pending approvals first, with its partner, class,
           driver and whether it is on a load. Empty today, by the numbers. */}
       <div className="od-grid">
-        <section className="od-panel">
+        <section className={'od-panel' + (flash === 'panel-fleet' ? ' flash' : '')} id="panel-fleet">
           <header>
             <h2>Partner trucks — market fleet</h2>
-            <span className="m">{F.active ?? 0} active · {F.pending ?? 0} pending · {F.rejected ?? 0} rejected</span>
+            <span className="m">{F.active ?? 0} active · {F.pending ?? 0} pending · {F.rejected ?? 0} rejected · <button onClick={() => openTile('market.fleet', (F.active ?? 0) + (F.pending ?? 0) + (F.blocked ?? 0) + (F.rejected ?? 0), null)}>all rows ↗</button></span>
           </header>
           <div className="od-body od-scroll">
             {(F.trucks ?? []).length === 0 ? (
@@ -363,6 +401,10 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         </div>
         <button onClick={() => onOpenConsole?.('BAZAAR_ADMIN')}>Open Bazaar Admin →</button>
       </div>
+
+      {drill && (
+        <DrillDownViewer metric={drill.metric} expected={drill.expected} filterQs="" onClose={() => setDrill(null)} />
+      )}
 
       <footer className="od-foot">
         <span>{at ? `Live · updated ${at.toLocaleTimeString('en-IN')}` : 'Loading…'} · GET /api/v1/bazaar/overview</span>

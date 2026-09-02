@@ -59,6 +59,76 @@ const typeOnly = (...ns) =>
  *  link                      how a row opens its own record
  */
 export const METRICS = {
+  // ── MARKET FLEET — the Command Deck's tiles (2-Sep-2026) ──────────────────
+  // filter NONE: a bazaar load carries no company / branch / owner / fleet,
+  // so the four positional parameters are typed and ignored. The count the
+  // deck shows is the count of these rows, by construction, like every other
+  // metric here. No `headline`: /dashboard/v5 is the OWN fleet's payload and
+  // has nothing to compare against — _selfcheck reports RUNS_OK.
+  'market.loads_open': {
+    hub: 'market', label: 'Loads on the board', unit: 'loads',
+    from: 'bazaar_loads l',
+    where: "l.status IN ('OPEN', 'PENDING_REVIEW')",
+    filter: 'NONE',
+    select: `l.load_id AS id, l.load_id, l.status, l.customer_name, l.origin, l.destination,
+             l.material, l.weight, l.vehicle_type, l.loading_date, l.target_rate, l.book_now_rate,
+             l.bid_close_at,
+             (SELECT count(*) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING')::int AS live_bids,
+             (SELECT min(b.bid_amount) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING') AS l1_amount,
+             l.posted_by, l.created_at`,
+    order: 'l.created_at DESC',
+    measure: null,
+    link: { module: 'OPERATION', screen: 'BAZAAR_ADMIN', idField: 'id', labelField: 'load_id' },
+  },
+
+  'market.award_requests': {
+    hub: 'market', label: 'Award requests — desk decides', unit: 'requests',
+    from: 'bazaar_loads l LEFT JOIN bazaar_bids b ON b.id = l.award_requested_bid_id',
+    where: "l.status = 'AWARD_REQUESTED'",
+    filter: 'NONE',
+    select: `l.load_id AS id, l.load_id, l.customer_name, l.origin, l.destination, l.material, l.loading_date,
+             l.award_requested_by AS requested_by, l.award_requested_at AS requested_at,
+             b.vendor_name, b.bid_amount, b.remarks, l.target_rate, l.book_now_rate`,
+    order: 'l.award_requested_at NULLS LAST',
+    measure: null,
+    link: { module: 'OPERATION', screen: 'BAZAAR_ADMIN', idField: 'id', labelField: 'load_id' },
+  },
+
+  'market.settlements_open': {
+    hub: 'market', label: 'Settlements in progress', unit: 'INR',
+    from: `bazaar_settlements s
+             LEFT JOIN vendors v ON v.id = s.vendor_id
+             LEFT JOIN bazaar_loads l ON l.load_id = s.load_id
+             LEFT JOIN market_vehicles mv ON mv.id = s.market_vehicle_id
+             LEFT JOIN companies co ON co.id = s.company_id`,
+    where: "s.status NOT IN ('SETTLED', 'CANCELLED')",
+    filter: 'NONE',
+    select: `s.id::text AS id, s.load_id, s.status, v.vendor_name, mv.registration_no,
+             l.origin, l.destination, l.customer_name,
+             s.awarded_amount, s.advance_pct, s.advance_amount, s.balance_amount, s.deposit_amount,
+             co.company_name AS firm, s.confirm_deadline, s.vendor_confirmed_at,
+             s.pod_submitted_at, s.pod_verified_at, s.created_at`,
+    order: 's.created_at DESC',
+    measure: 's.awarded_amount',
+    link: { module: 'OPERATION', screen: 'BAZAAR_ADMIN', idField: 'load_id', labelField: 'load_id' },
+  },
+
+  'market.fleet': {
+    hub: 'market', label: 'Market fleet — partner trucks', unit: 'trucks',
+    from: `market_vehicles mv
+             LEFT JOIN vendors v ON v.id = mv.vendor_id
+             LEFT JOIN market_drivers md ON md.id = mv.market_driver_id`,
+    where: 'TRUE',
+    filter: 'NONE',
+    select: `mv.id::text AS id, mv.registration_no, mv.vendor_agency, mv.system_status,
+             mv.vehicle_class, mv.capacity, COALESCE(md.name, mv.driver_name) AS driver, mv.driver_mobile,
+             v.mobile_no AS partner_mobile, mv.rc_expiry, mv.ins_expiry, mv.fit_expiry, mv.puc_expiry,
+             mv.np_expiry, mv.reject_reason, mv.approved_at, mv.created_at`,
+    order: "(mv.system_status = 'PENDING APPROVAL') DESC, mv.created_at DESC",
+    measure: null,
+    link: { module: 'OPERATION', screen: 'MARKET_VEHICLE', idField: 'id', labelField: 'registration_no' },
+  },
+
   // ── OPERATIONS ────────────────────────────────────────────────────────────
   'ops.active_trips': {
     hub: 'ops', label: 'Active Trips', unit: 'trips',
