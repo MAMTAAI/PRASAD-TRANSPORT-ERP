@@ -218,6 +218,14 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       held_for_review: Number(summary.held_for_review || 0),
       ac4,
       ac4_error: summary.ac4_error || null,
+      // The daily loading cycle's own tally: AC4 documents written into
+      // iocl_ac4_loads this tick, seen before, and refused. Never trips.
+      ac4_new: Number(summary.ac4_new || 0),
+      ac4_already: Number(summary.ac4_already || 0),
+      ac4_failed: Number(summary.ac4_failed || 0),
+      // AC5s inserted as their own trip although another AC5 already sat on
+      // the same truck-day (two deliveries, or two runs). Worth a glance.
+      second_invoice: Number(summary.second_invoice || 0),
     };
 
     logLine({
@@ -229,7 +237,10 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       mailboxes_failed: failed,
       insert_failed: insertFailed,
       ac4_seen: ac4Seen,
+      ac4_new: Number(summary.ac4_new || 0),
+      ac4_failed: Number(summary.ac4_failed || 0),
       ac4_error: summary.ac4_error || null,
+      second_invoice: Number(summary.second_invoice || 0),
       window: summary.window,
     });
     return { ...summary, seconds: secs, kl_imported: kl, enrich };

@@ -117,29 +117,18 @@ export default function LoadingActivity({ activity, offline }) {
   // fortnight. Kept separate from deadBoxes because the two send you to
   // different places: one needs a Google login, the other needs the box.
   const refused = a?.sync?.insert_failed ?? 0;
-  // ── THE LOADING THIS REGISTER CANNOT SEE YET ─────────────────────────────
-  // IOCL sends two documents per delivery. The AC4 (its tax invoice to the
-  // consignee) lands within the hour of the truck leaving the bay; the AC5
-  // freight invoice — the ONLY thing the importer writes — comes hours or
-  // days later, and for many loads much later: 77 AC4 mails to 32 AC5 mails
-  // between 15-Aug and 2-Sep-2026. So on 2-Sep this panel said "no loading
-  // today" while that morning's AC4 sat in the inbox, and the owner, who knew
-  // a truck had loaded, concluded the scanner was skipping read mail. It was
-  // not; it was reading the wrong document for the question "did we load".
-  //
-  // Shown as EVIDENCE, with the truck and the customer, and never as an entry:
-  // an AC4 carries no freight, may put two products on one truck, and what row
-  // it should become is the office's decision. Today's first, yesterday's
-  // under their date.
-  const ac4 = a?.sync?.ac4_recent ?? [];
-  const todayIso = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
-  const ac4Today = ac4.filter((l) => l.date === todayIso);
-  const ac4Earlier = ac4.filter((l) => l.date !== todayIso);
-  const ac4Kl = (list) => list.reduce((s, l) => s + Number(l.qty_kl || 0), 0);
-  const productLabel = (p) => (Array.isArray(p) && p.length ? p.map((x) => String(x).replace(/-BSVI$/i, '')).join('+') : '');
+  // ── THE DAILY LOADING REGISTER (AC4) ─────────────────────────────────────
+  // Two documents, two processes, never merged (owner's rule, 2-Sep-2026).
+  // The AC4 — IOCL's tax invoice to the consignee, mailed within the hour of
+  // the truck leaving the bay — is DAILY LOADING and has its own table,
+  // iocl_ac4_loads, that the server reads for the panel's day. The AC5 is
+  // the fortnightly FREIGHT document and is what the trip tiles are made of.
+  // 77 AC4s to 32 AC5s between 15-Aug and 2-Sep: on a day with eight retail
+  // loads, trips alone said "nothing today". So this list is the panel's
+  // answer to "what loaded today", and the tiles answer "what got billed".
+  const ac4Day = a?.ac4?.day ?? [];
+  const ac4Qty = ac4Day.reduce((s, l) => s + Number(l.qty_kl || 0), 0);
+  const ac4Error = a?.ac4?.error ?? null;
 
   return (
     <GlassPanel className="flex flex-col overflow-hidden max-h-[340px] border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]">
@@ -230,7 +219,7 @@ export default function LoadingActivity({ activity, offline }) {
         <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
           <AlertTriangle size={12} className="mt-px shrink-0 text-amber-400" />
           <p className="text-[10px] leading-snug text-amber-200">
-            Aaj koi loading entry nahi aayi. Neeche <b>{dayLabel(a.day)}</b> ka din dikha rahe hain
+            Aaj na koi AC4 loading aayi, na koi AC5 trip. Neeche <b>{dayLabel(a.day)}</b> ka din dikha rahe hain
             {gap ? ` — ${gap} din purana` : ''}.
             {a.last_7d_count <= 1 && ' Poore hafte mein bhi lagbhag kuch nahi aaya — Gmail sync check karein.'}
             {/* "padhe ja chuke hain" was read on 2-Sep as "the mails are
@@ -243,52 +232,60 @@ export default function LoadingActivity({ activity, offline }) {
         </div>
       )}
 
-      {/* EVIDENCE OF A LOADING THAT THE REGISTER DOES NOT HAVE YET. Amber, not
-          red: nothing is broken, but a truck has loaded and nobody typing in
-          the office can see it on this screen without opening Gmail. */}
-      {ac4.length > 0 && (
-        <div className="mx-2.5 mt-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
-          <div className="flex items-start gap-1.5">
-            <AlertTriangle size={12} className="mt-px shrink-0 text-amber-400" />
-            <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-wide text-amber-300">
-                {ac4Today.length > 0
-                  ? `Aaj ${ac4Today.length} gaadi load hui (${kl(ac4Kl(ac4Today))}) — register mein abhi nahi`
-                  : `Kal ${ac4Earlier.length} gaadi load hui — register mein abhi nahi`}
-              </p>
-              <p className="text-[10px] leading-snug text-amber-200">
-                IOCL ki AC4 delivery invoice mail se pata chala. Register AC5 freight invoice se banta hai, jo
-                IOCL baad mein bhejta hai — aate hi entry apne aap ban jaayegi. Tab tak yeh saboot hai, entry nahi.
-              </p>
-            </div>
+      {/* THE DAY'S LOADINGS — the AC4 register. Not a warning and not amber:
+          this is the panel's main answer to "what loaded today". The trip
+          tiles below are the other process, fortnightly billing (AC5). */}
+      {ac4Day.length > 0 && (
+        <div className="mx-2.5 mt-1.5 rounded-lg border border-teal-500/30 bg-teal-500/[0.07] px-2 py-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[9px] font-black uppercase tracking-wider text-teal-300">
+              {a.is_today ? 'Aaj' : dayLabel(a.day)} load hui — AC4 · {ac4Day.length} gaadi · {kl(ac4Qty)}
+            </p>
+            <span className="shrink-0 text-[8.5px] text-teal-400/60">daily loading · billing AC5 se</span>
           </div>
-          <ul className="mt-1 space-y-0.5 pl-[18px]">
-            {[...ac4Today, ...ac4Earlier].slice(0, 8).map((l) => (
-              <li key={l.sap_no} className="flex items-center gap-1.5 text-[9.5px] text-amber-100/90">
+          <ul className="mt-1 space-y-0.5">
+            {ac4Day.slice(0, 8).map((l) => (
+              <li key={l.sap_no} className="flex items-center gap-1.5 text-[9.5px] text-slate-200">
                 <span className="font-bold tabular-nums">{l.vehicle_no}</span>
-                <span className="text-amber-300/80">{kl(l.qty_kl)}{productLabel(l.products) ? ` ${productLabel(l.products)}` : ''}</span>
-                {l.consignee && <span className="truncate text-amber-200/70">→ {l.consignee}</span>}
-                <span className="ml-auto shrink-0 tabular-nums text-amber-300/70">
-                  {l.date !== todayIso ? `${dayLabel(l.date)} ` : ''}{l.time ?? ''}
-                </span>
-                <span className={`shrink-0 rounded border px-1 text-[8.5px] font-bold ${COMPANY_TONE[shortCompany(l.transporter || l.mailbox)] ?? NEUTRAL_TONE}`}>
-                  {shortCompany(l.transporter || l.mailbox)}
+                <span className="text-teal-300/80">{kl(l.qty_kl)}{l.products ? ` ${l.products}` : ''}</span>
+                {l.consignee && <span className="truncate text-slate-400">→ {l.consignee}</span>}
+                <span className="ml-auto shrink-0 tabular-nums text-slate-500">{l.time ?? ''}</span>
+                <span className={`shrink-0 rounded border px-1 text-[8.5px] font-bold ${COMPANY_TONE[shortCompany(l.company)] ?? NEUTRAL_TONE}`}>
+                  {shortCompany(l.company)}
                 </span>
               </li>
             ))}
           </ul>
-          {ac4.length > 8 && (
-            <p className="mt-0.5 pl-[18px] text-[9px] text-amber-300/60">…aur {ac4.length - 8} — Gmail mein “AC4 Inv” dhundhein.</p>
+          {ac4Day.length > 8 && (
+            <p className="mt-0.5 text-[9px] text-slate-500">…aur {ac4Day.length - 8}</p>
           )}
+        </div>
+      )}
+
+      {ac4Error && (
+        <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5">
+          <AlertTriangle size={12} className="mt-px shrink-0 text-red-400" />
+          <p className="text-[10px] leading-snug text-red-200">AC4 loading register padha nahi ja saka: {ac4Error}</p>
         </div>
       )}
 
       {/* THE SPLIT — the whole reason the panel exists. Two tiles rather than a
           stacked list, because the comparison is the information. */}
-      <div className="grid grid-cols-2 gap-1.5 px-2.5 pt-1.5 shrink-0">
+      <div className="grid grid-cols-3 gap-1.5 px-2.5 pt-1.5 shrink-0">
+        {/* THE THIRD TILE IS THE OTHER PROCESS. Loading (AC4, daily) on the
+            left; the two trip doors (AC5 mail, staff) on the right. */}
+        <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-2 py-1.5">
+          <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-teal-300">
+            <PackageOpen size={11} /> Loading — AC4
+          </div>
+          <div className="mt-0.5 text-[17px] font-black leading-none text-teal-200">
+            {a ? ac4Day.length : '--'}
+          </div>
+          <div className="text-[9.5px] text-teal-400/70">{a ? kl(ac4Qty) : ''}</div>
+        </div>
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5">
           <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-emerald-300">
-            <Bot size={11} /> Auto — Email
+            <Bot size={11} /> Trip — AC5
           </div>
           <div className="mt-0.5 text-[17px] font-black leading-none text-emerald-200">
             {a ? a.email_count : '--'}

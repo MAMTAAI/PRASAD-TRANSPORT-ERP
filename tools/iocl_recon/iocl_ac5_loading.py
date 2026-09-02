@@ -83,6 +83,32 @@ def api_base() -> str:
     return "http://127.0.0.1:3300"
 
 
+def api_headers() -> dict:
+    """The importer is a machine, not a person: it identifies with the shared
+    service secret (see the note at the insert stage)."""
+    service_token = os.environ.get("ERP_SERVICE_TOKEN", "")
+    headers = {"Content-Type": "application/json"}
+    if service_token:
+        headers["Authorization"] = f"Bearer {service_token}"
+        headers["X-Service-Name"] = "iocl-ac5-importer"
+    return headers
+
+
+def post_trip(body: dict) -> dict:
+    """POST /api/v1/ops/trips. Raises with the API's own detail on a 4xx/5xx,
+    because 'HTTP Error 400' alone has cost a day of guessing before."""
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(f"{api_base()}/api/v1/ops/trips", method="POST",
+                                 data=json.dumps(body).encode(), headers=api_headers())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read()[:200].decode("utf-8", "ignore")
+        raise RuntimeError(f"HTTP {e.code}: {detail}") from None
+
+
 def fetch(window_from: date, window_to: date, out_dir: Path, limit: Optional[int]) -> dict:
     """Pull AC5 PDFs from every configured mailbox. Missing token = skip, not fail."""
     from iocl_bill_automation import fetch_bills_from_gmail
@@ -142,7 +168,9 @@ def load_existing(conn) -> dict:
             by_invoice.setdefault(str(inv), code)
             by_inv_veh.setdefault((str(inv), veh), code)
         if veh and ld:
-            by_shape.setdefault((veh, ld, str(qty)), code)
+            # The shape index carries the trip's invoice too, because WHICH
+            # trip a shape hits decides what the new invoice is (see classify).
+            by_shape.setdefault((veh, ld, str(qty)), {"code": code, "inv": str(inv) if inv else None})
     cur.close()
     if len(rows) and not by_invoice:
         raise RuntimeError(
@@ -164,7 +192,23 @@ def classify(load: Ac5Load, existing: dict) -> tuple[str, Optional[str]]:
     if veh and load.loading_date and qty:
         hit = existing["by_shape"].get((veh, load.loading_date, qty))
         if hit:
-            return "DUP_SHAPE", hit
+            # Same truck, date and quantity as a trip already in the register.
+            # WHICH trip decides what this invoice is:
+            #
+            #  - the trip carries a DIFFERENT invoice: IOCL issued two AC5s for
+            #    one truck-day. On 29-Aug-2026 that was a second 40 KL run
+            #    (shipment 120195452, three hours after 120130253); on 13-Aug
+            #    two 20 KL deliveries under one shipment (119902136). Either
+            #    way this is a billable document on no trip -- the AC5 is the
+            #    unit of fortnightly billing -- so it is a NEW trip, and the
+            #    sibling's code travels with it into the remarks. Holding these
+            #    for a person hid a real 40 KL run for four days.
+            #
+            #  - the trip carries NO invoice: a person typed it, and whether
+            #    this AC5 is that movement is still their call. HELD.
+            if hit["inv"] and hit["inv"] != inv:
+                return "NEW", hit["code"]
+            return "DUP_SHAPE", hit["code"]
     return "NEW", None
 
 
@@ -178,6 +222,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--apply", action="store_true", help="actually insert (default is a dry run)")
     ap.add_argument("--ac5-dir", type=Path, default=AC5_DIR)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--ac4-days", type=int, default=2,
+                    help="days of AC4 loading mail to sweep into iocl_ac4_loads (default 2: today and yesterday)")
     ap.add_argument("--json", type=Path, default=REPO / "reports" / "iocl_recon" / "ac5_loading.json")
     args = ap.parse_args(argv)
 
@@ -208,24 +254,26 @@ def main(argv: list[str]) -> int:
         mailboxes = fetch(args.window_from, args.window_to, args.ac5_dir, args.limit) or {}
         print()
 
-    # AC4 -- EVIDENCE OF A LOADING, NOT A ROW. IOCL mails the consignee's tax
-    # invoice (AC4) within the hour of the truck leaving the bay, and the
-    # freight invoice (AC5, the only thing this tool imports) hours or days
-    # later -- 77 AC4s to 32 AC5s between 15-Aug and 2-Sep-2026. On 2-Sep the
-    # panel said "no loading today" while the morning's AC4 sat in the inbox.
-    # Carried out to the panel so a person can see the truck loaded; never
-    # inserted, because an AC4's trip semantics are the office's call. Wrapped
-    # so that nothing here can ever cost the AC5 import.
+    # ── AC4: THE DAILY LOADING CYCLE ─────────────────────────────────────────
+    # IOCL mails two documents per delivery and the owner has ruled (2026-09-02)
+    # that they are two different processes. The AC4 -- the consignee's tax
+    # invoice, within the hour of the truck leaving the bay -- is DAILY LOADING
+    # and goes into its own register, iocl_ac4_loads, one row per document.
+    # It is never a trip and carries no freight. The AC5 handled below is the
+    # fortnightly FREIGHT document and is the only thing that becomes a trip.
+    # The two stages share this ten-minute tick and nothing else: an AC4
+    # failure cannot cost the AC5 import, and the AC5 never looks at AC4 rows.
     ac4: dict = {}
     ac4_error = None
+    ac4_counts = {"new": 0, "already": 0, "failed": 0}
     if not args.no_fetch:
-        print("=== AC4 delivery invoices (informational)")
+        print("=== AC4 daily loading (mail -> iocl_ac4_loads)")
         try:
-            from iocl_ac4_seen import seen_ac4, AC4_DAYS
-            ac4 = seen_ac4(MAILBOXES, args.window_to)
+            from iocl_ac4_seen import seen_ac4
+            ac4 = seen_ac4(MAILBOXES, args.window_to, days=args.ac4_days)
             for label, v in ac4.items():
                 print(f"  {label:<20} {v.get('status')}  downloaded {v.get('downloaded', 0)}, "
-                      f"last {AC4_DAYS} days: {len(v.get('loads', []))} "
+                      f"last {args.ac4_days} days: {len(v.get('loads', []))} "
                       f"({sum(1 for l in v.get('loads', []) if l.get('ok'))} readable)")
         except Exception as exc:                          # noqa: BLE001
             ac4_error = str(exc)[:200]
@@ -263,6 +311,25 @@ def main(argv: list[str]) -> int:
     print(f"  existing trips indexed: {len(existing['by_shape'])} by shape, "
           f"{len(existing['by_invoice'])} by invoice\n")
 
+    # The AC4 loads go into their own table now that there is a connection.
+    # ON CONFLICT DO NOTHING on the SAP number; the dry run writes nothing.
+    if ac4 and not ac4_error:
+        try:
+            from iocl_ac4_seen import register_ac4
+            ac4_loads = [l for v in ac4.values() for l in (v or {}).get("loads", [])]
+            ac4_counts = register_ac4(conn, ac4_loads, MAILBOXES, apply=args.apply)
+            print(f"=== AC4 loading register: {'' if args.apply else 'DRY RUN - '}"
+                  f"new {ac4_counts['new']}, already {ac4_counts['already']}, failed {ac4_counts['failed']}")
+            for l in ac4_loads:
+                if l.get("ok") and l.get("action") in ("new", "dry", "failed"):
+                    print(f"      {l.get('date')} {l.get('time') or '--:--'}  {str(l.get('vehicle_no')):<13} "
+                          f"{str(l.get('qty_kl')):>8} KL  {(l.get('consignee') or '')[:30]:<30} {l.get('action')}"
+                          f"{(' ' + l['error']) if l.get('error') else ''}")
+            print()
+        except Exception as exc:                          # noqa: BLE001
+            ac4_error = str(exc)[:200]
+            print(f"  AC4 register failed (AC5 import unaffected): {ac4_error}\n")
+
     print("=== deduplicate")
     buckets: dict[str, list] = {"NEW": [], "DUP_INVOICE": [], "DUP_INVOICE_VEHICLE": [], "DUP_SHAPE": []}
     for load in parsed:
@@ -276,10 +343,17 @@ def main(argv: list[str]) -> int:
             existing["by_invoice"][inv] = "(this run)"
             existing["by_inv_veh"][(inv, veh)] = "(this run)"
             if load.qty_kl is not None:
-                existing["by_shape"][(veh, load.loading_date, str(round(load.qty_kl, 3)))] = "(this run)"
+                existing["by_shape"].setdefault(
+                    (veh, load.loading_date, str(round(load.qty_kl, 3))), {"code": "(this run)", "inv": inv})
 
     for k in ("DUP_INVOICE", "DUP_INVOICE_VEHICLE", "DUP_SHAPE", "NEW"):
         print(f"  {k:<20} {len(buckets[k])}")
+    second = [(l, t) for l, t in buckets["NEW"] if t]
+    if second:
+        print(f"  {'  of which 2nd inv':<20} {len(second)}  (another AC5 already sits on the same truck-day)")
+        for load, t in second[:10]:
+            print(f"      inv {load.doc_no}  {load.vehicle_no}  {load.loading_date} {load.loading_time or ''}  "
+                  f"{load.qty_kl} KL  sibling {t}  shipment {load.shipment_no or '?'}")
     if buckets["DUP_SHAPE"]:
         print("\n  DUP_SHAPE - same truck, date and quantity as an existing trip that has")
         print("  no invoice number recorded. Not inserted. Attaching the invoice to these")
@@ -299,9 +373,9 @@ def main(argv: list[str]) -> int:
         print("  nothing new to insert.")
     elif not args.apply:
         print(f"  DRY RUN - {len(buckets['NEW'])} would be inserted:")
-        for load, _ in buckets["NEW"][:15]:
+        for load, sibling in buckets["NEW"][:15]:
             print(f"      {load.vehicle_no}  {load.loading_date}  {load.qty_kl} {load.unit or '?'}  "
-                  f"{load.product}  inv {load.doc_no}")
+                  f"{load.product}  inv {load.doc_no}{f'  (2nd inv, see {sibling})' if sibling else ''}")
     else:
         import urllib.request
         base = api_base()
@@ -330,7 +404,7 @@ def main(argv: list[str]) -> int:
                   "is running with no service secret configured.")
 
         done, failed = 0, []
-        for load, _ in buckets["NEW"]:
+        for load, sibling in buckets["NEW"]:
             src = load_source(load)
             company = next((mb["company"] for mb in MAILBOXES
                             if mb["label"].replace(" ", "_") in src),
@@ -361,16 +435,22 @@ def main(argv: list[str]) -> int:
                 "consignee_name": load.consignee_name,
                 "status": "IN_TRANSIT",
             }
-            req = urllib.request.Request(f"{base}/api/v1/ops/trips", method="POST",
-                                         data=json.dumps(body).encode(),
-                                         headers=headers)
+            if sibling:
+                # Two AC5s on one truck-day. Say so on the row, with the paper
+                # trail a person needs to check it: the other trip, IOCL's
+                # shipment and delivery numbers, and the loading time.
+                body["remarks"] = (
+                    f"AC5 {load.doc_no}: 2nd invoice for {load.vehicle_no} on {load.loading_date}"
+                    f" (see {sibling}); shipment {load.shipment_no or '?'},"
+                    f" delivery {load.delivery_no or '?'}, loaded {load.loading_time or '?'}")[:500]
             try:
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    created = json.loads(r.read())
-                print(f"      {created.get('trip_code')}  {load.vehicle_no}  {load.qty_kl} {load.unit or '?'}  inv {load.doc_no}")
+                created = post_trip(body)
+                trip = created.get("trip") or created
+                print(f"      {trip.get('trip_code')}  {load.vehicle_no}  {load.qty_kl} {load.unit or '?'}  "
+                      f"inv {load.doc_no}{f'  (2nd inv, see {sibling})' if sibling else ''}")
                 done += 1
             except Exception as exc:                  # noqa: BLE001
-                failed.append((load.doc_no, str(exc)[:90]))
+                failed.append((load.doc_no, str(exc)[:160]))
         print(f"  inserted {done}, failed {len(failed)}")
         inserted_count = done
         insert_failed = failed
@@ -422,6 +502,10 @@ def main(argv: list[str]) -> int:
         # of the AC4 sweep is its own field; it must not colour the AC5 verdict.
         "ac4": ac4,
         "ac4_error": ac4_error,
+        "ac4_new": ac4_counts["new"],
+        "ac4_already": ac4_counts["already"],
+        "ac4_failed": ac4_counts["failed"],
+        "second_invoice": len([1 for _, t in buckets["NEW"] if t]),
     }))
     return 0
 

@@ -16,11 +16,14 @@ the same document, not the same day, and not the same count:
 
 So on 2-Sep-2026 the owner looked at "Today's Loading Activity", saw zero, and
 knew a truck had loaded that morning -- because the AC4 was sitting in the
-inbox. The panel was right about AC5s and wrong about the day. This module
-makes the AC4 visible as EVIDENCE OF A LOADING, and deliberately nothing more:
-it never inserts a trip. An AC4 carries no freight, may list two products on
-one truck, and the ERP's row semantics for it are a decision for the office
-(see the surface-don't-autofix rule). It is a worklist line, not a record.
+inbox. The panel was right about AC5s and wrong about the day.
+
+THE OWNER'S RULE (2026-09-02, afternoon): the two documents are two different
+processes and are never merged. The AC4 is DAILY LOADING -- it goes into its
+own register, iocl_ac4_loads (migration 125), one row per document keyed on
+the SAP entry number, and it feeds "Today's Loading Activity". It is never a
+trip and carries no freight. The AC5 is FORTNIGHTLY FREIGHT -- it alone
+becomes a trips row, in iocl_ac5_loading.py, and it never looks in here.
 
 Read-only against Gmail, downloads into uploads/iocl_ac4/<mailbox>/ (gitignored
 with the rest of uploads/), parses only the last few days' files, and returns a
@@ -28,9 +31,11 @@ list the sync runner carries to the dashboard.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pdfplumber  # noqa: E402
 
+import iocl_bill_parser as billspec  # noqa: E402
 from iocl_ac5_parser import _date, _dec, norm_vehicle  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
@@ -91,6 +97,10 @@ def parse_ac4(path: Path) -> dict:
         out["consignee"] = m.group(2).strip()
     if m := re.search(r"Name\s*&\s*Address\s+(.+?)\s+RC\s+Office", text, re.I):
         out["loading_point"] = m.group(1).strip()
+    # "Code 7R01 (CIN:...)" -- the supplying location's SAP plant code, the same
+    # one the AC5 carries and the register keys its loading points on.
+    if m := re.search(r"\bCode\s+([A-Z0-9]{4})\s*\(CIN", text):
+        out["loading_point_code"] = m.group(1)
 
     # Item lines: "10 50700 HSD-BSVI 12.000 KL 2710 19 44*" -- one per product
     # compartment set. A retail-outlet AC4 routinely carries EBMS + HSD on the
@@ -113,6 +123,99 @@ def parse_ac4(path: Path) -> dict:
     return out
 
 
+def product_type_for(products: list[str]) -> str:
+    """The register's own product vocabulary. 361 rows say "MS + HSD (Part
+    Load)", 41 say "MS", 10 say "HSD (Diesel)" -- an AC4 must land in the
+    same words or the product filters split one fleet into two. EBMS is
+    ethanol-blended motor spirit, which the office has only ever called MS."""
+    kinds: set[str] = set()
+    for p in products or []:
+        u = str(p).upper()
+        if u.startswith("HSD"):
+            kinds.add("HSD")
+        elif u.startswith(("EBMS", "MS", "XP", "XTRA")):
+            kinds.add("MS")
+        else:
+            kinds.add(str(p))
+    if kinds == {"MS", "HSD"}:
+        return "MS + HSD (Part Load)"
+    if kinds == {"HSD"}:
+        return "HSD (Diesel)"
+    if kinds == {"MS"}:
+        return "MS"
+    return " + ".join(sorted(kinds)) or "Other"
+
+
+def company_for(transporter: Optional[str], mailboxes: list[dict], fallback: str) -> str:
+    """The firm IOCL printed on the document, resolved to the register's own
+    company string. The document outranks the mailbox: a Jaiswal AC4 forwarded
+    into the Prasad inbox is still a Jaiswal load."""
+    t = (transporter or "").upper()
+    for mb in mailboxes:
+        key = mb["label"].split()[0].upper()          # PRASAD / JAISWAL
+        if key and key in t:
+            return mb["company"]
+    if "GAUTAM" in t:
+        return "M/S GAUTAM PRASAD"
+    return fallback
+
+
+def register_ac4(conn, loads: list[dict], mailboxes: list[dict], apply: bool) -> dict:
+    """Write AC4 loads into iocl_ac4_loads -- the loading register, NOT trips.
+
+    One row per document, ON CONFLICT (sap_no) DO NOTHING, so the ten-minute
+    re-read of the same mail writes nothing twice. Each load is stamped with
+    what became of it (`action`: new / already / failed / dry) so the caller
+    can report per document rather than per run.
+    """
+    counts = {"new": 0, "already": 0, "failed": 0}
+    todo = [l for l in loads if l.get("ok")]
+    if not todo:
+        return counts
+    cur = conn.cursor()
+    for l in todo:
+        sap = str(l["sap_no"])
+        mailbox_company = next((mb["company"] for mb in mailboxes if mb["label"] == l.get("mailbox")), None)
+        company = company_for(l.get("transporter"), mailboxes, mailbox_company or "M/S PRASAD TRANSPORT")
+        # "Bongaigaon RC Office (7R01)" -- the shape the register's 357 typed
+        # rows use for the same place, so a filter on loading point finds both.
+        lp = (f"{l['loading_point']} RC Office ({l['loading_point_code']})"
+              if l.get("loading_point") and l.get("loading_point_code")
+              else (l.get("loading_point") or l.get("loading_point_code")))
+        row = (sap, l["date"], l.get("time"), l["vehicle_no"], l.get("transporter"),
+               l.get("contractor_code"), company, lp, l.get("loading_point_code"),
+               l.get("consignee_code"), l.get("consignee"),
+               product_type_for(l.get("products", [])), json.dumps(l.get("items", [])),
+               Decimal(l["qty_kl"]), l.get("mailbox"), l.get("pdf_name"), l.get("received"))
+        l["company"] = company
+        if not apply:
+            l["action"] = "dry"
+            counts["new"] += 1
+            continue
+        try:
+            cur.execute(
+                """INSERT INTO iocl_ac4_loads
+                       (sap_no, loading_date, loading_time, vehicle_no, transporter,
+                        contractor_code, operating_company, loading_point, loading_point_code,
+                        consignee_code, consignee, products, items, qty_kl, mailbox,
+                        pdf_name, received_on)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s)
+                   ON CONFLICT (sap_no) DO NOTHING""", row)
+            conn.commit()
+            if cur.rowcount == 1:
+                l["action"] = "new"
+                counts["new"] += 1
+            else:
+                l["action"] = "already"
+                counts["already"] += 1
+        except Exception as exc:                              # noqa: BLE001
+            conn.rollback()
+            l["action"], l["error"] = "failed", str(exc)[:160]
+            counts["failed"] += 1
+    cur.close()
+    return counts
+
+
 def _received_day(name: str) -> Optional[date]:
     """fetch_bills_from_gmail prefixes every file with the mail's received date."""
     m = re.match(r"(\d{4}-\d{2}-\d{2})_", name)
@@ -127,12 +230,25 @@ def seen_ac4(mailboxes: list[dict], upto: date, ac4_dir: Path = AC4_DIR,
     raises for one mailbox's sake: a mailbox that cannot be read is reported
     with its status, exactly as the AC5 fetch does, and the others still run.
     """
-    from iocl_bill_automation import fetch_bills_from_gmail
-    here = Path(__file__).resolve().parent
-    creds = here / "gmail_credentials.json"
     since = upto - timedelta(days=days - 1)
     q = AC4_QUERY.format(after=since.strftime("%Y/%m/%d"),
                          before=(upto + timedelta(days=1)).strftime("%Y/%m/%d"))
+    # fetch_bills_from_gmail re-checks every mail against billspec.WINDOW_*,
+    # whose module DEFAULT is hardcoded 21-08-2026 -- the cliff that froze the
+    # AC5 register on 31-Aug. Set the window to this sweep and put the caller's
+    # back afterwards (the AC5 run has set its own before calling here).
+    prev_window = (billspec.WINDOW_FROM, billspec.WINDOW_TO)
+    billspec.set_window(since, upto)
+    try:
+        return _sweep(mailboxes, q, since, ac4_dir, limit)
+    finally:
+        billspec.set_window(*prev_window)
+
+
+def _sweep(mailboxes: list[dict], q: str, since: date, ac4_dir: Path, limit: Optional[int]) -> dict:
+    from iocl_bill_automation import fetch_bills_from_gmail
+    here = Path(__file__).resolve().parent
+    creds = here / "gmail_credentials.json"
     summary: dict = {}
     for mb in mailboxes:
         label = mb["label"]
@@ -181,10 +297,33 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--upto", type=date.fromisoformat, default=date.today())
     ap.add_argument("--days", type=int, default=AC4_DAYS)
     ap.add_argument("--ac4-dir", type=Path, default=AC4_DIR)
+    ap.add_argument("--apply", action="store_true",
+                    help="with --sweep: write the loads into iocl_ac4_loads (default is a dry run)")
     args = ap.parse_args(argv)
     if args.sweep:
         from iocl_ac5_loading import MAILBOXES
-        print(json.dumps(seen_ac4(MAILBOXES, args.upto, args.ac4_dir, args.days), indent=1))
+        from iocl_reconcile import connect, load_dotenv
+        res = seen_ac4(MAILBOXES, args.upto, args.ac4_dir, args.days)
+        for label, v in res.items():
+            print(f"  {label:<20} {v.get('status')}  downloaded {v.get('downloaded', 0)}, "
+                  f"parsed {len(v.get('loads', []))} ({sum(1 for l in v.get('loads', []) if l.get('ok'))} readable)")
+        loads = [l for v in res.values() for l in v.get("loads", [])]
+        # Writes only to iocl_ac4_loads, never to trips, and ON CONFLICT DO
+        # NOTHING -- so this is safe beside the cron's own run.
+        load_dotenv(REPO)
+        conn = connect()
+        counts = register_ac4(conn, loads, MAILBOXES, apply=args.apply)
+        conn.close()
+        print(f"  {'' if args.apply else 'DRY RUN - '}register: new {counts['new']}, "
+              f"already {counts['already']}, failed {counts['failed']}")
+        for l in sorted((l for l in loads if l.get("ok")), key=lambda x: (x.get("date") or "", x.get("time") or "")):
+            print(f"    {l.get('date')} {l.get('time') or '--:--'}  {l.get('vehicle_no'):<13} {l.get('qty_kl'):>8} KL  "
+                  f"{(l.get('consignee') or '')[:32]:<32} {l.get('action')}{(' ' + l['error']) if l.get('error') else ''}")
+        bad = [l for l in loads if not l.get("ok")]
+        for l in bad:
+            print(f"    !! {l.get('pdf_name')}: {'; '.join(l.get('warnings', []))}")
+        print("RESULT_JSON " + json.dumps({"ac4_new": counts["new"], "ac4_already": counts["already"],
+                                          "ac4_failed": counts["failed"], "unreadable": len(bad)}))
         return 0
     for p in args.pdfs:
         print(json.dumps(parse_ac4(p), indent=1))

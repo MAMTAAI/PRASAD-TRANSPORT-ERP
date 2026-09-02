@@ -1749,26 +1749,59 @@ export function registerDashboardRoutes(app) {
       // nothing rather than claiming health it has not checked.
       const sync = syncState();
       const failedBoxes = sync?.last_run?.mailboxes_failed ?? [];
-      // THE LOADING THE REGISTER CANNOT SEE YET. IOCL mails the consignee's
-      // tax invoice (AC4) within the hour of the truck leaving the bay and the
-      // freight invoice (AC5 — the only thing the importer writes) hours or
-      // days later. 77 AC4s to 32 AC5s between 15-Aug and 2-Sep-2026, so on a
-      // day with eight loads this panel could honestly say "nothing today".
-      // Flattened here to the fields a person needs to recognise the truck;
-      // evidence for the panel, never a row (tools/iocl_recon/iocl_ac4_seen.py).
-      const ac4Recent = Object.values(sync?.last_run?.ac4 ?? {})
-        .flatMap((v) => (v?.loads ?? []).filter((l) => l?.ok))
-        .map((l) => ({
-          sap_no: l.sap_no, date: l.date, time: l.time ?? null,
-          vehicle_no: l.vehicle_no, qty_kl: Number(l.qty_kl || 0),
-          products: l.products ?? [], consignee: l.consignee ?? null,
-          transporter: l.transporter ?? null, loading_point: l.loading_point ?? null,
-          mailbox: l.mailbox,
-        }))
-        .sort((x, y) => `${y.date} ${y.time ?? ''}`.localeCompare(`${x.date} ${x.time ?? ''}`));
+      // ── THE DAILY LOADING REGISTER (AC4) ─────────────────────────────────
+      // Two documents, two processes, never merged (owner's rule, 2-Sep-2026).
+      // The AC4 — IOCL's tax invoice to the consignee, mailed within the hour
+      // of the truck leaving the bay — is DAILY LOADING and lives in
+      // iocl_ac4_loads (migration 125), one row per document. The AC5 is the
+      // fortnightly FREIGHT document and is what the trips above are made of.
+      // 77 AC4s to 32 AC5s between 15-Aug and 2-Sep: on a day with eight
+      // retail loads, trips alone said "nothing today". This is the answer to
+      // "what loaded today"; the tiles below remain the answer to "what got
+      // billed as a trip".
+      //
+      // If today has AC4 loadings but no trip yet, today IS the panel's day —
+      // otherwise the stale-date banner would call a busy morning empty. The
+      // trip-side counts for that day are then genuinely zero.
+      const todayIst = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      let ac4Rows = [];
+      let ac4Error = sync?.last_run?.ac4_error ?? null;
+      try {
+        ac4Rows = (await query(
+          `SELECT sap_no, loading_date::text AS loading_date, loading_time, vehicle_no,
+                  operating_company, loading_point, consignee, products, qty_kl, mailbox
+             FROM iocl_ac4_loads
+            WHERE loading_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 6
+            ORDER BY loading_date DESC, loading_time DESC NULLS LAST, sap_no DESC`)).rows;
+      } catch (e) {
+        ac4Error = ac4Error || `loading register unavailable: ${String(e.message).slice(0, 120)}`;
+      }
+      const ac4Today = ac4Rows.filter((x) => x.loading_date === todayIst);
+      const override = !r.is_today && ac4Today.length > 0;
+      const day = override ? todayIst : (r.day ?? null);
+      const ac4Day = ac4Rows.filter((x) => x.loading_date === day);
+      const ac4Week = {};
+      for (const x of ac4Rows) {
+        const w = (ac4Week[x.loading_date] ||= { day: x.loading_date, count: 0, qty_kl: 0 });
+        w.count += 1;
+        w.qty_kl += Number(x.qty_kl || 0);
+      }
+      const ac4Load = (x) => ({
+        sap_no: x.sap_no, date: x.loading_date, time: x.loading_time ?? null,
+        vehicle_no: x.vehicle_no, company: x.operating_company ?? null,
+        from: x.loading_point ?? null, consignee: x.consignee ?? null,
+        products: x.products ?? null, qty_kl: num(x.qty_kl), mailbox: x.mailbox ?? null,
+      });
       return {
-        day: r.day ?? null,
-        is_today: !!r.is_today,
+        day,
+        is_today: override ? true : !!r.is_today,
+        ac4: {
+          day: ac4Day.map(ac4Load),
+          today_count: ac4Today.length,
+          today_qty: Number(ac4Today.reduce((s, x) => s + Number(x.qty_kl || 0), 0).toFixed(3)),
+          week: Object.values(ac4Week).sort((p, q) => p.day.localeCompare(q.day)),
+          error: ac4Error,
+        },
         sync: {
           checked_at: sync?.last_run?.at ?? null,
           running: !!sync?.running,
@@ -1795,13 +1828,18 @@ export function registerDashboardRoutes(app) {
           // Work that is waiting on a person has to be visible or it is not
           // waiting on anyone.
           held_for_review: sync?.last_run?.held_for_review ?? 0,
-          ac4_recent: ac4Recent,
-          ac4_error: sync?.last_run?.ac4_error ?? null,
+          // The AC4 tally of the last tick, for the sync line; the loads
+          // themselves come from iocl_ac4_loads above, not from memory.
+          ac4_new: sync?.last_run?.ac4_new ?? 0,
+          ac4_failed: sync?.last_run?.ac4_failed ?? 0,
+          second_invoice: sync?.last_run?.second_invoice ?? 0,
         },
-        email_count: num(r.email_count),
-        manual_count: num(r.manual_count),
-        email_qty: num(r.email_qty),
-        manual_qty: num(r.manual_qty),
+        // When today is the day only because of AC4 loadings, the trip-side
+        // figures are today's — zero — not the fallback day's.
+        email_count: override ? 0 : num(r.email_count),
+        manual_count: override ? 0 : num(r.manual_count),
+        email_qty: override ? 0 : num(r.email_qty),
+        manual_qty: override ? 0 : num(r.manual_qty),
         last_entry_at: r.last_entry_at ?? null,
         last_7d_count: num(r.last_7d_count),
         last7: (r.last7 ?? []).map((d) => ({
@@ -1812,7 +1850,7 @@ export function registerDashboardRoutes(app) {
           manual_qty: num(d.manual_qty),
           companies: d.companies ?? [],
         })),
-        by_company: (r.by_company ?? []).map((c) => ({
+        by_company: (override ? [] : (r.by_company ?? [])).map((c) => ({
           company: c.company,
           trips: num(c.trips),
           email_count: num(c.email_count),
@@ -1856,7 +1894,7 @@ export function registerDashboardRoutes(app) {
           first_day: c.first_day ?? null,
           last_day: c.last_day ?? null,
         })),
-        rows: (r.rows ?? []).map((x) => ({
+        rows: (override ? [] : (r.rows ?? [])).map((x) => ({
           id: x.id,
           trip_code: x.trip_code,
           vehicle_no: x.vehicle_no,
@@ -1875,8 +1913,10 @@ export function registerDashboardRoutes(app) {
          manual_qty: 0, last_entry_at: null, last_7d_count: 0, by_company: [], rows: [], last7: [],
          load_week_from: null, load_week_to: null, last7_loading: [], by_company_week: [],
          week_trips: [],
+         ac4: { day: [], today_count: 0, today_qty: 0, week: [], error: null },
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
-                 insert_failed: 0, insert_errors: [], held_for_review: 0, ac4_recent: [], ac4_error: null } });
+                 insert_failed: 0, insert_errors: [], held_for_review: 0,
+                 ac4_new: 0, ac4_failed: 0, second_invoice: 0 } });
 
     // ── UNLOADING, THE OTHER HALF OF THE TRIP ────────────────────────────────
     //
