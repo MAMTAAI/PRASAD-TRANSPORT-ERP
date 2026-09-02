@@ -1,6 +1,15 @@
 // server/agents/bhuvaneshwari.js
 // AGENT 04 — BHUVANESHWARI · Data Vault & Document OCR Parser
 import { defineAgent, ok, skipped, blocked, failed } from './base.js';
+import { runIoclSync, SyncBusyError } from '../lib/ioclSyncRunner.js';
+import { stmSet } from '../memory/okf.js';
+
+const LIVE_TTL_MS = 15 * 60 * 1000;
+// An invoice handed to TARA is not handed again for an hour. The parse stage
+// re-reads the same mail every ten minutes and would otherwise re-propose an
+// invoice TARA is still refusing (an unknown company, say) six times an hour.
+const HANDOFF_TTL_MS = 60 * 60 * 1000;
+const handedToTara = new Map();   // doc_no -> at
 
 /**
  * Does not reinvent extraction. The ERP already has a working document
@@ -36,6 +45,11 @@ export default defineAgent({
     'document.uploaded',
     'document.reparse.requested',
     'email.attachment.received',
+    // THE BILLING CYCLE, FIRST HALF (owner's rule, 2-Sep-2026): every 10
+    // minutes the graph asks Bhuvaneshwari to fetch and parse the AC5 freight
+    // invoices from both IOCL mailboxes. Each one on no trip is handed to
+    // TARA as invoice.parsed — a proposal. She never inserts the trip.
+    'invoice.mail.sweep.requested',
   ],
   emits: [
     'document.classified',
@@ -46,6 +60,8 @@ export default defineAgent({
     'toll.charge.recorded',
     'vehicle.document.updated',
     'driver.document.updated',
+    'invoice.parsed',
+    'invoice.sweep.completed',
   ],
 
   owns: {
@@ -95,6 +111,55 @@ export default defineAgent({
 
       case 'document.reparse.requested':
         return ok('reparse queued — human-verified fields will be preserved');
+
+      case 'invoice.mail.sweep.requested': {
+        // THE BILLING CYCLE, FIRST HALF. Fetch the AC5 freight invoices from
+        // both IOCL mailboxes, parse the ones not yet on a trip, deduplicate
+        // against the register — and INSERT NOTHING (apply: false). Every
+        // new invoice goes to TARA as a proposal; she posts it into the trip
+        // ledger. A truck-day a person typed with no invoice stays HELD for
+        // that person, exactly as before. Same runner, same lock, same log
+        // (/var/lib/prasad/logs/cron_sync.log, trigger 'bhuvaneshwari').
+        let r;
+        try {
+          r = await runIoclSync({ stage: 'ac5', apply: false, trigger: 'bhuvaneshwari' });
+        } catch (err) {
+          if (err instanceof SyncBusyError) return blocked(`mail sync busy: ${err.message}`);
+          const why = String(err.message).slice(0, 200);
+          stmSet('AGENT_04', 'live_action', `AC5 parse failed: ${why.slice(0, 80)}`, LIVE_TTL_MS);
+          return failed(`AC5 parse failed: ${why}`);
+        }
+        const now = Date.now();
+        for (const [doc, at] of handedToTara) if (now - at > HANDOFF_TTL_MS) handedToTara.delete(doc);
+        const fresh = [];
+        for (const load of r.new_loads ?? []) {
+          const doc = String(load.doc_no ?? '');
+          if (!doc || handedToTara.has(doc)) continue;
+          await ctx.emit('invoice.parsed', {
+            aggregate: 'invoice',
+            aggregateId: null,
+            payload: { ...load, source: 'AC5', parsed_by: 'AGENT_04' },
+            correlationId: event.correlation_id,
+          });
+          handedToTara.set(doc, now);
+          fresh.push(doc);
+        }
+        const dead = r.mailboxes_failed ?? [];
+        const line = `AC5 sweep: ${r.parsed ?? 0} parsed, ${r.duplicates ?? 0} already on trips, `
+          + `${fresh.length} new → TARA, ${r.held_for_review ?? 0} held for a person`
+          + (dead.length ? ` · mailbox down: ${dead.join(', ')}` : '') + ` (${r.seconds}s)`;
+        stmSet('AGENT_04', 'live_action', line, LIVE_TTL_MS);
+        await ctx.emit('invoice.sweep.completed', {
+          aggregate: 'invoices',
+          payload: {
+            parsed: r.parsed ?? 0, duplicates: r.duplicates ?? 0, new_to_tara: fresh,
+            held_for_review: r.held_for_review ?? 0, mailboxes_failed: dead, seconds: r.seconds,
+          },
+          correlationId: event.correlation_id,
+        });
+        if (dead.length) return blocked(line);
+        return ok(line);
+      }
 
       default:
         return skipped(`no document rule for ${event.event_type}`);

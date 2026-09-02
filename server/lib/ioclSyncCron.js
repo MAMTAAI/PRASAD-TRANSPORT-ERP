@@ -64,7 +64,16 @@ import cron from 'node-cron';
 import { runIoclSync, SyncBusyError, logLine } from './ioclSyncRunner.js';
 
 const SCHEDULE = process.env.IOCL_SYNC_CRON || '*/10 * * * *';
-const ENABLED = String(process.env.IOCL_SYNC_CRON_ENABLED ?? '1') !== '0';
+// OFF BY DEFAULT SINCE 2-SEP-2026. The schedule moved to the Mahavidya agents:
+// KALI's `loading_mail` graph node runs the AC4 daily-loading sweep every
+// 10 min and BHUVANESHWARI's `invoice_mail` node the AC5 parse, with TARA
+// posting each parsed invoice into the trip ledger (server/agents/*.js,
+// server/agents/graphEngine.js). Every run still goes through
+// ioclSyncRunner's one lock and one log, so nothing about the diagnosis path
+// changed — only who asks. This generic cron is the emergency fallback:
+// IOCL_SYNC_CRON_ENABLED=1 brings it back, and it must then NOT run beside
+// the agents, because two callers is two importers.
+const ENABLED = String(process.env.IOCL_SYNC_CRON_ENABLED ?? '0') !== '0';
 
 let task = null;
 

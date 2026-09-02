@@ -35,12 +35,12 @@ const LOOP_SPECS = [
   },
   {
     agentId: 'AGENT_01', codename: 'KALI', intervalMs: 10_000,
-    homework: 'Check pending loads and stalled in-transit trips every 10s',
+    homework: 'Check pending loads and stalled in-transit trips every 10s; poll IOCL mailboxes for AC4 daily-loading mail every 10 min → loading register (never a trip)',
     event: 'trip.sweep.requested', aggregate: 'trips',
   },
   {
     agentId: 'AGENT_02', codename: 'TARA', intervalMs: 30_000,
-    homework: 'Reconcile ledger (zero-divergence audit) every 30s',
+    homework: 'Reconcile ledger (zero-divergence audit) every 30s; post each AC5 freight invoice BHUVANESHWARI parses into the trip ledger (bill book)',
     event: 'ledger.audit.requested', aggregate: 'ledger',
   },
   {
@@ -50,7 +50,7 @@ const LOOP_SPECS = [
   },
   {
     agentId: 'AGENT_04', codename: 'BHUVANESHWARI', intervalMs: 20_000,
-    homework: 'Drain the document upload queue; replay AI tasks parked while the engine was offline',
+    homework: 'Drain the document upload queue; fetch and parse AC5 freight invoices every 10 min and hand each new one to TARA',
     event: 'document.queue.sweep', aggregate: 'documents',
     // Offline-fallback drain: OCR tasks parked in ai_tasks while the local
     // engine was off are replayed here, strictly one at a time.
@@ -84,6 +84,20 @@ const LOOP_SPECS = [
     agentId: 'AGENT_09', codename: 'MATANGI', intervalMs: 45_000,
     homework: 'Flush queued notifications; poll WhatsApp engine health',
     event: 'notification.queue.sweep', aggregate: 'notifications',
+  },
+  // ── The IOCL mail cycles, for the loop fallback (AGENT_ENGINE=loop) ─────
+  // Under the graph engine these are time-gated nodes in graphEngine.js; here
+  // they are second loops on the same agents, keyed so they do not replace
+  // the agent's primary loop. `key` is also the env override: LOOP_<KEY>_MS.
+  {
+    agentId: 'AGENT_01', codename: 'KALI', key: 'KALI_MAIL', intervalMs: 600_000,
+    homework: 'Poll IOCL mailboxes for AC4 daily-loading mail → loading register',
+    event: 'loading.mail.sweep.requested', aggregate: 'loading',
+  },
+  {
+    agentId: 'AGENT_04', codename: 'BHUVANESHWARI', key: 'BHUVANESHWARI_MAIL', intervalMs: 600_000,
+    homework: 'Fetch and parse AC5 freight invoices → TARA',
+    event: 'invoice.mail.sweep.requested', aggregate: 'invoices',
   },
 ];
 
@@ -172,11 +186,11 @@ export function startLoops() {
   startedAt = Date.now();
 
   for (const spec of LOOP_SPECS) {
-    const override = process.env[`LOOP_${spec.codename}_MS`];
+    const override = process.env[`LOOP_${spec.key ?? spec.codename}_MS`];
     const interval = override ? Number.parseInt(override, 10) : spec.intervalMs;
     const handle = setInterval(() => tick(spec), interval);
     handle.unref?.(); // loops must never keep a dying process alive
-    timers.set(spec.agentId, handle);
+    timers.set(spec.key ?? spec.agentId, handle);
     loopStat(spec.agentId); // materialise counters immediately for telemetry
   }
   console.log(`[loops] ${timers.size} agent loops started (Kali 10s · Tara 30s · Bhuvaneshwari 20s · ...)`);
@@ -192,24 +206,31 @@ export function stopLoops() {
 
 /** Pause/resume one agent's loop (the dashboard Stop/Restart buttons). */
 export function setLoopEnabled(agentId, enabled) {
-  const spec = LOOP_SPECS.find((l) => l.agentId === agentId);
-  if (!spec) return { ok: false, error: 'unknown agent' };
+  // An agent may hold more than one loop (KALI: trips + mail). Stop starts
+  // and stops all of them together — a half-stopped agent is a lie on the card.
+  const specs = LOOP_SPECS.filter((l) => l.agentId === agentId);
+  if (!specs.length) return { ok: false, error: 'unknown agent' };
 
-  const existing = timers.get(agentId);
-  if (!enabled && existing) {
-    clearInterval(existing);
-    timers.delete(agentId);
+  const keys = specs.map((s) => s.key ?? s.agentId);
+  const anyRunning = keys.some((k) => timers.has(k));
+  if (!enabled && anyRunning) {
+    for (const k of keys) {
+      const h = timers.get(k);
+      if (h) { clearInterval(h); timers.delete(k); }
+    }
     loopStat(agentId).lastAction = 'loop stopped by operator';
     return { ok: true, state: 'STOPPED' };
   }
-  if (enabled && !existing && running) {
-    const handle = setInterval(() => tick(spec), spec.intervalMs);
-    handle.unref?.();
-    timers.set(agentId, handle);
+  if (enabled && !anyRunning && running) {
+    for (const spec of specs) {
+      const handle = setInterval(() => tick(spec), spec.intervalMs);
+      handle.unref?.();
+      timers.set(spec.key ?? spec.agentId, handle);
+    }
     loopStat(agentId).lastAction = 'loop restarted by operator';
     return { ok: true, state: 'RUNNING' };
   }
-  return { ok: true, state: existing ? 'RUNNING' : 'STOPPED' };
+  return { ok: true, state: anyRunning ? 'RUNNING' : 'STOPPED' };
 }
 
 // ── Telemetry ───────────────────────────────────────────────────────────────
@@ -235,6 +256,7 @@ export function processMetrics() {
 export function loopStats() {
   const out = {};
   for (const spec of LOOP_SPECS) {
+    if (spec.key) continue;   // a secondary loop shares its agent's card and counters
     const s = stats.get(spec.agentId);
     out[spec.agentId] = {
       running: timers.has(spec.agentId),

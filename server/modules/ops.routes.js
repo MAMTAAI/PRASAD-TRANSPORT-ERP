@@ -492,11 +492,14 @@ export async function registerOpsRoutes(app) {
           return rows[0];
         });
 
-        // KALI's own event, so the swarm sees a trip it did not itself create.
+        // KALI's own event, so the swarm sees a trip it did not itself create —
+        // unless the caller IS an agent (TARA posting an AC5 into the trip
+        // ledger sends X-Agent-Id), in which case the audit trail names it.
+        const agentHeader = String(req.headers['x-agent-id'] ?? '');
         await emit('trip.created', {
           aggregate: 'trip', aggregateId: created.id,
           payload: { trip_code: created.trip_code, status: created.status, vehicle_no: created.vehicle_no },
-          emittedBy: 'AGENT_01',
+          emittedBy: /^AGENT_\d{2}$/.test(agentHeader) ? agentHeader : 'AGENT_01',
         }).catch(() => {});
         await drain().catch(() => {});
 

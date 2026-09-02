@@ -82,6 +82,9 @@ function validateRoster() {
     'trip.settlement.requested', 'invoice.generation.requested', 'loan.emi.due',
     'fuel.reconciliation.requested', 'infra.db.failover.detected',
     'vehicle.document.updated', 'driver.document.updated', 'fuel.price.changed',
+    // The IOCL mail cycles are raised by the graph engine's time-gated nodes
+    // (KALI: AC4 loading, BHUVANESHWARI: AC5 billing), not by an agent.
+    'loading.mail.sweep.requested', 'invoice.mail.sweep.requested',
   ]);
 
   // A subscription with no producer is a genuine defect: the agent will wait

@@ -318,7 +318,23 @@ def fetch_bills_from_gmail(bill_dir: Path, *, creds_path: Path, token_path: Path
                           f"fetched. Oldest bills are the ones dropped.")
         log(f"    !! {out['warning']}")
 
+    # DO NOT RE-DOWNLOAD WHAT IS ALREADY HELD. Every saved file ends in
+    # __<last 8 of the Gmail message id>, so a message whose attachments are
+    # on disk can be recognised BEFORE the full-body round trip. Without this
+    # a quiet ten-minute tick spent two minutes pulling 139 known messages
+    # from Gmail (one second each) to be told, file by file, "already had".
+    held_ids = set()
+    try:
+        for p in bill_dir.iterdir():
+            if "__" in p.name and p.stat().st_size > 0:
+                held_ids.add(p.name.rsplit("__", 1)[1].split(".", 1)[0])
+    except OSError:
+        pass
+
     for m in messages:
+        if m["id"][-8:] in held_ids:
+            out["skipped_existing"] += 1
+            continue
         msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
         # Gmail's internalDate is ms since epoch, UTC - the authoritative
         # received time, unlike the spoofable Date: header.

@@ -80,7 +80,14 @@ export class SyncBusyError extends Error {
  * Run the AC5 importer once. Returns the script's RESULT_JSON summary.
  * Throws SyncBusyError if one is already in flight.
  */
-export async function runIoclSync({ from, to, apply = true, noFetch = false, trigger = 'manual' } = {}) {
+// `stage` is which half of the mail pipeline runs:
+//   'ac4'  KALI's daily loading cycle — AC4 mail → iocl_ac4_loads. Seconds.
+//   'ac5'  BHUVANESHWARI's billing parse — AC5 mail → parsed + deduplicated;
+//          with apply=false the NEW invoices come back in `new_loads` for
+//          TARA to post, and nothing is inserted here.
+//   'all'  both, with the Python importer inserting itself — the manual
+//          "Sync Gmail Invoices" button and the emergency cron.
+export async function runIoclSync({ from, to, apply = true, noFetch = false, trigger = 'manual', stage = 'all', ac4Days = null } = {}) {
   if (running) throw new SyncBusyError(syncState());
 
   const now = new Date();
@@ -90,13 +97,14 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
   // duplicate and gets skipped.
   const windowFrom = from || isoDay(new Date(now.getTime() - 60 * 24 * 3600 * 1000));
 
-  const args = [SCRIPT, '--window-from', windowFrom, '--window-to', windowTo];
+  const args = [SCRIPT, '--window-from', windowFrom, '--window-to', windowTo, '--stage', stage];
   if (apply) args.push('--apply');
   if (noFetch) args.push('--no-fetch');
+  if (ac4Days) args.push('--ac4-days', String(ac4Days));
 
-  running = { startedAt: new Date().toISOString(), window: [windowFrom, windowTo], trigger };
+  running = { startedAt: new Date().toISOString(), window: [windowFrom, windowTo], trigger, stage };
   const t0 = Date.now();
-  logLine({ event: 'start', trigger, window: [windowFrom, windowTo], apply });
+  logLine({ event: 'start', trigger, stage, window: [windowFrom, windowTo], apply });
 
   try {
     const out = await new Promise((resolve, reject) => {
@@ -138,11 +146,18 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
     // The quantity actually imported, which is the number an operator cares
     // about at the end of a day of these running unattended.
     let kl = null;
-    try {
-      const report = JSON.parse(fs.readFileSync(
-        path.join(REPO, 'reports', 'iocl_recon', 'ac5_loading.json'), 'utf8'));
-      kl = (report.new || []).reduce((a, r) => a + Number(r.qty_kl || 0), 0);
-    } catch { /* the summary is still useful without it */ }
+    // The parse stage (no apply) hands its NEW invoices back whole, so the
+    // caller — BHUVANESHWARI — can pass each one to TARA as a proposal.
+    let newLoads = null;
+    let held = null;
+    if (summary.stage !== 'ac4') {
+      try {
+        const report = JSON.parse(fs.readFileSync(
+          path.join(REPO, 'reports', 'iocl_recon', 'ac5_loading.json'), 'utf8'));
+        if (summary.applied) kl = (report.new || []).reduce((a, r) => a + Number(r.qty_kl || 0), 0);
+        else { newLoads = report.new || []; held = report.dup_shape || []; }
+      } catch { /* the summary is still useful without it */ }
+    }
 
     // An imported trip arrives with no driver, no destination and no distance,
     // because the AC5 does not carry them. Filling those from the vehicle's own
@@ -205,17 +220,31 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
     const ac4 = summary.ac4 || {};
     const ac4Seen = Object.values(ac4).reduce((n, v) => n + ((v?.loads || []).filter((l) => l?.ok).length), 0);
 
-    lastRun = {
-      at: new Date().toISOString(), trigger, seconds: secs,
+    // TWO STAGES, ONE last_run. KALI's AC4 pass and BHUVANESHWARI's AC5 pass
+    // run as separate ticks now, and each must only overwrite the half of
+    // this object it actually measured — an AC4 tick that reset
+    // held_for_review to zero would clear the held banner without anyone
+    // having looked at the invoices. Mailbox health is written by both,
+    // because both read the mailboxes.
+    const ranStage = summary.stage ?? stage;
+    const prev = lastRun ?? {};
+    const ac5Part = ranStage === 'ac4' ? {} : {
+      ac5_at: new Date().toISOString(),
       inserted: summary.inserted, downloaded: summary.downloaded ?? null,
-      mailboxes_failed: failed,
-      mailboxes: summary.mailboxes || {},
       insert_failed: insertFailed,
       insert_errors: summary.insert_errors || [],
       // Was written to the LOG line below but never to this object, so the
       // dashboard's held-for-review banner (which reads last_run) rendered
       // zero from the day it shipped while six invoices waited.
       held_for_review: Number(summary.held_for_review || 0),
+      // AC5s inserted as their own trip although another AC5 already sat on
+      // the same truck-day (two deliveries, or two runs). Worth a glance.
+      second_invoice: Number(summary.second_invoice || 0),
+      // The parse stage's hand-off to TARA, for /sync-status.
+      new_for_tara: newLoads ? newLoads.length : null,
+    };
+    const ac4Part = ranStage === 'ac5' ? {} : {
+      ac4_at: new Date().toISOString(),
       ac4,
       ac4_error: summary.ac4_error || null,
       // The daily loading cycle's own tally: AC4 documents written into
@@ -223,13 +252,20 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       ac4_new: Number(summary.ac4_new || 0),
       ac4_already: Number(summary.ac4_already || 0),
       ac4_failed: Number(summary.ac4_failed || 0),
-      // AC5s inserted as their own trip although another AC5 already sat on
-      // the same truck-day (two deliveries, or two runs). Worth a glance.
-      second_invoice: Number(summary.second_invoice || 0),
+    };
+    lastRun = {
+      inserted: 0, downloaded: null, insert_failed: 0, insert_errors: [], held_for_review: 0,
+      second_invoice: 0, ac4: {}, ac4_error: null, ac4_new: 0, ac4_already: 0, ac4_failed: 0,
+      ...prev,
+      at: new Date().toISOString(), trigger, stage: ranStage, seconds: secs,
+      mailboxes_failed: failed,
+      mailboxes: summary.mailboxes || {},
+      ...ac5Part,
+      ...ac4Part,
     };
 
     logLine({
-      event: (failed.length || insertFailed) ? 'degraded' : 'ok', trigger, seconds: secs, enrich,
+      event: (failed.length || insertFailed) ? 'degraded' : 'ok', trigger, stage: ranStage, seconds: secs, enrich,
       inserted: summary.inserted, duplicates: summary.duplicates,
       held_for_review: summary.held_for_review, parsed: summary.parsed,
       rejected: summary.rejected, kl_imported: kl,
@@ -243,7 +279,7 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       second_invoice: Number(summary.second_invoice || 0),
       window: summary.window,
     });
-    return { ...summary, seconds: secs, kl_imported: kl, enrich };
+    return { ...summary, seconds: secs, kl_imported: kl, enrich, new_loads: newLoads, held };
   } catch (e) {
     logLine({ event: 'error', trigger, detail: String(e.message).slice(0, 600) });
     throw e;

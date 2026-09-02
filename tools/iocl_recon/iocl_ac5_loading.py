@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import date, datetime, timedelta
@@ -224,6 +225,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--ac4-days", type=int, default=2,
                     help="days of AC4 loading mail to sweep into iocl_ac4_loads (default 2: today and yesterday)")
+    # TWO CYCLES, TWO AGENTS. The daily loading cycle (AC4 -> iocl_ac4_loads)
+    # is KALI's; the billing cycle (AC5 -> trips) is BHUVANESHWARI's parse
+    # followed by TARA's posting. Each agent runs its own stage; 'all' is the
+    # manual "Sync Gmail Invoices" button and the emergency cron.
+    ap.add_argument("--stage", choices=("all", "ac4", "ac5"), default="all",
+                    help="ac4: mail -> loading register only; ac5: mail -> parse/dedup (-> trips with --apply); all: both")
     ap.add_argument("--json", type=Path, default=REPO / "reports" / "iocl_recon" / "ac5_loading.json")
     args = ap.parse_args(argv)
 
@@ -249,7 +256,7 @@ def main(argv: list[str]) -> int:
     # event:"ok" with inserted:0 while BOTH mailboxes were dead, and the loading
     # register stood still from 21-08 to 28-08 with every health check green.
     mailboxes = {}
-    if not args.no_fetch:
+    if not args.no_fetch and args.stage != "ac4":
         print("=== fetch")
         mailboxes = fetch(args.window_from, args.window_to, args.ac5_dir, args.limit) or {}
         print()
@@ -266,7 +273,7 @@ def main(argv: list[str]) -> int:
     ac4: dict = {}
     ac4_error = None
     ac4_counts = {"new": 0, "already": 0, "failed": 0}
-    if not args.no_fetch:
+    if not args.no_fetch and args.stage != "ac5":
         print("=== AC4 daily loading (mail -> iocl_ac4_loads)")
         try:
             from iocl_ac4_seen import seen_ac4
@@ -279,30 +286,6 @@ def main(argv: list[str]) -> int:
             ac4_error = str(exc)[:200]
             print(f"  AC4 sweep failed (AC5 import unaffected): {ac4_error}")
         print()
-
-    pdfs = sorted(p for p in args.ac5_dir.rglob("*.pdf")) + \
-           sorted(p for p in args.ac5_dir.rglob("*.PDF"))
-    pdfs = sorted(set(pdfs))
-    print(f"=== parse  ({len(pdfs)} pdf files on disk)")
-
-    parsed, rejected = [], []
-    for p in pdfs:
-        try:
-            load = parse_ac5(p)
-        except Exception as exc:                      # noqa: BLE001
-            rejected.append((p.name, f"parse error: {exc}"))
-            continue
-        if not load.ok:
-            rejected.append((p.name, "; ".join(load.warnings) or "incomplete"))
-            continue
-        if not (args.window_from <= load.loading_date <= args.window_to):
-            rejected.append((p.name, f"outside window ({load.loading_date})"))
-            continue
-        # Which mailbox this came from decides the operating company, and so the
-        # LR series. fetch() files each mailbox into its own subdirectory.
-        load._source_dir = str(p.parent)
-        parsed.append(load)
-    print(f"  usable AC5 loads: {len(parsed)}   rejected: {len(rejected)}")
 
     from iocl_reconcile import connect, load_dotenv  # noqa: E402
     load_dotenv(REPO)          # takes the repo ROOT and appends .env itself
@@ -329,6 +312,88 @@ def main(argv: list[str]) -> int:
         except Exception as exc:                          # noqa: BLE001
             ac4_error = str(exc)[:200]
             print(f"  AC4 register failed (AC5 import unaffected): {ac4_error}\n")
+
+    if args.stage == "ac4":
+        # KALI's stage ends here: loading register written, nothing parsed,
+        # nothing inserted. Mailbox health is the AC4 sweep's own, so a dead
+        # token still surfaces on the panel from this stage alone.
+        conn.close()
+        ac4_boxes = {k: {"status": (v or {}).get("status"), "downloaded": (v or {}).get("downloaded", 0),
+                         "reason": (v or {}).get("reason")} for k, v in ac4.items()}
+        print("RESULT_JSON " + json.dumps({
+            "stage": "ac4",
+            "inserted": 0, "insert_failed": 0, "insert_errors": [], "duplicates": 0,
+            "held_for_review": 0, "parsed": 0, "rejected": 0, "known_by_name": 0,
+            "applied": bool(args.apply),
+            "window": [args.window_from.isoformat(), args.window_to.isoformat()],
+            "mailboxes": ac4_boxes,
+            "mailboxes_failed": sorted(k for k, v in ac4_boxes.items() if v.get("status") not in ("ok", None)),
+            "downloaded": sum(int(v.get("downloaded") or 0) for v in ac4_boxes.values()),
+            "ac4": ac4, "ac4_error": ac4_error,
+            "ac4_new": ac4_counts["new"], "ac4_already": ac4_counts["already"], "ac4_failed": ac4_counts["failed"],
+            "second_invoice": 0,
+        }))
+        return 0
+
+    pdfs = sorted(p for p in args.ac5_dir.rglob("*.pdf")) + \
+           sorted(p for p in args.ac5_dir.rglob("*.PDF"))
+    pdfs = sorted(set(pdfs))
+    print(f"=== parse  ({len(pdfs)} pdf files on disk)")
+
+    # PARSE ONLY WHAT IS NEW. Every tick used to run pdfplumber over every
+    # PDF ever fetched -- 166 files, 150 seconds -- to rediscover 102 invoices
+    # the register already held. IOCL names each AC5 attachment after its
+    # document number (0193776015.pdf), and fetch keeps that name, so a file
+    # whose number is already on a trip is a DUP_INVOICE before it is opened.
+    # Files that were rejected as "not an AC5" (the payment advices that share
+    # the folder) are remembered in a small cache; "outside window" is NOT
+    # cached, because the window moves.
+    rejected_cache_path = args.json.parent / "ac5_rejected_cache.json"
+    try:
+        rejected_cache = json.loads(rejected_cache_path.read_text(encoding="utf-8"))
+    except Exception:                                     # noqa: BLE001
+        rejected_cache = {}
+    known_by_name = 0
+    cache_dirty = False
+
+    parsed, rejected = [], []
+    for p in pdfs:
+        m = re.match(r"\d{4}-\d{2}-\d{2}_0*(\d{6,12})__", p.name)
+        if m and m.group(1) in existing["by_invoice"]:
+            known_by_name += 1
+            continue
+        if p.name in rejected_cache:
+            rejected.append((p.name, rejected_cache[p.name] + " (cached)"))
+            continue
+        try:
+            load = parse_ac5(p)
+        except Exception as exc:                      # noqa: BLE001
+            rejected.append((p.name, f"parse error: {exc}"))
+            rejected_cache[p.name] = f"parse error: {exc}"[:120]
+            cache_dirty = True
+            continue
+        if not load.ok:
+            why = "; ".join(load.warnings) or "incomplete"
+            rejected.append((p.name, why))
+            if "not an AC5" in why:
+                rejected_cache[p.name] = why[:120]
+                cache_dirty = True
+            continue
+        if not (args.window_from <= load.loading_date <= args.window_to):
+            rejected.append((p.name, f"outside window ({load.loading_date})"))
+            continue
+        # Which mailbox this came from decides the operating company, and so the
+        # LR series. fetch() files each mailbox into its own subdirectory.
+        load._source_dir = str(p.parent)
+        parsed.append(load)
+    print(f"  usable AC5 loads: {len(parsed)}   rejected: {len(rejected)}   "
+          f"already imported (by filename, not opened): {known_by_name}\n")
+    if cache_dirty:
+        try:
+            rejected_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            rejected_cache_path.write_text(json.dumps(rejected_cache, indent=0, sort_keys=True), encoding="utf-8")
+        except Exception:                                 # noqa: BLE001
+            pass
 
     print("=== deduplicate")
     buckets: dict[str, list] = {"NEW": [], "DUP_INVOICE": [], "DUP_INVOICE_VEHICLE": [], "DUP_SHAPE": []}
@@ -464,7 +529,9 @@ def main(argv: list[str]) -> int:
         "applied": bool(args.apply),
         "counts": {k: len(v) for k, v in buckets.items()},
         "rejected": [{"file": n, "why": w} for n, w in rejected],
-        "new": [l.as_dict() for l, _ in buckets["NEW"]],
+        # The parse stage (BHUVANESHWARI, no --apply) hands these to TARA whole:
+        # sibling for the remarks, company so the LR series is the right one.
+        "new": [{"sibling": t, "company": company_of(l), **l.as_dict()} for l, t in buckets["NEW"]],
         "dup_shape": [{"trip": t, **l.as_dict()} for l, t in buckets["DUP_SHAPE"]],
     }, indent=1), encoding="utf-8")
     print(f"\nreport -> {args.json}")
@@ -486,10 +553,12 @@ def main(argv: list[str]) -> int:
     # fix, one stage further down the pipeline — zero rows written is not the
     # same fact as zero rows to write, and only the importer can tell them apart.
     print("RESULT_JSON " + json.dumps({
+        "stage": args.stage,
         "inserted": inserted_count,
         "insert_failed": len(insert_failed),
         "insert_errors": [{"invoice": str(i), "why": w} for i, w in insert_failed[:10]],
-        "duplicates": len(buckets["DUP_INVOICE"]) + len(buckets["DUP_INVOICE_VEHICLE"]),
+        "duplicates": len(buckets["DUP_INVOICE"]) + len(buckets["DUP_INVOICE_VEHICLE"]) + known_by_name,
+        "known_by_name": known_by_name,
         "held_for_review": len(buckets["DUP_SHAPE"]),
         "parsed": len(parsed),
         "rejected": len(rejected),
@@ -513,6 +582,13 @@ def main(argv: list[str]) -> int:
 def load_source(load: Ac5Load) -> str:
     """Which mailbox folder a parsed load came from (set by the fetch stage)."""
     return getattr(load, "_source_dir", "")
+
+
+def company_of(load: Ac5Load) -> str:
+    """The operating company an AC5 belongs to: the mailbox it arrived in."""
+    src = load_source(load)
+    return next((mb["company"] for mb in MAILBOXES if mb["label"].replace(" ", "_") in src),
+                "M/S PRASAD TRANSPORT")
 
 
 if __name__ == "__main__":

@@ -38,6 +38,23 @@ import { stmPush, ltmFlushSpill } from '../memory/okf.js';
 import { tick as syncTick } from '../sync/autoSync.js';
 import { drainParked } from '../ai/router.js';
 
+// ── Time-gated edges ────────────────────────────────────────────────────────
+// The graph cycles every 15 s, but the IOCL mailboxes are swept every 10 min:
+// a mail sweep on every cycle would hammer Gmail and re-read the same PDFs
+// forty times an hour. `due()` is the edge condition for those two nodes — it
+// opens once per period, and the node's `writes` closes it again only after
+// the emit succeeded, so a failed emit is simply retried next cycle. The two
+// sweeps are phased three minutes apart so KALI's AC4 pass and
+// BHUVANESHWARI's AC5 pass never contend for the sync runner's lock.
+const BOOT_AT = Date.now();
+const lastDue = new Map();
+const periodMs = (name, fallback) => Number(process.env[name] || fallback);
+function due(key, everyMs, firstAfterMs) {
+  const last = lastDue.get(key) ?? (BOOT_AT + firstAfterMs - everyMs);
+  return Date.now() - last >= everyMs;
+}
+const stamp = (key) => { lastDue.set(key, Date.now()); };
+
 // ── The graph ───────────────────────────────────────────────────────────────
 // `when` is the edge condition: a node is entered only if it returns true for
 // the state as it stands. That is the whole difference from a timer — a timer
@@ -59,12 +76,34 @@ const NODES = [
     writes: (s) => ({ ...s, trips_swept: true }),
   },
   {
+    // ── THE DAILY LOADING CYCLE ── KALI polls both IOCL mailboxes for the
+    // AC4 (the consignee's tax invoice: the truck LOADED) and writes the
+    // loading register, iocl_ac4_loads. Never a trip, never a freight figure
+    // — the owner's rule of 2-Sep-2026. The AC5 (billing) is the next pair.
+    id: 'AGENT_01', codename: 'KALI', node: 'loading_mail',
+    homework: 'Poll IOCL mailboxes for AC4 daily-loading mail every 10 min → loading register',
+    event: 'loading.mail.sweep.requested', aggregate: 'loading',
+    when: () => due('loading_mail', periodMs('LOADING_MAIL_SWEEP_MS', 600_000), 60_000),
+    writes: (s) => { stamp('loading_mail'); return { ...s, loading_mail_swept: true }; },
+  },
+  {
     id: 'AGENT_04', codename: 'BHUVANESHWARI', node: 'ingest',
     homework: 'Drain the document queue; replay AI tasks parked while offline',
     event: 'document.queue.sweep', aggregate: 'documents',
     when: () => true,
     extra: async () => { await drainParked(); },
     writes: (s) => ({ ...s, documents_drained: true }),
+  },
+  {
+    // ── THE BILLING CYCLE, FIRST HALF ── BHUVANESHWARI fetches and parses the
+    // AC5 freight invoices and hands each new one to TARA as a proposal
+    // (invoice.parsed). She never inserts the trip herself; TARA posts it.
+    // Phased three minutes after KALI's mail node.
+    id: 'AGENT_04', codename: 'BHUVANESHWARI', node: 'invoice_mail',
+    homework: 'Fetch and parse AC5 freight invoices every 10 min; hand each new one to TARA',
+    event: 'invoice.mail.sweep.requested', aggregate: 'invoices',
+    when: () => due('invoice_mail', periodMs('INVOICE_MAIL_SWEEP_MS', 600_000), 240_000),
+    writes: (s) => { stamp('invoice_mail'); return { ...s, invoice_mail_swept: true }; },
   },
   {
     id: 'AGENT_06', codename: 'CHHINNAMASTA', node: 'fuel',
@@ -219,6 +258,7 @@ function summarise(s) {
     compliance_swept: !!s.compliance_swept, documents_drained: !!s.documents_drained,
     maintenance_checked: !!s.maintenance_checked, comms_flushed: !!s.comms_flushed,
     infra_checked: !!s.infra_checked,
+    loading_mail_swept: !!s.loading_mail_swept, invoice_mail_swept: !!s.invoice_mail_swept,
     errors: s.errors.length,
   };
 }

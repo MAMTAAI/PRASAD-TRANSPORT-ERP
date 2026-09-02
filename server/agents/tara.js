@@ -4,6 +4,10 @@ import { defineAgent, ok, skipped, blocked, failed } from './base.js';
 import { query, queryOne } from '../db/pool.js';
 import { withAggregateLock, LOCK_NS } from './kamala.js';
 import { assertAttachedCostIsolation } from '../lib/fleetAccounting.js';
+import { enrichTrips } from '../lib/tripEnrich.js';
+import { stmSet } from '../memory/okf.js';
+
+const LIVE_TTL_MS = 15 * 60 * 1000;
 
 /**
  * Posting rules, ported from `src/lib/accounting/posting.ts`, which already
@@ -49,6 +53,10 @@ export default defineAgent({
     'vendor.payment.made',
     'loan.emi.due',
     'ledger.audit.requested',
+    // THE BILLING CYCLE, SECOND HALF (owner's rule, 2-Sep-2026): an AC5
+    // freight invoice BHUVANESHWARI parsed and found on no trip. Tara posts
+    // it into the trip ledger — the bill book — with its invoice number.
+    'invoice.parsed',
   ],
   emits: [
     'ledger.posted',
@@ -56,6 +64,7 @@ export default defineAgent({
     'trip.settled',
     'invoice.generation.requested',
     'agent.halt.requested',
+    'invoice.posted',
   ],
 
   owns: {
@@ -145,6 +154,83 @@ export default defineAgent({
           });
           return ok(`settled trip ${tripId}`);
         });
+      }
+
+      case 'invoice.parsed': {
+        // ── THE BILLING CYCLE, SECOND HALF ── an AC5 freight invoice that
+        // BHUVANESHWARI parsed and found on no trip. Tara posts it into the
+        // trip ledger (the bill book) through the ops API — the one door every
+        // trip enters by, which mints the LR number under its own lock and
+        // resolves the operating company to a real company row. The row
+        // carries the invoice number, truck, date and KL. The freight amount
+        // is settled later on the rate card, as for every IOCL trip; no
+        // voucher is posted here, because an AC5 carries no rupee figure for
+        // freight. Idempotent: an invoice already on a trip is SKIPPED, so a
+        // retried event can never double-post.
+        const p = event.payload ?? {};
+        const doc = String(p.doc_no ?? '');
+        if (!doc || !p.vehicle_no || !p.loading_date || !p.qty_kl) {
+          return failed('invoice.parsed lacks doc_no / vehicle_no / loading_date / qty_kl');
+        }
+        const dup = await queryOne('SELECT trip_code FROM trips WHERE iocl_invoice_no = $1 LIMIT 1', [doc]);
+        if (dup) return skipped(`invoice ${doc} already on ${dup.trip_code}`);
+
+        const body = {
+          operating_company: p.company ?? 'M/S PRASAD TRANSPORT',
+          vehicle_no: p.vehicle_no,
+          loading_date: String(p.loading_date).slice(0, 10),
+          loaded_qty: Number(p.qty_kl),
+          product_type: p.product ?? null,
+          iocl_invoice_no: doc,
+          loading_point: (p.loading_point && p.loading_point_code)
+            ? `${p.loading_point} (${p.loading_point_code})`
+            : (p.loading_point ?? p.loading_point_code ?? null),
+          consignee_name: p.consignee_name ?? null,
+          status: 'IN_TRANSIT',
+        };
+        if (p.sibling) {
+          body.remarks = (`AC5 ${doc}: 2nd invoice for ${p.vehicle_no} on ${body.loading_date} (see ${p.sibling}); `
+            + `shipment ${p.shipment_no ?? '?'}, delivery ${p.delivery_no ?? '?'}, loaded ${p.loading_time ?? '?'}`).slice(0, 500);
+        }
+        const port = process.env.API_PORT || 3300;
+        let res;
+        let text;
+        try {
+          res = await fetch(`http://127.0.0.1:${port}/api/v1/ops/trips`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${process.env.ERP_SERVICE_TOKEN ?? ''}`,
+              'x-service-name': 'tara-bill-book',
+              'x-agent-id': 'AGENT_02',
+            },
+            body: JSON.stringify(body),
+          });
+          text = await res.text();
+        } catch (err) {
+          return failed(`trip ledger unreachable for invoice ${doc}: ${String(err.message).slice(0, 160)}`);
+        }
+        if (!res.ok) {
+          const why = `trip ledger refused invoice ${doc}: HTTP ${res.status} ${text.slice(0, 160)}`;
+          stmSet('AGENT_02', 'live_action', why.slice(0, 120), LIVE_TTL_MS);
+          return failed(why);
+        }
+        let trip;
+        try { trip = JSON.parse(text).trip ?? JSON.parse(text); } catch { trip = {}; }
+        // Fill driver, destination and distance from the vehicle's own history,
+        // the same step the importer ran — nothing here is overwritten.
+        try { if (trip.id) await enrichTrips({ tripIds: [trip.id] }); } catch { /* best effort */ }
+        const line = `posted ${trip.trip_code ?? '?'} · inv ${doc} · ${body.loaded_qty} KL · ${body.operating_company}`
+          + (p.sibling ? ` · 2nd inv (see ${p.sibling})` : '');
+        stmSet('AGENT_02', 'live_action', line, LIVE_TTL_MS);
+        await ctx.emit('invoice.posted', {
+          aggregate: 'trip',
+          aggregateId: trip.id ?? null,
+          payload: { trip_code: trip.trip_code ?? null, invoice_no: doc, qty_kl: body.loaded_qty,
+                     company: body.operating_company, sibling: p.sibling ?? null },
+          correlationId: event.correlation_id,
+        });
+        return ok(line);
       }
 
       case 'ledger.audit.requested': {

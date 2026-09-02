@@ -38,7 +38,14 @@ export async function registerFleetRoutes(app) {
     // The graph is the live engine. Loop stats stay readable so a fallback run
     // (AGENT_ENGINE=loop) still reports something instead of blanking the cards.
     const graph = graphStatus();
-    const nodeById = new Map(graph.nodes.map((n) => [n.agentId, n]));
+    // An agent may hold more than one node — KALI: dispatch + loading_mail,
+    // BHUVANESHWARI: ingest + invoice_mail (the IOCL mail cycles). The card
+    // names all of them; the counters are shared per agent in the engine.
+    const nodesByAgent = new Map();
+    for (const n of graph.nodes) {
+      if (!nodesByAgent.has(n.agentId)) nodesByAgent.set(n.agentId, []);
+      nodesByAgent.get(n.agentId).push(n);
+    }
     const memory = await memoryStats(AGENT_IDS);
     const proc = processMetrics();
 
@@ -68,16 +75,19 @@ export async function registerFleetRoutes(app) {
         // it has an edge, and `gated_by` names the predecessors that open it.
         engine: graph.mode,
         graph_active: graph.active,
-        node: nodeById.get(a.id)?.node ?? null,
-        gated_by: nodeById.get(a.id)?.gated_by ?? [],
-        graph_ticks: nodeById.get(a.id)?.ticks ?? 0,
-        graph_skipped: nodeById.get(a.id)?.skipped ?? 0,
+        node: (nodesByAgent.get(a.id) ?? []).map((n) => n.node).join(' + ') || null,
+        gated_by: [...new Set((nodesByAgent.get(a.id) ?? []).flatMap((n) => n.gated_by ?? []))],
+        graph_ticks: nodesByAgent.get(a.id)?.[0]?.ticks ?? 0,
+        graph_skipped: nodesByAgent.get(a.id)?.[0]?.skipped ?? 0,
         loop_running: graph.active || (loop.running ?? false),
         memory_interface: mem?.interface ?? 'IDLE',
         memory: { stm_pct: mem?.stm.pct ?? 0, ltm_pct: mem?.ltm.pct ?? 0, stm: mem?.stm, ltm: mem?.ltm },
         cpu_pct: proc.cpu_pct,     // process-level: one Node process hosts all ten
         mem_pct: proc.mem_pct,
-        live_action: loop.last_action ?? 'standing by',
+        // Under the graph engine the loops never tick, so a handler that did
+        // real work (KALI's AC4 sweep, TARA's invoice posting) reports it
+        // through STM; the loop's last action is the fallback.
+        live_action: stmGet(a.id, 'live_action') ?? loop.last_action ?? 'standing by',
         live_at: loop.last_at ?? null,
         homework: stmGet(a.id, 'homework') ?? loop.homework ?? null,
         today: {

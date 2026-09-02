@@ -2,6 +2,10 @@
 // AGENT 01 — KALI · Dispatch & Trip Execution Engine
 import { defineAgent, ok, skipped, blocked, failed } from './base.js';
 import { queryOne } from '../db/pool.js';
+import { runIoclSync, SyncBusyError } from '../lib/ioclSyncRunner.js';
+import { stmSet } from '../memory/okf.js';
+
+const LIVE_TTL_MS = 15 * 60 * 1000;
 
 /**
  * The trip lifecycle, taken from the states already present in the live data
@@ -43,6 +47,11 @@ export default defineAgent({
     'trip.unloading.recorded',
     'compliance.clearance.granted',
     'compliance.clearance.denied',
+    // THE DAILY LOADING CYCLE (owner's rule, 2-Sep-2026): every 10 minutes
+    // the graph asks Kali to poll both IOCL mailboxes for the AC4 — the
+    // consignee's tax invoice, mailed within the hour of the truck leaving
+    // the bay — and write the loading register. Daily dispatch operations.
+    'loading.mail.sweep.requested',
   ],
   emits: [
     'trip.created',
@@ -51,10 +60,12 @@ export default defineAgent({
     'trip.shortage.detected',
     'trip.rtkm.recorded',
     'compliance.clearance.requested',
+    'loading.registered',
   ],
 
   owns: {
-    tables: ['trips', 'trip_legs', 'trip_gps_pings'],
+    // iocl_ac4_loads is the loading register: one row per AC4 document.
+    tables: ['trips', 'trip_legs', 'trip_gps_pings', 'iocl_ac4_loads'],
     modules: ['TripManagment.tsx', 'LodingDetals.tsx', 'UnlodingDetals.tsx', 'LoadingAdvice.tsx'],
   },
   reads: ['vehicles', 'drivers', 'vehicle_assignments', 'rtkm_master', 'customers'],
@@ -64,6 +75,7 @@ export default defineAgent({
     'post any ledger entry, even for shortage penalties (it emits, TARA posts)',
     'advance a trip past a BHAIRAVI compliance denial',
     'mark a trip SETTLED — only TARA may, after the ledger balances',
+    'turn an AC4 loading into a trip or give it a freight figure — the AC4 is daily loading; the AC5 (BHUVANESHWARI parses, TARA posts) is billing',
   ],
 
   guards: [
@@ -133,6 +145,43 @@ export default defineAgent({
       case 'trip.gps.ping':
         // High-frequency and non-transactional; recorded for route history only.
         return ok('gps ping recorded');
+
+      case 'loading.mail.sweep.requested': {
+        // THE DAILY LOADING CYCLE. Both IOCL mailboxes, AC4 mail only, into
+        // iocl_ac4_loads through the shared sync runner (one lock, one log:
+        // /var/lib/prasad/logs/cron_sync.log, trigger 'kali', stage 'ac4').
+        // The AC5 — billing — is BHUVANESHWARI's and TARA's; this stage never
+        // opens one. A lock collision with their pass is BLOCKED, not an
+        // error: the next graph cycle that is due will simply try again.
+        let r;
+        try {
+          r = await runIoclSync({ stage: 'ac4', apply: true, trigger: 'kali' });
+        } catch (err) {
+          if (err instanceof SyncBusyError) return blocked(`mail sync busy: ${err.message}`);
+          const why = String(err.message).slice(0, 200);
+          stmSet('AGENT_01', 'live_action', `AC4 sweep failed: ${why.slice(0, 80)}`, LIVE_TTL_MS);
+          return failed(`AC4 sweep failed: ${why}`);
+        }
+        const dead = r.mailboxes_failed ?? [];
+        const line = `AC4 sweep: ${r.ac4_new ?? 0} new, ${r.ac4_already ?? 0} already, ${r.ac4_failed ?? 0} failed`
+          + (dead.length ? ` · mailbox down: ${dead.join(', ')}` : '')
+          + (r.ac4_error ? ` · ${String(r.ac4_error).slice(0, 80)}` : '')
+          + ` (${r.seconds}s)`;
+        stmSet('AGENT_01', 'live_action', line, LIVE_TTL_MS);
+        await ctx.emit('loading.registered', {
+          aggregate: 'loading',
+          payload: {
+            new: r.ac4_new ?? 0, already: r.ac4_already ?? 0, failed: r.ac4_failed ?? 0,
+            mailboxes_failed: dead, error: r.ac4_error ?? null, seconds: r.seconds,
+          },
+          correlationId: event.correlation_id,
+        });
+        // A dead mailbox needs a person (a Google login), so it is a guard
+        // outcome, not a retry. A refused row or a sweep error is ours.
+        if (dead.length) return blocked(line);
+        if ((r.ac4_failed ?? 0) > 0 || r.ac4_error) return failed(line);
+        return ok(line);
+      }
 
       default:
         return skipped(`no dispatch rule for ${event.event_type}`);
