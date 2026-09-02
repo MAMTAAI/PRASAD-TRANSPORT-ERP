@@ -28,6 +28,7 @@ import { postVoucher } from '../agents/tara.js';
 import { drain } from '../agents/bus.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const money = (v) => Number(v ?? 0);
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
@@ -795,6 +796,113 @@ export async function registerAssetRoutes(app) {
   const MAINT_COLS = ['vehicle_id', 'vehicle_no', 'service_date', 'service_type', 'garage_name',
     'vendor_id', 'bill_no', 'bill_amount', 'odometer_km', 'next_due_km', 'next_due_date',
     'parts', 'remarks', 'bill_url', 'company', 'created_by'];
+
+
+  // ── FLEET MAINTENANCE HUB ──────────────────────────────────────────────────
+  // THE ODOMETER IS CALCULATED, BECAUSE THERE ISN'T ONE.
+  //
+  // `vehicles` has no odometer column and `maintenance_logs` was empty on every
+  // one of the 49 lorries when this was written. The only thing in the database
+  // that knows how far a truck has gone is its TRIPS — 825 of 998 carry rtkm.
+  // So:
+  //
+  //     effective odometer = reading at the last logged service
+  //                        + Σ rtkm of every trip loaded since that date
+  //
+  // The whole computation lives in f_fleet_maintenance() (migration 123) rather
+  // than here, so the dashboard, this route and anything added later cannot
+  // drift into three definitions of "due for service".
+  //
+  // WHAT THIS ROUTE WILL NOT DO: invent the first term. A lorry with no service
+  // log answers NO_BASELINE and appears in `needs_baseline`, which is the
+  // worklist the screen opens on. Recording one reading per lorry — through
+  // POST /maintenance, which already exists — is what starts the tracking.
+  const MAINT_GROUPS = ['ENGINE_OIL', 'TYRES_SPARES', 'OTHER'];
+
+  app.get('/maintenance/fleet-status', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const group = MAINT_GROUPS.includes(String(req.query?.group ?? '').toUpperCase())
+      ? String(req.query.group).toUpperCase() : 'ENGINE_OIL';
+    const companyId = UUID_RE.test(String(req.query?.company_id ?? '')) ? req.query.company_id : null;
+
+    const [{ rows }, { rows: plans }] = await Promise.all([
+      query('SELECT * FROM f_fleet_maintenance($1::text, $2::uuid)', [group, companyId]),
+      query('SELECT * FROM maintenance_plans ORDER BY service_group'),
+    ]);
+
+    const by = (s) => rows.filter((r) => r.state === s);
+    const critical = by('CRITICAL');
+    const dueSoon = by('DUE_SOON');
+    const plan = plans.find((p) => p.service_group === group) ?? null;
+
+    // Sorted by what needs doing, not alphabetically: CRITICAL first, then the
+    // ones closest to their limit, then the lorries nobody has baselined.
+    const RANK = { CRITICAL: 0, DUE_SOON: 1, NO_ODOMETER: 2, NO_INTERVAL: 3, HEALTHY: 4, NO_BASELINE: 5 };
+    rows.sort((a, b) => (RANK[a.state] - RANK[b.state])
+      || (Number(b.pct_of_interval ?? -1) - Number(a.pct_of_interval ?? -1))
+      || String(a.vehicle_no).localeCompare(String(b.vehicle_no)));
+
+    return {
+      group,
+      company_id: companyId,
+      plan,
+      // TRUE while nobody at the firm has confirmed the interval. The screen
+      // shows a badge for exactly as long as this is true — a servicing
+      // threshold picked by whoever wrote the migration must not read as
+      // company policy.
+      plan_is_default: plan ? plan.is_default : null,
+      total: rows.length,
+      counts: rows.reduce((a, r) => { a[r.state] = (a[r.state] || 0) + 1; return a; }, {}),
+      critical: critical.length,
+      due_soon: dueSoon.length,
+      healthy: by('HEALTHY').length,
+      needs_baseline: by('NO_BASELINE').length,
+      // The reading is a FLOOR wherever a trip in the window has no rtkm. Said
+      // once here so every caller can repeat it rather than each deciding for
+      // itself whether it matters.
+      trips_missing_rtkm: rows.reduce((a, r) => a + Number(r.trips_missing_rtkm || 0), 0),
+      vehicles: rows,
+    };
+  });
+
+  // The interval, and who set it. PATCH clears `is_default`, which is what
+  // turns "our guess" into "the firm's policy" on screen.
+  app.get('/maintenance/plans', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query('SELECT * FROM maintenance_plans ORDER BY service_group');
+    return { plans: rows };
+  });
+
+  app.patch('/maintenance/plans/:group', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const group = String(req.params.group ?? '').toUpperCase();
+    if (!MAINT_GROUPS.includes(group)) {
+      return reply.code(400).send({ error: 'BAD_GROUP', detail: `group must be one of ${MAINT_GROUPS.join(', ')}` });
+    }
+    const b = req.body ?? {};
+    const km = b.interval_km === null || b.interval_km === undefined ? undefined : Number(b.interval_km);
+    const days = b.interval_days === null || b.interval_days === undefined ? undefined : Number(b.interval_days);
+    const pct = b.due_soon_pct === undefined ? undefined : Number(b.due_soon_pct);
+    if (km !== undefined && (!Number.isFinite(km) || km <= 0)) {
+      return reply.code(400).send({ error: 'BAD_INTERVAL', detail: 'interval_km must be a positive number' });
+    }
+    if (pct !== undefined && (!Number.isFinite(pct) || pct <= 0 || pct >= 100)) {
+      return reply.code(400).send({ error: 'BAD_PCT', detail: 'due_soon_pct must be between 0 and 100' });
+    }
+    const { rows } = await query(
+      `UPDATE maintenance_plans
+          SET interval_km   = COALESCE($2::numeric, interval_km),
+              interval_days = COALESCE($3::integer, interval_days),
+              due_soon_pct  = COALESCE($4::numeric, due_soon_pct),
+              is_default    = false,
+              updated_by    = $5,
+              updated_at    = now()
+        WHERE service_group = $1
+        RETURNING *`,
+      [group, km ?? null, days ?? null, pct ?? null, req.user?.name ?? null]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { updated: true, plan: rows[0] };
+  });
 
   app.get('/maintenance', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);

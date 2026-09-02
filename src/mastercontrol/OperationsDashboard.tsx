@@ -18,6 +18,7 @@ import UnloadingActivity from './UnloadingActivity';
 import DispatchConsole from './DispatchConsole';
 import DispatchTripChat from './DispatchTripChat';
 import DriverCommandCenter from './DriverCommandCenter';
+import FleetMaintenanceHub from './FleetMaintenanceHub';
 import FleetDocumentVault from './FleetDocumentVault';
 
 // The tab bar the dispatch desk asked for. UNKNOWN is deliberately not one of
@@ -215,6 +216,14 @@ export default function OperationsDashboard({ live, filter }) {
             HOW BAD in one line; WHAT exactly is missing is the overlay it opens,
             the same split Loading Activity makes with its 7 DIN sheet. */}
         <DriverCommandCenter drivers={ops?.drivers} alerts={ops?.compliance_alerts} />
+
+        {/* Fleet Maintenance Hub — beside the document vault because they are
+            the same question asked twice: what is overdue on this lorry, paper
+            or workshop. Its odometer is COMPUTED from trip rtkm (there is no
+            odometer column in this database and no service log had ever been
+            written), so it carries its own data path rather than riding the v5
+            payload — see the file header. */}
+        <FleetMaintenanceHub filter={filter} />
       </div>
 
       {/* ══════════════ CENTER PANEL ══════════════ */}

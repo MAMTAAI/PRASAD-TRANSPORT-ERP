@@ -30,7 +30,8 @@
     "ship:release": "node scripts/ship.mjs --release",
     "auth:selftest": "node server/lib/apiGuard.selftest.js",
     "wa:selftest": "node whatsapp-server/describeMedia.selftest.js",
-    "places:selftest": "node src/lib/tripPlaces.selftest.mjs"
+    "places:selftest": "node src/lib/tripPlaces.selftest.mjs",
+    "check:refs": "node scripts/check-undefined-refs.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
