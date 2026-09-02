@@ -50,32 +50,32 @@ const KIND_LABEL = {
 };
 
 // ---------------------------------------------------------------------------
-// MOCK DATA — matches the approved v5.0 design numbers exactly
+// THE LAST OF THE v5.0 DESIGN MOCK DATA.
+//
+// `documentVault`, `drivers` and `liveFleet` lived here too — three invented
+// tables (an expired EXPLOSIVE LICENSE, three named drivers, five lorries on
+// five routes) rendered in exactly the same type as real figures. Every panel
+// that used them has since been given a live source, so on 2026-09-02 they were
+// deleted rather than left lying next to code that reads from the database.
+//
+// THEY ALSO BROKE THE SCREEN ON THE WAY OUT, and the mechanism is worth
+// recording. When the dispatch panel moved to its own file the icons it no
+// longer needed were dropped from the lucide import — but `documentVault` still
+// named three of them at MODULE level. This file carries `// @ts-nocheck`, so
+// tsc said nothing; esbuild does not resolve free identifiers, so the build
+// passed; and the whole module then threw `ReferenceError: ShieldAlert is not
+// defined` the moment it was evaluated, which is a blank dashboard. Dead code
+// holding a live reference is invisible to every check in this repo except
+// opening the page.
+//
+// `kpis` STAYS, and only as the shape of the "--" placeholder row: the live
+// path never falls back to its numbers (see kpiLive below, which maps over it
+// replacing every value). It is the labels and icons, not the figures.
 // ---------------------------------------------------------------------------
 const kpis = [
   { label: 'Fleet Size', value: '50', sub: 'Vehicles', icon: Truck, accent: 'cyan' },
   { label: 'Active Trips', value: '266', sub: 'Trips running', icon: Route, accent: 'emerald' },
   { label: 'Pending Unloading', value: '14', sub: 'Trips waiting', icon: PackageOpen, accent: 'amber' },
-];
-
-const documentVault = [
-  { doc: 'EXPLOSIVE LICENSE', icon: ShieldAlert, state: 'Expired', days: '0 Days', tone: 'red', pulse: true },
-  { doc: 'RULE 18', icon: FileWarning, state: '<5 Days', days: 'Amber', tone: 'amber', pulse: true },
-  { doc: 'PUC', icon: FileCheck2, state: '<10 Days', days: 'Amber', tone: 'amber', pulse: false },
-];
-
-const drivers = [
-  { name: 'Sanjiv Yadav', dl: { label: 'DL: Valid', tone: 'green' }, hzd: { label: 'HZD: Valid', tone: 'green' } },
-  { name: 'Nazrul Islam', dl: { label: 'DL: <10 Days', tone: 'amber' }, hzd: { label: 'HZD: Valid', tone: 'green' } },
-  { name: 'Ajay Kumar', dl: { label: 'DL: <30 Days', tone: 'amber' }, hzd: { label: 'HZD: <5 Days', tone: 'amber' } },
-];
-
-const liveFleet = [
-  { vehicle: 'AS 25C 9908', route: 'Patgaon → Guwahati', status: 'En Route', tone: 'green', location: 'NH-27, Rangia Bypass' },
-  { vehicle: 'AS 18A 4531', route: 'Bongaigaon → Haldia', status: 'Loading', tone: 'amber', location: 'BGR Refinery Gate 2' },
-  { vehicle: 'WB 02X 7890', route: 'Bongaigaon → Haldia', status: 'Unloading', tone: 'cyan', location: 'Bongaigaon Rd' },
-  { vehicle: 'AS 25C 4521', route: 'Haldia → Kolkata', status: 'En Route', tone: 'green', location: 'NH-116, Kolaghat' },
-  { vehicle: 'AS 01K 3345', route: 'Guwahati → Silchar', status: 'En Route', tone: 'green', location: 'Meghalaya Border' },
 ];
 
 // ---------------------------------------------------------------------------
