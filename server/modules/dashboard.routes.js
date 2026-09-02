@@ -1749,6 +1749,23 @@ export function registerDashboardRoutes(app) {
       // nothing rather than claiming health it has not checked.
       const sync = syncState();
       const failedBoxes = sync?.last_run?.mailboxes_failed ?? [];
+      // THE LOADING THE REGISTER CANNOT SEE YET. IOCL mails the consignee's
+      // tax invoice (AC4) within the hour of the truck leaving the bay and the
+      // freight invoice (AC5 — the only thing the importer writes) hours or
+      // days later. 77 AC4s to 32 AC5s between 15-Aug and 2-Sep-2026, so on a
+      // day with eight loads this panel could honestly say "nothing today".
+      // Flattened here to the fields a person needs to recognise the truck;
+      // evidence for the panel, never a row (tools/iocl_recon/iocl_ac4_seen.py).
+      const ac4Recent = Object.values(sync?.last_run?.ac4 ?? {})
+        .flatMap((v) => (v?.loads ?? []).filter((l) => l?.ok))
+        .map((l) => ({
+          sap_no: l.sap_no, date: l.date, time: l.time ?? null,
+          vehicle_no: l.vehicle_no, qty_kl: Number(l.qty_kl || 0),
+          products: l.products ?? [], consignee: l.consignee ?? null,
+          transporter: l.transporter ?? null, loading_point: l.loading_point ?? null,
+          mailbox: l.mailbox,
+        }))
+        .sort((x, y) => `${y.date} ${y.time ?? ''}`.localeCompare(`${x.date} ${x.time ?? ''}`));
       return {
         day: r.day ?? null,
         is_today: !!r.is_today,
@@ -1778,6 +1795,8 @@ export function registerDashboardRoutes(app) {
           // Work that is waiting on a person has to be visible or it is not
           // waiting on anyone.
           held_for_review: sync?.last_run?.held_for_review ?? 0,
+          ac4_recent: ac4Recent,
+          ac4_error: sync?.last_run?.ac4_error ?? null,
         },
         email_count: num(r.email_count),
         manual_count: num(r.manual_count),
@@ -1857,7 +1876,7 @@ export function registerDashboardRoutes(app) {
          load_week_from: null, load_week_to: null, last7_loading: [], by_company_week: [],
          week_trips: [],
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
-                 insert_failed: 0, insert_errors: [], held_for_review: 0 } });
+                 insert_failed: 0, insert_errors: [], held_for_review: 0, ac4_recent: [], ac4_error: null } });
 
     // ── UNLOADING, THE OTHER HALF OF THE TRIP ────────────────────────────────
     //

@@ -199,6 +199,12 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
         detail: (summary.insert_errors || []).slice(0, 5),
       });
     }
+    // AC4 delivery invoices seen in the last two days, per mailbox. Loading
+    // EVIDENCE the panel shows next to the AC5-fed register — see
+    // tools/iocl_recon/iocl_ac4_seen.py for why they are never inserted.
+    const ac4 = summary.ac4 || {};
+    const ac4Seen = Object.values(ac4).reduce((n, v) => n + ((v?.loads || []).filter((l) => l?.ok).length), 0);
+
     lastRun = {
       at: new Date().toISOString(), trigger, seconds: secs,
       inserted: summary.inserted, downloaded: summary.downloaded ?? null,
@@ -206,6 +212,12 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       mailboxes: summary.mailboxes || {},
       insert_failed: insertFailed,
       insert_errors: summary.insert_errors || [],
+      // Was written to the LOG line below but never to this object, so the
+      // dashboard's held-for-review banner (which reads last_run) rendered
+      // zero from the day it shipped while six invoices waited.
+      held_for_review: Number(summary.held_for_review || 0),
+      ac4,
+      ac4_error: summary.ac4_error || null,
     };
 
     logLine({
@@ -216,6 +228,8 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
       downloaded: summary.downloaded ?? null,
       mailboxes_failed: failed,
       insert_failed: insertFailed,
+      ac4_seen: ac4Seen,
+      ac4_error: summary.ac4_error || null,
       window: summary.window,
     });
     return { ...summary, seconds: secs, kl_imported: kl, enrich };

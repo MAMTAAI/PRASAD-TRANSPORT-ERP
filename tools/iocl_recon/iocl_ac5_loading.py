@@ -208,6 +208,30 @@ def main(argv: list[str]) -> int:
         mailboxes = fetch(args.window_from, args.window_to, args.ac5_dir, args.limit) or {}
         print()
 
+    # AC4 -- EVIDENCE OF A LOADING, NOT A ROW. IOCL mails the consignee's tax
+    # invoice (AC4) within the hour of the truck leaving the bay, and the
+    # freight invoice (AC5, the only thing this tool imports) hours or days
+    # later -- 77 AC4s to 32 AC5s between 15-Aug and 2-Sep-2026. On 2-Sep the
+    # panel said "no loading today" while the morning's AC4 sat in the inbox.
+    # Carried out to the panel so a person can see the truck loaded; never
+    # inserted, because an AC4's trip semantics are the office's call. Wrapped
+    # so that nothing here can ever cost the AC5 import.
+    ac4: dict = {}
+    ac4_error = None
+    if not args.no_fetch:
+        print("=== AC4 delivery invoices (informational)")
+        try:
+            from iocl_ac4_seen import seen_ac4, AC4_DAYS
+            ac4 = seen_ac4(MAILBOXES, args.window_to)
+            for label, v in ac4.items():
+                print(f"  {label:<20} {v.get('status')}  downloaded {v.get('downloaded', 0)}, "
+                      f"last {AC4_DAYS} days: {len(v.get('loads', []))} "
+                      f"({sum(1 for l in v.get('loads', []) if l.get('ok'))} readable)")
+        except Exception as exc:                          # noqa: BLE001
+            ac4_error = str(exc)[:200]
+            print(f"  AC4 sweep failed (AC5 import unaffected): {ac4_error}")
+        print()
+
     pdfs = sorted(p for p in args.ac5_dir.rglob("*.pdf")) + \
            sorted(p for p in args.ac5_dir.rglob("*.PDF"))
     pdfs = sorted(set(pdfs))
@@ -394,6 +418,10 @@ def main(argv: list[str]) -> int:
         "mailboxes": mailboxes,
         "mailboxes_failed": sorted(unhealthy.keys()),
         "downloaded": sum(int((v or {}).get("downloaded") or 0) for v in mailboxes.values()),
+        # Per mailbox: status + the last two days' AC4 loads (see above). Health
+        # of the AC4 sweep is its own field; it must not colour the AC5 verdict.
+        "ac4": ac4,
+        "ac4_error": ac4_error,
     }))
     return 0
 

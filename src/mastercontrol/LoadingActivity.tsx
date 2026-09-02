@@ -117,6 +117,29 @@ export default function LoadingActivity({ activity, offline }) {
   // fortnight. Kept separate from deadBoxes because the two send you to
   // different places: one needs a Google login, the other needs the box.
   const refused = a?.sync?.insert_failed ?? 0;
+  // ── THE LOADING THIS REGISTER CANNOT SEE YET ─────────────────────────────
+  // IOCL sends two documents per delivery. The AC4 (its tax invoice to the
+  // consignee) lands within the hour of the truck leaving the bay; the AC5
+  // freight invoice — the ONLY thing the importer writes — comes hours or
+  // days later, and for many loads much later: 77 AC4 mails to 32 AC5 mails
+  // between 15-Aug and 2-Sep-2026. So on 2-Sep this panel said "no loading
+  // today" while that morning's AC4 sat in the inbox, and the owner, who knew
+  // a truck had loaded, concluded the scanner was skipping read mail. It was
+  // not; it was reading the wrong document for the question "did we load".
+  //
+  // Shown as EVIDENCE, with the truck and the customer, and never as an entry:
+  // an AC4 carries no freight, may put two products on one truck, and what row
+  // it should become is the office's decision. Today's first, yesterday's
+  // under their date.
+  const ac4 = a?.sync?.ac4_recent ?? [];
+  const todayIso = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const ac4Today = ac4.filter((l) => l.date === todayIso);
+  const ac4Earlier = ac4.filter((l) => l.date !== todayIso);
+  const ac4Kl = (list) => list.reduce((s, l) => s + Number(l.qty_kl || 0), 0);
+  const productLabel = (p) => (Array.isArray(p) && p.length ? p.map((x) => String(x).replace(/-BSVI$/i, '')).join('+') : '');
 
   return (
     <GlassPanel className="flex flex-col overflow-hidden max-h-[340px] border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]">
@@ -210,9 +233,53 @@ export default function LoadingActivity({ activity, offline }) {
             Aaj koi loading entry nahi aayi. Neeche <b>{dayLabel(a.day)}</b> ka din dikha rahe hain
             {gap ? ` — ${gap} din purana` : ''}.
             {a.last_7d_count <= 1 && ' Poore hafte mein bhi lagbhag kuch nahi aaya — Gmail sync check karein.'}
+            {/* "padhe ja chuke hain" was read on 2-Sep as "the mails are
+                marked read, so the scanner skipped them". The scan is by
+                DATE — read or unread never mattered — and it looks for the
+                AC5 freight invoice specifically. Say both. */}
             {!neverChecked && !deadBoxes.length && !refused
-              && ' Dono mailbox padhe ja chuke hain aur unmein nayi koi loading nahi thi — yeh sync ki kharabi nahi hai.'}
+              && ' Dono Gmail mailbox date ke hisaab se scan ho chuke hain (mail padha ho ya na padha ho, farak nahi padta) aur koi naya AC5 freight invoice nahi mila — yeh sync ki kharabi nahi hai.'}
           </p>
+        </div>
+      )}
+
+      {/* EVIDENCE OF A LOADING THAT THE REGISTER DOES NOT HAVE YET. Amber, not
+          red: nothing is broken, but a truck has loaded and nobody typing in
+          the office can see it on this screen without opening Gmail. */}
+      {ac4.length > 0 && (
+        <div className="mx-2.5 mt-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
+          <div className="flex items-start gap-1.5">
+            <AlertTriangle size={12} className="mt-px shrink-0 text-amber-400" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-wide text-amber-300">
+                {ac4Today.length > 0
+                  ? `Aaj ${ac4Today.length} gaadi load hui (${kl(ac4Kl(ac4Today))}) — register mein abhi nahi`
+                  : `Kal ${ac4Earlier.length} gaadi load hui — register mein abhi nahi`}
+              </p>
+              <p className="text-[10px] leading-snug text-amber-200">
+                IOCL ki AC4 delivery invoice mail se pata chala. Register AC5 freight invoice se banta hai, jo
+                IOCL baad mein bhejta hai — aate hi entry apne aap ban jaayegi. Tab tak yeh saboot hai, entry nahi.
+              </p>
+            </div>
+          </div>
+          <ul className="mt-1 space-y-0.5 pl-[18px]">
+            {[...ac4Today, ...ac4Earlier].slice(0, 8).map((l) => (
+              <li key={l.sap_no} className="flex items-center gap-1.5 text-[9.5px] text-amber-100/90">
+                <span className="font-bold tabular-nums">{l.vehicle_no}</span>
+                <span className="text-amber-300/80">{kl(l.qty_kl)}{productLabel(l.products) ? ` ${productLabel(l.products)}` : ''}</span>
+                {l.consignee && <span className="truncate text-amber-200/70">→ {l.consignee}</span>}
+                <span className="ml-auto shrink-0 tabular-nums text-amber-300/70">
+                  {l.date !== todayIso ? `${dayLabel(l.date)} ` : ''}{l.time ?? ''}
+                </span>
+                <span className={`shrink-0 rounded border px-1 text-[8.5px] font-bold ${COMPANY_TONE[shortCompany(l.transporter || l.mailbox)] ?? NEUTRAL_TONE}`}>
+                  {shortCompany(l.transporter || l.mailbox)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {ac4.length > 8 && (
+            <p className="mt-0.5 pl-[18px] text-[9px] text-amber-300/60">…aur {ac4.length - 8} — Gmail mein “AC4 Inv” dhundhein.</p>
+          )}
         </div>
       )}
 
