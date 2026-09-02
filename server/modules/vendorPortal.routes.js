@@ -556,6 +556,70 @@ export function registerVendorPortalRoutes(app) {
   // 3. EARNINGS & WALLET
   // ═══════════════════════════════════════════════════════════════════════
 
+  // ═══ SERVICE VENDOR BILLS — pumps, tyre shops, spares (2-Sep-2026) ═════════
+  // A SERVICE vendor (vendor_kind = 'SERVICE', migration 130) supplies the
+  // OWN fleet: HSD, tyres, spares, repairs, toll. Its bill is an operational
+  // expense, not a market-fleet payable, and it lands STRAIGHT in the
+  // Expenses queue (expense_approvals, source VENDOR_PORTAL) with its PDF —
+  // no "App Uploads" step in between. The office approves there; TARA posts
+  // the voucher to `Creditors: <vendor>` under the own fleet, as it always
+  // has for a pump bill typed by staff. Nothing here touches the bazaar.
+  const EXPENSE_TYPES = new Set(['FUEL', 'TYRE', 'MAINTENANCE', 'TOLL', 'OTHER']);
+
+  app.get('/portal/vendor/bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT id, expense_type, amount, bill_no, bill_date, vehicle_no, description, status,
+              approval_status, created_at, approved_at, approved_by,
+              COALESCE(reject_reason, rejection_reason) AS reject_reason, file_key,
+              (voucher_id IS NOT NULL) AS posted
+         FROM expense_approvals
+        WHERE vendor_id = $1::uuid
+        ORDER BY created_at DESC LIMIT 100`, [req.party.vendorId]);
+    return { count: rows.length, bills: rows };
+  });
+
+  app.post('/portal/vendor/bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const type = String(b.expense_type ?? '').toUpperCase();
+    if (!EXPENSE_TYPES.has(type)) {
+      return reply.code(400).send({ error: 'BAD_TYPE', detail: `expense_type must be one of ${[...EXPENSE_TYPES].join(', ')}` });
+    }
+    const amount = Number(b.amount);
+    if (!(Number.isFinite(amount) && amount > 0)) {
+      return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'the bill amount in rupees is required' });
+    }
+    const fileKey = normalizeKey(b.file_key);
+    if (!fileKey.startsWith(`up/vendor/${String(req.user.sub)}/`)) {
+      return reply.code(400).send({ error: 'NOT_YOUR_FILE', detail: 'upload the bill (PDF or photo) through the app first, then submit it' });
+    }
+    const { rows: vend } = await query(
+      `SELECT vendor_name, vendor_kind FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
+    if (vend[0]?.vendor_kind === 'FLEET_PARTNER') {
+      return reply.code(409).send({
+        error: 'FLEET_PARTNER',
+        detail: 'a fleet partner is paid through its load settlements, not through expense bills — use "My Trips"',
+      });
+    }
+    const { rows } = await query(
+      `INSERT INTO expense_approvals
+         (vendor_id, vendor_name, expense_type, bill_no, bill_date, amount, description,
+          vehicle_no, source, entered_by, file_key)
+       VALUES ($1::uuid, $2, $3, $4, $5::date, $6, $7, $8, 'VENDOR_PORTAL', $9, $10)
+       RETURNING id, expense_type, amount, bill_no, bill_date, status, created_at`,
+      [req.party.vendorId, vend[0]?.vendor_name ?? 'vendor', type,
+       b.bill_no ?? null, b.bill_date || null, amount,
+       `[${type} bill via vendor portal] ${String(b.remarks ?? '').trim()}`.trim(),
+       b.vehicle_no ? String(b.vehicle_no).toUpperCase().replace(/\s+/g, ' ').trim() : null,
+       vend[0]?.vendor_name ?? 'vendor portal', fileKey]);
+    return reply.code(201).send({
+      ...rows[0],
+      detail: 'Bill sent to the Prasad Transport office — it is in the Expenses queue now. '
+            + 'You will be told when it is approved and when it is paid.',
+    });
+  });
+
   app.get('/portal/vendor/earnings', { preHandler: needsModule('vend.dashboard') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const vis = await visibleModules(req.party);

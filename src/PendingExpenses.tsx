@@ -42,6 +42,19 @@ const DOC_LABEL = {
 };
 const BILL_TYPES = new Set(['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL']);
 
+// Module-level so every panel on this screen can open a file from the vault:
+// a plain <a href> would arrive without the bearer token and 401, so the file
+// is fetched with it and opened as a blob (the same rule as the POD link).
+async function viewBillFile(key) {
+  try {
+    const token = localStorage.getItem('prasad_token');
+    const r = await fetch(`${API}/api/v1/files/${key}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!r.ok) { alert(`Bill nahi khuli (${r.status})`); return; }
+    const blob = await r.blob();
+    window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+  } catch (e) { alert('Bill nahi khuli: ' + (e as any).message); }
+}
+
 function PartnerDocsQueue({ userName, onFiled }) {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState('');
@@ -542,7 +555,16 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                 <div style={{ fontSize: '30px', fontWeight: 900, color: sm.color }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
                 <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                   {r.vendor_name && <div>🏪 {r.vendor_name} {r.bill_no && <span style={{ color: '#94a3b8' }}>· Bill {r.bill_no}</span>}</div>}
-                  <div style={{ color: '#94a3b8' }}>📅 {r.bill_date || '-'} · by {r.entered_by} {r.source === 'ai_scan' && <span className="pt-badge pt-badge--ai">🤖 AI</span>}</div>
+                  <div style={{ color: '#94a3b8' }}>📅 {r.bill_date || '-'} · by {r.entered_by} {r.source === 'ai_scan' && <span className="pt-badge pt-badge--ai">🤖 AI</span>}
+                    {r.source === 'VENDOR_PORTAL' && <span className="pt-badge pt-badge--warning" style={{ marginLeft: '6px' }}>🏪 Vendor portal</span>}
+                    {/* A bill a service vendor uploaded from its own portal carries its PDF/photo here (migration 130). */}
+                    {r.file_key && (
+                      <button type="button" onClick={() => viewBillFile(r.file_key)}
+                        style={{ marginLeft: '8px', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                        📎 View bill
+                      </button>
+                    )}
+                  </div>
                   {r.description && <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>“{r.description}”</div>}
                 </div>
                 {r.trip_id ? (

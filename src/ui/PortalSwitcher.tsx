@@ -23,7 +23,11 @@ import React, { useEffect, useRef, useState } from 'react';
 const PORTALS = [
   { id: 'MASTER_CONTROL_V5',       label: 'Admin & Staff',   hint: 'The ERP itself',       icon: '🔐', tint: '#22c55e', home: true },
   { id: 'CUSTOMER_PORTAL_PREVIEW', label: 'Customer Portal', hint: 'What a customer sees', icon: '🏢', tint: '#ec4899' },
-  { id: 'PARTNER_PORTAL_PREVIEW',  label: 'Vendor Portal',   hint: 'Fleet partner view',   icon: '🚚', tint: '#f97316' },
+  // Two kinds of "vendor" (2026-09-02): a FLEET PARTNER brings market trucks
+  // to the Load Bazaar; a SERVICE VENDOR (pump, tyre shop, spares) sends
+  // expense bills to the own fleet. Two portals, previewed separately.
+  { id: 'PARTNER_PORTAL_PREVIEW',        label: 'Fleet Partner Portal', hint: 'Market trucks, bids, settlements', icon: '🚚', tint: '#f97316' },
+  { id: 'SERVICE_VENDOR_PORTAL_PREVIEW', label: 'Service Vendor Portal', hint: 'Pumps, tyres, spares — bill uploads', icon: '🏪', tint: '#f59e0b' },
   { id: 'DRIVER_PORTAL_PREVIEW',   label: 'Driver App',      hint: 'Duty screen preview',  icon: '👨‍✈️', tint: '#3b82f6' },
 ];
 

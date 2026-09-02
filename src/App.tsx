@@ -73,9 +73,12 @@ const BazaarAdmin = lazy(() => import('./BazaarAdmin'));
 const MarketVehicles = lazy(() => import('./MarketVehicles'));
 const CustomerPortal = lazy(() => import('./CustomerPortal'));
 const FleetPartnerPortal = lazy(() => import('./FleetPartnerPortal'));
-const FleetPartnerApp = lazy(() => import('./portal/FleetPartnerApp'));
 const CustomerApp = lazy(() => import('./portal/CustomerApp'));
 const CustomerPreview = lazy(() => import('./portal/CustomerPreview'));
+// One VENDOR login, two businesses: VendorGate reads vendor_kind and opens the
+// Fleet Partner app or the Service Vendor portal (2026-09-02).
+const VendorGate = lazy(() => import('./portal/ServiceVendorApp').then((m) => ({ default: m.VendorGate })));
+const ServiceVendorPreview = lazy(() => import('./portal/ServiceVendorPreview'));
 const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
@@ -330,7 +333,7 @@ function AppShell() {
     // (this silently locked newly added modules for everyone).
     if (isAdmin(user)) return true;
 
-    if (['DASHBOARD', 'OPS_DECK', 'ACCT_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
+    if (['DASHBOARD', 'OPS_DECK', 'ACCT_DECK', 'MASTER_CONTROL_V5', 'SUPER_APP', 'AI_DOCS', 'WHATSAPP', 'PARTNER_PORTAL_PREVIEW', 'CUSTOMER_PORTAL_PREVIEW', 'SERVICE_VENDOR_PORTAL_PREVIEW', 'DRIVER_PORTAL_PREVIEW'].includes(itemId)) return true;
 
     if (module === 'OPERATION') {
       if (itemId === 'BAZAAR_ADMIN') return checkView('Load Bazaar Admin'); 
@@ -485,7 +488,7 @@ function AppShell() {
     return (
       <Suspense fallback={<ModuleLoader />}>
         {partnerSignedIn
-          ? <FleetPartnerApp />
+          ? <VendorGate />
           : <FleetPartnerPortal onBack={() => { setIsPartnerMode(false); setShowPublicWebsite(true); }} />}
       </Suspense>
     );
@@ -555,7 +558,13 @@ function AppShell() {
             <CustomerPreview onExit={() => handleComponentChange('CUSTOMER')} />
           </div>
         );
-      case 'DRIVER_PORTAL_PREVIEW': 
+      case 'SERVICE_VENDOR_PORTAL_PREVIEW':
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
+            <ServiceVendorPreview onExit={() => handleComponentChange('VENDOR')} />
+          </div>
+        );
+      case 'DRIVER_PORTAL_PREVIEW':
         return (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
             <DriverPortal preview onBack={() => handleComponentChange('MASTER_CONTROL_V5')} />

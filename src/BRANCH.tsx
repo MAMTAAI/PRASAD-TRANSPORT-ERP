@@ -51,7 +51,7 @@ export default function BRANCH() {
     { id: 'DASHBOARD', name: 'Operations Dashboard', category: '🚛 OPERATIONS', isEnabled: true },
     { id: 'TRIP', name: 'Trip Management', category: '🚛 OPERATIONS', isEnabled: true },
     { id: 'VEHICLE', name: 'Vehicle Fleet', category: '🚛 OPERATIONS', isEnabled: true },
-    { id: 'MARKET_VEHICLE', name: 'Market Vehicles (Vendors)', category: '🚛 OPERATIONS', isEnabled: true },
+    { id: 'MARKET_VEHICLE', name: 'Market Vehicles (Fleet Partners)', category: '🚛 OPERATIONS', isEnabled: true },
     { id: 'DRIVER', name: 'Driver Master (DL)', category: '🚛 OPERATIONS', isEnabled: true },
     { id: 'LOADING', name: 'Loading / Unloading', category: '🚛 OPERATIONS', isEnabled: true },
     { id: 'DOCS', name: 'Vehicle Documents', category: '🚛 OPERATIONS', isEnabled: true },

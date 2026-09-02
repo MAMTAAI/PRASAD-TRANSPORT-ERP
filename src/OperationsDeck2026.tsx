@@ -88,6 +88,7 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
   const F = ov?.market_fleet ?? {};
   const P = ov?.partners ?? {};
   const M = ov?.money ?? {};
+  const SV = ov?.service_vendors ?? {};
   const inProgress = S.in_progress ?? [];
   const board = L.board ?? [];
   const awardReq = L.award_requests ?? [];
@@ -103,6 +104,11 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
     { k: 'drivers', n: F.drivers_pending ?? 0, label: 'Market drivers', hint: 'awaiting approval', go: 'BAZAAR_ADMIN' },
     { k: 'docs', n: P.docs_pending ?? 0, label: 'Partner uploads', hint: 'documents from the partner app', go: 'EXPENSE_APPROVALS' },
     { k: 'firm', n: S.no_firm ?? 0, label: 'Settlements without a firm', hint: 'no money moves until named', go: 'BAZAAR_ADMIN' },
+    // The Expenses queue, routed to this desk by the owner (2-Sep-2026): the
+    // bills service vendors — pumps, tyre shops, spares — upload from their
+    // own portal land here with the PDF, beside every other pending expense.
+    { k: 'expenses', n: SV.expenses_pending ?? 0, label: 'Expense bills',
+      hint: `${SV.bills_pending ?? 0} from the vendor portal · ${rL(SV.expenses_pending_amount)} waiting for money approval`, go: 'EXPENSE_APPROVALS' },
   ];
   const deskTotal = desk.reduce((s, d) => s + d.n, 0);
 
@@ -389,8 +395,16 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
             <div className="box"><div className="l">KYC — customers</div><div className="v od-num">{P.kyc_customer ?? 0}</div><div className="s">customer applications waiting</div></div>
             <div className="box"><div className="l">Market drivers</div><div className="v od-num">{F.drivers_active ?? 0} <small style={{ fontSize: 12, color: 'var(--ink3)' }}>/ {F.drivers_pending ?? 0} pending</small></div><div className="s">partners' drivers, approved by the desk</div></div>
             <div className="box"><div className="l">Partner uploads</div><div className="v od-num">{P.docs_pending ?? 0}</div><div className="s">documents from the partner app</div></div>
+            {/* NOT the market fleet: service vendors (pumps, tyre shops, spares)
+                supply the OWN fleet. Their portal bills land in the Expenses
+                queue the owner routed to this desk, so the count sits here. */}
+            <div className="box" style={{ gridColumn: '1 / -1', borderColor: 'color-mix(in oklab, var(--accent) 35%, var(--line))' }}>
+              <div className="l">Service vendors — pumps, tyres, spares (own fleet's suppliers)</div>
+              <div className="v od-num">{SV.bills_pending ?? 0} <small style={{ fontSize: 12, color: 'var(--ink3)' }}>bills from their portal waiting · {SV.portal ?? 0}/{SV.total ?? 0} vendors on the portal</small></div>
+              <div className="s">Expenses queue: {SV.expenses_pending ?? 0} pending · {rL(SV.expenses_pending_amount)} — <button className="od-pill link" style={{ padding: '1px 8px' }} onClick={() => onOpenConsole?.('EXPENSE_APPROVALS')}>open Pending Expenses</button></div>
+            </div>
           </div>
-          <div className="od-note">Approve a KYC and the partner's portal login exists in the same click; a truck goes live only after its papers are checked here.</div>
+          <div className="od-note">Approve a KYC and the partner's portal login exists in the same click; a truck goes live only after its papers are checked here. A service vendor is a different thing: it never bids, it sends bills.</div>
         </section>
       </div>
 

@@ -140,7 +140,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'LOADING', label: 'Loading Details', icon: '📦' },
         { id: 'SETTLEMENT', label: 'Master Trip Settlement', icon: '🧾' },
         { id: 'VEHICLE', label: 'Our Vehicle Fleet', icon: '🚛' },
-        { id: 'MARKET_VEHICLE', label: 'Market Vehicles (Vendors)', icon: '🚚' }, 
+        { id: 'MARKET_VEHICLE', label: 'Market Vehicles (Fleet Partners)', icon: '🚚' },
         { id: 'DRIVER', label: 'Driver Master', icon: '👨‍✈️' },
         { id: 'VEHICLE_DRIVER_LINK', label: 'Link Vehicle & Driver', icon: '🔗' },
         { id: 'LOCATION_RTKM', label: 'Route & RTKM', icon: '📍' },

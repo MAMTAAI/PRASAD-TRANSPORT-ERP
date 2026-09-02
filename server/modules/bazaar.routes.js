@@ -447,7 +447,8 @@ export async function registerBazaarRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const q = (sql, p = []) => query(sql, p).then((r) => r.rows);
     const [loadsByStatus, awardRequests, openLoads, settleByStatus, settlements, mvByStatus, mvPending,
-           mdByStatus, vendorCounts, kycByType, docsPending, marketBooks, monthMoney] = await Promise.all([
+           mdByStatus, vendorCounts, kycByType, docsPending, marketBooks, monthMoney,
+           serviceVendors, expensesPending] = await Promise.all([
       q(`SELECT status, count(*)::int AS n FROM bazaar_loads GROUP BY 1`),
       q(`SELECT l.load_id, l.origin, l.destination, l.customer_name, l.loading_date, l.material,
                 l.award_requested_by, l.award_requested_at,
@@ -484,9 +485,11 @@ export async function registerBazaarRoutes(app) {
            LEFT JOIN vendors v ON v.id = mv.vendor_id
           ORDER BY (mv.system_status = 'PENDING APPROVAL') DESC, mv.created_at DESC LIMIT 20`),
       q(`SELECT system_status, count(*)::int AS n FROM market_drivers GROUP BY 1`),
+      // Fleet partners only (migration 130): a fuel pump is a vendor too, but
+      // it belongs to the own fleet's expenses, not to this deck's partners.
       q(`SELECT count(*)::int AS total,
                 count(*) FILTER (WHERE is_approved_for_portal)::int AS portal
-           FROM vendors`),
+           FROM vendors WHERE vendor_kind = 'FLEET_PARTNER'`),
       q(`SELECT type, count(*)::int AS n FROM onboarding_applications WHERE status = 'SUBMITTED' GROUP BY 1`),
       q(`SELECT count(*)::int AS n FROM partner_documents WHERE status = 'PENDING' AND uploader_role = 'VENDOR'`),
       q(`SELECT group_head, ledger_name, dr, cr, entries, last_entry
@@ -496,6 +499,16 @@ export async function registerBazaarRoutes(app) {
           WHERE fleet_segment = 'MARKET' AND dr_cr = 'DR'
             AND entry_date >= date_trunc('month', now())::date
           GROUP BY 1`),
+      // SERVICE VENDORS — pumps, tyre shops, spares: the OWN fleet's suppliers.
+      // Counted here only so the deck can say how many can upload bills, and
+      // how many bills wait in the Expenses queue the owner routed here.
+      q(`SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE is_approved_for_portal)::int AS portal
+           FROM vendors WHERE vendor_kind = 'SERVICE'`),
+      q(`SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE source = 'VENDOR_PORTAL')::int AS from_portal,
+                COALESCE(sum(amount), 0)::numeric(14,2) AS amount
+           FROM expense_approvals WHERE status = 'PENDING'`),
     ]);
 
     const byKey = (rows, key) => Object.fromEntries(rows.map((r) => [r[key], r]));
@@ -545,6 +558,15 @@ export async function registerBazaarRoutes(app) {
         vendors_portal: Number(vendorCounts[0]?.portal ?? 0),
         kyc_vendor: n(kyc.VENDOR) + n(kyc.FLEET_PARTNER), kyc_customer: n(kyc.CUSTOMER),
         docs_pending: Number(docsPending[0]?.n ?? 0),
+      },
+      // Not the market fleet — the own fleet's suppliers. Here because the owner
+      // routed their portal bills to the Expenses queue on this desk.
+      service_vendors: {
+        total: Number(serviceVendors[0]?.total ?? 0),
+        portal: Number(serviceVendors[0]?.portal ?? 0),
+        bills_pending: Number(expensesPending[0]?.from_portal ?? 0),
+        expenses_pending: Number(expensesPending[0]?.total ?? 0),
+        expenses_pending_amount: Number(expensesPending[0]?.amount ?? 0),
       },
       money: {
         // Liabilities carry a CR balance; positive = we owe / we hold.
@@ -639,9 +661,13 @@ export async function registerBazaarRoutes(app) {
       const role = isCustomer ? 'CUSTOMER' : 'VENDOR';
 
       // 1. Open the gate the API actually enforces (068).
+      // A KYC that came through the Load Bazaar is a FLEET PARTNER (market
+      // trucks, bids, market-fleet payables) — never a service vendor, which
+      // is a fuel pump or a tyre shop of the own fleet (migration 130).
       const { rows: party } = await c.query(`
         UPDATE ${table}
            SET is_approved_for_portal = true, portal_approved_by = NULL, portal_approved_at = now()
+               ${isCustomer ? '' : ", vendor_kind = 'FLEET_PARTNER'"}
          WHERE id = $1::uuid
          RETURNING ${isCustomer ? 'customer_name' : 'vendor_name'} AS name, email, mobile_no`, [partyId]);
       if (!party.length) { notes.push(`master_id ${partyId} not found in ${table}`); return app0; }

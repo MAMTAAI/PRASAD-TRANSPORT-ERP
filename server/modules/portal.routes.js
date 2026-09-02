@@ -187,13 +187,19 @@ export function registerPortalRoutes(app) {
                 address, city, state, gst_no, payment_terms, credit_limit,
                 current_outstanding, portal_features
            FROM customers WHERE id = $1::uuid`, [customerId]);
-      return { role, party: rows[0] ?? null };
+      // vendor_kind decides WHICH app a VENDOR login opens — FLEET_PARTNER → the
+    // Fleet Partner app (trucks, bids, settlements); SERVICE → the Service
+    // Vendor portal (expense bills). Two businesses, one login role.
+    return { role, party: rows[0] ?? null, vendor_kind: rows[0]?.vendor_kind ?? null, view_as: !!req.party.viewAs };
     }
     const { rows } = await query(
-      `SELECT id, vendor_name AS name, vendor_type, email, mobile_no, address,
+      `SELECT id, vendor_name AS name, vendor_type, vendor_kind, email, mobile_no, address,
               gst_no, payment_terms, current_balance, max_vehicle_limit, portal_features
          FROM vendors WHERE id = $1::uuid`, [vendorId]);
-    return { role, party: rows[0] ?? null };
+    // vendor_kind decides WHICH app a VENDOR login opens — FLEET_PARTNER → the
+    // Fleet Partner app (trucks, bids, settlements); SERVICE → the Service
+    // Vendor portal (expense bills). Two businesses, one login role.
+    return { role, party: rows[0] ?? null, vendor_kind: rows[0]?.vendor_kind ?? null, view_as: !!req.party.viewAs };
   });
 
   // ── What may this account see ─────────────────────────────────────────────
@@ -208,6 +214,10 @@ export function registerPortalRoutes(app) {
          FROM v_portal_role_matrix WHERE role = $1 ORDER BY sort_order`, [req.party.role]);
     return {
       role: req.party.role,
+      vendor_kind: req.party.role === 'VENDOR'
+        ? (await query('SELECT vendor_kind FROM vendors WHERE id = $1::uuid', [req.party.vendorId])).rows[0]?.vendor_kind ?? null
+        : null,
+      view_as: !!req.party.viewAs,
       modules: rows.map((m) => ({ ...m, visible: !!vis[m.module_key] })),
       visible: vis,
     };

@@ -304,11 +304,11 @@ export default function MarketVehicles() {
       {/* HEADER & TABS */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: '#fff', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Market Vehicle & Vendor Master</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0 15px 0', fontSize: '13px' }}>Manage Vendors, Set Subscriptions, and Verify Truck Documents.</p>
+          <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: '#fff', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Market Vehicle & Fleet Partner Master</h1>
+          <p style={{ color: '#94a3b8', margin: '5px 0 15px 0', fontSize: '13px' }}>Manage Fleet Partners (market truck owners), set subscriptions, and verify their truck documents. Service vendors — pumps, tyre shops, spares — live in Vendor Master under Accounts.</p>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => setActiveTab('VENDORS')} style={{ background: activeTab === 'VENDORS' ? '#3b82f6' : '#1e293b', color: activeTab === 'VENDORS' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-              🏢 Fleet Owners (Vendors)
+              🏢 Fleet Partners
             </button>
             <button onClick={() => setActiveTab('TRUCKS')} style={{ background: activeTab === 'TRUCKS' ? '#10b981' : '#1e293b', color: activeTab === 'TRUCKS' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
               🚛 Market Trucks DB
@@ -317,7 +317,7 @@ export default function MarketVehicles() {
         </div>
         
         {activeTab === 'VENDORS' ? (
-           <button onClick={openVendorModalForAdd} style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', padding: '12px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59,130,246,0.3)' }}>+ Setup New Vendor</button>
+           <button onClick={openVendorModalForAdd} style={{ background: 'linear-gradient(135deg, #3b82f6, #2563eb)', color: 'white', padding: '12px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(59,130,246,0.3)' }}>+ Setup New Fleet Partner</button>
         ) : (
            <button onClick={openTruckModalForAdd} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', padding: '12px 20px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 4px 15px rgba(16,185,129,0.3)' }}>+ Register Market Truck</button>
         )}
@@ -379,7 +379,7 @@ export default function MarketVehicles() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '20px' }}>
           <div style={{ background: '#0f172a', width: '100%', maxWidth: '800px', borderRadius: '20px', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1e293b', background: '#020617' }}>
-              <h2 style={{ color: '#38bdf8', margin: 0 }}>{editingVendorId ? '🔍 Vendor Setup & Controls' : '➕ Setup New Vendor'}</h2>
+              <h2 style={{ color: '#38bdf8', margin: 0 }}>{editingVendorId ? '🔍 Fleet Partner Setup & Controls' : '➕ Setup New Fleet Partner'}</h2>
               <button onClick={() => setIsVendorModalOpen(false)} style={{ color: 'red', background: 'transparent', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✖</button>
             </div>
 
