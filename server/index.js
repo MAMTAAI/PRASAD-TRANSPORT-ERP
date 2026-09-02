@@ -61,6 +61,7 @@ import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
 import { registerScanRoutes } from './modules/scan.routes.js';
+import { registerShareRoutes } from './modules/share.routes.js';
 import { registerWatchdogRoutes } from './modules/watchdog.routes.js';
 import { zeroGapPlugin } from './lib/zeroGap.js';
 import { registerAssetRoutes } from './modules/assets.routes.js';
@@ -249,6 +250,13 @@ await app.register(registerComplianceRoutes, { prefix: '/api/v1/compliance' });
 // close to the root: the phone posts to /api/v1/scan whether it is talking to
 // this box or to AWS, so the same URL works from either.
 await app.register(registerScanRoutes, { prefix: '/api/v1' });
+
+// The one public door into the vault: GET /api/v1/share/:token. A driver
+// tapping a WhatsApp link has no session and no password, so the token IS the
+// credential — one object, time-bounded, revocable, every open counted. The
+// grant lives in server/lib/shareLinks.js; apiGuard opens this prefix and
+// nothing else. See migration 121.
+await app.register(registerShareRoutes, { prefix: '/api/v1' });
 
 // The Smart Watchdog board. Both environments and both firms write here; every
 // read is scoped by company, so Prasad and Jaiswal never see each other's box.

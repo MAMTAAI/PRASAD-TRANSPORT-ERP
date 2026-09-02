@@ -1075,7 +1075,13 @@ app.post('/api/link/:userId', async (req, res) => {
 // back to the company session when that staff member has not linked — a
 // dispatch message must still go out, from the company number, rather than fail
 // because somebody never scanned a QR.
-async function doSend({ number, message, userId, sentByUserId, sentByUserName, tripId, role, sessionId }) {
+// `media_key`/`media_type`/`media_filename` are the OUTBOUND half of the media
+// story (Option A, 2-Sep). The engine still sends text — it has no MessageMedia
+// path — but when the ERP has parked a document in the vault and put its link
+// in the message, the chat row should say so, or the console shows a bare URL
+// where a paperclip belongs. The bytes never come through here; only the key.
+async function doSend({ number, message, userId, sentByUserId, sentByUserName, tripId, role, sessionId,
+                        media_key, media_type, media_filename }) {
     const wanted = sessionId || userId;
     let s = wanted ? getSession(wanted) : null;
     if (!s || !s.connected) s = getSession(COMPANY_SESSION);
@@ -1097,8 +1103,11 @@ async function doSend({ number, message, userId, sentByUserId, sentByUserName, t
         timestamp: new Date().toISOString(),
         wa_msg_id: sent?.id?._serialized || null,
         wa_session: s.id, wa_session_kind: s.kind,
+        media_key: media_key || null,
+        media_type: media_type || null,
+        media_filename: media_filename || null,
     });
-    await logAction(senderName, `Sent WhatsApp to ${last10(formatted)} via ${s.id}${tripId ? ` (Trip ${tripId})` : ''}`);
+    await logAction(senderName, `Sent WhatsApp to ${last10(formatted)} via ${s.id}${tripId ? ` (Trip ${tripId})` : ''}${media_key ? ' with a vault document' : ''}`);
     return true;
 }
 

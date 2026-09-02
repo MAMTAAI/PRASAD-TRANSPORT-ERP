@@ -23,14 +23,19 @@
 // success (ON CONFLICT DO NOTHING → 200 with the existing row) instead of
 // surfacing a 409 the engine would have to special-case.
 // ─────────────────────────────────────────────────────────────────────────────
+import multipart from '@fastify/multipart';
 import { query, isDegraded } from '../db/pool.js';
 import { listDirectory, resolveContact, last10, DIRECTORY_CTE } from '../lib/contactDirectory.js';
-import { WA_BASE } from '../lib/otpChannel.js';
 import { put, safeKey } from '../lib/storage.js';
+import { mintShareLink } from '../lib/shareLinks.js';
+import { sendViaEngine } from '../lib/waSend.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const clamp = (v, d, max) => Math.min(Number.parseInt(v ?? d, 10) || d, max);
+// What the + button may send. Bigger than the 8 MB inbound cap because this is
+// a document the office chose to send, not whatever a handset pushed at us.
+const ATTACH_MAX = 25 * 1024 * 1024;
 
 const pgErr = (reply, err) => {
   if (err.code === '23505') return reply.code(409).send({ error: 'DUPLICATE', detail: err.detail ?? err.message });
@@ -39,6 +44,12 @@ const pgErr = (reply, err) => {
 };
 
 export async function registerCrmRoutes(app) {
+  // Its own scope, its own ceiling — the same reason files.routes and
+  // scan.routes each register this plugin: Fastify encapsulates it per scope,
+  // and registering it twice on one scope throws. 25 MB is a phone photo or a
+  // scanned LR, not an archive upload.
+  await app.register(multipart, { limits: { fileSize: ATTACH_MAX, files: 1 } });
+
   // A small CRUD factory — these four tables are genuinely the same shape of
   // thing (a flat config list the dashboard edits), so writing the handlers out
   // four times would only create four places for them to drift.
@@ -157,37 +168,14 @@ export async function registerCrmRoutes(app) {
     // the first message to a new pump is exactly when you have no record yet.
     const contact = await resolveContact(phone);
 
-    // The sender's OWN session when they have linked one, so the driver sees
-    // the name of the person who is actually talking to them. The engine falls
-    // back to the company line when it is not connected, so this is a
-    // preference rather than a requirement — see doSend().
-    const sessionId = req.user?.sub ? `u${String(req.user.sub).replace(/-/g, '')}` : undefined;
-
-    let res;
     try {
-      res = await fetch(`${WA_BASE}/api/send-whatsapp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          number: phone,
-          message: text,
-          sessionId,
-          userId: req.user?.name ?? 'ERP',
-          sentByUserId: req.user?.sub ?? null,
-          sentByUserName: req.user?.name ?? 'ERP',
-          tripId: UUID_RE.test(String(b.trip_id ?? b.tripId ?? '')) ? (b.trip_id ?? b.tripId) : null,
-          role: contact?.kind ?? null,
-        }),
-        signal: AbortSignal.timeout(15000),
+      await sendViaEngine({
+        phone, text, user: req.user,
+        tripId: UUID_RE.test(String(b.trip_id ?? b.tripId ?? '')) ? (b.trip_id ?? b.tripId) : null,
+        role: contact?.kind ?? null,
       });
     } catch (e) {
-      // Unreachable engine is not a 500 on the ERP: nothing here is broken, and
-      // the operator needs to be told which half is down.
-      return reply.code(502).send({ error: 'ENGINE_UNREACHABLE', detail: e.name === 'TimeoutError' ? 'engine timeout' : e.message });
-    }
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok || j.success === false) {
-      return reply.code(502).send({ error: 'SEND_FAILED', detail: j.message || `engine returned ${res.status}` });
+      return reply.code(502).send({ error: e.code ?? 'SEND_FAILED', detail: e.message });
     }
     return { ok: true, phone, contact };
   });
@@ -349,6 +337,118 @@ export async function registerCrmRoutes(app) {
     const key = safeKey(`wa-media/${phone}/${Date.now()}-${base}${MEDIA_TYPES.get(mime)}`);
     const out = await put(key, buffer, mime);
     return reply.code(201).send({ key: out.key, bytes: out.bytes });
+  });
+
+  // ═══ ATTACH — THE + BUTTON, END TO END ════════════════════════════════════
+  // OPTION A, AND WHY IT IS NOT A COMPROMISE WORTH APOLOGISING FOR.
+  //
+  // The engine cannot send media. There is no MessageMedia call anywhere in
+  // whatsapp-server/, so "attach a photo" has never been possible from this
+  // ERP — the + button did not exist, and the console could only ever RECEIVE
+  // media. The choice was: teach the engine to send media (a whatsapp-web.js
+  // upload path, on a 2 GB box that is already at 1.2 GB with one Chrome), or
+  // put the file in the vault and send a link. The office chose the link.
+  //
+  // What the driver gets is better than a WhatsApp image in one respect that
+  // matters here: the document stays in the ERP. It is filed against the trip,
+  // it can be revoked, and "was it opened" is answerable.
+  //
+  // ONE ROUND TRIP, DELIBERATELY. The browser could upload, then mint, then
+  // send — three calls, two of which can succeed while the third fails, and a
+  // share token sitting in the browser's network log. Here the bytes go up
+  // once and either the whole thing worked or it did not.
+  //
+  // THE FILE IS STORED EVEN IF THE SEND FAILS, and the response says so. A
+  // driver who did not get the link can be sent it again from the vault; a
+  // photo thrown away because WhatsApp was offline for four seconds is gone.
+  app.post('/attach', { bodyLimit: 26 * 1024 * 1024 }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    let part;
+    try { part = await req.file(); }
+    catch (e) { return reply.code(400).send({ error: 'BAD_MULTIPART', detail: e.message }); }
+    if (!part) return reply.code(400).send({ error: 'NO_FILE', detail: 'multipart field "file" is required' });
+
+    const field = (n) => part.fields?.[n]?.value ?? null;
+    const phone = last10(field('phone') ?? '');
+    if (phone.length < 10) return reply.code(400).send({ error: 'BAD_PHONE', detail: 'phone must have at least 10 digits' });
+
+    const mime = String(part.mimetype || '').split(';')[0].trim();
+    if (!MEDIA_TYPES.has(mime)) {
+      return reply.code(415).send({ error: 'BAD_TYPE', detail: `attachments are ${[...MEDIA_TYPES.keys()].join(', ')} only` });
+    }
+    const buffer = await part.toBuffer();
+    // @fastify/multipart truncates rather than throwing, so an oversized photo
+    // would otherwise be filed half-written and sent as a working link.
+    if (part.file?.truncated || buffer.length > ATTACH_MAX) {
+      return reply.code(413).send({ error: 'TOO_LARGE', detail: `attachment must be under ${ATTACH_MAX / 1024 / 1024} MB` });
+    }
+    if (!buffer.length) return reply.code(400).send({ error: 'EMPTY_FILE', detail: 'the file has no bytes' });
+
+    const rawName = String(part.filename ?? 'document');
+    const base = rawName.replace(/\.[^./]+$/, '').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 60) || 'document';
+    const filename = base + MEDIA_TYPES.get(mime);
+    // Outbound lives beside inbound but is never confused with it: wa-media/ is
+    // what the engine downloaded FROM a chat, wa-out/ is what the office sent.
+    const key = safeKey(`wa-out/${phone}/${Date.now()}-${filename}`);
+    const stored = await put(key, buffer, mime);
+
+    const tripId = UUID_RE.test(String(field('trip_id') ?? '')) ? field('trip_id') : null;
+    const caption = String(field('caption') ?? '').trim().slice(0, 700);
+
+    // Validity is capped here rather than taken from the browser: a link the
+    // office can set to "never" is a public URL to a company document.
+    const link = await mintShareLink({
+      storageKey: stored.key, filename, contentType: mime,
+      purpose: 'WA_MEDIA', phone, tripId,
+      createdBy: req.user?.sub ?? null, hours: 168,
+    });
+
+    // The message the driver actually reads. The caption first because that is
+    // the sentence; the link last because a URL in the middle of a line is
+    // where WhatsApp's own linkifier starts eating punctuation.
+    const label = mime === 'application/pdf' ? 'Document' : 'Photo';
+    const text = [
+      caption || `${label} — Prasad Transport office se`,
+      link.url,
+      'Yeh link 7 din tak chalega.',
+    ].join('\n');
+
+    const contact = await resolveContact(phone);
+    let sent = true, sendError = null;
+    try {
+      await sendViaEngine({
+        phone, text, user: req.user, tripId, role: contact?.kind ?? null,
+        // Carried so the logged chat row knows it has a document on it. An
+        // engine that has not been restarted since this shipped ignores these
+        // and logs a plain text row — the message still arrives, the bubble
+        // just shows the link instead of a paperclip. Deliberately not a hard
+        // dependency: the box's WhatsApp session is expensive to restart.
+        media: { key: stored.key, type: mime, filename },
+      });
+    } catch (e) {
+      sent = false;
+      sendError = e.message;
+    }
+
+    // 201 either way: the document IS filed, which is a real outcome the
+    // operator needs to know about. `sent` is what says whether it went.
+    return reply.code(201).send({
+      ok: sent,
+      sent,
+      error: sent ? null : 'SEND_FAILED',
+      detail: sendError,
+      key: stored.key,
+      bytes: stored.bytes,
+      filename,
+      url: link.url,
+      // Named so the panel can warn instead of showing a link that opens
+      // nothing on the driver's phone. Empty PUBLIC_APP_URL is a configuration
+      // fault, not a user error, and it fails silently otherwise.
+      absolute: link.absolute,
+      expires_at: link.expires_at,
+      phone,
+      text,
+    });
   });
 
   // ═══ THREADS ══════════════════════════════════════════════════════════════

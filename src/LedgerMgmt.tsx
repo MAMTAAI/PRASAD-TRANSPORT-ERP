@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { API_BASE } from './lib/apiBase';
+import { useGlobalFilter } from './lib/filterStore';
 const API = API_BASE;
 
 type Ledger = {
@@ -46,12 +47,43 @@ export default function LedgerMgmt() {
   const [q, setQ] = useState('');
   const [group, setGroup] = useState('ALL');
   const [open, setOpen] = useState<string | null>(null);
-  const [stmt, setStmt] = useState<{ rows: Entry[]; closing: string } | null>(null);
+  const [stmt, setStmt] = useState<{ rows: Entry[]; closing: string; openingExcluded: boolean } | null>(null);
   const [stmtLoading, setStmtLoading] = useState(false);
+
+  // ── THE SCREEN NOW OBEYS THE GLOBAL COMPANY FILTER (2026-09-02) ──────────
+  // It did not before: /finance/ledgers had no company parameter at all, so
+  // narrowing the whole app to one firm and opening the ledger showed the
+  // group's book with nothing on screen saying which question had been
+  // answered. A screen that ignores the filter is worse than one that has none,
+  // because it looks like it answered the one you asked.
+  const gf = useGlobalFilter();
+  const [companies, setCompanies] = useState<any[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/v1/finance/companies`).then((r) => r.json())
+      .then((j) => { if (alive) setCompanies(j.companies ?? []); })
+      .catch(() => { /* the screen still works at group scope */ });
+    return () => { alive = false; };
+  }, []);
+  // The filter carries the id; the ledger is matched by NAME server-side
+  // (canonical_company folds the spellings), so it is resolved here.
+  const company = useMemo(() => {
+    if (!gf.filters.companyId) return null;
+    const hit = companies.find((c: any) => c.id === gf.filters.companyId);
+    return hit ? String(hit.company_name).trim() : null;
+  }, [gf.filters.companyId, companies]);
+
+  const scopeQs = useCallback(() => {
+    const p = new URLSearchParams();
+    if (company) { p.set('company', company); p.set('unassigned', 'exclude'); }
+    return p;
+  }, [company]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`${API}/api/v1/finance/ledgers?q=`, { signal });
+      const p = scopeQs();
+      p.set('q', '');
+      const res = await fetch(`${API}/api/v1/finance/ledgers?${p}`, { signal });
       if (!res.ok) throw new Error(res.status === 503
         ? 'Database unreachable — balances cannot be shown.'
         : `API responded ${res.status}`);
@@ -61,10 +93,13 @@ export default function LedgerMgmt() {
     } catch (e: any) {
       if (e?.name !== 'AbortError') setErr(e?.message ?? 'Could not reach the finance API');
     } finally { setLoading(false); }
-  }, []);
+  }, [scopeQs]);
 
   useEffect(() => {
     const ac = new AbortController();
+    // A filter change is a new question, so the list goes back to loading
+    // rather than showing the previous firm's balances while the fetch runs.
+    setLoading(true);
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
@@ -72,13 +107,19 @@ export default function LedgerMgmt() {
   const openStatement = useCallback(async (name: string) => {
     setOpen(name); setStmt(null); setStmtLoading(true);
     try {
-      const res = await fetch(`${API}/api/v1/finance/ledgers/statement?name=${encodeURIComponent(name)}`);
+      const p = scopeQs();
+      p.set('name', name);
+      const res = await fetch(`${API}/api/v1/finance/ledgers/statement?${p}`);
       const body = await res.json();
-      setStmt({ rows: body.entries ?? body.rows ?? [], closing: body.closing ?? body.balance ?? '0' });
+      setStmt({
+        rows: body.entries ?? body.rows ?? [],
+        closing: body.closing ?? body.balance ?? '0',
+        openingExcluded: !!body.opening_excluded,
+      });
     } catch {
-      setStmt({ rows: [], closing: '0' });
+      setStmt({ rows: [], closing: '0', openingExcluded: false });
     } finally { setStmtLoading(false); }
-  }, []);
+  }, [scopeQs]);
 
   const groups = useMemo(
     () => ['ALL', ...Array.from(new Set(rows.map((r) => r.group_head).filter(Boolean))).sort()],
@@ -120,7 +161,27 @@ export default function LedgerMgmt() {
       <h1 style={{ margin: 0, fontSize: 'clamp(21px,3vw,28px)' }}>⚖️ Master Ledgers &amp; Accounts</h1>
       <div style={{ color: C.emerald, fontSize: 13, marginTop: 4, marginBottom: 18 }}>
         Live from PostgreSQL · {rows.length} ledgers · balances resolved through party aliases
+        {company ? <> · scoped to <strong>{company}</strong></> : ' · whole group'}
       </div>
+
+      {/* WHAT A COMPANY-SCOPED LEDGER BALANCE IS, AND IS NOT.
+          ledgers.opening_balance is ONE number per ledger for the whole group;
+          there is no per-firm opening in this database and apportioning it
+          would be an invention. So under a company filter the figure shown is
+          the MOVEMENT in that firm's scope, and the screen says so rather than
+          quietly presenting a different quantity under the same heading.
+
+          Entries that name no firm are excluded here — see the Financial
+          Reports banner for how many that is. */}
+      {company && (
+        <div style={{ background: 'rgba(245,158,11,0.08)', border: `1px solid ${C.amber}`, color: '#fcd34d',
+                      padding: '11px 16px', borderRadius: 10, marginBottom: 16, fontSize: 12.5, lineHeight: 1.55 }}>
+          <strong>{company} ka scope</strong> — “Balance” yahan is firm ka <strong>movement</strong> hai
+          (ΣDr − ΣCr), opening balance shaamil nahi. Opening ledger master par poore group ke liye ek hi number
+          hai, use teen firmon mein baantna galat hoga. Jin entries par koi company darj nahi hai woh chhod di
+          gayi hain — poora hisaab Financial Reports ke banner mein hai.
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search ledger or group…"
@@ -130,6 +191,18 @@ export default function LedgerMgmt() {
           style={{ padding: '9px 12px', borderRadius: 8, background: C.card,
                    border: `1px solid ${C.line}`, color: C.text, font: 'inherit' }}>
           {groups.map((g) => <option key={g} value={g}>{g === 'ALL' ? '— All groups —' : g}</option>)}
+        </select>
+        {/* READS AND WRITES THE APP-WIDE FILTER, so this is the same control as
+            the dashboard's Company dropdown rather than a second one that can
+            disagree with it. It has to exist here because the sticky FilterBar
+            only renders inside Master Control, and this screen is reachable on
+            its own from the sidebar. */}
+        <select value={gf.filters.companyId || ''} onChange={(e) => gf.set({ companyId: e.target.value })}
+          title="Operating company — poore app par lagta hai"
+          style={{ padding: '9px 12px', borderRadius: 8, background: C.card,
+                   border: `1px solid ${company ? C.amber : C.line}`, color: C.text, font: 'inherit' }}>
+          <option value="">— Whole group (all companies) —</option>
+          {companies.map((c: any) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
         </select>
       </div>
 
@@ -153,7 +226,7 @@ export default function LedgerMgmt() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
           <thead>
             <tr>
-              {['Ledger', 'Group', 'Entries', 'Debit', 'Credit', 'Balance'].map((h, i) => (
+              {['Ledger', 'Group', 'Entries', 'Debit', 'Credit', company ? 'Movement' : 'Balance'].map((h, i) => (
                 <th key={h} style={{ textAlign: i >= 2 ? 'right' : 'left', padding: '11px 14px',
                                      borderBottom: `1px solid ${C.line}`, color: C.faint,
                                      fontSize: 11, textTransform: 'uppercase', letterSpacing: '.07em',
@@ -202,6 +275,17 @@ export default function LedgerMgmt() {
                 style={{ background: 'transparent', border: `1px solid ${C.line}`, color: C.dim,
                          padding: '4px 12px', borderRadius: 6, cursor: 'pointer' }}>Close</button>
             </div>
+            {/* Which book this statement is from. The drawer used to show the
+                whole group whatever the app filter said, and a ledger statement
+                is exactly the thing somebody prints and sends to a party. */}
+            {!stmtLoading && stmt && (
+              <p style={{ color: company ? '#fcd34d' : C.faint, fontSize: 12, marginTop: 0, marginBottom: 10, lineHeight: 1.5 }}>
+                {company
+                  ? `${company} ke scope ki entries — closing ${inr(stmt.closing)} ${side(stmt.closing)}`
+                    + (stmt.openingExcluded ? ' (movement only; group-wide opening balance shaamil nahi).' : '.')
+                  : `Poore group ki entries — closing ${inr(stmt.closing)} ${side(stmt.closing)}.`}
+              </p>
+            )}
             {stmtLoading ? <p style={{ color: C.dim }}>Loading statement…</p> : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr>

@@ -61,6 +61,24 @@ export const PUBLIC_API = new Set([
   'POST /api/v1/auth/driver/track',
 ]);
 
+/** Reachable with no credential because the credential is IN THE PATH.
+ *
+ *  ONE ENTRY, AND IT SHOULD STAY THAT WAY — the same discipline as
+ *  TRACK_ONLY_API below. A prefix in this list is not "a public area of the
+ *  API": it is a route whose own path segment is an unguessable secret, and
+ *  every future entry has to earn that description.
+ *
+ *  /share/:token is the delivery mechanism for WhatsApp attachments and the LR
+ *  copy (Option A, 1-Sep). The people it serves cannot log in: a driver has no
+ *  password by design, and a consignee is not on our books at all. The token is
+ *  32 random bytes, reaches exactly ONE storage key, expires, can be revoked,
+ *  and every open is counted — see server/lib/shareLinks.js and migration 121.
+ *  Its blast radius is one document the office chose to send to that number,
+ *  which is the exposure of having WhatsApp'd it in the first place. */
+export const PUBLIC_API_PREFIXES = [
+  '/api/v1/share/',
+];
+
 /** The entire reach of a TRACK_ONLY session.
  *
  *  Kept as a set of its own rather than a flag on each route, so that a route
@@ -222,6 +240,10 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
 
     const route = `${req.method} ${path}`;
     if (PUBLIC_API.has(route)) return;
+    // Exact routes cannot express "the secret is the last path segment", so the
+    // one prefix that needs it is matched separately. GET only: a token in a
+    // URL is a read grant, never a write one.
+    if (req.method === 'GET' && PUBLIC_API_PREFIXES.some((p) => path.startsWith(p))) return;
 
     if (SERVICE_API.has(route)) {
       // WRONG-LOUD RATHER THAN WRONG-QUIET, the call apiBase.ts also makes.

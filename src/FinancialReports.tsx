@@ -20,6 +20,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 import { API_BASE } from './lib/apiBase';
+import { useGlobalFilter } from './lib/filterStore';
 const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
@@ -39,15 +40,48 @@ export default function FinancialReports() {
   const [err, setErr] = useState('');
 
   const [companies, setCompanies] = useState<any[]>([]);
-  const [selectedCompany, setSelectedCompany] = useState('ALL');
   // Default to the current Indian financial year, which is what a CA asks for.
   const fyStart = useMemo(() => {
     const d = new Date();
     const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
     return `${y}-04-01`;
   }, []);
-  const [fromDate, setFromDate] = useState(fyStart);
-  const [toDate, setToDate] = useState(new Date().toISOString().slice(0, 10));
+
+  // ── SCOPE COMES FROM THE GLOBAL FILTER (2026-09-02) ──────────────────────
+  // This screen owned a private company dropdown and its own two dates, so
+  // narrowing the dashboard to Gautam Prasad and clicking through to the
+  // statements showed the whole group again — two controls answering the same
+  // question, neither aware of the other. The dropdown below is still here, but
+  // it now READS AND WRITES the app-wide filter, exactly as Company P&L already
+  // does, so the two can no longer disagree.
+  //
+  // The filter carries the company ID; these reports are matched by NAME
+  // (canonical_company folds the eight spellings server-side), so the id is
+  // resolved to a name here.
+  const gf = useGlobalFilter();
+  const selectedCompany = useMemo(() => {
+    if (!gf.filters.companyId) return 'ALL';
+    const hit = companies.find((c: any) => c.id === gf.filters.companyId);
+    return hit ? String(hit.company_name).trim() : 'ALL';
+  }, [gf.filters.companyId, companies]);
+  const setSelectedCompany = (name: string) => {
+    const hit = companies.find((c: any) => String(c.company_name).trim() === name);
+    gf.set({ companyId: hit ? hit.id : '' });
+  };
+
+  const fromDate = gf.filters.from || fyStart;
+  const toDate = gf.filters.to || new Date().toISOString().slice(0, 10);
+  const setFromDate = (v: string) => gf.set({ from: v });
+  const setToDate = (v: string) => gf.set({ to: v });
+
+  // ── WHAT TO DO WITH POSTINGS THAT NAME NO FIRM ───────────────────────────
+  // Until 2026-09-02 the server answered this silently and wrongly: every
+  // unplaced entry was counted into EVERY company, so the three firms' P&Ls
+  // each carried the same orphans and summed to more than the group. The
+  // choice is now explicit, defaults to the honest reading, and the banner
+  // below says what it cost.
+  const [unassigned, setUnassigned] = useState<'exclude' | 'include' | 'only'>('exclude');
+  const [coverage, setCoverage] = useState<any>(null);
 
   const [pnl, setPnl] = useState<any>(null);
   const [bs, setBs] = useState<any>(null);
@@ -69,7 +103,10 @@ export default function FinancialReports() {
     const q = new URLSearchParams();
     if (fromDate) q.set('from', fromDate);
     if (toDate) q.set('to', toDate);
-    if (selectedCompany !== 'ALL') q.set('company', selectedCompany);
+    if (selectedCompany !== 'ALL') {
+      q.set('company', selectedCompany);
+      q.set('unassigned', unassigned);
+    }
     try {
       const [p, b, t] = await Promise.all([
         fetchJson(`${FIN}/reports/profit-and-loss?${q}`),
@@ -81,6 +118,15 @@ export default function FinancialReports() {
       setPnl(null); setBs(null); setTb(null);
       setErr(`Statements could not load from ${API} — ${e.message}`);
     }
+    // How much of the book could be attributed to ANY firm in this period.
+    // Fetched whether or not a company is selected: at group level it is the
+    // measure of how much company-wise reporting is possible at all.
+    try {
+      const c = new URLSearchParams();
+      if (fromDate) c.set('from', fromDate);
+      if (toDate) c.set('to', toDate);
+      setCoverage(await fetchJson(`${FIN}/reports/company-coverage?${c}`));
+    } catch { setCoverage(null); }
     // The accounting-health view answers 409 when something is genuinely wrong,
     // so a non-OK response here is information, not a failure to hide.
     try {
@@ -88,7 +134,7 @@ export default function FinancialReports() {
       setHealth(await res.json());
     } catch { setHealth(null); }
     setLoading(false);
-  }, [fromDate, toDate, selectedCompany]);
+  }, [fromDate, toDate, selectedCompany, unassigned]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -117,7 +163,15 @@ export default function FinancialReports() {
     const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     let csv = `Company: ${selectedCompany}\n`
       + `Report: ${activeTab === 'PNL' ? 'Profit & Loss' : activeTab === 'BS' ? 'Balance Sheet' : 'Trial Balance'}\n`
-      + `Period: ${dmy(fromDate)} to ${dmy(toDate)}\nSource: PostgreSQL general ledger\n\n`;
+      + `Period: ${dmy(fromDate)} to ${dmy(toDate)}\n`
+      // THE CAVEAT TRAVELS WITH THE FILE. A CSV outlives the screen it
+      // was exported from, and a company-wise statement that silently
+      // dropped a third of the book is exactly the file somebody
+      // reconciles against six months later.
+      + (selectedCompany !== 'ALL'
+        ? `Entries with no company: ${unassigned}` + (coverage ? ` (${Number(coverage.unassigned_entries).toLocaleString('en-IN')} of ${Number(coverage.total_entries).toLocaleString('en-IN')} entries in this period name no firm)` : '') + `\n`
+        : '')
+      + `Source: PostgreSQL general ledger\n\n`;
 
     if (activeTab === 'PNL') {
       csv += 'Expenses (Dr.),Amount (Rs.),Incomes (Cr.),Amount (Rs.)\n';
@@ -215,7 +269,50 @@ export default function FinancialReports() {
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inp('#334155'), colorScheme: 'dark' }} />
         </div>
         <button onClick={() => { setFromDate(fyStart); setToDate(new Date().toISOString().slice(0, 10)); }} style={btn('#334155', '#cbd5e1')}>This FY</button>
+
+        {/* Only meaningful under a company filter: at group level nothing is
+            excluded, because every entry belongs to the group whether or not it
+            names a firm. */}
+        {selectedCompany !== 'ALL' && (
+          <div style={{ flex: '1 1 260px' }}>
+            <label style={lbl('#94a3b8')}>Entries with no company</label>
+            <select value={unassigned} onChange={(e) => setUnassigned(e.target.value as any)} style={inp('#334155')}>
+              <option value="exclude">Exclude — {selectedCompany} only</option>
+              <option value="include">Include — this firm + unplaced (ties to group)</option>
+              <option value="only">Only the unplaced — the worklist</option>
+            </select>
+          </div>
+        )}
       </div>
+
+      {/* ── WHAT THIS REPORT COULD NOT PLACE ──────────────────────────────
+          A company-wise statement on this ledger is INCOMPLETE and has to say
+          so on its face. 4,501 of 6,511 entries carried no company anywhere
+          when this was measured (migration 120): not in the text, not in
+          company_id, and not on their voucher — of 4,841 untagged, exactly 0
+          had a tagged sibling on the same voucher. They cannot be attributed by
+          any means available, so they are surfaced, never inferred. */}
+      {coverage && Number(coverage.unassigned_entries) > 0 && (
+        <div className="no-print" style={{
+          background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', color: '#fcd34d',
+          padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13, lineHeight: 1.55,
+        }}>
+          <strong>
+            {Number(coverage.unassigned_entries).toLocaleString('en-IN')} of{' '}
+            {Number(coverage.total_entries).toLocaleString('en-IN')} ledger entries
+            ({coverage.unassigned_pct}%) name no operating company
+          </strong>
+          {' — '}Dr ₹{inr(coverage.unassigned_dr)} / Cr ₹{inr(coverage.unassigned_cr)}.
+          {selectedCompany === 'ALL'
+            ? ' Consolidated totals include them, so this page is complete. A company-wise statement cannot be, until they are sourced.'
+            : unassigned === 'exclude'
+              ? ` They are EXCLUDED from this ${selectedCompany} statement, so the three firms will not add up to the consolidated figures. That difference is these entries.`
+              : unassigned === 'include'
+                ? ` They are INCLUDED here, so this statement overstates ${selectedCompany} by whatever share of them is not really this firm's. Every firm's report would include the same entries.`
+                : ' Showing ONLY these entries — the ones somebody has to attribute.'}
+          {' '}Nothing has been guessed: entries are placed by their own company text, then by company_id, and otherwise not at all.
+        </div>
+      )}
 
       {/* HEALTH BANNER — the ledger reporting on itself */}
       {health && (
@@ -354,7 +451,23 @@ export default function FinancialReports() {
               {bs && !bs.balanced && (
                 <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: '14px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
                   ⚠️ This sheet is out by ₹{inr(bs.difference)}.
-                  {Math.abs(Number(bs.legacy_imbalance)) > 0.01 && Math.abs(Number(bs.legacy_imbalance) - Number(bs.difference)) < 0.01 ? (
+                  {/* A COMPANY SLICE OF THIS LEDGER CANNOT FOOT, and saying
+                      "check /finance/health/accounting — a real defect" about
+                      it would send somebody hunting a bug that is not there.
+                      A voucher's two legs are not always tagged the same way:
+                      the debit carries a company and the credit does not, or
+                      both sit in the unplaced pool. Cut the book by firm and
+                      the halves separate. The GROUP sheet foots to the paisa —
+                      that is the check that means something. */}
+                  {selectedCompany !== 'ALL' ? (
+                    <div style={{ marginTop: 6, color: '#fde68a' }}>
+                      This is a <strong>company slice</strong> of an append-only ledger, and a slice does not have to foot.
+                      A voucher whose debit leg names {selectedCompany} and whose credit leg names no firm is split by this
+                      filter — one half is in this sheet and the other is not. The consolidated sheet
+                      (Company = “Consolidated”) balances exactly; that is the integrity check that means something here.
+                      Nothing is wrong with the vouchers — the entries simply have not all been attributed.
+                    </div>
+                  ) : Math.abs(Number(bs.legacy_imbalance)) > 0.01 && Math.abs(Number(bs.legacy_imbalance) - Number(bs.difference)) < 0.01 ? (
                     <div style={{ marginTop: 6, color: '#fde68a' }}>
                       The whole difference is the migrated single-entry history: those pre-double-entry rows net to zero only
                       once all of them are included, and this date cuts through them. The voucher era balances exactly
@@ -371,7 +484,8 @@ export default function FinancialReports() {
               )}
               {bs?.balanced && (
                 <div className="no-print" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid #10b981', color: '#6ee7b7', padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-                  ✅ Balanced — assets equal liabilities and equity to the paisa.
+                  ✅ Balanced — assets equal liabilities and equity to the paisa
+                  {selectedCompany !== 'ALL' ? ' for this company slice.' : '.'}
                 </div>
               )}
 

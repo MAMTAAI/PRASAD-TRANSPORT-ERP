@@ -276,6 +276,21 @@ check('POST /api/v1/auth/me/password/otp needs a session',
 check('POST /api/v1/auth/me/password needs a session',
   await run(guard, req('POST', '/api/v1/auth/me/password')), 401);
 
+console.log('\nTHE SHARE DOOR — the token in the path is the whole credential');
+// Public, because the driver or consignee holding the link cannot log in.
+check('GET /api/v1/share/:token is public',
+  await run(guard, req('GET', '/api/v1/share/AbC123token')), 'allowed');
+// The prefix is a READ grant. A write behind an unguessable path would be a
+// door nobody is watching, so the method is checked, not just the prefix.
+check('POST to the share prefix still needs a session',
+  await run(guard, req('POST', '/api/v1/share/AbC123token')), 401);
+// The bare prefix is not a listing endpoint and must never become one.
+check('GET /api/v1/share (no token) needs a session',
+  await run(guard, req('GET', '/api/v1/share')), 401);
+// One prefix widened, and only one: nothing else under /api/v1 opened with it.
+check('GET /api/v1/files/ is still closed',
+  await run(guard, req('GET', '/api/v1/files/drivers/x/dl.jpg')), 401);
+
 console.log(failures === 0
   ? '\n✅ apiGuard: all checks passed\n'
   : `\n❌ apiGuard: ${failures} check(s) FAILED\n`);

@@ -1454,6 +1454,103 @@ export function registerDashboardRoutes(app) {
       }));
     }, []);
 
+    // ── ACTIVE ERP TRIPS — THE DISPATCH LIST THAT IS NOT AN INBOX ───────────
+    //
+    // The panel above (dispatch_chats) is an INBOX: it lists whoever wrote to
+    // the company number, newest first. On this system that is mostly people
+    // dispatch has no business with — horoscope forwards, a bus-gangrape news
+    // chain, numbers on no master at all. Six of the top rows on 2-Sep were
+    // "Anjaan", and the one thing a dispatcher actually wants — "show me the
+    // 146 lorries that are out right now and let me talk to their drivers" —
+    // was not on the screen at all.
+    //
+    // This is that list. It starts from TRIPS, not from messages, so a driver
+    // who has never written in is still one click away, and a stranger who
+    // writes in every hour never appears. The inbox is not deleted: it lives in
+    // the Dispatch Console (EXPAND), which is where an unrecognised number
+    // should be dealt with.
+    //
+    // NO MESSAGE BODIES HERE. dispatch_chats embeds 20 messages per thread for
+    // 24 threads; doing that for 146 trips would put roughly 3,000 messages in
+    // a payload that is polled every 8 seconds. The list carries the last line
+    // and the unread count — enough to decide who to open — and the panel
+    // fetches the conversation itself from /crm/chats?phone= when a trip is
+    // actually selected.
+    //
+    // THE PHONE IS THE TRIP'S OWN driver_mobile FIRST, the driver master
+    // second. Those disagree on real rows (a relief driver takes the lorry and
+    // the trip records the number that actually went out), and the trip is the
+    // more specific record. A trip whose driver has no reachable number is
+    // still listed, with phone null — the panel says so rather than hiding the
+    // lorry, because "we cannot reach this driver" is dispatch information.
+    const dispatch_trips = await safe(errors, 'dispatch_trips', async () => {
+      const { rows } = await query(`
+        WITH act AS (
+          SELECT t.id, t.trip_code, t.status, t.vehicle_no, t.driver_id,
+                 COALESCE(NULLIF(btrim(t.driver_name), ''), d.name) AS driver_name,
+                 t.loading_point, t.unloading_location, t.consignee_name,
+                 t.customer_name, t.loading_date, t.updated_at, t.product_type,
+                 t.loaded_qty,
+                 NULLIF(right(regexp_replace(
+                   COALESCE(NULLIF(btrim(t.driver_mobile), ''), d.mobile, ''),
+                   '[^0-9]', '', 'g'), 10), '') AS phone
+            FROM trips t
+            LEFT JOIN vehicles v ON v.id = t.vehicle_id
+            LEFT JOIN drivers  d ON d.id = t.driver_id
+           WHERE t.status IN ('LOADED','IN_TRANSIT','UNLOADING') ${TRIP_F}
+           ORDER BY t.updated_at DESC
+           LIMIT 250
+        )
+        SELECT a.*,
+               m.text AS last_text, m.direction AS last_direction, m.ts AS last_ts,
+               COALESCE(u.unread, 0)::int AS unread
+          FROM act a
+          LEFT JOIN LATERAL (
+                 SELECT w.text, w.direction, w.ts
+                   FROM wa_chats w
+                  WHERE a.phone IS NOT NULL AND w.phone = a.phone
+                  ORDER BY w.ts DESC LIMIT 1) m ON true
+          LEFT JOIN LATERAL (
+                 -- "Incoming since we last replied" — the same definition the
+                 -- inbox uses, so one number does not mean two things on one
+                 -- screen.
+                 SELECT count(*)::int AS unread
+                   FROM wa_chats w
+                  WHERE a.phone IS NOT NULL AND w.phone = a.phone
+                    AND w.direction = 'incoming'
+                    AND w.ts > COALESCE((SELECT max(o.ts) FROM wa_chats o
+                                          WHERE o.phone = a.phone AND o.direction = 'outgoing'),
+                                        '-infinity'::timestamptz)) u ON true
+         -- Unanswered first, then whoever spoke last, then the freshest trip.
+         -- A dispatcher's queue is "who is waiting on me", not "who loaded most
+         -- recently".
+         ORDER BY COALESCE(u.unread, 0) DESC, m.ts DESC NULLS LAST, a.updated_at DESC`, P);
+      return rows.map((r) => ({
+        trip_id: r.id,
+        trip_code: r.trip_code,
+        status: r.status,
+        vehicle_no: r.vehicle_no,
+        driver_id: r.driver_id,
+        driver_name: r.driver_name || null,
+        phone: r.phone,
+        loading_point: r.loading_point || null,
+        // The destination as the trip records it. unloading_location is the
+        // place; consignee is who receives it. Both are shown because a lane
+        // is quoted either way on the phone, and neither is invented when the
+        // trip record is blank.
+        unloading_location: r.unloading_location || null,
+        consignee_name: r.consignee_name || null,
+        customer_name: r.customer_name || null,
+        product_type: r.product_type || null,
+        loaded_qty: r.loaded_qty === null ? null : Number(r.loaded_qty),
+        loading_date: r.loading_date,
+        last_text: r.last_text ?? null,
+        last_direction: r.last_direction ?? null,
+        last_ts: r.last_ts ?? null,
+        unread: num(r.unread),
+      }));
+    }, []);
+
     // ── TODAY'S LOADING ACTIVITY — WHERE EACH ROW CAME FROM ─────────────────
     //
     // Two ways a loading reaches this ERP: the IOCL AC5 mailbox sync parses an
@@ -1901,7 +1998,7 @@ export function registerDashboardRoutes(app) {
       // rather than with what the user believes they selected.
       filter: F,
       ops: { ...fleet, doc_vault, fleet_vault, doc_history, pending_fees, drivers, trips_by_day, live_fleet, unloading_queue,
-             vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats,
+             vehicle_rtkm, shortage_recovery, compliance_alerts, dispatch_chats, dispatch_trips,
              loading_activity, unloading_activity },
       finance: { ...money, banks, groups, monthly, customers, ledger_book, book_totals, health, emi, toll, tally, unbilled_list, pnl },
       crm: { staff, activity, whatsapp, geo },

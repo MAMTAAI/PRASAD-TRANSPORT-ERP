@@ -29,6 +29,11 @@
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { emit, drain } from '../agents/bus.js';
 import { postVoucher } from '../agents/tara.js';
+import { put, safeKey } from '../lib/storage.js';
+import { buildLrPdf } from '../lib/lrPdf.js';
+import { mintShareLink } from '../lib/shareLinks.js';
+import { sendViaEngine } from '../lib/waSend.js';
+import { last10 } from '../lib/contactDirectory.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -297,6 +302,129 @@ export async function registerOpsRoutes(app) {
     // driver app gets its own endpoint when that cluster moves.
   };
   const FIELD_NAMES = Object.keys(TRIP_FIELDS);
+
+
+  // ── LORRY RECEIPT ─────────────────────────────────────────────────────────
+  // SEND LR COPY was a drawn button with no onClick — the same fault as the
+  // send arrow beside it, which is why wa_chats held 165 incoming messages and
+  // no outgoing ones. This is the route behind it.
+  //
+  // THE LAYOUT IS PROVISIONAL AND THE DOCUMENT SAYS SO, in a red band across
+  // the top. The owner is sending the firm's printed LR format; until it
+  // arrives, a button that produces a plausible-looking lorry receipt is a
+  // liability, because somebody will hand one to a consignee. The figures on it
+  // are real — read from this trip row — so replacing the layout later changes
+  // the paper, not the data path.
+  //
+  // ?preview=1 returns the bytes and files nothing: that is the office looking
+  // at what it is about to send. Without it the PDF is stored in the vault, a
+  // share link is minted against it, and the link is WhatsApp'd to `phone`
+  // (default: the trip's own driver). Two different actions, deliberately not
+  // one endpoint that guesses.
+  app.get(
+    '/trips/:id/lr',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows } = await query('SELECT * FROM trips WHERE id = $1::uuid', [req.params.id]);
+      if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such trip' });
+      const trip = rows[0];
+      const { rows: co } = trip.company_id
+        ? await query('SELECT * FROM companies WHERE id = $1::uuid', [trip.company_id])
+        : { rows: [] };
+
+      // The LR number is the trip code. The firm has no separate LR series in
+      // this database — inventing one here would create a second identifier for
+      // the same movement, and reconciling two series afterwards is somebody's
+      // week. When the real format arrives with its own numbering, that is the
+      // line to change.
+      const lrNo = trip.trip_code || `TRIP-${String(trip.id).slice(0, 8)}`;
+      const pdf = await buildLrPdf({
+        trip, company: co[0] ?? null, lrNo, issuedBy: req.user?.name ?? '',
+      });
+      const filename = `LR-${String(lrNo).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
+
+      if (req.query?.preview === '1' || req.query?.preview === 'true') {
+        return reply
+          .header('Content-Type', 'application/pdf')
+          .header('Content-Disposition', `inline; filename="${filename}"`)
+          .send(Buffer.from(pdf));
+      }
+      return reply.code(400).send({
+        error: 'USE_POST',
+        detail: 'sending an LR is a POST; add ?preview=1 to look at one',
+      });
+    });
+
+  app.post(
+    '/trips/:id/lr',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows } = await query('SELECT * FROM trips WHERE id = $1::uuid', [req.params.id]);
+      if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such trip' });
+      const trip = rows[0];
+
+      // Who it goes to: whoever the caller named, else the number on the trip,
+      // else the driver master. A trip with no reachable driver is a real state
+      // and it is reported as one — not silently sent to nobody.
+      const asked = last10(req.body?.phone ?? '');
+      let phone = asked.length === 10 ? asked : last10(trip.driver_mobile ?? '');
+      if (phone.length !== 10 && trip.driver_id) {
+        const { rows: d } = await query('SELECT mobile FROM drivers WHERE id = $1::uuid', [trip.driver_id]);
+        phone = last10(d[0]?.mobile ?? '');
+      }
+      if (phone.length !== 10) {
+        return reply.code(422).send({
+          error: 'NO_NUMBER',
+          detail: 'is trip par driver ka koi mobile number darj nahi hai — Driver Master mein number daalein',
+        });
+      }
+
+      const { rows: co } = trip.company_id
+        ? await query('SELECT * FROM companies WHERE id = $1::uuid', [trip.company_id])
+        : { rows: [] };
+      const lrNo = trip.trip_code || `TRIP-${String(trip.id).slice(0, 8)}`;
+      const pdf = await buildLrPdf({ trip, company: co[0] ?? null, lrNo, issuedBy: req.user?.name ?? '' });
+      const filename = `LR-${String(lrNo).replace(/[^A-Za-z0-9._-]/g, '_')}.pdf`;
+
+      // Filed against the TRIP, not against the phone: the same LR may go to a
+      // driver today and a consignee tomorrow, and it is one document.
+      const key = safeKey(`trips/${trip.id}/lr/${Date.now()}-${filename}`);
+      const stored = await put(key, Buffer.from(pdf), 'application/pdf');
+      const link = await mintShareLink({
+        storageKey: stored.key, filename, contentType: 'application/pdf',
+        purpose: 'LR_COPY', phone, tripId: trip.id,
+        createdBy: req.user?.sub ?? null,
+        // A month: an LR is filed by whoever receives it, and being asked to
+        // re-send one a fortnight later is the normal case.
+        hours: 720,
+      });
+
+      const text = [
+        `LR ${lrNo}${trip.vehicle_no ? ` · ${trip.vehicle_no}` : ''}`,
+        [trip.loading_point, trip.unloading_location || trip.consignee_name].filter(Boolean).join(' → '),
+        link.url,
+        'Yeh link 30 din tak chalega. — Prasad Transport',
+      ].filter(Boolean).join('\n');
+
+      let sent = true, sendError = null;
+      try {
+        await sendViaEngine({ phone, text, user: req.user, tripId: trip.id, role: 'DRIVER',
+                            media: { key: stored.key, type: 'application/pdf', filename } });
+      } catch (e) { sent = false; sendError = e.message; }
+
+      // 201 with sent:false when WhatsApp is down — the LR exists and is
+      // linkable, which is a different outcome from "nothing happened".
+      return reply.code(201).send({
+        ok: sent, sent, error: sent ? null : 'SEND_FAILED', detail: sendError,
+        lr_no: lrNo, key: stored.key, bytes: stored.bytes, filename,
+        url: link.url, absolute: link.absolute, expires_at: link.expires_at,
+        phone, text,
+        provisional: true,
+        note: 'Provisional LR layout — the office format is awaited. Figures are read from the trip record.',
+      });
+    });
 
   // ── Create ─────────────────────────────────────────────────────────────────
   app.post(

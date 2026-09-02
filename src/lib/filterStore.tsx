@@ -121,9 +121,18 @@ export function FilterProvider({ children }) {
 export function useGlobalFilter() {
   const ctx = useContext(FilterCtx);
   if (ctx) return ctx;
+  // The no-op arms take their real parameters. They used to be bare `() => {}`,
+  // and because this file is the only definition TypeScript has of the hook's
+  // return type, every type-checked caller of `gf.set({ companyId })` was told
+  // the function takes no arguments — which is how a screen that honours the
+  // filter fails to compile while one with @ts-nocheck sails through.
   return {
-    filters: { ...EMPTY }, set: () => {}, clear: () => {},
-    active: false, qs: () => '', setNav: () => {},
+    filters: { ...EMPTY },
+    set: (_patch) => {},
+    clear: () => {},
+    active: false,
+    qs: () => '',
+    setNav: (_module, _screen) => {},
   };
 }
 

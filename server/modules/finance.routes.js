@@ -231,15 +231,51 @@ export async function registerFinanceRoutes(app) {
       from:    { type: ['string', 'null'], format: 'date' },
       to:      { type: ['string', 'null'], format: 'date' },
       company: { type: ['string', 'null'], maxLength: 120 },
+      // WHAT TO DO WITH THE POSTINGS THAT NAME NO FIRM. Until migration 122
+      // there was no answer to this question and the code took the worst one
+      // silently: company_matches() counted every unplaced entry into EVERY
+      // company, so the three firms' P&Ls each contained the same 4,501
+      // orphans and summed to far more than the group.
+      //
+      //   exclude (default) — this firm only. What a company P&L means.
+      //   include           — this firm plus the unplaced, so the figures tie
+      //                       back to the group total during a reconciliation.
+      //   only              — the worklist: exactly what nobody has placed.
+      //
+      // Ignored entirely when no company is selected: at group level every
+      // entry belongs, named or not.
+      unassigned: { type: ['string', 'null'], enum: ['include', 'exclude', 'only', null], default: 'exclude' },
     },
   };
-  const bounds = (q) => [q.from || null, q.to || null, q.company || null];
+  const bounds = (q) => [q.from || null, q.to || null, q.company || null, q.unassigned || 'exclude'];
+
+  // ── How much of the book can be attributed at all ─────────────────────────
+  // Every company-filtered screen has to be able to say what it could not
+  // place; an excluded entry leaves no trace in the report itself, so the
+  // screen cannot work it out from the numbers it was given.
+  app.get('/reports/company-coverage', { schema: { querystring: REPORT_QS } }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      'SELECT * FROM f_company_coverage($1::date, $2::date)', [req.query.from || null, req.query.to || null]);
+    const total = rows.reduce((a, r) => a + Number(r.entries), 0);
+    const unplaced = rows.filter((r) => r.company_bucket === 'UNASSIGNED');
+    return {
+      period: { from: req.query.from ?? null, to: req.query.to ?? null },
+      buckets: rows,
+      total_entries: total,
+      unassigned_entries: unplaced.reduce((a, r) => a + Number(r.entries), 0),
+      unassigned_dr: unplaced.reduce((a, r) => a + Number(r.dr), 0).toFixed(2),
+      unassigned_cr: unplaced.reduce((a, r) => a + Number(r.cr), 0).toFixed(2),
+      // The one figure a screen actually renders in its banner.
+      unassigned_pct: total ? Number((unplaced.reduce((a, r) => a + Number(r.entries), 0) * 100 / total).toFixed(1)) : 0,
+    };
+  });
 
   // ── Trial balance ─────────────────────────────────────────────────────────
   app.get('/reports/trial-balance', { schema: { querystring: REPORT_QS } }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
-      `SELECT * FROM f_trial_balance($1::date, $2::date, $3::text)
+      `SELECT * FROM f_trial_balance_scoped($1::date, $2::date, $3::text, $4::text)
         WHERE dr <> 0 OR cr <> 0 ORDER BY sort_order`, bounds(req.query));
     return {
       rows,
@@ -256,13 +292,15 @@ export async function registerFinanceRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
       `SELECT group_head, account_type, sort_order, amount
-         FROM f_profit_and_loss($1::date, $2::date, $3::text)
+         FROM f_profit_and_loss_scoped($1::date, $2::date, $3::text, $4::text)
         WHERE amount <> 0 ORDER BY sort_order`, bounds(req.query));
     const sum = (t) => rows.filter((r) => r.account_type === t)
       .reduce((a, r) => a + Number(r.amount), 0);
     const income = sum('INCOME'), expense = sum('EXPENSE');
     return {
-      period: { from: req.query.from ?? null, to: req.query.to ?? null, company: req.query.company ?? null },
+      period: { from: req.query.from ?? null, to: req.query.to ?? null,
+                company: req.query.company ?? null,
+                unassigned: req.query.company ? (req.query.unassigned || 'exclude') : 'n/a (whole group)' },
       income:   rows.filter((r) => r.account_type === 'INCOME'),
       expenses: rows.filter((r) => r.account_type === 'EXPENSE'),
       total_income: income.toFixed(2),
@@ -288,16 +326,22 @@ export async function registerFinanceRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const asOn = req.query.to || null;
     const company = req.query.company || null;
+    const unassigned = req.query.unassigned || 'exclude';
     const [rows, split] = await Promise.all([
       query(`SELECT group_head, account_type, amount, side
-               FROM f_balance_sheet($1::date, $2::text) ORDER BY side, sort_order`, [asOn, company]),
+               FROM f_balance_sheet_scoped($1::date, $2::text, $3::text)
+              ORDER BY side, sort_order`, [asOn, company, unassigned]),
+      // The imbalance split has to be scoped the SAME way as the sheet above it
+      // or it explains a difference in a different book. It read company_matches
+      // while the sheet now reads company_in_scope, which would have made the
+      // two disagree by exactly the unplaced entries.
       query(`SELECT COALESCE(SUM(CASE WHEN dr_cr='DR' THEN amount ELSE -amount END)
                               FILTER (WHERE voucher_id IS NOT NULL), 0)::numeric(14,2) AS voucher_imbalance,
                     COALESCE(SUM(CASE WHEN dr_cr='DR' THEN amount ELSE -amount END)
                               FILTER (WHERE voucher_id IS NULL), 0)::numeric(14,2) AS legacy_imbalance
-               FROM ledger_entries
+               FROM v_ledger_entries_resolved
               WHERE ($1::date IS NULL OR entry_date <= $1::date)
-                AND ($2::text IS NULL OR company_matches(company, $2::text))`, [asOn, company]),
+                AND company_in_scope(company_bucket, $2::text, $3::text)`, [asOn, company, unassigned]),
     ]);
     const assets = rows.rows.filter((r) => r.side === 'ASSETS');
     const liabs  = rows.rows.filter((r) => r.side === 'LIABILITIES_AND_EQUITY');
@@ -305,6 +349,7 @@ export async function registerFinanceRoutes(app) {
     const ta = total(assets), tl = total(liabs);
     return {
       as_on: asOn, company,
+      unassigned: company ? unassigned : 'n/a (whole group)',
       assets, liabilities_and_equity: liabs,
       total_assets: ta.toFixed(2),
       total_liabilities_equity: tl.toFixed(2),
@@ -433,55 +478,114 @@ export async function registerFinanceRoutes(app) {
   );
 
   // ── Ledger hub ────────────────────────────────────────────────────────────
+  // COMPANY-AWARE SINCE 2026-09-02. This route had no company parameter at all,
+  // so the Ledger screen showed the whole group's book however the dashboard
+  // filter was set — narrow everything to Gautam Prasad, open the ledger, and
+  // you were reading all three firms with nothing on screen saying so.
+  //
+  // The opening balance is deliberately NOT apportioned. `ledgers.opening_balance`
+  // is one number per ledger for the whole group; splitting it between firms
+  // would be an invention. Under a company filter the opening is reported
+  // separately and the balance shown is the MOVEMENT in that firm's scope, with
+  // `opening_is_group_wide` saying so rather than quietly folding it in.
   app.get(
     '/ledgers',
-    { schema: { querystring: { type: 'object', properties: { q: { type: 'string', maxLength: 60 }, limit: { type: 'integer', minimum: 1, maximum: 300, default: 100 } } } } },
+    { schema: { querystring: { type: 'object', properties: {
+      q: { type: 'string', maxLength: 60 },
+      limit: { type: 'integer', minimum: 1, maximum: 300, default: 100 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      unassigned: { type: ['string', 'null'], enum: ['include', 'exclude', 'only', null] },
+    } } } },
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
+      const company = req.query.company || null;
+      const unassigned = req.query.unassigned || 'exclude';
       const { rows } = await query(
-        `SELECT l.ledger_name, l.group_head, l.company, l.branch, l.opening_balance,
-                COALESCE(e.dr,0)::numeric(14,2) AS total_dr, COALESCE(e.cr,0)::numeric(14,2) AS total_cr,
-                (l.opening_balance + COALESCE(e.dr,0) - COALESCE(e.cr,0))::numeric(14,2) AS balance,
+        `WITH scoped AS (SELECT * FROM f_ledger_balances_scoped($3::text, $4::text))
+         SELECT l.ledger_name, l.group_head, l.company, l.branch, l.opening_balance,
+                COALESCE(e.total_dr,0)::numeric(14,2) AS total_dr,
+                COALESCE(e.total_cr,0)::numeric(14,2) AS total_cr,
+                -- Group view: opening + movement, exactly as before. Company
+                -- view: movement only, because the opening cannot be split.
+                (CASE WHEN $3::text IS NULL THEN l.opening_balance ELSE 0 END
+                 + COALESCE(e.total_dr,0) - COALESCE(e.total_cr,0))::numeric(14,2) AS balance,
                 COALESCE(e.entries,0)::int AS entries, e.last_entry
            FROM ledgers l
-           LEFT JOIN LATERAL (
-             SELECT SUM(amount) FILTER (WHERE dr_cr='DR') dr, SUM(amount) FILTER (WHERE dr_cr='CR') cr,
-                    count(*) entries, max(entry_date) last_entry
-               FROM ledger_entries WHERE lower(ledger_name)=lower(l.ledger_name)
-           ) e ON true
+           LEFT JOIN scoped e ON lower(e.ledger_name) = lower(l.ledger_name)
           WHERE ($1::text IS NULL OR l.ledger_name ILIKE '%'||$1||'%' OR l.group_head ILIKE '%'||$1||'%')
-          ORDER BY abs(l.opening_balance + COALESCE(e.dr,0) - COALESCE(e.cr,0)) DESC
+            -- Under a company filter a ledger with no postings in that scope is
+            -- not this firm's ledger, and listing it at its group opening
+            -- balance is how a Jaiswal account appears on a Prasad screen.
+            AND ($3::text IS NULL OR COALESCE(e.entries,0) > 0)
+          ORDER BY abs(CASE WHEN $3::text IS NULL THEN l.opening_balance ELSE 0 END
+                       + COALESCE(e.total_dr,0) - COALESCE(e.total_cr,0)) DESC
           LIMIT $2`,
-        [req.query.q ?? null, req.query.limit ?? 100]
+        [req.query.q ?? null, req.query.limit ?? 100, company, unassigned]
       );
-      return { count: rows.length, data: rows };
+      return {
+        count: rows.length,
+        data: rows,
+        company,
+        unassigned: company ? unassigned : 'n/a (whole group)',
+        opening_is_group_wide: !!company,
+      };
     }
   );
 
   app.get(
     '/ledgers/statement',
-    { schema: { querystring: { type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 120 }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 } } } } },
+    { schema: { querystring: { type: 'object', required: ['name'], properties: {
+      name: { type: 'string', maxLength: 120 },
+      limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      company: { type: ['string', 'null'], maxLength: 120 },
+      unassigned: { type: ['string', 'null'], enum: ['include', 'exclude', 'only', null] },
+    } } } },
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
       const name = req.query.name;
+      const company = req.query.company || null;
+      const unassigned = req.query.unassigned || 'exclude';
+      // Reads the resolved view rather than the base table, so the statement is
+      // scoped by the same rule as the reports above it and a posting made under
+      // an alias spelling appears on the canonical ledger's statement.
       const { rows } = await query(
-        `SELECT entry_date, particulars, dr_cr, amount, source_type, source_ref, voucher_id
-           FROM ledger_entries WHERE lower(ledger_name)=lower($1)
-          ORDER BY entry_date DESC, id DESC LIMIT $2`, [name, req.query.limit ?? 100]);
+        `SELECT entry_date, particulars, dr_cr, amount, source_type, source_ref, voucher_id,
+                company_bucket
+           FROM v_ledger_entries_resolved
+          WHERE lower(ledger_name)=lower($1)
+            AND company_in_scope(company_bucket, $3::text, $4::text)
+          ORDER BY entry_date DESC, id DESC LIMIT $2`,
+        [name, req.query.limit ?? 100, company, unassigned]);
       const { rows: [tot] } = await query(
         `SELECT COALESCE((SELECT opening_balance FROM ledgers WHERE lower(ledger_name)=lower($1) LIMIT 1),0) AS opening,
                 COALESCE(SUM(amount) FILTER (WHERE dr_cr='DR'),0) AS dr,
                 COALESCE(SUM(amount) FILTER (WHERE dr_cr='CR'),0) AS cr
-           FROM ledger_entries WHERE lower(ledger_name)=lower($1)`, [name]);
-      const balance = (Number(tot.opening) + Number(tot.dr) - Number(tot.cr)).toFixed(2);
+           FROM v_ledger_entries_resolved
+          WHERE lower(ledger_name)=lower($1)
+            AND company_in_scope(company_bucket, $2::text, $3::text)`, [name, company, unassigned]);
+      // Under a company filter the opening is left OUT of the closing figure:
+      // ledgers.opening_balance is one group-wide number and apportioning it
+      // between three firms would be an invention. The response says which of
+      // the two answers this is.
+      const balance = ((company ? 0 : Number(tot.opening)) + Number(tot.dr) - Number(tot.cr)).toFixed(2);
 
       // WhatsApp-ready text — MATANGI's channel formats it the same way.
       const lines = rows.slice(0, 15).map((e) =>
         `${e.entry_date} ${e.dr_cr === 'DR' ? '▲' : '▼'} ₹${e.amount} — ${String(e.particulars ?? '').slice(0, 40)}`);
       const waText = encodeURIComponent(
-        `*PRASAD TRANSPORT — Ledger Statement*\n*${name}*\n\n${lines.join('\n')}\n\n*Closing balance: ₹${balance} ${Number(balance) >= 0 ? 'Dr' : 'Cr'}*\n_System generated · ${new Date().toISOString().slice(0, 10)}_`);
+        `*PRASAD TRANSPORT — Ledger Statement*\n*${name}*`
+        + (company ? `\n_${company} only — group opening balance not included_` : '')
+        + `\n\n${lines.join('\n')}\n\n*${company ? 'Movement in scope' : 'Closing balance'}: ₹${balance} ${Number(balance) >= 0 ? 'Dr' : 'Cr'}*\n_System generated · ${new Date().toISOString().slice(0, 10)}_`);
 
-      return { ledger: name, opening: tot.opening, total_dr: tot.dr, total_cr: tot.cr, balance, entries: rows, whatsapp_text: waText };
+      return {
+        ledger: name, opening: tot.opening, total_dr: tot.dr, total_cr: tot.cr, balance,
+        entries: rows, whatsapp_text: waText,
+        company, unassigned: company ? unassigned : 'n/a (whole group)',
+        // TRUE means `balance` is the movement in this firm's scope and excludes
+        // the group-wide opening. A statement that does not say so is one
+        // somebody will quote at a bank.
+        opening_excluded: !!company,
+      };
     }
   );
 }
