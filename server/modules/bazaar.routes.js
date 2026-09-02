@@ -304,6 +304,23 @@ export async function registerBazaarRoutes(app) {
     return { vehicle: rows[0] };
   });
 
+  // The counterpart the drivers had and the trucks did not: a refusal with a
+  // reason the partner reads. REJECTED joins the status CHECK in migration 126
+  // (040 allowed only Active / Pending / Blocked, so a truck could be refused
+  // in prose but never in the row).
+  app.post('/market-vehicles/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const reason = String(req.body?.reason ?? '').trim();
+    if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the partner sees it' });
+    const { rows } = await query(`
+      UPDATE market_vehicles
+         SET system_status = 'REJECTED', reject_reason = $2, approved_by = NULL, approved_at = NULL,
+             updated_at = now()
+       WHERE id = $1::uuid RETURNING *`, [req.params.id, reason]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+    return { vehicle: rows[0] };
+  });
+
   app.delete('/market-vehicles/:id', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('market_vehicles')(req.params.id);

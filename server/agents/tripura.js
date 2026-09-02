@@ -45,7 +45,7 @@ export default defineAgent({
   ],
 
   owns: {
-    tables: ['rtkm_master', 'rate_master', 'bazaar_loads', 'bids', 'market_vehicles'],
+    tables: ['rtkm_master', 'rate_master', 'bazaar_loads', 'bazaar_bids', 'market_vehicles'],
     modules: ['RateMaster.tsx', 'LocationRtkmMaster.tsx', 'BazaarAdmin.tsx',
               'MarketVehicles.tsx', 'FleetPartnerPortal.tsx'],
   },

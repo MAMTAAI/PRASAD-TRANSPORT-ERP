@@ -33,6 +33,11 @@ const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);
+// The 0 % error rule's first gate. Every money route below refuses to post a
+// voucher into a settlement whose firm is not named — the same fact migration
+// 126 holds as a CHECK, so no other code path can either.
+const NO_COMPANY_DETAIL = 'set the operating company (firm) on this settlement before any money moves — '
+  + 'a voucher without a firm is the cross-company bleed the books must never carry';
 
 const vErr = (reply, err) => {
   const map = { DUPLICATE_REF: 409, OVERDRAFT: 422, NO_ACCOUNT: 400, NO_PARTY: 400, BAD_AMOUNT: 400, UNBALANCED: 400 };
@@ -151,6 +156,10 @@ export function registerBazaarSettlementRoutes(app) {
     }
     const col = side === 'VENDOR' ? 'vendor_deposit_voucher_id' : 'customer_deposit_voucher_id';
     if (s[col]) return reply.code(409).send({ error: 'ALREADY_POSTED', detail: `${side.toLowerCase()} deposit already recorded` });
+    // 0 % ERROR RULE: NO FIRM, NO RUPEE. A voucher with company_id NULL is the
+    // cross-company bleed v_accounting_health flags after the fact; refuse it
+    // before the fact. Staff name the firm on the settlement desk first.
+    if (!s.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: NO_COMPANY_DETAIL });
 
     try {
       const voucher = await postVoucher({
@@ -190,6 +199,7 @@ export function registerBazaarSettlementRoutes(app) {
     const refCol = side === 'VENDOR' ? 'vendor_deposit_refund_voucher_id' : 'customer_deposit_refund_voucher_id';
     if (!s[paidCol]) return reply.code(409).send({ error: 'NO_DEPOSIT', detail: `no ${side.toLowerCase()} deposit on record` });
     if (s[refCol]) return reply.code(409).send({ error: 'ALREADY_POSTED', detail: 'this deposit is already refunded' });
+    if (!s.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: NO_COMPANY_DETAIL });
     const amount = r2(b.amount ?? s.deposit_amount);
     if (!(amount > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT' });
 
@@ -229,6 +239,7 @@ export function registerBazaarSettlementRoutes(app) {
       });
     }
     if (s.advance_voucher_id) return reply.code(409).send({ error: 'ALREADY_POSTED', detail: 'advance already recorded' });
+    if (!s.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: NO_COMPANY_DETAIL });
     const amount = r2(b.amount ?? (Number(s.awarded_amount) * Number(s.advance_pct) / 100));
     if (!(amount > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT' });
     if (amount > Number(s.awarded_amount)) {
@@ -304,6 +315,7 @@ export function registerBazaarSettlementRoutes(app) {
       });
     }
     if (s.balance_voucher_id) return reply.code(409).send({ error: 'ALREADY_POSTED', detail: 'balance already recorded' });
+    if (!s.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: NO_COMPANY_DETAIL });
     const due = r2(Number(s.awarded_amount) - Number(s.advance_amount ?? 0));
     const amount = r2(b.amount ?? due);
     if (!(amount > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'nothing left to pay' });
