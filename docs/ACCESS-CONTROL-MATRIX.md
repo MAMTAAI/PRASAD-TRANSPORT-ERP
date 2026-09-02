@@ -167,6 +167,8 @@ Everything not in this table — `trips`, `ledger_entries`, `vouchers`, `custome
 
 **Smart Approval Desk** (`src/components/ApprovalDrawer.tsx`). "View" on an expense bill, an app upload, or a POD opens a drawer with the document rendered in place (PDF in an iframe, photo as an image, token-fetched from the vault), the row's fields editable in place, and the decisions next to the document: **Approve** (with the edited fields, `PATCH /queues/expenses/:id` then approve), **Reject** (reason mandatory; the uploader is told on WhatsApp), **Print**, **Open in new tab**. Wired into Pending Expenses (both queues) and Bazaar Admin settlements (POD verify).
 
+**Embedded desk on the main dashboards** (`src/components/ApprovalDesk.tsx`, same evening). The whole quarantine — every queue in the table of section 4 — as a persistent "Pending approvals" strip and a slide-out drawer, mounted on Master Control v5.0 (strip above the filter bar; the header bell carries the live total) and on the Operations Command Deck (the approval-desk chips open the drawer on that queue). Counts come from `GET /queues/badges`. Each tab lists the pending rows; "View" opens the drawer above; a quick ✓ approves rows that need no extra input. Every Approve calls the same server route as the full-screen screen, so the staging-to-core transaction and the TARA posting are identical whichever surface the admin used. Adding a staging queue means one entry in `SECTIONS` there, not a change on either dashboard.
+
 ---
 
 ## 8. Gaps found in this analysis and what was done
