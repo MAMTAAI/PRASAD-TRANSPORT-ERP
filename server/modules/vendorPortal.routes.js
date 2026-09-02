@@ -564,9 +564,14 @@ export function registerVendorPortalRoutes(app) {
   // no "App Uploads" step in between. The office approves there; TARA posts
   // the voucher to `Creditors: <vendor>` under the own fleet, as it always
   // has for a pump bill typed by staff. Nothing here touches the bazaar.
+  //
+  // PATH: /portal/vendor/expense-bills — NOT /portal/vendor/bills, which
+  // portal.routes.js already serves (the vendor's company bills, vend.bills).
+  // Declaring it twice took the API down for four minutes on 2-Sep-2026
+  // (FST_ERR_DUPLICATED_ROUTE, a crash loop); Fastify refuses to boot.
   const EXPENSE_TYPES = new Set(['FUEL', 'TYRE', 'MAINTENANCE', 'TOLL', 'OTHER']);
 
-  app.get('/portal/vendor/bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+  app.get('/portal/vendor/expense-bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
       `SELECT id, expense_type, amount, bill_no, bill_date, vehicle_no, description, status,
@@ -579,7 +584,7 @@ export function registerVendorPortalRoutes(app) {
     return { count: rows.length, bills: rows };
   });
 
-  app.post('/portal/vendor/bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+  app.post('/portal/vendor/expense-bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
     const type = String(b.expense_type ?? '').toUpperCase();

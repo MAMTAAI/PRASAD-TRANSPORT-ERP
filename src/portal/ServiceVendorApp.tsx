@@ -9,7 +9,7 @@
 //
 //   Upload bill   a PDF or photo of an HSD slip, tyre invoice, spares or
 //                 repair bill, with its amount and number → lands straight
-//                 in the office's Expenses queue (POST /portal/vendor/bills),
+//                 in the office's Expenses queue (POST /portal/vendor/expense-bills),
 //                 the same queue a bill typed by staff waits in.
 //   My bills      what was sent, what the office decided, what got paid.
 //   Account       the ledger statement PDF and sign-out.
@@ -90,7 +90,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
   }, []);
 
   const loadBills = useCallback(async () => {
-    const r = await api('/portal/vendor/bills');
+    const r = await api('/portal/vendor/expense-bills');
     setBills(r.ok ? (r.body.bills ?? []) : []);
   }, []);
   useEffect(() => { if (gate === 'ok' && tab === 'bills') loadBills(); }, [gate, tab, loadBills]);
@@ -164,7 +164,7 @@ function UploadBill({ onDone, onError }) {
     if (!fileKey) { setErr('Attach the bill first — PDF or a clear photo'); return; }
     if (!(Number(amount) > 0)) { setErr('Enter the bill amount in rupees'); return; }
     setBusy(true);
-    const r = await api('/portal/vendor/bills', {
+    const r = await api('/portal/vendor/expense-bills', {
       method: 'POST',
       body: JSON.stringify({ expense_type: type, amount: Number(amount), bill_no: billNo || null, bill_date: billDate || null, vehicle_no: vehicle || null, remarks, file_key: fileKey }),
     });
