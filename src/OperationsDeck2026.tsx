@@ -24,6 +24,12 @@ import { API_BASE } from './lib/apiBase';
 // registry (server/lib/drilldownRegistry.js), paged, exportable as CSV, and
 // counted by the same query that lists them.
 import DrillDownViewer from './mastercontrol/DrillDownViewer';
+// The embedded Approval Desk (owner directive, 2026-09-02): the strip's chips
+// open the slide-out on that queue; approve / edit / reject happen in place.
+import { ApprovalDeskDrawer, useDeskCounts } from './components/ApprovalDesk';
+// Deck chip → desk queue. 'firm' has no queue of its own (it is a settlement
+// field), so it still opens Bazaar Admin.
+const DESK_KEY = { award: 'awards', review: 'review', kyc: 'kyc', trucks: 'trucks', drivers: 'mdrivers', docs: 'docs', expenses: 'expenses' };
 
 const API = API_BASE;
 const rs = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
@@ -58,6 +64,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
   // on the tile, so the drawer says so if its rows disagree with it.
   const [drill, setDrill] = useState(null);
   const [flash, setFlash] = useState(null);
+  const deskCounts = useDeskCounts();
+  const [deskOpen, setDeskOpen] = useState(null);   // null · true · 'queue key'
   const openTile = (metric, expected, panelId) => {
     const el = panelId ? document.getElementById(panelId) : null;
     if (el) {
@@ -274,11 +282,24 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         {!ov && <span className="od-chip n">{loading ? 'loading…' : 'unavailable'}</span>}
         {ov && deskTotal === 0 && <span className="clear">Sab clear — market side par koi faisla pending nahi.</span>}
         {ov && deskTotal > 0 && desk.filter((d) => d.n > 0).map((d) => (
-          <button key={d.k} data-hot="1" onClick={() => onOpenConsole?.(d.go)} title={d.hint}>
+          <button key={d.k} data-hot="1" onClick={() => (DESK_KEY[d.k] ? setDeskOpen(DESK_KEY[d.k]) : onOpenConsole?.(d.go))} title={d.hint}>
             <b>{d.n}</b> {d.label} <span className="h">{d.hint}</span>
           </button>
         ))}
+        <button data-hot="1" onClick={() => setDeskOpen(true)} title="every staging queue, decisions in place"
+          style={{ marginLeft: 'auto', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#0f172a', border: 0, fontWeight: 900 }}>
+          ⏳ Open desk{deskCounts.total > 0 ? ` (${deskCounts.total})` : ''}
+        </button>
       </section>
+
+      <ApprovalDeskDrawer
+        open={!!deskOpen}
+        initialSection={typeof deskOpen === 'string' ? deskOpen : null}
+        counts={deskCounts.counts}
+        onClose={() => setDeskOpen(null)}
+        onDecided={() => { deskCounts.refresh(); load(); }}
+        onNavigate={onOpenConsole}
+      />
 
       <div className="od-grid">
         <section className={'od-panel' + (flash === 'panel-award' ? ' flash' : '')} id="panel-award">
@@ -401,7 +422,7 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
             <div className="box" style={{ gridColumn: '1 / -1', borderColor: 'color-mix(in oklab, var(--accent) 35%, var(--line))' }}>
               <div className="l">Service vendors — pumps, tyres, spares (own fleet's suppliers)</div>
               <div className="v od-num">{SV.bills_pending ?? 0} <small style={{ fontSize: 12, color: 'var(--ink3)' }}>bills from their portal waiting · {SV.portal ?? 0}/{SV.total ?? 0} vendors on the portal</small></div>
-              <div className="s">Expenses queue: {SV.expenses_pending ?? 0} pending · {rL(SV.expenses_pending_amount)} — <button className="od-pill link" style={{ padding: '1px 8px' }} onClick={() => onOpenConsole?.('EXPENSE_APPROVALS')}>open Pending Expenses</button></div>
+              <div className="s">Expenses queue: {SV.expenses_pending ?? 0} pending · {rL(SV.expenses_pending_amount)} — <button className="od-pill link" style={{ padding: '1px 8px' }} onClick={() => setDeskOpen('expenses')}>open in the desk</button></div>
             </div>
           </div>
           <div className="od-note">Approve a KYC and the partner's portal login exists in the same click; a truck goes live only after its papers are checked here. A service vendor is a different thing: it never bids, it sends bills.</div>

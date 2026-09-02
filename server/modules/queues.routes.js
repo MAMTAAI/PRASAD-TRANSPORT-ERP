@@ -580,7 +580,15 @@ export async function registerQueueRoutes(app) {
       SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'SUBMITTED')::int AS pending_kyc,
              (SELECT count(*) FROM driver_requests        WHERE status = 'PENDING')::int   AS pending_requests,
              (SELECT count(*) FROM expense_approvals      WHERE status = 'PENDING')::int   AS pending_expenses,
-             (SELECT count(*) FROM partner_documents      WHERE status = 'PENDING')::int   AS pending_partner_docs`);
+             (SELECT count(*) FROM partner_documents      WHERE status = 'PENDING')::int   AS pending_partner_docs,
+             -- The rest of the quarantine (2026-09-02), so the embedded Approval
+             -- Desk on both dashboards shows every staging queue in one strip.
+             (SELECT count(*) FROM market_vehicles   WHERE system_status = 'PENDING APPROVAL')::int AS pending_market_trucks,
+             (SELECT count(*) FROM market_drivers    WHERE system_status = 'PENDING APPROVAL')::int AS pending_market_drivers,
+             (SELECT count(*) FROM bazaar_loads      WHERE status = 'PENDING_REVIEW')::int          AS pending_loads_review,
+             (SELECT count(*) FROM bazaar_loads      WHERE status = 'AWARD_REQUESTED')::int         AS pending_award_requests,
+             (SELECT count(*) FROM bazaar_settlements WHERE status = 'POD_SUBMITTED')::int         AS pending_pods,
+             (SELECT COALESCE(sum(amount), 0) FROM expense_approvals WHERE status = 'PENDING')::numeric(14,2) AS pending_expenses_amount`);
     return rows[0];
   });
 }

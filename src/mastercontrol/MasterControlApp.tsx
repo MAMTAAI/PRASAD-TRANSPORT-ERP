@@ -16,6 +16,9 @@ import useDashboardData from './useDashboardData';
 import { useGlobalFilter } from '../lib/filterStore';
 import FilterBar from './FilterBar';
 import DrillDownViewer from './DrillDownViewer';
+// The embedded Approval Desk (owner directive, 2026-09-02): the quarantine
+// strip under the header, the bell opens the slide-out, decisions in place.
+import { ApprovalDeskPanel, ApprovalDeskDrawer, useDeskCounts } from '../components/ApprovalDesk';
 
 const MODULES = [
   { id: 'ops', label: 'Operations', icon: Truck, accent: 'text-cyan-300', bar: 'from-cyan-500 to-blue-500' },
@@ -61,6 +64,8 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   // against the rows it fetches and shouts if they differ -- that comparison is
   // the whole reason this is worth building.
   const [drill, setDrill] = useState(null);
+  const deskCounts = useDeskCounts();
+  const [deskOpen, setDeskOpen] = useState(null);   // null · true · 'queue key'
   useEffect(() => {
     const open = (e) => {
       const d = e?.detail ?? {};
@@ -188,9 +193,12 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
               {live.error ? 'DATA OFFLINE' : live.loading ? 'LOADING' : 'LIVE DATA'}
             </span>
             <span className="hidden sm:block text-[10px] font-bold text-slate-500 whitespace-nowrap">{dateStr} · {timeStr} IST</span>
-            <button className="relative grid place-items-center w-8 h-8 rounded-xl bg-slate-900/70 border border-slate-700/50 text-slate-400 hover:text-cyan-300 transition-colors">
+            <button onClick={() => setDeskOpen(true)} title="Approval desk — everything waiting on the office"
+              className="relative grid place-items-center w-8 h-8 rounded-xl bg-slate-900/70 border border-slate-700/50 text-slate-400 hover:text-amber-300 transition-colors">
               <Bell size={14} />
-              <span className="absolute -top-1 -right-1 grid place-items-center w-4 h-4 rounded-full bg-red-500 text-[8px] font-black text-white">26</span>
+              {deskCounts.total > 0 && (
+                <span className="absolute -top-1 -right-1 grid place-items-center min-w-4 h-4 px-1 rounded-full bg-amber-500 text-[8px] font-black text-slate-950">{deskCounts.total}</span>
+              )}
             </button>
             <span className="hidden sm:grid place-items-center w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-orange-700 ring-2 ring-slate-700/60 text-[10px] font-black text-white">PS</span>
             {/* mobile menu toggle */}
@@ -234,6 +242,12 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
         <main key={activeTab} className="relative z-10 p-3 sm:p-5 mc-fade-in">
           {/* Sticky above every tab: the scope has to stay visible while you
               scroll, or the numbers below it lose their meaning. */}
+          {/* Persistent, above every tab: the quarantine — what outside parties
+              sent and the office has not yet approved. Decisions happen in the
+              slide-out, never on another page. */}
+          <div className="mb-3">
+            <ApprovalDeskPanel counts={deskCounts.counts} total={deskCounts.total} onOpen={(k) => setDeskOpen(k ?? true)} />
+          </div>
           <FilterBar filters={filter.filters} set={filter.set} clear={filter.clear} active={filter.active} />
 
           {activeTab === 'ops' && <OperationsDashboard live={live} filter={filter} />}
@@ -253,6 +267,14 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
           onClose={() => setDrill(null)}
         />
       )}
+
+      <ApprovalDeskDrawer
+        open={!!deskOpen}
+        initialSection={typeof deskOpen === 'string' ? deskOpen : null}
+        counts={deskCounts.counts}
+        onClose={() => setDeskOpen(null)}
+        onDecided={deskCounts.refresh}
+      />
     </div>
   );
 }
