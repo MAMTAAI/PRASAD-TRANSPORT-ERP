@@ -105,6 +105,11 @@ export default function LoadingActivity({ activity, offline }) {
   // every 10 minutes, so this clears itself — the point is that it is VISIBLE
   // while it lasts instead of looking like health.
   const neverChecked = !!a && !a.sync?.checked_at && !a.sync?.running;
+  // Neither broken nor imported: an invoice the importer matched to an existing
+  // trip by truck+date+quantity, where that trip carries no invoice number.
+  // It refuses to attach it — that is a person's judgement — so it waits, and
+  // until 2026-09-02 it waited where nobody could see it.
+  const held = a?.sync?.held_for_review ?? 0;
   // AND THE OTHER HALF OF THE CHAIN. A readable mailbox whose invoices cannot be
   // WRITTEN looks identical from here: zero auto entries, no dead box, panel
   // green. That is what happened from 21-08 — every insert answered 401 and the
@@ -181,6 +186,19 @@ export default function LoadingActivity({ activity, offline }) {
             Server abhi restart hua hai — mailbox sync is ke baad ek baar bhi nahi chala, isliye
             neeche ka “sab theek hai” abhi <b>jaanch ke bina</b> hai. Har 10 minute par apne aap
             chalta hai; agli baar chalte hi yahan uska waqt dikhne lagega.
+          </p>
+        </div>
+      )}
+
+      {/* NOT AN ERROR, SO IT DOES NOT GET A RED BOX — but it is work, and work
+          nobody can see is work nobody does. */}
+      {held > 0 && (
+        <div className="mx-2.5 mt-1.5 flex items-start gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1.5">
+          <AlertTriangle size={12} className="mt-px shrink-0 text-cyan-400" />
+          <p className="text-[10px] leading-snug text-cyan-200">
+            <b>{held} invoice{held === 1 ? '' : 's'} aadmi ke faisle ka intezaar kar rahi {held === 1 ? 'hai' : 'hain'}.</b>{' '}
+            Gaadi, date aur quantity to ek trip se mil gayi, par us trip par invoice number likha hi nahi hai —
+            isliye system ne khud nahi joda. Jodna hai ya nahi, yeh aap tay karein.
           </p>
         </div>
       )}

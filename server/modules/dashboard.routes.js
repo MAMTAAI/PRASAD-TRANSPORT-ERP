@@ -1769,6 +1769,15 @@ export function registerDashboardRoutes(app) {
           // file it" send you to different places.
           insert_failed: sync?.last_run?.insert_failed ?? 0,
           insert_errors: sync?.last_run?.insert_errors ?? [],
+          // AND THE THIRD OUTCOME, WHICH WAS INVISIBLE. An AC5 that matches an
+          // existing trip on truck, date and quantity but whose trip has no
+          // invoice number recorded is HELD — the importer will not attach it,
+          // because deciding that two records are the same movement is a human
+          // call. Six were being held on 2026-09-02 and nothing on any screen
+          // said so: not a failure, so no banner; not an insert, so no count.
+          // Work that is waiting on a person has to be visible or it is not
+          // waiting on anyone.
+          held_for_review: sync?.last_run?.held_for_review ?? 0,
         },
         email_count: num(r.email_count),
         manual_count: num(r.manual_count),
@@ -1848,7 +1857,7 @@ export function registerDashboardRoutes(app) {
          load_week_from: null, load_week_to: null, last7_loading: [], by_company_week: [],
          week_trips: [],
          sync: { checked_at: null, running: false, downloaded: null, mailboxes_failed: [], mailbox_detail: {},
-                 insert_failed: 0, insert_errors: [] } });
+                 insert_failed: 0, insert_errors: [], held_for_review: 0 } });
 
     // ── UNLOADING, THE OTHER HALF OF THE TRIP ────────────────────────────────
     //
