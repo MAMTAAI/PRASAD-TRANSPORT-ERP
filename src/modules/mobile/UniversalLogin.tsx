@@ -21,8 +21,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth/AuthProvider';
 
+import { DISPATCH_MOBILE, DISPATCH_TEL } from '../../lib/dispatchContact';
 const GATE1_URL = '/login';
-const DISPATCH_MOBILE = String(import.meta.env?.VITE_DISPATCH_MOBILE || '').replace(/\D/g, '');
 
 const EMPTY = ['', '', '', '', '', ''];
 
@@ -200,7 +200,7 @@ export default function UniversalLogin({ onAuthenticated }) {
               <p className="text-[20px] font-black text-red-800">नंबर रजिस्टर नहीं है?</p>
               <p className="mt-1 text-[14px] font-semibold leading-relaxed text-red-900/80">OTP सिर्फ़ उन्हीं नंबरों पर जाता है जो ऑफिस में ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम दर्ज हैं। नहीं आया तो ऑफिस से रजिस्टर करवाओ — या समय निकल गया हो तो दोबारा भेजो।</p>
             </div>
-            {DISPATCH_MOBILE && <a href={`tel:+91${DISPATCH_MOBILE}`} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
+            {DISPATCH_MOBILE && <a href={DISPATCH_TEL} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
             <button onClick={send} disabled={busy} className={`${DISPATCH_MOBILE ? GHOST : BIG} mt-2`}>🔁 OTP दोबारा भेजो</button>
             <button onClick={reset} className={`${GHOST} mt-2`}>‹ दूसरा नंबर</button>
           </>
@@ -224,7 +224,7 @@ export default function UniversalLogin({ onAuthenticated }) {
             <div className="mt-8 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-center">
               <p className="text-[14px] font-semibold leading-relaxed text-amber-900">ऑफिस का OTP भेजने वाला सिस्टम अभी ऑफलाइन है। थोड़ी देर बाद कोशिश करो, या ऑफिस को बताओ।</p>
             </div>
-            {DISPATCH_MOBILE && <a href={`tel:+91${DISPATCH_MOBILE}`} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
+            {DISPATCH_MOBILE && <a href={DISPATCH_TEL} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
             <button onClick={reset} className={`${GHOST} mt-2`}>🔁 फिर से कोशिश</button>
           </>
         )}

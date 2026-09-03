@@ -39,7 +39,7 @@ const api = async (path: string, opts: RequestInit = {}) => {
   return json;
 };
 
-const DISPATCH_MOBILE = String(import.meta.env?.VITE_DISPATCH_MOBILE || '').replace(/\D/g, '');
+import { DISPATCH_TEL, DISPATCH_DISPLAY } from './lib/dispatchContact';
 const LANG_KEY = 'prasad_driver_lang';
 
 // ── words, Hindi first ──────────────────────────────────────────────────────
@@ -574,7 +574,8 @@ export default function DriverPortal({ onBack, preview = false, session = null }
           {!market && <Tile docType="LOCKER" tone="bg-blue-600" icon="📋" label={t.locker} sub={T.en.locker === t.locker ? 'डिजिटल लॉकर' : 'Digital Locker'} badge={lockerPending ? `${lockerPending} ${t.pending}` : null} onClick={() => setScreen('LOCKER')} />}
         </div>
         {queue.length > 0 && <div className="rounded-xl bg-amber-100 px-3 py-1.5 text-center text-[12px] font-bold text-amber-900">⏳ {queue.length} {t.queuedN}</div>}
-        <a href={DISPATCH_MOBILE ? `tel:+91${DISPATCH_MOBILE}` : undefined} onClick={(e) => { if (!DISPATCH_MOBILE) { e.preventDefault(); say('📞 ' + t.call); } }}
+        {/* One tap → the phone's dialer with the dispatch desk's number filled in. */}
+        <a href={DISPATCH_TEL} title={DISPATCH_DISPLAY}
           className="block min-h-[48px] rounded-2xl bg-slate-900 text-center text-[17px] font-extrabold leading-[48px] text-white" data-call>📞 {t.call}</a>
         {market && <button onClick={signOut} className="pt-1 text-center text-[12px] font-bold text-slate-400">⏻ {t.logout}</button>}
       </div>
