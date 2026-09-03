@@ -37,6 +37,7 @@ export const STAGING_TABLES = new Set([
   // ── quarantine: every row waits for a staff APPROVE ──────────────────────
   'onboarding_applications',   // public KYC form → KYC Approvals
   'partner_documents',         // driver / partner app uploads → Pending Expenses desk
+  'driver_notices',            // in-app banners; the phone only stamps seen_at (2026-09-03)
   'expense_approvals',         // service-vendor bills → Pending Expenses desk (TARA posts on approve)
   'driver_requests',           // advance / fuel / leave asks → Driver Master
   'market_vehicles',           // partner trucks → PENDING APPROVAL

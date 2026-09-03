@@ -19,6 +19,7 @@ import DrillDownViewer from './DrillDownViewer';
 // The embedded Approval Desk (owner directive, 2026-09-02): the quarantine
 // strip under the header, the bell opens the slide-out, decisions in place.
 import { ApprovalDeskPanel, ApprovalDeskDrawer, useDeskCounts } from '../components/ApprovalDesk';
+import { DriverControlHost } from '../components/DriverControlDrawer';
 
 const MODULES = [
   { id: 'ops', label: 'Operations', icon: Truck, accent: 'text-cyan-300', bar: 'from-cyan-500 to-blue-500' },
@@ -267,6 +268,10 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
           onClose={() => setDrill(null)}
         />
       )}
+
+      {/* Driver Control Dashboard (owner, 2026-09-03): any driver name on this
+          screen opens the slide-out here — never another page. */}
+      <DriverControlHost />
 
       <ApprovalDeskDrawer
         open={!!deskOpen}

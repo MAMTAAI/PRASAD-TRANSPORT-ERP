@@ -95,6 +95,14 @@ export function proposalFor(docType, r) {
     put('ifsc_code', firstOf(flat, ['ifsc', 'ifsc_code']));
     put('bank_name', firstOf(flat, ['bank_name', 'bank']));
   }
+  if (docType === 'PAN') {
+    const pan = String(firstOf(flat, ['pan', 'pan_no', 'pan_number', 'permanent_account_number', 'number']) ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) suggest.pan_no = pan;
+  }
+  if (docType === 'HZD') {
+    put('hzd_cert_no', firstOf(flat, ['certificate_no', 'cert_no', 'licence_no', 'license_no', 'number']));
+    put('hzd_expiry', firstOf(flat, ['expiry', 'valid_upto', 'valid_till', 'expiry_date', 'validity']));
+  }
   if (docType === 'AADHAAR') {
     // Never propose the full number. The desk shows the last four; the admin
     // types the rest only if the office actually needs it on file.

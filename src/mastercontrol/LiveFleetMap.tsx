@@ -28,6 +28,7 @@ import { loadGoogleMaps } from '../lib/maps';
 import { API_BASE } from '../lib/apiBase';
 import { getRoute } from '../lib/mapsCache';
 import { connectFleetSocket, disconnectFleetSocket } from '../lib/fleetSocket';
+import { openDriverControl } from '../components/DriverControlDrawer';
 
 // The poll rate follows whether the live push is actually working.
 //
@@ -584,6 +585,13 @@ export default function LiveFleetMap() {
                     <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${t.lat != null ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                     <span className="truncate text-[11px] font-bold text-slate-200">{t.vehicle_no}</span>
                     {t.trip_code && <span className="shrink-0 text-[8.5px] text-slate-600">{t.trip_code}</span>}
+                    {/* The driver behind this lorry → Driver Control Dashboard
+                        (owner, 2026-09-03). The feed carries driver_id since today. */}
+                    {t.driver_id && (
+                      <span role="button" title={`${t.driver_name ?? 'Driver'} — Driver Control Dashboard`} data-driver-link
+                        onClick={(e) => { e.stopPropagation(); openDriverControl(t.driver_id, t.driver_name); }}
+                        className="ml-auto shrink-0 rounded-md border border-cyan-500/40 bg-cyan-500/10 px-1.5 text-[9px] font-black text-cyan-300 hover:bg-cyan-500/20">👤</span>
+                    )}
                   </div>
                   <p className="mt-0.5 truncate text-[9px] text-slate-500">
                     {t.loading_point ?? '?'} → {t.destination ?? '?'}

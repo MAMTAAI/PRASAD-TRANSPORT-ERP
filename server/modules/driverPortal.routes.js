@@ -24,6 +24,7 @@ import { requireAuth } from './auth.routes.js';
 // Every staged paper announces itself; BHUVANESHWARI reads it off the request
 // path and writes her proposal beside the photo (migration 132).
 import { emit } from '../agents/bus.js';
+import { driverLedger } from '../lib/driverLedger.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -109,7 +110,9 @@ export function registerDriverPortalRoutes(app) {
     'TYRE_BILL', 'MAINTENANCE_BILL', 'HSD_BILL', 'TOLL_BILL', 'OTHER_BILL', 'KYC', 'OTHER_DOC',
     // 2026-09-02: the driver's own KYC papers and quantity reports — staged
     // like every other paper; approve is what touches drivers / trips.
-    'DL', 'AADHAAR', 'BANK_BOOK', 'LOADING_QTY', 'UNLOADING_QTY']);
+    'DL', 'AADHAAR', 'BANK_BOOK', 'LOADING_QTY', 'UNLOADING_QTY',
+    // 2026-09-03 (owner): PAN and the Hazardous certificate join the locker.
+    'PAN', 'HZD']);
   const normalizeKey = (v) => String(v ?? '').replace(/^\/?api\/v1\/files\//, '').replace(/^\/+/, '');
 
   app.get('/portal/driver/documents', { preHandler: resolveDriver }, async (req, reply) => {
@@ -178,6 +181,115 @@ export function registerDriverPortalRoutes(app) {
       detail: 'Document office ko pahunch gaya. Staff check karke approve karega — '
             + 'status yahin dikhega.',
     });
+  });
+
+  // ── Trip allowance & balance — the live ledger under the map ─────────────
+  // Driver App v4 (owner, 2026-09-03). Targets are the trip's own fixed_hsd /
+  // fixed_cash (set by the office when the trip is made); issued is
+  // trips.hsd_issued and the three cash-paid columns the settlement already
+  // reads. Balance goes NEGATIVE when issued passes the target — the phone
+  // shows that in red; nothing here rounds it away. A trip without a target
+  // says so (null), so the screen never invents a number.
+  app.get('/portal/driver/ledger', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    // The same function the Driver Control drawer reads — see lib/driverLedger.js.
+    return driverLedger(req.driver.id);
+  });
+
+  // ── Digital Locker ───────────────────────────────────────────────────────
+  // Approved = the paper is on the driver record (the office put it there
+  // through approve → applyToCore). Pending / needs-correction = the staged
+  // rows. Notices = the in-app banners (a rejection with its reason, a paper
+  // the office is asking for, a ledger issue).
+  const LOCKER = [
+    { kind: 'DL',      title: 'Driving Licence',       col: 'dl_photo_url',     number: 'license_no',  expiry: 'license_expiry' },
+    { kind: 'AADHAAR', title: 'Aadhaar',               col: 'aadhar_photo_url', number: 'aadhar_last4' },
+    { kind: 'BANK_BOOK', title: 'Bank Passbook',       col: 'bank_photo_url',   number: 'account_no' },
+    { kind: 'PAN',     title: 'PAN Card',              col: 'pan_photo_url',    number: 'pan_no' },
+    { kind: 'HZD',     title: 'Hazardous Certificate', col: 'hzd_photo_url',    number: 'hzd_cert_no', expiry: 'hzd_expiry' },
+  ];
+  const mask = (s) => { const v = String(s ?? ''); return v.length > 4 ? '····' + v.slice(-4) : v; };
+
+  app.get('/portal/driver/locker', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [d] } = await query(
+      `SELECT dl_photo_url, license_no, license_expiry, aadhar_photo_url, aadhar_last4,
+              bank_photo_url, account_no, bank_name, pan_photo_url, pan_no,
+              hzd_photo_url, hzd_cert_no, hzd_expiry, employed_by_owner_id
+         FROM drivers WHERE id = $1::uuid`, [req.driver.id]);
+    const { rows: staged } = await query(
+      `SELECT id, doc_type, file_key, status, reject_reason, created_at, reviewed_at
+         FROM partner_documents
+        WHERE driver_id = $1::uuid AND doc_type IN ('DL','AADHAAR','BANK_BOOK','PAN','HZD')
+        ORDER BY created_at DESC LIMIT 50`, [req.driver.id]);
+    const { rows: notices } = await query(
+      `SELECT id, kind, title, body, ref_table, ref_id, created_at
+         FROM driver_notices WHERE driver_id = $1::uuid AND seen_at IS NULL
+        ORDER BY created_at DESC LIMIT 20`, [req.driver.id]);
+    const today = new Date();
+    const papers = LOCKER.map((p) => {
+      const latest = staged.find((s) => s.doc_type === p.kind) ?? null;
+      const approvedFile = d?.[p.col] ?? null;
+      const expiry = p.expiry ? d?.[p.expiry] ?? null : null;
+      const days = expiry ? Math.round((new Date(expiry) - today) / 86400000) : null;
+      let state = 'MISSING';
+      if (latest && latest.status === 'PENDING') state = 'PENDING';
+      else if (latest && latest.status === 'NEEDS_CORRECTION') state = 'NEEDS_CORRECTION';
+      else if (approvedFile) state = days != null && days < 0 ? 'EXPIRED' : 'APPROVED';
+      return {
+        kind: p.kind, title: p.title, state,
+        approved: !!approvedFile,
+        number: p.number === 'account_no' || p.number === 'aadhar_last4' ? mask(d?.[p.number]) : (d?.[p.number] ?? null),
+        expiry, days_left: days,
+        staged_id: latest?.id ?? null, staged_status: latest?.status ?? null,
+        reject_reason: latest?.status === 'NEEDS_CORRECTION' ? latest.reject_reason : null,
+        staged_at: latest?.created_at ?? null,
+        pdf_url: approvedFile ? `/api/v1/portal/driver/locker/${p.kind}/pdf` : null,
+        view_url: approvedFile ? (/^https?:\/\//i.test(approvedFile) ? approvedFile : `/api/v1/files/${String(approvedFile).replace(/^\/?api\/v1\/files\//, '').replace(/^\/+/, '')}`) : null,
+      };
+    });
+    return { papers, notices, market_driver: !!d?.employed_by_owner_id };
+  });
+
+  app.post('/portal/driver/notices/:id/seen', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rowCount } = await query(
+      `UPDATE driver_notices SET seen_at = now() WHERE id = $1::uuid AND driver_id = $2::uuid AND seen_at IS NULL`,
+      [req.params.id, req.driver.id]);
+    return { seen: rowCount > 0 };
+  });
+
+  app.get('/portal/driver/locker/:kind/pdf', { preHandler: resolveDriver }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const p = LOCKER.find((x) => x.kind === String(req.params.kind).toUpperCase());
+    if (!p) return reply.code(404).send({ error: 'NO_SUCH_PAPER' });
+    const { rows: [d] } = await query(
+      `SELECT name, mobile, ${p.col} AS file, ${p.number} AS number, ${p.expiry ? p.expiry : 'NULL'} AS expiry,
+              (SELECT reviewed_at FROM partner_documents WHERE driver_id = drivers.id AND doc_type = $2 AND status = 'APPROVED'
+                ORDER BY reviewed_at DESC LIMIT 1) AS approved_at,
+              (SELECT reviewed_by FROM partner_documents WHERE driver_id = drivers.id AND doc_type = $2 AND status = 'APPROVED'
+                ORDER BY reviewed_at DESC LIMIT 1) AS approved_by,
+              (SELECT vehicle_no FROM trips WHERE driver_id = drivers.id AND status NOT IN ('COMPLETED','SETTLED','CANCELLED')
+                ORDER BY loading_date DESC NULLS LAST LIMIT 1) AS vehicle_no
+         FROM drivers WHERE id = $1::uuid`, [req.driver.id, p.kind]);
+    if (!d?.file) return reply.code(404).send({ error: 'NOT_APPROVED', detail: 'the office has not approved this paper yet' });
+    try {
+      const { buildLockerPdf, readImageBytes } = await import('../lib/lockerPdf.js');
+      const imageBytes = await readImageBytes(d.file);
+      const fmt = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null);
+      const bytes = await buildLockerPdf({
+        title: p.title, driverName: d.name, driverMobile: d.mobile, vehicleNo: d.vehicle_no,
+        docNumber: p.number === 'account_no' || p.number === 'aadhar_last4' ? mask(d.number) : d.number,
+        approvedOn: fmt(d.approved_at) ?? 'on file', approvedBy: d.approved_by, validTill: fmt(d.expiry),
+        ref: `${p.kind}-${String(req.driver.id).slice(0, 8)}`, imageBytes,
+      });
+      reply.header('Content-Type', 'application/pdf');
+      reply.header('Content-Disposition', `inline; filename="${p.kind}-${String(d.name).replace(/[^A-Za-z0-9]+/g, '_')}.pdf"`);
+      return reply.send(Buffer.from(bytes));
+    } catch (e) {
+      req.log?.warn({ err: e.message }, 'locker pdf failed');
+      return reply.code(422).send({ error: e.code ?? 'PDF_FAILED', detail: e.message });
+    }
   });
 
   app.post('/portal/driver/requests', { preHandler: resolveDriver }, async (req, reply) => {

@@ -197,7 +197,7 @@ export async function registerIntegrationRoutes(app) {
     const { rows } = await query(
       `SELECT * FROM (
          SELECT DISTINCT ON (t.vehicle_no)
-                t.id, t.trip_code, t.vehicle_no, t.driver_name, t.status,
+                t.id, t.trip_code, t.vehicle_no, t.driver_name, t.driver_id, t.status,
                 t.loading_date, t.loading_point,
                 COALESCE(t.unloading_location, t.consignee_name) AS destination,
                 p.source, p.lat, p.lng, p.recorded_at,

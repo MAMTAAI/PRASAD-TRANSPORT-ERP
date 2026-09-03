@@ -478,9 +478,21 @@ export async function registerQueueRoutes(app) {
   const applyToCore = async (t, doc, b) => {
     const applied = { table: null, columns: [], note: null };
     const val = (k) => (b[k] === '' || b[k] === undefined ? null : b[k]);
-    if (doc.uploader_role === 'DRIVER' && doc.driver_id && ['DL', 'AADHAAR', 'BANK_BOOK'].includes(doc.doc_type)) {
+    if (doc.uploader_role === 'DRIVER' && doc.driver_id && ['DL', 'AADHAAR', 'BANK_BOOK', 'PAN', 'HZD'].includes(doc.doc_type)) {
       applied.table = 'drivers';
-      if (doc.doc_type === 'DL') {
+      if (doc.doc_type === 'PAN') {
+        await t.query(
+          `UPDATE drivers SET pan_photo_url = $2, pan_no = COALESCE(NULLIF($3, ''), pan_no)
+            WHERE id = $1::uuid`, [doc.driver_id, doc.file_key, val('pan_no')]);
+        applied.columns = ['pan_photo_url', ...(val('pan_no') ? ['pan_no'] : [])];
+      } else if (doc.doc_type === 'HZD') {
+        await t.query(
+          `UPDATE drivers SET hzd_photo_url = $2,
+                  hzd_cert_no = COALESCE(NULLIF($3, ''), hzd_cert_no),
+                  hzd_expiry = COALESCE($4::date, hzd_expiry)
+            WHERE id = $1::uuid`, [doc.driver_id, doc.file_key, val('hzd_cert_no'), val('hzd_expiry')]);
+        applied.columns = ['hzd_photo_url', ...(val('hzd_cert_no') ? ['hzd_cert_no'] : []), ...(val('hzd_expiry') ? ['hzd_expiry'] : [])];
+      } else if (doc.doc_type === 'DL') {
         await t.query(
           `UPDATE drivers SET dl_photo_url = $2,
                   license_no = COALESCE(NULLIF($3, ''), license_no),
@@ -639,6 +651,14 @@ export async function registerQueueRoutes(app) {
       notifyWhatsApp(mobile,
         `❌ Prasad Transport: aapka ${doc.doc_type.replaceAll('_', ' ').toLowerCase()} `
         + `office ne is kaaran se wapas kiya: ${reason}. Sahi photo/detail ke saath dobara bhejein.`);
+    }
+    // The in-app banner beside the WhatsApp (owner, 2026-09-03: "use both").
+    if (doc.uploader_role === 'DRIVER' && doc.driver_id) {
+      await query(
+        `INSERT INTO driver_notices (driver_id, kind, title, body, ref_table, ref_id, created_by)
+         VALUES ($1::uuid, 'DOC_REJECTED', $2, $3, 'partner_documents', $4::uuid, $5)`,
+        [doc.driver_id, `${doc.doc_type.replaceAll('_', ' ')} — दोबारा भेजो`, reason, doc.id, req.body?.reviewed_by ?? null])
+        .catch((e) => req.log?.warn({ err: e.message }, 'driver notice not written'));
     }
     return { rejected: true, document: rows[0] };
   });

@@ -1,1255 +1,584 @@
 // @ts-nocheck
-import React, { useState, useEffect, useRef } from 'react';
-
+// ============================================================================
+// DRIVER APP v4 — map on top, live allowance under it, four buttons, a locker
+//
+// Approved by the owner on 2026-09-03 from docs/mockups/driver-app-mock-v4.html:
+//   · top: the trip map (RouteMap — origin, destination, the lorry when a fix
+//     exists) with the driver's name, lorry and a km/time chip floating on it;
+//   · under it: TRIP ALLOWANCE & BALANCE — HSD target vs issued, cash target
+//     vs paid; the balance turns BOLD RED the moment issued/paid passes the
+//     target (the server reports the negative number; nothing is clamped);
+//   · under that: a 2×2 grid — Loading Invoice · Unloading POD · Diesel Slip ·
+//     Digital Locker — camera first, no typing anywhere; the office reads the
+//     numbers off the photo (BHUVANESHWARI + Milan) and approves;
+//   · Digital Locker: an approved paper has View + PDF; a rejected or missing
+//     one has the camera; the office's reason shows on the card and as a
+//     banner (driver_notices);
+//   · market (hired) driver: map + Loading Invoice + Unloading POD only;
+//   · one black bar calls the dispatch mobile.
+//
+// Hindi first, English under it; every tap target is a thumb-sized block.
+// Session, uploads and GPS pings follow the same server contract as before:
+// /portal/driver/* scoped by the session, POST /files for the photo, staged
+// partner_documents rows, /tracking/ping throttled to 3 min or 500 m.
+// ============================================================================
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { API_BASE } from './lib/apiBase';
 import RouteMap from './lib/RouteMap';
+import { uploadMedia } from './lib/uploadMedia';
+
 const API = API_BASE;
-
-// The driver's own session token. Every call the portal makes is on behalf of
-// one driver, so it is attached centrally rather than remembered per call site.
 const tok = () => localStorage.getItem('prasad_driver_token') || '';
-
 const api = async (path: string, opts: RequestInit = {}) => {
   const res = await fetch(`${API}/api/v1${path}`, {
     ...opts,
     headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${tok()}`, ...(opts.headers || {}) },
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
+  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error, status: res.status });
   return json;
 };
-import { uploadMedia, slug } from './lib/uploadMedia';
-import BottomSheet from './ui/BottomSheet';
 
-const inr = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
-// Request status → Hindi chip (the driver finally SEES what happened to his request)
-const REQ_STATUS = {
-  PENDING:  { label: '📨 भेजा गया', color: '#f59e0b' },
-  APPROVED: { label: '✅ मंज़ूर', color: '#38bdf8' },
-  PAID:     { label: '💰 मिल गया', color: '#10b981' },
-  REJECTED: { label: '❌ रद्द', color: '#ef4444' },
+const DISPATCH_MOBILE = String(import.meta.env?.VITE_DISPATCH_MOBILE || '').replace(/\D/g, '');
+const LANG_KEY = 'prasad_driver_lang';
+
+// ── words, Hindi first ──────────────────────────────────────────────────────
+const T = {
+  hi: {
+    brand: 'प्रसाद ट्रांसपोर्ट', market: 'बाज़ार गाड़ी', noTrip: 'अभी कोई ट्रिप नहीं', noTripSub: 'ऑफिस नई ट्रिप देगा तो यहाँ दिखेगी',
+    ledger: 'ट्रिप भत्ता · बैलेंस', hsd: 'डीज़ल (HSD)', cash: 'कैश', target: 'टारगेट', got: 'मिला', left: 'बाकी', over: 'टारगेट से', overSuffix: 'ज़्यादा', noTarget: 'टारगेट तय नहीं',
+    loading: 'लोडिंग इनवॉइस', pod: 'अनलोडिंग पर्ची / POD', diesel: 'डीज़ल पर्ची', locker: 'डिजिटल लॉकर', call: 'डिस्पैच को कॉल करो',
+    pending: 'बाकी', shoot: 'फोटो खींचो', frame: 'कागज़ को पीली चौखट के अंदर रखो', gallery: 'गैलरी', back: 'वापस', auto: 'अपने आप जुड़ेगा',
+    clear: 'साफ़ दिख रहा है?', send: 'भेजो', retake: 'दोबारा खींचो', morePage: 'एक और पन्ना जोड़ो', sending: 'भेज रहे हैं…',
+    sent: 'भेज दिया!', sentSub: 'ऑफिस चेक करके बताएगा', offline: 'नेटवर्क नहीं है? कोई बात नहीं — फोटो अपने आप बाद में चली जाएगी', ok: 'ठीक है',
+    lockerSub: 'मंज़ूर कागज़ यहाँ PDF में मिलेंगे', view: 'देखो', pdf: 'PDF', sendPhoto: 'फोटो भेजो', resend: 'दोबारा भेजो', checking: 'ऑफिस देख रहा है', approved: 'मंज़ूर', missing: 'बाकी', expired: 'समय निकल गया',
+    lockerNote: 'PDF पर ऑफिस की मुहर और तारीख रहती है — चेकपोस्ट पर दिखा सकते हो। कुछ टाइप नहीं करना।', validTill: 'वैध', officeSays: 'ऑफिस',
+    approvedBy: 'ऑफिस से मंज़ूर', downloadPdf: 'PDF डाउनलोड करो', pinch: 'दो उंगली से बड़ा करो', queued: 'फोटो बाद में जाएगी', queuedN: 'फोटो भेजना बाकी',
+    logout: 'बाहर निकलो', kmLeft: 'बाकी', hrs: 'घं', min: 'मि', near: 'के पास', noFix: 'लोकेशन नहीं मिली', gpsOn: 'GPS चालू',
+    dl: 'ड्राइविंग लाइसेंस', aadhaar: 'आधार', bank: 'बैंक पासबुक', pan: 'PAN कार्ड', hzd: 'हज़ार्डस सर्टिफिकेट', front: 'आगे की तरफ',
+  },
+  en: {
+    brand: 'Prasad Transport', market: 'Market vehicle', noTrip: 'No trip right now', noTripSub: 'It will show here when the office assigns one',
+    ledger: 'Trip allowance · balance', hsd: 'Diesel (HSD)', cash: 'Cash', target: 'Target', got: 'Received', left: 'Balance', over: 'Over target by', overSuffix: '', noTarget: 'No target set',
+    loading: 'Loading Invoice', pod: 'Unloading POD', diesel: 'Diesel Slip', locker: 'Digital Locker', call: 'Call dispatch',
+    pending: 'pending', shoot: 'Take photo', frame: 'Keep the paper inside the yellow frame', gallery: 'Gallery', back: 'Back', auto: 'attached automatically',
+    clear: 'Is it clear?', send: 'Send', retake: 'Retake', morePage: 'Add another page', sending: 'Sending…',
+    sent: 'Sent!', sentSub: 'The office will check and tell you', offline: 'No network? No problem — the photo goes by itself later', ok: 'OK',
+    lockerSub: 'Approved papers are here as PDF', view: 'View', pdf: 'PDF', sendPhoto: 'Send photo', resend: 'Send again', checking: 'Office is checking', approved: 'Approved', missing: 'Missing', expired: 'Expired',
+    lockerNote: 'The PDF carries the office stamp and date — show it at a checkpost. Nothing to type.', validTill: 'Valid', officeSays: 'Office',
+    approvedBy: 'Approved by the office', downloadPdf: 'Download PDF', pinch: 'Pinch to zoom', queued: 'Photo will go later', queuedN: 'photo(s) waiting to send',
+    logout: 'Sign out', kmLeft: 'left', hrs: 'h', min: 'm', near: 'near', noFix: 'No location yet', gpsOn: 'GPS on',
+    dl: 'Driving Licence', aadhaar: 'Aadhaar', bank: 'Bank passbook', pan: 'PAN card', hzd: 'Hazardous certificate', front: 'front side',
+  },
+};
+
+// Which paper each button sends, and which locker slot it fills.
+const PAPERS = {
+  LOADING_INVOICE: { icon: '📄', key: 'loading', tone: 'bg-violet-600' },
+  POD:             { icon: '📦', key: 'pod', tone: 'bg-green-600' },
+  HSD_BILL:        { icon: '⛽', key: 'diesel', tone: 'bg-amber-500 text-[#1f1300]' },
+  DL:              { icon: '🚗', key: 'dl' },
+  AADHAAR:         { icon: '🆔', key: 'aadhaar' },
+  BANK_BOOK:       { icon: '🏦', key: 'bank' },
+  PAN:             { icon: '💳', key: 'pan' },
+  HZD:             { icon: '☣️', key: 'hzd' },
+};
+const LOCKER_ORDER = ['DL', 'AADHAAR', 'BANK_BOOK', 'PAN', 'HZD'];
+
+const inr = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const litres = (n) => `${(Number(n) || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })} L`;
+const fmtDate = (v) => (v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+
+// Demo data for the staff preview (owner: "Staff Preview — demo data").
+const DEMO = {
+  OWN: {
+    driver: { id: 'DEMO-OWN', name: 'राम कुमार', mobile: '9999999999', employed_by_owner_id: null },
+    trips: [{ id: 'DEMO-TRIP', trip_code: 'PT00745', status: 'IN_TRANSIT', vehicle_no: 'BR 01 GX 4521', loading_point: 'Barauni', unloading_location: 'Ranchi' }],
+    ledger: { trips: [{ trip_id: 'DEMO-TRIP', trip_code: 'PT00745', vehicle_no: 'BR 01 GX 4521', rtkm: 285,
+      hsd: { target_l: 95, issued_l: 80, balance_l: 15, over: false }, cash: { target: 3000, paid: 3500, balance: -500, over: true } }] },
+    locker: { market_driver: false, notices: [], papers: [
+      { kind: 'DL', state: 'APPROVED', expiry: '2028-12-31', number: 'BR01 2019 0012345', view_url: null, pdf_url: null },
+      { kind: 'AADHAAR', state: 'NEEDS_CORRECTION', reject_reason: 'फोटो धुंधली थी' },
+      { kind: 'BANK_BOOK', state: 'APPROVED', number: '····4521' },
+      { kind: 'PAN', state: 'MISSING' },
+      { kind: 'HZD', state: 'APPROVED', expiry: '2026-09-12', days_left: 9 },
+    ] },
+    geo: { origin: { lat: 25.47, lng: 86.03, label: 'Barauni' }, destination: { lat: 23.36, lng: 85.33, label: 'Ranchi' }, route: { distance_km: 285, duration_min: 400 }, truck: { lat: 24.88, lng: 85.54, speed_kmh: 62 } },
+  },
+  MARKET: {
+    driver: { id: 'DEMO-MKT', name: 'सुरेश यादव', mobile: '8888888888', employed_by_owner_id: 'x' },
+    trips: [{ id: 'DEMO-TRIP-M', trip_code: 'PT00744', status: 'IN_TRANSIT', vehicle_no: 'JH 05 AB 9012', loading_point: 'Guwahati', unloading_location: 'Jorhat' }],
+    ledger: { trips: [] },
+    locker: { market_driver: true, notices: [], papers: [] },
+    geo: { origin: { lat: 26.14, lng: 91.73, label: 'Guwahati' }, destination: { lat: 26.75, lng: 94.22, label: 'Jorhat' }, route: { distance_km: 305, duration_min: 420 }, truck: null },
+  },
 };
 
 interface DriverPortalProps {
   onBack?: () => void;
-  preview?: boolean; // staff preview from the ERP — demo data, no real OTP
-  session?: { token: string; driver: any } | null; // handed over by the universal gateway (SUPER_APP)
+  preview?: boolean;
+  session?: { token: string; driver: any } | null;
 }
 
 export default function DriverPortal({ onBack, preview = false, session = null }: DriverPortalProps) {
-  // 🔐 LOGIN & DATA STATES
-  const [mobileNo, setMobileNo] = useState('');
+  const [lang, setLang] = useState(() => (localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'hi'));
+  const t = T[lang];
+  const toggleLang = () => { const n = lang === 'hi' ? 'en' : 'hi'; setLang(n); try { localStorage.setItem(LANG_KEY, n); } catch { /* private mode */ } };
+
   const [driver, setDriver] = useState<any>(null);
-  const [activeTrips, setActiveTrips] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
-
-  // 🔥 DRIVER TYPE TOGGLE STATE
-  const [driverType, setDriverType] = useState('OWN'); // 'OWN' or 'MARKET'
-
-  // A session the universal gateway already established (mobile + OTP there):
-  // adopt it instead of asking for the OTP a second time.
-  useEffect(() => {
-    if (preview || !session?.token || !session?.driver) return;
-    try {
-      localStorage.setItem('prasad_driver_token', session.token);
-      localStorage.setItem('prasad_driver', JSON.stringify(session.driver));
-    } catch { /* private mode */ }
-    setDriver(session.driver);
-    setDriverType(session.driver?.driver_type || 'OWN');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 📡 AUTO GPS TRACKING STATES
+  const [trips, setTrips] = useState<any[]>([]);
+  const [ledger, setLedger] = useState<any>(null);
+  const [locker, setLocker] = useState<any>(null);
+  const [geo, setGeo] = useState<any>(null);           // /maps/trip/:id/route
+  const [currentLoc, setCurrentLoc] = useState<any>(null);
   const [isTracking, setIsTracking] = useState(false);
-  const [currentLoc, setCurrentLoc] = useState<{lat: number, lng: number} | null>(null);
+  const [screen, setScreen] = useState<'HOME' | 'CAMERA' | 'CONFIRM' | 'SENT' | 'LOCKER' | 'VIEW'>('HOME');
+  const [paper, setPaper] = useState<string | null>(null);   // doc_type being photographed
+  const [origin, setOrigin] = useState<'HOME' | 'LOCKER'>('HOME');
+  const [shots, setShots] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [queue, setQueue] = useState<{ file: File; doc_type: string; trip_id: string | null }[]>([]);
+  const [viewPaper, setViewPaper] = useState<any>(null);
+  const [demo, setDemo] = useState<null | 'OWN' | 'MARKET'>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [loadingSession, setLoadingSession] = useState(!preview);
   const watchIdRef = useRef<number | null>(null);
-  const lastPingRef = useRef<{ t: number, lat: number, lng: number } | null>(null);
+  const lastPingRef = useRef<any>(null);
+  const camRef = useRef<HTMLInputElement | null>(null);
+  const galRef = useRef<HTMLInputElement | null>(null);
 
-  // 📱 UI NAVIGATION STATES
-  const [activeTab, setActiveTab] = useState('TRIPS'); // TRIPS, EXPENSES, KYC
+  const isDemo = !!demo || String(driver?.id ?? '').startsWith('DEMO');
+  const market = !!(locker?.market_driver ?? driver?.employed_by_owner_id);
+  const trip = trips[0] ?? null;
+  const led = ledger?.trips?.find((x) => x.trip_id === trip?.id) ?? ledger?.trips?.[0] ?? null;
+  const lockerPending = (locker?.papers ?? []).filter((p) => ['MISSING', 'NEEDS_CORRECTION', 'EXPIRED'].includes(p.state)).length;
 
-  // 💸 Money-request sheet (replaces window.prompt) + driver's own data
-  const [askSheet, setAskSheet] = useState(null); // {type, title} | null
-  const [askAmount, setAskAmount] = useState('');
-  const [askRemarks, setAskRemarks] = useState('');
-  const [sendingReq, setSendingReq] = useState(false);
-  const [myRequests, setMyRequests] = useState([]);
-  const [khataTxns, setKhataTxns] = useState([]);
-  // ⛽ Kharcha (expense) form — was dead UI with no handlers at all
-  const [expType, setExpType] = useState('⛽ Diesel / Fuel Slip');
-  const [expAmount, setExpAmount] = useState('');
-  const [expFile, setExpFile] = useState(null);
-  const [sendingExp, setSendingExp] = useState(false);
-  // 📑 Document upload (2026-08-31): every paper from the cab, photographed,
-  // staged PENDING for the office. Photo-first types for low-literacy users.
-  // 2026-09-02: the driver's own KYC papers and the loading / unloading
-  // quantity reports join the same staged path — photo + number, PENDING for
-  // the office, BHUVANESHWARI reads the paper, the desk audits, approve writes.
-  const DOC_KINDS = [
-    ['LOADING_INVOICE', '📄 लोडिंग इनवॉइस'], ['CHALLAN', '🧾 चालान'], ['POD', '📦 उतराई पर्ची (POD)'],
-    ['LOADING_QTY', '⚖️ लोडिंग मात्रा'], ['UNLOADING_QTY', '⚖️ उतराई मात्रा'],
-    ['HSD_BILL', '⛽ डीज़ल बिल'], ['TYRE_BILL', '🛞 टायर बिल'],
-    ['MAINTENANCE_BILL', '🔧 मरम्मत बिल'], ['TOLL_BILL', '🛣️ टोल बिल'],
-    ['DL', '🪪 ड्राइविंग लाइसेंस'], ['AADHAAR', '🪪 आधार'], ['BANK_BOOK', '🏦 बैंक पासबुक'],
-    ['OTHER_DOC', '📎 और कुछ'],
-  ];
-  const QTY_KINDS = ['LOADING_QTY', 'UNLOADING_QTY'];
-  const [docKind, setDocKind] = useState('LOADING_INVOICE');
-  const [docAmount, setDocAmount] = useState('');
-  const [docQty, setDocQty] = useState('');
-  const [docFile, setDocFile] = useState(null);
-  const [sendingDoc, setSendingDoc] = useState(false);
-  const [myDocs, setMyDocs] = useState([]);
+  const say = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2600); };
 
-  const submitDocument = async () => {
-    if (!docFile) return alert('⚠️ पहले कागज़ की फोटो खींचो!');
-    setSendingDoc(true);
-    try {
-      const up = await uploadMedia(docFile, `driver-docs/${Date.now()}.jpg`);
-      await api('/portal/driver/documents', {
-        method: 'POST',
-        body: JSON.stringify({
-          doc_type: docKind, file_key: up.path,
-          amount: docAmount ? Number(docAmount) : null,
-          qty: QTY_KINDS.includes(docKind) && docQty ? Number(docQty) : null,
-          trip_id: activeTrips[0]?.id ?? null,
-        }),
-      });
-      alert('✅ कागज़ ऑफिस को पहुँच गया! स्टाफ चेक करके अप्रूव करेगा।');
-      setDocFile(null); setDocAmount(''); setDocQty('');
-      fetchDriverExtras(driver);
-    } catch (e) { console.error(e); alert('❌ नहीं गया — नेटवर्क देखकर दोबारा भेजो।'); }
-    setSendingDoc(false);
-  };
-
-  const fetchDriverExtras = async (drv) => {
-    if (!drv || String(drv.id).includes('DEMO')) return;
-    try {
-      // /portal/driver/* — the scoped surface (2026-08-31). The old /masters
-      // calls were staff routes that 403'd every real driver session.
-      const [reqs, ledger, docs] = await Promise.all([
-        api('/portal/driver/requests').catch(() => ({ requests: [] })),
-        api('/portal/driver/khata').catch(() => ({ entries: [] })),
-        api('/portal/driver/documents').catch(() => ({ documents: [] })),
-      ]);
-      setMyRequests((reqs.requests ?? []).slice(0, 20).map((r: any) => ({ ...r, createdAt: r.requested_at, type: r.request_type })));
-      setKhataTxns(ledger.entries ?? ledger.transactions ?? []);
-      setMyDocs(docs.documents ?? []);
-    } catch (e) { console.error(e); }
-  };
-  useEffect(() => { if (driver) fetchDriverExtras(driver); }, [driver?.id]);
-
-  // खाता summary: paisa mila (advances/payments TO driver) — office se hisaab
-  const khataGiven = khataTxns.filter(t => ['ADVANCE_GIVEN', 'PAYMENT_GIVEN'].includes(t.txn_type)).reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-  const khataRecovered = khataTxns.filter(t => !['ADVANCE_GIVEN', 'PAYMENT_GIVEN'].includes(t.txn_type)).reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-
-  const sendRequest = async (type, amount, remarks) => {
-    setSendingReq(true);
-    try {
-      await api('/portal/driver/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          // Identity comes from the session server-side; sending it is not
-          // needed and not trusted.
-          request_type: ['ADVANCE', 'FUEL', 'EXPENSE', 'LEAVE'].includes(String(type).toUpperCase())
-            ? String(type).toUpperCase() : 'OTHER',
-          amount: Number(amount) || 0,
-          remarks: remarks || '',
-        }),
-      });
-      alert('✅ Request office ko chali gayi! Status "खाता" tab me dikhega.');
-      setAskSheet(null); setAskAmount(''); setAskRemarks('');
-      fetchDriverExtras(driver);
-    } catch (e) { console.error(e); alert('❌ Request nahi gayi — network check karke dobara try karein.'); }
-    setSendingReq(false);
-  };
-
-  // ⛽ REAL expense submit (photo → Storage, request → office approval queue)
-  const submitExpense = async () => {
-    const amt = parseFloat(expAmount);
-    if (!Number.isFinite(amt) || amt <= 0) return alert('⚠️ Sahi amount daalein!');
-    setSendingExp(true);
-    try {
-      let billUrl = '';
-      if (expFile) {
-        const { url } = await uploadMedia(expFile, `driver-expenses/${slug(driver.id)}/${Date.now()}.jpg`);
-        billUrl = url;
-      }
-      await api('/portal/driver/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          request_type: 'EXPENSE', amount: amt, remarks: expType, photo_url: billUrl,
-        }),
-      });
-      alert('✅ Kharcha office ko pahunch gaya! Approval ke baad khata me judega.');
-      setExpAmount(''); setExpFile(null);
-      fetchDriverExtras(driver);
-    } catch (e) { console.error(e); alert('❌ Nahi gaya — network check karke dobara try karein.'); }
-    setSendingExp(false);
-  };
-
-  // ==========================================
-  // 🔄 HELPER: LOAD DEMO DATA BASED ON TYPE
-  // ==========================================
-  const loadDemoData = (type: 'OWN' | 'MARKET') => {
-    setDriverType(type);
-    setIsTracking(false);
-    setActiveTab('TRIPS'); // 🔥 Force tab to TRIPS when switching
-
-    if (type === 'OWN') {
-      setDriver({
-        id: 'DEMO-OWN-001',
-        name: 'Ramesh Kumar (Staff)',
-        mobile: '1234567890',
-        assigned_vehicle: 'NL-01-AB-1234',
-        approval_status: 'APPROVED',
-        tag: '🏢 COMPANY VEHICLE',
-        profile_photo: 'https://ui-avatars.com/api/?name=Ramesh+Kumar&background=38bdf8&color=fff&size=128',
-        aadhar_no: '1234 5678 9012',
-        account_no: '302010020',
-        ifsc_code: 'SBIN000123'
-      });
-      setActiveTrips([{
-        id: 'DEMO-TRIP-OWN',
-        trip_id: 'TRP-OWN-881',
-        trip_status: 'IN TRANSIT',
-        loading_point: 'Bongaigaon Refinery',
-        consignee_name: 'Siliguri Depot',
-        driver_loaded_qty: '',
-        driver_unloaded_qty: '',
-        office_approved_loading: false,
-        office_approved_unloading: false,
-      }]);
-    } else {
-      setDriver({
-        id: 'DEMO-MKT-001',
-        name: 'Suresh Yadav',
-        mobile: '9988776655',
-        assigned_vehicle: 'HR-55-XY-9988',
-        agency: 'Sharma Logistics',
-        approval_status: 'APPROVED',
-        tag: '🚚 MARKET VEHICLE',
-        profile_photo: 'https://ui-avatars.com/api/?name=Suresh+Yadav&background=f59e0b&color=fff&size=128',
-        aadhar_no: '',
-        account_no: '',
-        ifsc_code: ''
-      });
-      setActiveTrips([{
-        id: 'DEMO-TRIP-MKT',
-        trip_id: 'TRP-MKT-992',
-        trip_status: 'IN TRANSIT',
-        loading_point: 'Guwahati',
-        consignee_name: 'Jorhat',
-        driver_loaded_qty: '',
-        driver_unloaded_qty: '',
-        office_approved_loading: false,
-        office_approved_unloading: false,
-      }]);
-    }
-  };
-
-  // ==========================================
-  // 🔐 1. REAL DRIVER LOGIN — Firebase Phone OTP (Phase 1b)
-  // The old flow was a mobile-number lookup with a published demo backdoor;
-  // now the SERVER sends and verifies the OTP, the session persists on the
-  // device, and the driver's uid gets bound to his DRIVERS doc.
-  // ==========================================
-  const [otpStep, setOtpStep] = useState('PHONE'); // PHONE | OTP
-  const [otpCode, setOtpCode] = useState('');
-  // Set when the driver came in through the no-OTP door. Holds the trip the
-  // TRACK_ONLY session is reporting for — that session cannot fetch anything
-  // else, so this object is the entire screen it gets.
-  const [trackOnlyTrip, setTrackOnlyTrip] = useState<any>(null);
-  // No confirmation handle and no reCAPTCHA any more: the code lives in the
-  // database (hashed, 5-minute expiry, capped attempts) and the number is the
-  // only thing the client has to remember between the two steps.
-
-  // Persistent session: app reopen with a stored token → straight to duty
-  // screen. The stored profile is only rendered after the server confirms the
-  // session is still live, so a revoked or expired driver cannot keep working
-  // from a cached copy.
+  // ── session ───────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (preview || driver) return;
-    const saved = localStorage.getItem('prasad_driver');
-    if (!saved || !tok()) return;
-    (async () => {
-      try {
-        const me = await api('/auth/me').catch(() => null);
-        // /auth/me is the staff profile route; for a driver token it 404s while
-        // still proving the signature and that the session row exists. Either
-        // way a 401 is the only answer that means "log in again".
-        if (me === null) throw new Error('unverified');
-        const data = JSON.parse(saved);
-        setDriver(data);
-        setDriverType(data.driver_type || 'OWN');
-        fetchDriverTrips(data.mobile, data.name);
-      } catch (e: any) {
-        if (e?.code === 'UNAUTHENTICATED' || e?.code === 'SESSION_REVOKED') {
-          localStorage.removeItem('prasad_driver');
-          localStorage.removeItem('prasad_driver_token');
-        }
-      }
-    })();
-  }, [preview, driver]);
-
-  // ── ONE TAP FROM WHATSAPP ────────────────────────────────────────────────
-  //
-  // The link the office sends carries ?k=<token>. Spending it here is the whole
-  // login: no code to read out of a chat, no code to type, nothing to mistype.
-  // Possession of the handset is still the factor — the link went to the
-  // driver's own number — which is exactly what the OTP was proving, minus the
-  // three steps where drivers gave up.
-  //
-  // The token is stripped from the URL the moment it is spent, BEFORE the
-  // request resolves either way. It is single-use server-side, so leaving it in
-  // the address bar would only invite a reload that fails with "link already
-  // used" on a driver who is in fact logged in.
-  useEffect(() => {
-    if (preview || driver) return;
-    const url = new URL(window.location.href);
-    const k = url.searchParams.get('k');
-    if (!k) return;
-    url.searchParams.delete('k');
-    window.history.replaceState(null, '', url.toString());
-    (async () => {
-      setLoading(true);
-      try {
-        const r = await api('/auth/driver/claim', { method: 'POST', body: JSON.stringify({ token: k }) });
-        localStorage.setItem('prasad_driver_token', r.token || '');
-        localStorage.setItem('prasad_driver', JSON.stringify(r.driver));
-        setDriver(r.driver);
-        setDriverType(r.driver?.driver_type || 'OWN');
-        fetchDriverTrips(r.driver?.mobile, r.driver?.name);
-      } catch (e: any) {
-        // Said plainly, because the commonest cause is the most innocent one:
-        // the driver already tapped it, and is probably already logged in on
-        // this phone.
-        alert(e?.code === 'LINK_INVALID_OR_USED'
-          ? '⚠️ Ye link pehle istemaal ho chuka hai ya purana ho gaya hai.\nOffice se naya link mangwa lein, ya neeche gaadi number daal kar tracking chalu karein.'
-          : `⚠️ Link se login nahi hua: ${e?.message || 'unknown'}`);
-      } finally { setLoading(false); }
-    })();
-  }, [preview, driver]);
-
-  // ── NO OTP AT ALL: gaadi ya mobile number, aur tracking chalu ────────────
-  //
-  // Deliberately NOT a full login. The server answers with a TRACK_ONLY session
-  // that apiGuard admits to POST /tracking/ping and to nothing else, because a
-  // vehicle number is painted on the side of the truck and anyone who can read
-  // one can reach this. It starts the GPS and shows which trip it is reporting
-  // for; the duty screen, the ledger and the paperwork stay behind the link.
-  const handleTrackOnly = async () => {
-    const raw = String(mobileNo ?? '').trim();
-    if (!raw) return alert('⚠️ Gaadi number ya mobile number daalein.');
-    const digits = raw.replace(/\D/g, '');
-    const isMobile = /^[6-9]\d{9}$/.test(digits.replace(/^91(?=[6-9]\d{9}$)/, ''));
-    setLoading(true);
-    try {
-      const r = await api('/auth/driver/track', {
-        method: 'POST',
-        body: JSON.stringify(isMobile
-          ? { mobile: digits.replace(/^91(?=[6-9]\d{9}$)/, '') }
-          : { vehicle_no: raw }),
-      });
-      localStorage.setItem('prasad_driver_token', r.token || '');
-      setTrackOnlyTrip(r.trip);
-      startAutoTracking(r.trip.id);
-    } catch (e: any) {
-      alert(e?.code === 'NO_ACTIVE_TRIP'
-        ? '⚠️ Is gaadi/number par abhi koi chalu trip nahi hai.\nOffice se poochein ki trip bani hai ya nahi.'
-        : `⚠️ Tracking chalu nahi hui: ${e?.message || 'unknown'}`);
-    } finally { setLoading(false); }
-  };
-
-  const handleSendOtp = async () => {
-    const m = mobileNo.replace(/[^\d]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
-    if (!/^[6-9]\d{9}$/.test(m)) return alert("⚠️ Sahi 10-digit mobile number daalein!");
-    setLoading(true);
-    try {
-      const r = await api('/auth/otp/request', { method: 'POST', body: JSON.stringify({ mobile: m }) });
-      setMobileNo(m);
-      setOtpStep('OTP');
-      alert(`📩 OTP bheja gaya +91 ${m} par (${r.channel === 'whatsapp' ? 'WhatsApp' : r.channel}).`);
-    } catch (e) {
-      console.error(e);
-      if (e?.code === 'OTP_CHANNEL_UNAVAILABLE' || e?.code === 'OTP_SEND_FAILED') {
-        // WhatsApp replaced Firebase's SMS. If the engine is unlinked, no
-        // driver can log in — so it says so instead of blaming the number.
-        alert('🚨 OTP bhejne ka channel abhi band hai (WhatsApp engine). Office ko call karein.');
-      } else {
-        alert('❌ OTP nahi gaya — number/network check karke dobara try karein.');
-      }
-    }
-    setLoading(false);
-  };
-
-  const handleVerifyOtp = async () => {
-    if (!/^\d{6}$/.test(otpCode)) return alert("⚠️ 6-digit OTP daalein!");
-    setLoading(true);
-    try {
-      // One call verifies the code AND returns the driver record plus a session
-      // token — the old flow needed a second lookup to find out who had logged
-      // in, and that lookup was a full DRIVERS scan from the phone.
-      const r = await api('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ mobile: mobileNo, code: otpCode }) });
-      localStorage.setItem('prasad_driver_token', r.token || '');
-      localStorage.setItem('prasad_driver', JSON.stringify(r.driver));
-      setDriver(r.driver);
-      setDriverType(r.driver?.driver_type || 'OWN');
-      fetchDriverTrips(r.driver?.mobile, r.driver?.name);
-    } catch (e) {
-      console.error(e);
-      if (e?.code === 'NO_ACCOUNT') {
-        alert('🚫 Yeh number office me registered nahi hai.\nOffice ko call karke register karayein.');
-        setOtpStep('PHONE'); setOtpCode('');
-      } else if (e?.code === 'OTP_EXPIRED') {
-        alert('⌛ OTP expire ho gaya — naya code mangwayein.');
-        setOtpStep('PHONE'); setOtpCode('');
-      } else if (e?.code === 'OTP_ATTEMPTS_EXCEEDED') {
-        alert('🚨 Bahut zyada galat attempts — naya code mangwayein.');
-        setOtpStep('PHONE'); setOtpCode('');
-      } else {
-        alert('❌ OTP galat hai — dobara dekh kar daalein.');
-      }
-      setLoading(false);
-    }
-  };
-
-  // The legacy "type a mobile number and you are in" path is gone. It was kept
-  // "for reference" but it was a working login with no credential at all —
-  // anyone who knew a driver's number could open that driver's trips, khata and
-  // documents. OTP is the only way in now.
-
-  const fetchDriverTrips = async (driverMobile: string, driverName: string) => {
-    try {
-      // 🔐 Server-side scoped query: only THIS driver's trips leave the server.
-      // The old full-collection fetch downloaded the whole company's trip
-      // history (all customers, all rates) onto every driver's phone.
-      if (!driver?.id) { setActiveTrips([]); return; }
-      // Scoped by driver id server-side, and completed trips excluded there too
-      // — the phone never receives another driver's work.
-      // /portal/driver/trips scopes by the SESSION, not a query param — a
-      // driver token cannot name another driver's id (2026-08-31 audit; the
-      // /ops surface is staff-only now).
-      const { trips } = await api('/portal/driver/trips');
-      setActiveTrips(trips ?? []);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const updateTripData = async (tripId: string, fieldName: string, value: any) => {
-    if(tripId.includes('DEMO')) {
-      setActiveTrips(prev => prev.map(t => t.id === tripId ? { ...t, [fieldName]: value } : t));
+    if (preview) { setLoadingSession(false); return; }
+    if (session?.token && session?.driver) {
+      try { localStorage.setItem('prasad_driver_token', session.token); localStorage.setItem('prasad_driver', JSON.stringify(session.driver)); } catch { /* private mode */ }
+      setDriver(session.driver);
+      setLoadingSession(false);
       return;
     }
-    try {
-      // Maker-checker (2026-08-31): a driver no longer writes onto the trip
-      // row. The photo/value goes to the office as a staged request; staff
-      // verify and apply it. The optimistic local update above keeps the
-      // screen responsive.
-      await api('/portal/driver/requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          request_type: 'OTHER', amount: 0, trip_id: tripId,
-          remarks: `TRIP UPDATE ${fieldName}`,
-          photo_url: typeof value === 'string' ? value : String(value ?? ''),
-        }),
-      });
-      setActiveTrips(prev => prev.map(t => t.id === tripId ? { ...t, [fieldName]: value } : t));
-    } catch (e) {
-      console.error("Error saving data!", e);
+    const saved = localStorage.getItem('prasad_driver');
+    if (saved && tok()) {
+      try { setDriver(JSON.parse(saved)); } catch { /* corrupt */ }
+      setLoadingSession(false);
+      return;
     }
+    // THE WHATSAPP LOGIN LINK (Door 1, 1-Sep): https://…/driver?k=<token>. The
+    // office mints it from Driver Master or the Driver Control drawer; tapping
+    // it is the login. Claimed once, then the session lives on the phone.
+    const k = new URLSearchParams(window.location.search).get('k');
+    if (k) {
+      (async () => {
+        try {
+          const res = await fetch(`${API}/api/v1/auth/driver/claim`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: k }) });
+          const r = await res.json().catch(() => ({}));
+          if (res.ok && r.token && r.driver) {
+            localStorage.setItem('prasad_driver_token', r.token);
+            localStorage.setItem('prasad_driver', JSON.stringify(r.driver));
+            setDriver(r.driver);
+            window.history.replaceState({}, '', '/driver');
+          } else {
+            say(r.error === 'LINK_USED' || r.error === 'LINK_EXPIRED' ? 'यह लिंक पुराना है — ऑफिस से नया लिंक माँगो' : 'लिंक नहीं चला — ऑफिस से नया लिंक माँगो');
+          }
+        } catch { say('इंटरनेट नहीं है — दोबारा कोशिश करो'); }
+        setLoadingSession(false);
+      })();
+      return;
+    }
+    setLoadingSession(false);
+  }, [preview, session?.token]);
+
+  const signOut = () => {
+    try { localStorage.removeItem('prasad_driver_token'); localStorage.removeItem('prasad_driver'); } catch { /* private mode */ }
+    if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    setDriver(null); setTrips([]); setLedger(null); setLocker(null); setDemo(null);
+    onBack?.();
   };
 
-  // ==========================================
-  // 📡 2. AUTO LIVE GPS TRACKING
-  // ==========================================
-  useEffect(() => {
-    if (activeTrips.length > 0 && !isTracking) {
-      startAutoTracking(activeTrips[0].id);
+  // ── data ──────────────────────────────────────────────────────────────────
+  const loadAll = useCallback(async () => {
+    if (!driver || isDemo) return;
+    try {
+      const [tr, lg, lk] = await Promise.all([
+        api('/portal/driver/trips').catch((e) => { if (e.status === 401 || e.status === 403) throw e; return { trips: [] }; }),
+        api('/portal/driver/ledger').catch(() => null),
+        api('/portal/driver/locker').catch(() => null),
+      ]);
+      setTrips(tr.trips ?? []);
+      if (lg) setLedger(lg);
+      if (lk) setLocker(lk);
+    } catch (e: any) {
+      if (e.status === 401 || e.status === 403) {
+        say(e.code === 'PORTAL_NOT_APPROVED' ? 'ऑफिस ने अभी ऐप चालू नहीं किया' : 'दोबारा लॉगिन करो');
+        if (e.status === 401) signOut();
+      }
     }
-  }, [activeTrips]);
+  }, [driver?.id, isDemo]);
 
-  // Throttle: write a ping at most every 3 min, or sooner if the truck moved
-  // ≥500 m. Unthrottled watchPosition was writing to Firestore every few
-  // seconds per moving truck (battery + data + billing burn).
-  const PING_MIN_MS = 3 * 60 * 1000;
-  const PING_MIN_METERS = 500;
-  const metersBetween = (a: {lat:number,lng:number}, b: {lat:number,lng:number}) => {
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  // The ledger keeps itself fresh: every 30 s and whenever the app comes back
+  // to the front. This is the "syncs instantly" the owner asked for — the
+  // office issues, the phone shows it on the next tick.
+  useEffect(() => {
+    if (!driver || isDemo) return;
+    const tick = () => api('/portal/driver/ledger').then(setLedger).catch(() => {});
+    const iv = setInterval(tick, 30000);
+    const vis = () => { if (document.visibilityState === 'visible') { tick(); api('/portal/driver/locker').then(setLocker).catch(() => {}); } };
+    document.addEventListener('visibilitychange', vis);
+    return () => { clearInterval(iv); document.removeEventListener('visibilitychange', vis); };
+  }, [driver?.id, isDemo]);
+
+  // Route geometry for the map, once per trip.
+  useEffect(() => {
+    if (!trip || isDemo) return;
+    api(`/maps/trip/${trip.id}/route`).then(setGeo).catch(() => setGeo(null));
+  }, [trip?.id, isDemo]);
+
+  // ── GPS (unchanged contract: 3 min or 500 m) ──────────────────────────────
+  const metersBetween = (a, b) => {
     const R = 6371000, rad = Math.PI / 180;
     const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
-    const s = Math.sin(dLat/2)**2 + Math.cos(a.lat*rad) * Math.cos(b.lat*rad) * Math.sin(dLng/2)**2;
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(s));
   };
-
-  const startAutoTracking = (tripId: string) => {
-    if (!navigator.geolocation) return;
-    setIsTracking(true);
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setCurrentLoc({ lat, lng });
-        if (tripId.includes('DEMO')) return;
-        const last = lastPingRef.current;
-        const now = Date.now();
-        const due = !last || (now - last.t) >= PING_MIN_MS || metersBetween(last, { lat, lng }) >= PING_MIN_METERS;
-        if (!due) return;
-        lastPingRef.current = { t: now, lat, lng };
-        // A ping is now an append to trip_gps_pings, not an overwrite of one
-        // `liveLocation` field — so the route is kept, not just the last fix.
-        api('/tracking/ping', {
-          method: 'POST',
-          body: JSON.stringify({
-            trip_id: tripId, source: 'DRIVER_APP', lat, lng,
-            accuracy_m: position.coords.accuracy ?? null,
-            speed_kmh: position.coords.speed != null ? Math.max(0, position.coords.speed * 3.6) : null,
-          }),
-        }).catch(() => { lastPingRef.current = last; }); // failed write → retry on next fix
-      },
-      (error) => { console.error("Auto GPS Error:", error); setIsTracking(false); },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
-    );
-  };
-
   useEffect(() => {
-    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, []);
+    if (!trip || isTracking || !navigator.geolocation) return;
+    setIsTracking(true);
+    watchIdRef.current = navigator.geolocation.watchPosition((pos) => {
+      const lat = pos.coords.latitude, lng = pos.coords.longitude;
+      setCurrentLoc({ lat, lng, heading: pos.coords.heading ?? 0, speed: pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : null });
+      if (isDemo) return;
+      const last = lastPingRef.current, now = Date.now();
+      const due = !last || now - last.t >= 180000 || metersBetween(last, { lat, lng }) >= 500;
+      if (!due) return;
+      lastPingRef.current = { t: now, lat, lng };
+      api('/tracking/ping', { method: 'POST', body: JSON.stringify({ trip_id: trip.id, source: 'DRIVER_APP', lat, lng, accuracy_m: pos.coords.accuracy ?? null, speed_kmh: pos.coords.speed != null ? Math.max(0, pos.coords.speed * 3.6) : null }) })
+        .catch(() => { lastPingRef.current = last; });
+    }, () => setIsTracking(false), { enableHighAccuracy: true, maximumAge: 10000, timeout: 8000 });
+    return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; setIsTracking(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip?.id]);
 
-  // ==========================================
-  // 📸 ACTION HANDLERS
-  // ==========================================
-  // 📸 REAL uploads (Truth Sprint): photos now go to Firebase Storage and the
-  // permanent downloadURL is stored — the office can actually open them. The
-  // old flow stored a device-local blob: URL behind a fake success alert, so
-  // every POD/challan photo silently died on the driver's phone.
-  const handleTripImageUpload = async (e: any, tripId: string, fieldType: string) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = ''; // allow re-selecting the same file after a failure
-    setUploadingDoc(`${tripId}_${fieldType}`);
-    try {
-      if (tripId.includes('DEMO')) {
-        updateTripData(tripId, fieldType, URL.createObjectURL(file));
-      } else {
-        const { url } = await uploadMedia(file, `trips/${slug(tripId)}/${slug(fieldType)}_${Date.now()}.jpg`);
-        await updateTripData(tripId, fieldType, url);
-        alert("✅ Photo office ko pahunch gayi! (Uploaded)");
+  // ── demo (staff preview) ──────────────────────────────────────────────────
+  const startDemo = (kind: 'OWN' | 'MARKET') => {
+    const d = DEMO[kind];
+    setDemo(kind); setDriver(d.driver); setTrips(d.trips); setLedger(d.ledger); setLocker(d.locker); setGeo(d.geo); setScreen('HOME');
+  };
+
+  // ── camera flow ───────────────────────────────────────────────────────────
+  const openCamera = (docType: string, from: 'HOME' | 'LOCKER' = 'HOME') => { setPaper(docType); setOrigin(from); setShots([]); setScreen('CAMERA'); };
+  const onPick = (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setShots((s) => [...s, f]); setScreen('CONFIRM');
+  };
+  const sendShots = async () => {
+    if (!shots.length || !paper) return;
+    if (isDemo) { setScreen('SENT'); return; }
+    setBusy(true);
+    const failed: any[] = [];
+    for (const f of shots) {
+      try {
+        const up = await uploadMedia(f, `driver-docs/${paper.toLowerCase()}_${Date.now()}.jpg`);
+        await api('/portal/driver/documents', { method: 'POST', body: JSON.stringify({ doc_type: paper, file_key: up.path, trip_id: trip?.id ?? null, remarks: `app v4 · ${paper}` }) });
+      } catch (e) { failed.push({ file: f, doc_type: paper, trip_id: trip?.id ?? null }); }
+    }
+    setBusy(false);
+    if (failed.length) setQueue((q) => [...q, ...failed]);
+    setShots([]); setScreen('SENT');
+    loadAll();
+  };
+  // Retry the offline queue when the network comes back.
+  useEffect(() => {
+    const flush = async () => {
+      if (!queue.length || isDemo) return;
+      const rest: any[] = [];
+      for (const q of queue) {
+        try {
+          const up = await uploadMedia(q.file, `driver-docs/${q.doc_type.toLowerCase()}_${Date.now()}.jpg`);
+          await api('/portal/driver/documents', { method: 'POST', body: JSON.stringify({ doc_type: q.doc_type, file_key: up.path, trip_id: q.trip_id, remarks: 'app v4 · queued' }) });
+        } catch { rest.push(q); }
       }
-    } catch (err) {
-      console.error(err);
-      alert("❌ Upload nahi hua — network check karke dobara try karein.\n(Upload failed — please retry)");
-    }
-    setUploadingDoc(null);
-  };
+      setQueue(rest);
+      if (rest.length < queue.length) { say('✅ रुकी हुई फोटो चली गई'); loadAll(); }
+    };
+    window.addEventListener('online', flush);
+    const iv = setInterval(flush, 60000);
+    return () => { window.removeEventListener('online', flush); clearInterval(iv); };
+  }, [queue, isDemo, loadAll]);
 
-  // STAGED, NEVER DIRECT (owner's Tier 2, 2026-09-02). This used to write the
-  // driver master from the phone (a Firestore updateDoc that no longer existed
-  // and failed silently). A KYC photo now goes to the office's quarantine like
-  // every other paper; BHUVANESHWARI reads it; the driver record changes only
-  // when the office approves on the desk.
-  const KYC_DOC_TYPE = (fieldType: string) =>
-    /dl|licen/i.test(fieldType) ? 'DL' : /aadha?r/i.test(fieldType) ? 'AADHAAR'
-      : /bank|passbook|account/i.test(fieldType) ? 'BANK_BOOK' : 'OTHER_DOC';
-  const [kycDraft, setKycDraft] = useState<any>({});
-
-  const handleDriverDocumentUpload = async (e: any, fieldType: string) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    e.target.value = '';
-    setUploadingDoc(fieldType);
+  const openPdf = async (p) => {
+    if (isDemo || !p?.pdf_url) { say('📄 ' + (t.downloadPdf)); return; }
     try {
-      if (driver.id.includes('DEMO')) {
-        setDriver({ ...driver, [fieldType]: URL.createObjectURL(file) });
-      } else {
-        const up = await uploadMedia(file, `driver-kyc/${slug(fieldType)}_${Date.now()}.jpg`);
-        const typed = Object.entries(kycDraft).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ');
-        await api('/portal/driver/documents', {
-          method: 'POST',
-          body: JSON.stringify({ doc_type: KYC_DOC_TYPE(fieldType), file_key: up.path, remarks: `KYC · ${fieldType}${typed ? ` · ${typed}` : ''}` }),
-        });
-        alert('✅ कागज़ ऑफिस को पहुँच गया! ऑफिस चेक करके अप्रूव करेगा — तभी रिकॉर्ड में लगेगा।');
-        fetchDriverExtras(driver);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("❌ Upload nahi hua — network check karke dobara try karein.\n(Upload failed — please retry)");
-    }
-    setUploadingDoc(null);
+      const res = await fetch(`${API}${p.pdf_url}`, { headers: { Authorization: `Bearer ${tok()}` } });
+      if (!res.ok) throw new Error('pdf');
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a'); a.href = url; a.download = `${p.kind}.pdf`; a.target = '_blank'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch { say('❌ PDF नहीं बना — दोबारा कोशिश करो'); }
+  };
+  const dismissNotice = async (n) => {
+    setLocker((l) => (l ? { ...l, notices: (l.notices ?? []).filter((x) => x.id !== n.id) } : l));
+    if (!isDemo) api(`/portal/driver/notices/${n.id}/seen`, { method: 'POST', body: '{}' }).catch(() => {});
   };
 
-  // A typed number (Aadhaar, A/C, IFSC) never touches the master from here: it
-  // rides along with the next KYC photo as remarks, and the office approves it
-  // into the record from the desk.
-  const updateDriverKYC = async (fieldName: string, value: any) => {
-    if (driver.id.includes('DEMO')) { setDriver({ ...driver, [fieldName]: value }); return; }
-    setKycDraft((d: any) => ({ ...d, [fieldName]: value }));
-  };
+  // ── derived map bits ──────────────────────────────────────────────────────
+  const truck = currentLoc ? { lat: currentLoc.lat, lng: currentLoc.lng, heading: currentLoc.heading ?? 0, label: trip?.vehicle_no } : geo?.truck ? { lat: geo.truck.lat, lng: geo.truck.lng, heading: 0, label: trip?.vehicle_no } : null;
+  const speed = currentLoc?.speed ?? geo?.truck?.speed_kmh ?? null;
+  const km = geo?.route?.distance_km ?? led?.rtkm ?? null;
+  const mins = geo?.route?.duration_min ?? null;
 
-  // ==========================================
-  // 🚀 ACTION HANDLERS (SEND TO ADMIN - FIREBASE)
-  // ==========================================
-  const handleQuickAction = async (actionName: string) => {
-    // Money asks open a proper numeric sheet (window.prompt was a tiny English
-    // system dialog with no numeric keypad — hostile to the target user).
-    if (actionName === 'ADVANCE') {
-      setAskSheet({ type: 'ADVANCE', title: driverType === 'OWN' ? '💸 भत्ता / एडवांस माँगो' : '💸 एडवांस माँगो' });
-      return;
-    }
-    if (actionName === 'FUEL_CALL') {
-      if (driverType === 'OWN') { setAskSheet({ type: 'FUEL', title: '⛽ डीज़ल का पैसा माँगो' }); }
-      else { alert('📞 Owner ko call karein.'); }
-      return;
-    }
-    const remarks = actionName === 'POD' ? 'Driver clicked POD or requested document check.'
-      : actionName === 'EMERGENCY' ? (driverType === 'OWN' ? 'Vehicle Repair needed' : 'Emergency Help Needed')
-      : `Requested Action: ${actionName}`;
-    await sendRequest(actionName === 'POD' ? 'POD' : actionName, '', remarks);
-  };
-
-  // =========================================================
-  // 📍 SCREEN 0: TRACKING ONLY — came in without an OTP
-  // =========================================================
-  // A TRACK_ONLY session can fetch nothing, so there is nothing to fetch: the
-  // trip handed back by /auth/driver/track IS this screen. Kept deliberately
-  // bare — it exists to prove to the driver that the phone is reporting, and to
-  // give the office a moving dot. Everything else needs the WhatsApp link.
-  if (!driver && trackOnlyTrip) {
+  // ── UI atoms ──────────────────────────────────────────────────────────────
+  const Tile = ({ docType, tone, icon, label, sub, badge, onClick, big = false }) => (
+    <button onClick={onClick} className={`relative flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-2 text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] active:translate-y-1 active:shadow-none ${tone} ${big ? 'min-h-[128px]' : 'min-h-[86px]'}`} data-tile={docType}>
+      <span className={big ? 'text-[44px] leading-none' : 'text-[30px] leading-none'}>{icon}</span>
+      <span className={`mt-1 text-center font-extrabold leading-tight ${big ? 'text-[19px]' : 'text-[16px]'}`}>{label}</span>
+      <span className={`font-semibold opacity-90 ${big ? 'text-[12px]' : 'text-[10.5px]'}`}>{sub}</span>
+      {badge ? <span className="absolute right-2 top-2 rounded-full bg-red-500 px-2 py-0.5 text-[10.5px] font-extrabold text-white">{badge}</span> : null}
+    </button>
+  );
+  const Bal = ({ line, unit }) => {
+    if (!line || line.target == null && line.target_l == null) return <div className="min-w-[64px] text-right"><div className="text-[12px] font-bold text-slate-500">{t.noTarget}</div></div>;
+    const bal = unit === 'L' ? line.balance_l : line.balance;
+    const neg = bal < 0;
+    const txt = unit === 'L' ? `${neg ? '-' : ''}${litres(Math.abs(bal))}` : `${neg ? '-' : ''}${inr(Math.abs(bal))}`;
     return (
-      <div className="min-h-screen bg-[#050505] flex flex-col justify-center items-center p-6 text-center font-sans">
-        <div className={`w-28 h-28 rounded-full flex items-center justify-center text-5xl mb-8 ${isTracking ? 'bg-emerald-500/20 animate-pulse' : 'bg-zinc-800'}`}>
-          {isTracking ? '📡' : '⏳'}
-        </div>
-        <h1 className="text-white text-3xl font-black mb-1">
-          {isTracking ? 'लोकेशन भेजी जा रही है' : 'लोकेशन चालू हो रही है…'}
-        </h1>
-        <p className="text-white/40 text-sm mb-8">
-          ऐप खुला रखें। ऑफिस को गाड़ी लाइव दिखेगी।
-        </p>
-
-        <div className="w-full max-w-[400px] bg-white/5 border border-white/10 rounded-[24px] p-5 text-left">
-          <p className="text-emerald-400 text-xs font-black tracking-wide mb-2">
-            {trackOnlyTrip.trip_code || 'TRIP'} · {trackOnlyTrip.status}
-          </p>
-          <p className="text-white text-xl font-black">{trackOnlyTrip.vehicle_no}</p>
-          <p className="text-white/50 text-sm mt-1">
-            {trackOnlyTrip.from || '—'} <span className="text-emerald-400">→</span> {trackOnlyTrip.to || '—'}
-          </p>
-          {trackOnlyTrip.driver_name && (
-            <p className="text-white/30 text-xs mt-2">{trackOnlyTrip.driver_name}</p>
-          )}
-          {currentLoc && (
-            <p className="text-white/30 text-[11px] mt-3 tabular-nums">
-              📍 {currentLoc.lat.toFixed(5)}, {currentLoc.lng.toFixed(5)}
-            </p>
-          )}
-        </div>
-
-        <p className="text-white/25 text-[11px] leading-relaxed mt-8 max-w-[340px]">
-          इस मोड में सिर्फ़ लोकेशन जाती है। ट्रिप डिटेल, पैसा और कागज़ देखने के लिए
-          ऑफिस से WhatsApp लिंक मंगवाएँ।
-        </p>
-        <button
-          onClick={() => {
-            if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
-            watchIdRef.current = null;
-            setIsTracking(false);
-            localStorage.removeItem('prasad_driver_token');
-            setTrackOnlyTrip(null);
-          }}
-          className="mt-6 text-white/40 text-sm font-bold underline"
-        >
-          बंद करो
-        </button>
+      <div className="min-w-[64px] text-right">
+        <div className={`text-[19px] font-black leading-none ${neg ? 'text-red-600' : 'text-green-700'}`}>{txt}</div>
+        <div className="mt-0.5 text-[9.5px] font-bold text-slate-500">{t.left}</div>
       </div>
     );
-  }
+  };
+  const Bar = ({ frac, over }) => (
+    <div className="mt-1 h-[5px] overflow-hidden rounded bg-slate-200"><i className={`block h-full ${over ? 'bg-red-600' : 'bg-green-600'}`} style={{ width: `${Math.min(100, Math.round((frac || 0) * 100))}%` }} /></div>
+  );
 
-  // =========================================================
-  // 🔐 SCREEN 1: LOGIN
-  // =========================================================
+  // ── screens ───────────────────────────────────────────────────────────────
+  if (loadingSession) return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">…</div>;
+
+  // Staff preview landing (demo data) or a driver with no session: the real
+  // door is Gate 2 (/app). This landing only exists for the preview.
   if (!driver) {
     return (
-      <div className="min-h-screen bg-[#050505] flex justify-center items-center p-5 relative overflow-hidden font-sans">
-        <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-blue-600/20 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50vw] h-[50vw] bg-emerald-600/20 rounded-full blur-[120px] mix-blend-screen pointer-events-none"></div>
-
-        {onBack && (
-          <button onClick={onBack} className="absolute top-10 left-6 text-white/50 hover:text-white transition-colors z-20 font-bold text-sm bg-white/5 px-4 py-2 rounded-full border border-white/10">
-            ⬅️ Back to Web
-          </button>
-        )}
-
-        <div className="w-full max-w-[400px] flex flex-col items-center relative z-10 animate-fade-in-up">
-          <div className="w-24 h-24 bg-gradient-to-tr from-blue-600 to-blue-400 rounded-[32px] flex items-center justify-center text-4xl shadow-[0_20px_40px_rgba(37,99,235,0.4)] mb-8 transform rotate-3 hover:rotate-0 transition-transform">
-            🚛
-          </div>
-          <h1 className="text-white text-4xl font-black mb-2 tracking-tight">Driver App</h1>
-          <p className="text-white/40 text-sm font-medium mb-12">Secured by Prasad Transport</p>
-          
-          <div className="w-full space-y-6">
-            {preview ? (
-              <>
-                <p className="text-white/70 text-center text-sm font-bold">👁️ Staff Preview — demo data</p>
-                <button onClick={() => loadDemoData('OWN')} className="w-full bg-blue-600 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all">🏢 OWN DRIVER DEMO</button>
-                <button onClick={() => loadDemoData('MARKET')} className="w-full bg-orange-600 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all">🚚 MARKET DRIVER DEMO</button>
-              </>
-            ) : otpStep === 'PHONE' ? (
-              <>
-                {/* ONE BOX FOR BOTH. It used to strip every non-digit, which
-                    is right for a phone number and destroys "AS 26C 9809".
-                    Letters and spaces are kept now; the two handlers each read
-                    it the way they need — handleTrackOnly decides mobile vs
-                    vehicle by shape, and handleSendOtp still digit-strips. */}
-                <input
-                  type="text" inputMode="text" autoCapitalize="characters" maxLength={16}
-                  placeholder="गाड़ी नंबर या मोबाइल नंबर"
-                  value={mobileNo}
-                  onChange={e => setMobileNo(e.target.value.replace(/[^0-9a-zA-Z ]/g, '').toUpperCase())}
-                  className="w-full bg-white/5 border border-white/10 p-5 rounded-[24px] text-white text-lg font-black text-center outline-none focus:border-emerald-500 focus:bg-white/10 transition-all backdrop-blur-md placeholder:text-white/30"
-                />
-                {/* NO OTP — AND IT IS THE FIRST BUTTON, not a fallback.
-                    The OTP path is what nobody ever got through: 54 drivers
-                    with a number on file and not one login, ever. This one asks
-                    for something the driver is sitting inside. */}
-                <button
-                  onClick={handleTrackOnly}
-                  disabled={loading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black shadow-[0_10px_30px_rgba(16,185,129,0.3)] active:scale-[0.98] transition-all"
-                >
-                  {loading ? '⏳ चालू कर रहे हैं…' : '📍 लोकेशन भेजना चालू करो'}
-                </button>
-                <p className="text-white/40 text-center text-[11px] leading-relaxed -mt-3">
-                  गाड़ी नंबर या मोबाइल नंबर — कोई OTP नहीं।<br />
-                  पूरी ट्रिप डिटेल के लिए ऑफिस से WhatsApp लिंक मंगवाएँ।
-                </p>
-
-                <button
-                  onClick={handleSendOtp}
-                  disabled={loading}
-                  className="w-full bg-white/5 border border-white/10 hover:bg-white/10 disabled:opacity-50 text-white/70 py-4 rounded-[24px] text-sm font-black active:scale-[0.98] transition-all"
-                >
-                  {loading ? '⏳ भेज रहे हैं…' : '📩 OTP से पूरा लॉगिन'}
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="text-emerald-300 text-center text-sm font-bold">📩 +91 {mobileNo} पर OTP भेजा गया</p>
-                <input
-                  type="tel" inputMode="numeric" maxLength={6}
-                  placeholder="••••••"
-                  value={otpCode}
-                  onChange={e => setOtpCode(e.target.value.replace(/[^\d]/g, ''))}
-                  className="w-full bg-white/5 border border-white/10 p-5 rounded-[24px] text-white text-3xl font-black text-center tracking-[0.6em] outline-none focus:border-emerald-500 transition-all placeholder:text-white/20"
-                />
-                <button
-                  onClick={handleVerifyOtp}
-                  disabled={loading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-700 text-white py-5 rounded-[24px] text-lg font-black active:scale-[0.98] transition-all"
-                >
-                  {loading ? '⏳ जाँच रहे हैं…' : '✅ OTP जाँचो और लॉगिन'}
-                </button>
-                <button onClick={() => { setOtpStep('PHONE'); setOtpCode(''); }} className="w-full text-white/60 text-sm font-bold py-2">← नंबर बदलो</button>
-              </>
-            )}
-            <button style={{ display: 'none' }} aria-hidden="true">
-            </button>
-          </div>
+      <div className="relative grid min-h-screen place-items-center bg-[#020617] p-6 text-center font-sans text-white">
+        {onBack && <button onClick={onBack} className="absolute left-5 top-5 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[12px] font-bold text-slate-400">← Back</button>}
+        <div className="w-full max-w-sm">
+          <div className="mx-auto grid h-20 w-20 place-items-center rounded-[26px] bg-gradient-to-br from-emerald-500 to-teal-600 text-4xl shadow-[0_20px_40px_rgba(16,185,129,0.35)]">🚛</div>
+          <h1 className="mt-4 text-3xl font-black">Driver App v4</h1>
+          <p className="text-[13px] text-white/50">Secured by Prasad Transport</p>
+          {preview ? (
+            <div className="mt-8 space-y-3">
+              <p className="text-[13px] font-bold text-white/70">👁️ Staff Preview — demo data</p>
+              <button onClick={() => startDemo('OWN')} className="w-full rounded-2xl bg-blue-600 py-4 text-[17px] font-black">🏢 OWN DRIVER DEMO</button>
+              <button onClick={() => startDemo('MARKET')} className="w-full rounded-2xl bg-orange-600 py-4 text-[17px] font-black">🚚 MARKET DRIVER DEMO</button>
+            </div>
+          ) : (
+            <a href="/app" className="mt-8 block rounded-2xl bg-emerald-600 py-4 text-[17px] font-black">📱 Login → OTP</a>
+          )}
         </div>
       </div>
     );
   }
 
-  // =========================================================
-  // 📱 SCREEN 2: MAIN APP
-  // =========================================================
+  const shell = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+  const font = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
+
+  if (screen === 'CAMERA') {
+    const P = PAPERS[paper] ?? { icon: '📷', key: 'loading' };
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-black text-white" style={font} data-screen="camera">
+        <div className="flex items-center gap-3 px-4 pt-4">
+          <button onClick={() => setScreen(origin)} className="rounded-full bg-white/10 px-4 py-2.5 text-[16px] font-bold">‹ {t.back}</button>
+          <div className="min-w-0"><div className="text-[18px] font-extrabold leading-tight">{P.icon} {t[P.key]}</div><div className="text-[12px] font-semibold text-neutral-400">{trip?.vehicle_no ?? ''}{trip?.trip_code ? ` · ${trip.trip_code}` : ''} · {t.auto}</div></div>
+        </div>
+        <div className="mx-4 my-3 flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl bg-[radial-gradient(#3a3f4a,#15181f)]">
+          <div className="grid h-[52vh] w-[70%] place-items-center rounded-xl border-[3px] border-dashed border-yellow-300"><span className="text-6xl opacity-60">{P.icon}</span></div>
+          <p className="text-[15px] font-bold text-yellow-300">{t.frame}</p>
+          {shots.length > 0 && <p className="text-[12px] font-semibold text-neutral-300">{shots.length} ✓</p>}
+        </div>
+        <div className="flex items-center justify-around pb-2 pt-1">
+          <button onClick={() => galRef.current?.click()} className="text-[15px] font-bold text-neutral-200">🖼️ {t.gallery}</button>
+          <button onClick={() => camRef.current?.click()} aria-label={t.shoot} className="h-[88px] w-[88px] rounded-full border-[6px] border-neutral-400 bg-white" data-shutter />
+          <span className="w-16" />
+        </div>
+        <p className="pb-6 text-center text-[18px] font-extrabold">{t.shoot}</p>
+        <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPick} />
+        <input ref={galRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+      </div>
+    );
+  }
+
+  if (screen === 'CONFIRM') {
+    const last = shots[shots.length - 1];
+    const url = last ? URL.createObjectURL(last) : null;
+    return (
+      <div className={shell} style={font} data-screen="confirm">
+        <div className="flex items-center gap-3 bg-white px-4 py-3 text-[20px] font-extrabold"><button onClick={() => setScreen('CAMERA')} className="rounded-full bg-slate-100 px-4 py-2 text-[16px]">‹</button>{t.clear}</div>
+        <div className="mx-5 my-2 grid flex-1 place-items-center overflow-hidden rounded-2xl bg-slate-200">{url && <img src={url} alt="" className="max-h-[52vh] max-w-full rounded shadow-lg" onLoad={() => URL.revokeObjectURL(url)} />}</div>
+        <button onClick={sendShots} disabled={busy} className="mx-5 min-h-[76px] rounded-2xl bg-green-600 text-[24px] font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-send>{busy ? t.sending : `✅ ${t.send}${shots.length > 1 ? ` (${shots.length})` : ''}`}</button>
+        <button onClick={() => { setShots((s) => s.slice(0, -1)); setScreen('CAMERA'); }} className="mx-5 mt-2 min-h-[60px] rounded-2xl border-[3px] border-slate-300 bg-white text-[19px] font-extrabold">🔁 {t.retake}</button>
+        <button onClick={() => setScreen('CAMERA')} className="py-3 text-[16px] font-bold text-blue-700">+ {t.morePage}</button>
+      </div>
+    );
+  }
+
+  if (screen === 'SENT') {
+    return (
+      <div className={`${shell} items-center justify-center bg-white px-6 text-center`} style={font} data-screen="sent">
+        <div className="grid h-32 w-32 place-items-center rounded-full bg-green-600 text-[84px] font-black text-white shadow-[0_10px_30px_rgba(22,163,74,0.4)]">✓</div>
+        <h2 className="mt-4 text-[34px] font-black">{t.sent}</h2>
+        <p className="text-[18px] font-semibold text-slate-700">{t.sentSub}</p>
+        <p className="mt-3 text-[14px] text-slate-500">{queue.length ? `⏳ ${queue.length} ${t.queuedN}` : t.offline}</p>
+        <button onClick={() => setScreen(origin)} className="mt-8 min-h-[76px] w-full rounded-2xl bg-slate-900 text-[24px] font-extrabold text-white" data-ok>{t.ok}</button>
+      </div>
+    );
+  }
+
+  if (screen === 'VIEW' && viewPaper) {
+    const P = PAPERS[viewPaper.kind];
+    return (
+      <div className={shell} style={font} data-screen="view">
+        <div className="flex items-center gap-3 bg-white px-4 py-3 text-[20px] font-extrabold"><button onClick={() => setScreen('LOCKER')} className="rounded-full bg-slate-100 px-4 py-2 text-[16px]">‹</button>{P?.icon} {t[P?.key]}</div>
+        <div className="mx-4 rounded-2xl border-2 border-green-300 bg-green-100 px-3 py-2.5 text-[15px] font-extrabold text-green-800">✅ {t.approvedBy}{viewPaper.expiry ? <span className="block text-[12px] font-semibold text-green-900/80">{t.validTill} {fmtDate(viewPaper.expiry)}</span> : null}{viewPaper.number ? <span className="block text-[12px] font-semibold text-green-900/80">{viewPaper.number}</span> : null}</div>
+        <div className="mx-4 my-3 grid flex-1 place-items-center overflow-auto rounded-2xl bg-slate-200 p-3">
+          {viewPaper.view_url && !isDemo ? <img src={viewPaper.view_url.startsWith('http') ? viewPaper.view_url : `${API}${viewPaper.view_url}`} alt="" className="max-w-full rounded shadow-lg" /> : <div className="h-44 w-72 rounded-xl bg-gradient-to-br from-[#fdf6e3] to-[#f5e7c4] shadow-lg" />}
+          <p className="mt-2 text-[12px] font-semibold text-slate-500">🔍 {t.pinch}</p>
+        </div>
+        <button onClick={() => openPdf(viewPaper)} className="mx-5 min-h-[76px] rounded-2xl bg-blue-600 text-[24px] font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.18)]">⬇️ {t.downloadPdf}</button>
+        <button onClick={() => setScreen('LOCKER')} className="mx-5 my-3 min-h-[60px] rounded-2xl border-[3px] border-slate-300 bg-white text-[19px] font-extrabold">{t.back}</button>
+      </div>
+    );
+  }
+
+  if (screen === 'LOCKER') {
+    const papers = LOCKER_ORDER.map((k) => (locker?.papers ?? []).find((p) => p.kind === k) ?? { kind: k, state: 'MISSING' });
+    return (
+      <div className={shell} style={font} data-screen="locker">
+        <div className="flex items-center gap-3 bg-white px-4 py-3"><button onClick={() => setScreen('HOME')} className="rounded-full bg-slate-100 px-4 py-2 text-[16px] font-bold">‹</button><div><div className="text-[20px] font-extrabold">📋 {t.locker}</div><div className="text-[12px] font-semibold text-slate-500">{t.lockerSub}</div></div></div>
+        <div className="flex flex-col gap-2 px-4 pt-2">
+          {papers.map((p) => {
+            const P = PAPERS[p.kind];
+            const bad = p.state === 'NEEDS_CORRECTION' || p.state === 'EXPIRED';
+            const need = p.state === 'MISSING';
+            const cls = bad ? 'border-red-300 bg-red-50' : need ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white';
+            const pill = p.state === 'APPROVED' ? ['bg-green-100 text-green-800', `✅ ${t.approved}`] : p.state === 'PENDING' ? ['bg-amber-100 text-amber-800', `⏳ ${t.checking}`] : p.state === 'EXPIRED' ? ['bg-red-100 text-red-800', `❌ ${t.expired}`] : bad ? ['bg-red-100 text-red-800', t.resend] : ['bg-amber-100 text-amber-800', `📷 ${t.missing}`];
+            return (
+              <div key={p.kind} className={`flex flex-col gap-2 rounded-2xl border-2 px-3 py-2.5 ${cls}`} data-paper={p.kind}>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[30px] leading-none">{P.icon}</span>
+                  <div className="min-w-0 flex-1"><div className="text-[17px] font-extrabold leading-tight">{t[P.key]}</div>
+                    <div className="text-[12px] font-semibold text-slate-500">
+                      {p.reject_reason ? `❌ ${t.officeSays}: ${p.reject_reason}`
+                        : (p.state === 'APPROVED' || p.state === 'EXPIRED') && p.expiry ? `${t.validTill} ${fmtDate(p.expiry)}${p.days_left != null && p.days_left >= 0 && p.days_left <= 30 ? ` · ${p.days_left} din` : ''}`
+                          : (p.state === 'APPROVED' || p.state === 'EXPIRED') && p.number && !/^MIGRATION/i.test(String(p.number)) ? p.number : ''}
+                    </div></div>
+                  <span className={`whitespace-nowrap rounded-full px-2.5 py-1.5 text-[12px] font-extrabold ${pill[0]}`}>{pill[1]}</span>
+                </div>
+                <div className="flex gap-2">
+                  {p.state === 'APPROVED' || p.state === 'EXPIRED' ? (<>
+                    <button onClick={() => { setViewPaper(p); setScreen('VIEW'); }} className="min-h-[46px] flex-1 rounded-xl border-2 border-slate-300 bg-white text-[16px] font-extrabold">👁️ {t.view}</button>
+                    <button onClick={() => openPdf(p)} className="min-h-[46px] flex-1 rounded-xl bg-blue-600 text-[16px] font-extrabold text-white">⬇️ {t.pdf}</button>
+                    {p.state === 'EXPIRED' && <button onClick={() => openCamera(p.kind, 'LOCKER')} className="min-h-[46px] flex-1 rounded-xl bg-red-600 text-[16px] font-extrabold text-white">📷</button>}
+                  </>) : p.state === 'PENDING' ? (
+                    <div className="min-h-[46px] flex-1 rounded-xl bg-slate-100 text-center text-[14px] font-bold leading-[46px] text-slate-500">⏳ {t.checking}</div>
+                  ) : (
+                    <button onClick={() => openCamera(p.kind, 'LOCKER')} className={`min-h-[46px] flex-1 rounded-xl text-[16px] font-extrabold text-white ${bad ? 'bg-red-600' : 'bg-amber-500 text-[#1f1300]'}`}>📷 {t.sendPhoto}{p.kind === 'AADHAAR' ? ` (${t.front})` : ''}</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mx-4 mb-3 mt-auto rounded-2xl bg-blue-50 px-3 py-2.5 text-[13px] font-semibold leading-snug text-blue-900">🔒 {t.lockerNote}</div>
+        <button onClick={signOut} className="pb-4 text-center text-[12px] font-bold text-slate-400">⏻ {t.logout}</button>
+      </div>
+    );
+  }
+
+  // ── HOME ──────────────────────────────────────────────────────────────────
+  const hsdFrac = led?.hsd?.target_l ? led.hsd.issued_l / led.hsd.target_l : 0;
+  const cashFrac = led?.cash?.target ? led.cash.paid / led.cash.target : 0;
+  const notices = locker?.notices ?? [];
   return (
-    <div className="min-h-screen bg-[#050505] flex flex-col font-sans text-white md:items-center md:justify-center selection:bg-blue-500/30">
-      
-      <div className="w-full h-full min-h-screen md:min-h-[850px] md:h-[850px] md:w-[420px] bg-[#0a0a0a] md:rounded-[48px] md:border-[8px] border-[#1a1a1a] relative overflow-hidden flex flex-col shadow-2xl">
-        
-        {/* 🚀 HEADER */}
-        <header className="px-6 pt-10 pb-4 flex justify-between items-center bg-[#0a0a0a]/80 backdrop-blur-xl sticky top-0 z-40 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              {driver.profile_photo ? (
-                <img src={driver.profile_photo} alt="Profile" className="w-12 h-12 rounded-full object-cover border-2 border-white/10 bg-zinc-800" />
-              ) : (
-                <div className="w-12 h-12 rounded-full border-2 border-white/10 bg-blue-600 flex items-center justify-center text-lg font-black text-white">{String(driver.name || '?').trim().charAt(0).toUpperCase()}</div>
-              )}
-              <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-[#0a0a0a] rounded-full"></div>
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-white leading-tight">{driver.name}</h2>
-              <div className="flex items-center gap-1 mt-0.5">
-                 <p className={`text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md border ${driverType === 'OWN' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-orange-500/10 text-orange-400 border-orange-500/20'}`}>
-                   {driver.tag || 'DRIVER'}
-                 </p>
-              </div>
-            </div>
+    <div className={shell} style={font} data-screen="home">
+      {/* map */}
+      <div className={`relative ${market ? 'h-[46vh]' : 'h-[36vh]'} min-h-[220px] bg-[#e8efe3]`}>
+        <RouteMap light height={market ? Math.max(220, Math.round(window.innerHeight * 0.46)) : Math.max(220, Math.round(window.innerHeight * 0.36))} className="!rounded-none !border-0"
+          origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null} />
+        <div className="pointer-events-none absolute left-2.5 right-2.5 top-2 z-[500] flex items-start justify-between">
+          <div className="pointer-events-auto rounded-xl bg-white px-2.5 py-1.5 shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
+            <div className="text-[10px] font-bold text-slate-500">{market ? t.market : t.brand}</div>
+            <div className="text-[17px] font-extrabold leading-tight">{driver.name}</div>
+            {trip?.vehicle_no && <div className="mt-0.5 inline-block rounded-md border-2 border-amber-500 bg-amber-100 px-1.5 font-mono text-[12px] font-bold tracking-wider text-amber-900">{trip.vehicle_no}</div>}
           </div>
-          <button onClick={() => { if (!preview && !window.confirm('Logout karein? Dobara OTP lagega.')) return; if (!preview) {
-              // Kill the session server-side, not just locally: a token that
-              // still works after "logout" is not a logout.
-              const t = tok();
-              if (t) fetch(`${API}/api/v1/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${t}` }, keepalive: true }).catch(() => {});
-              localStorage.removeItem('prasad_driver_token');
-              localStorage.removeItem('prasad_driver');
-            }
-            setDriver(null); setOtpStep('PHONE'); setOtpCode(''); setMobileNo(''); }} className="text-[10px] font-black text-red-400 bg-red-500/10 px-3 py-2 rounded-xl border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors uppercase tracking-widest">
-            Exit
-          </button>
-        </header>
-
-        {/* 🔥 DEMO TOGGLE FOR ADMIN PREVIEW 🔥 */}
-        {driver.id.includes('DEMO') && (
-          <div className="flex gap-2 mx-6 mt-4 p-1 bg-white/5 rounded-xl border border-white/10 relative z-30">
-            <button onClick={() => loadDemoData('OWN')} className={`flex-1 py-2 rounded-lg text-[10px] font-black tracking-widest transition-all ${driverType === 'OWN' ? 'bg-blue-500 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}>
-              🏢 OWN DRIVER
-            </button>
-            <button onClick={() => loadDemoData('MARKET')} className={`flex-1 py-2 rounded-lg text-[10px] font-black tracking-widest transition-all ${driverType === 'MARKET' ? 'bg-orange-500 text-white shadow-lg' : 'text-white/40 hover:text-white'}`}>
-              🚚 MARKET DRIVER
-            </button>
+          <button onClick={toggleLang} className="pointer-events-auto min-h-[40px] rounded-full bg-white px-3 text-[12px] font-bold shadow-[0_4px_14px_rgba(0,0,0,0.22)]">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+        </div>
+        <div className="absolute bottom-2 left-2.5 right-2.5 z-[500] flex items-end gap-2">
+          <div className="flex-1 rounded-xl bg-white px-2.5 py-1.5 text-[11px] leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
+            {trip ? (<>
+              <b className="block text-[13px]">🚚 {speed != null ? `${Math.round(speed)} km/h` : isTracking ? t.gpsOn : t.noFix}</b>
+              <span className="text-slate-500">{trip.loading_point ?? ''} → {trip.unloading_location ?? trip.destination ?? ''}{km ? ` · ${km} km` : ''}{mins ? ` · ${Math.floor(mins / 60)}${t.hrs} ${mins % 60}${t.min}` : ''} · {trip.trip_code}</span>
+            </>) : (<><b className="block text-[13px]">💤 {t.noTrip}</b><span className="text-slate-500">{t.noTripSub}</span></>)}
           </div>
-        )}
-
-        {/* 📜 SCROLLABLE CONTENT */}
-        <div className="flex-1 overflow-y-auto pb-32 pt-2 relative z-10 hide-scrollbar" style={{ msOverflowStyle: 'none', scrollbarWidth: 'none' }}>
-          
-          {/* 🚚 TAB 1: ACTIVE TRIPS & AUTO MAP */}
-          {activeTab === 'TRIPS' && (
-            <div className="animate-fade-in-up">
-              {activeTrips.length === 0 ? (
-                <div className="flex flex-col items-center justify-center p-10 h-full mt-20 text-center">
-                  <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center text-4xl mb-4 shadow-inner">💤</div>
-                  <h3 className="text-2xl font-black text-white">अभी कोई ड्यूटी नहीं</h3>
-                  <p className="text-base text-white/70 mt-2 text-center">आराम करें — ऑफिस नई ट्रिप देगा तो यहाँ दिखेगी।</p>
-                </div>
-              ) : (
-                activeTrips.map((trip: any) => (
-                  <div key={trip.id} className="flex flex-col">
-                    
-                    {/* 🗺️ DYNAMIC AUTO-MAP AREA */}
-                    <div className="w-full h-56 relative bg-zinc-900 border-b border-white/10 overflow-hidden">
-                      {/* Was two iframe embeds: one pinned to the phone's own GPS,
-                          one drawing a search result for "A to B". Neither could be
-                          styled, both re-queried Google on every render, and the
-                          truck marker was really just the map centre — so a driver
-                          with no fix still saw a map that looked authoritative.
-                          One component now, with the truck drawn ONLY when there is
-                          a real position. */}
-                      <RouteMap
-                        height={224}
-                        className="!rounded-none !border-0"
-                        origin={trip.loading_lat ? { lat: trip.loading_lat, lng: trip.loading_lng, label: trip.loading_point } : null}
-                        destination={trip.unloading_lat ? { lat: trip.unloading_lat, lng: trip.unloading_lng, label: trip.consignee_name } : null}
-                        truck={isTracking && currentLoc
-                          ? { lat: currentLoc.lat, lng: currentLoc.lng, heading: currentLoc.heading ?? 0, label: trip.vehicle_no }
-                          : null}
-                        polyline={trip.route_polyline ?? null}
-                      />
-                      
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none"></div>
-                      
-                      {/* 📡 AUTO-TRACKING LIVE STATUS BAR */}
-                      <div className="absolute bottom-4 left-4 right-4 bg-[#0a0a0a]/90 backdrop-blur-md px-4 py-3 rounded-2xl border border-emerald-500/30 flex items-center justify-between shadow-[0_10px_20px_rgba(0,0,0,0.5)]">
-                        <div className="flex items-center gap-3">
-                          <div className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                          </div>
-                          <div>
-                            <p className="text-emerald-400 text-[10px] font-black uppercase tracking-widest leading-none">Auto-Tracking Live</p>
-                            <p className="text-white/40 text-[9px] font-mono mt-0.5">Office is monitoring route</p>
-                          </div>
-                        </div>
-                        {currentLoc && (
-                          <div className="text-right">
-                            <p className="text-white/60 text-[9px] font-mono">{currentLoc.lat.toFixed(3)}</p>
-                            <p className="text-white/60 text-[9px] font-mono">{currentLoc.lng.toFixed(3)}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="px-5 py-4">
-                      
-                      {/* 🔥 SMART QUICK ACTIONS GRID 🔥 */}
-                      {/* बड़े हिंदी tiles — 8px English labels थे, driver पढ़ ही नहीं पाता था */}
-                      <div className="grid grid-cols-2 gap-3 mb-6">
-                        <button onClick={() => handleQuickAction('ADVANCE')} className="bg-blue-500/10 border border-blue-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
-                          <span className="text-3xl">💸</span>
-                          <span className="text-[13px] font-black text-blue-300">पैसा माँगो</span>
-                        </button>
-                        <button onClick={() => handleQuickAction('POD')} className="bg-emerald-500/10 border border-emerald-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
-                          <span className="text-3xl">📸</span>
-                          <span className="text-[13px] font-black text-emerald-300">पर्ची / POD</span>
-                        </button>
-                        <button onClick={() => handleQuickAction('FUEL_CALL')} className="bg-orange-500/10 border border-orange-500/30 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
-                          <span className="text-3xl">{driverType === 'OWN' ? '⛽' : '📞'}</span>
-                          <span className="text-[13px] font-black text-orange-300">{driverType === 'OWN' ? 'डीज़ल का पैसा' : 'मालिक को फ़ोन'}</span>
-                        </button>
-                        <button onClick={() => handleQuickAction('EMERGENCY')} className="bg-red-500/15 border border-red-500/40 active:scale-95 p-4 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all min-h-[88px]">
-                          <span className="text-3xl">🆘</span>
-                          <span className="text-[13px] font-black text-red-300">{driverType === 'OWN' ? 'गाड़ी ख़राब / मदद' : 'मदद चाहिए'}</span>
-                        </button>
-                      </div>
-
-                      {/* 🏭 Plant-reporting stamp — detention billing counts from THIS
-                          moment, so the office no longer guesses the start date */}
-                      {!trip.office_approved_unloading && (
-                        trip.plant_reported_at ? (
-                          <div className="mb-5 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 text-center">
-                            <span className="text-emerald-300 font-black text-[14px]">🏭 प्लांट पहुँचे: {new Date(trip.plant_reported_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              if (!window.confirm('🏭 प्लांट पहुँच गए? अभी का समय दर्ज होगा — detention इसी से गिनेगा।')) return;
-                              updateTripData(trip.id, 'plant_reported_at', new Date().toISOString());
-                              if (currentLoc) updateTripData(trip.id, 'plant_reported_loc', currentLoc);
-                            }}
-                            className="w-full mb-5 bg-amber-500/15 border-2 border-amber-500/50 active:scale-95 p-4 rounded-2xl text-amber-300 font-black text-[15px] min-h-[60px] transition-all"
-                          >
-                            🏭 प्लांट पहुँच गया — समय दर्ज करो
-                          </button>
-                        )
-                      )}
-
-                      {/* 📦 ROUTE CARD */}
-                      <div className="bg-[#121212] rounded-[32px] border border-white/5 shadow-2xl p-6 relative overflow-hidden mb-6">
-                        
-                        <div className="mb-6 pb-6 border-b border-white/5 relative">
-                           <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1 font-mono">{trip.trip_id}</p>
-                           <div className="relative pl-8 mt-4 space-y-5">
-                             <div className="absolute left-[11px] top-2 bottom-2 w-[2px] bg-gradient-to-b from-blue-500 to-emerald-500 opacity-50"></div>
-                             <div className="relative">
-                               <div className="absolute -left-[35px] top-1.5 w-5 h-5 bg-[#121212] rounded-full border-4 border-blue-500"></div>
-                               <p className="text-[11px] font-bold text-white/70 tracking-widest mb-0.5">कहाँ से (Loading)</p>
-                               <p className="text-lg font-black text-white leading-tight">{trip.loading_point}</p>
-                             </div>
-                             <div className="relative">
-                               <div className="absolute -left-[35px] top-1.5 w-5 h-5 bg-[#121212] rounded-full border-4 border-emerald-500"></div>
-                               <p className="text-[11px] font-bold text-white/70 tracking-widest mb-0.5">कहाँ तक (Drop)</p>
-                               <p className="text-lg font-black text-white leading-tight">{trip.consignee_name}</p>
-                             </div>
-                           </div>
-                        </div>
-
-                        {/* Loading Inputs */}
-                        <div className="space-y-4">
-                          <h4 className="text-sm font-black text-blue-400 tracking-widest flex items-center gap-2"><span>1.</span> लोडिंग — कितना माल भरा?</h4>
-                          <input type="number" inputMode="decimal" placeholder="माल की मात्रा डालें (Loaded Qty)" defaultValue={trip.driver_loaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_loaded_qty', e.target.value)} disabled={trip.office_approved_loading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/20" />
-                          <div className="relative">
-                            {trip.driver_loading_photo ? (
-                              <div className="relative rounded-2xl overflow-hidden border border-white/10 h-32 group">
-                                <img src={trip.driver_loading_photo} alt="Challan" className="w-full h-full object-cover opacity-70 group-hover:opacity-40 transition-opacity" />
-                                {!trip.office_approved_loading && (
-                                  <label className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <span className="bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-lg">Retake 📸</span>
-                                    <input type="file" accept="image/*" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_loading_photo')} className="hidden" disabled={uploadingDoc === `${trip.id}_driver_loading_photo`} />
-                                  </label>
-                                )}
-                              </div>
-                            ) : (
-                              <label className="flex flex-col items-center justify-center w-full h-24 bg-white/5 border border-dashed border-blue-500/50 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
-                                <span className="text-2xl mb-1">📸</span><span className="text-blue-400 font-bold text-sm">चालान की फोटो भेजो</span>
-                                <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_loading_photo')} disabled={trip.office_approved_loading} className="hidden" />
-                              </label>
-                            )}
-                            {uploadingDoc === `${trip.id}_driver_loading_photo` && <div className="absolute inset-0 bg-[#121212]/80 flex items-center justify-center text-blue-400 text-xs font-black rounded-2xl backdrop-blur-sm">⏳ Uploading...</div>}
-                          </div>
-                        </div>
-                        
-                        {/* Unloading Inputs */}
-                        <div className="space-y-4 mt-8 pt-6 border-t border-white/5">
-                          <h4 className="text-sm font-black text-emerald-400 tracking-widest flex items-center gap-2"><span>2.</span> अनलोडिंग — कितना माल उतरा?</h4>
-                          <input type="number" inputMode="decimal" placeholder="उतरा हुआ माल डालें (Unloaded Qty)" defaultValue={trip.driver_unloaded_qty || ''} onBlur={(e) => updateTripData(trip.id, 'driver_unloaded_qty', e.target.value)} disabled={trip.office_approved_unloading} className="w-full bg-white/5 border border-white/10 p-4 rounded-2xl text-base font-black text-white outline-none focus:border-emerald-500 transition-all placeholder:text-white/20" />
-                          <div className="relative">
-                            {trip.driver_unloading_photo ? (
-                              <div className="relative rounded-2xl overflow-hidden border border-white/10 h-32 group">
-                                <img src={trip.driver_unloading_photo} alt="Receipt" className="w-full h-full object-cover opacity-70 group-hover:opacity-40 transition-opacity" />
-                                {!trip.office_approved_unloading && (
-                                  <label className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <span className="bg-emerald-600 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-lg">Retake 📸</span>
-                                    <input type="file" accept="image/*" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_unloading_photo')} className="hidden" disabled={uploadingDoc === `${trip.id}_driver_unloading_photo`} />
-                                  </label>
-                                )}
-                              </div>
-                            ) : (
-                              <label className="flex flex-col items-center justify-center w-full h-24 bg-white/5 border border-dashed border-emerald-500/50 rounded-2xl cursor-pointer hover:bg-white/10 transition-colors">
-                                <span className="text-2xl mb-1">📸</span><span className="text-emerald-400 font-bold text-sm">उतराई की पर्ची भेजो (POD)</span>
-                                <input type="file" accept="image/*" capture="environment" onChange={(e) => handleTripImageUpload(e, trip.id, 'driver_unloading_photo')} disabled={trip.office_approved_unloading} className="hidden" />
-                              </label>
-                            )}
-                            {uploadingDoc === `${trip.id}_driver_unloading_photo` && <div className="absolute inset-0 bg-[#121212]/80 flex items-center justify-center text-emerald-400 text-xs font-black rounded-2xl backdrop-blur-sm">⏳ Uploading...</div>}
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* 📒 TAB 2: खाता — balance + kharcha + request status (was DEAD UI: the
-              submit button had no onClick and the driver never saw any status) */}
-          {activeTab === 'EXPENSES' && driverType === 'OWN' && (
-            <div className="p-5 animate-fade-in-up space-y-6">
-
-              {/* 📒 खाता summary — office se kitna mila */}
-              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
-                <h3 className="text-xl font-black text-white mb-4">📒 मेरा खाता</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center">
-                    <p className="text-[12px] font-bold text-emerald-300">पैसा मिला (Advance)</p>
-                    <p className="text-2xl font-black text-emerald-400 mt-1">{inr(khataGiven)}</p>
-                  </div>
-                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 text-center">
-                    <p className="text-[12px] font-bold text-blue-300">हिसाब हुआ</p>
-                    <p className="text-2xl font-black text-blue-400 mt-1">{inr(khataRecovered)}</p>
-                  </div>
-                </div>
-                <p className="text-[11px] text-white/50 mt-3 text-center">पूरा हिसाब ऑफिस के पास है — कुछ गड़बड़ लगे तो 🆘 दबाओ।</p>
-              </div>
-
-              {/* ⛽ Kharcha form — REAL now */}
-              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
-                <h3 className="text-lg font-black text-white mb-1">⛽ खर्चा भेजो</h3>
-                <p className="text-[12px] text-white/60 mb-5">डीज़ल / टोल की पर्ची की फोटो के साथ ऑफिस को भेजें।</p>
-                <div className="space-y-4">
-                  <select value={expType} onChange={e => setExpType(e.target.value)} className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-base font-bold text-white outline-none focus:border-blue-500 transition-all appearance-none">
-                    <option>⛽ Diesel / Fuel Slip</option>
-                    <option>🛣️ Toll Tax Receipt</option>
-                    <option>👮 RTO / Border Kharcha</option>
-                    <option>🛠️ Vehicle Repair</option>
-                  </select>
-                  <input type="number" inputMode="decimal" value={expAmount} onChange={e => setExpAmount(e.target.value)} placeholder="कितने रुपये? (₹)" className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-blue-500 transition-all placeholder:text-white/30" />
-                  <label className={`w-full bg-[#0a0a0a] border-2 border-dashed ${expFile ? 'border-emerald-500 text-emerald-400' : 'border-white/20 text-white/60'} font-bold text-sm py-8 rounded-[20px] flex flex-col items-center justify-center cursor-pointer transition-colors`}>
-                    <span className="text-3xl mb-2">📸</span>
-                    {expFile ? '✅ पर्ची की फोटो लग गयी — बदलने के लिए दबाओ' : 'पर्ची की फोटो खींचो'}
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { setExpFile(e.target.files?.[0] || null); e.target.value = ''; }} />
-                  </label>
-                  <button onClick={submitExpense} disabled={sendingExp} className="w-full bg-blue-600 active:bg-blue-500 disabled:bg-zinc-700 text-white font-black text-lg py-4 rounded-[18px] shadow-[0_10px_20px_rgba(37,99,235,0.3)] active:scale-95 transition-transform min-h-[56px]">
-                    {sendingExp ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
-                  </button>
-                </div>
-              </div>
-
-              {/* 📑 कागज़ भेजो — every paper from the cab, photographed & staged.
-                  Photo-icon buttons, not a dropdown: the blueprint's rule for
-                  low-literacy users. Office approves before anything updates. */}
-              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
-                <h3 className="text-lg font-black text-white mb-1">📑 कागज़ भेजो</h3>
-                <p className="text-[12px] text-white/60 mb-4">लोडिंग इनवॉइस, चालान, टायर/मरम्मत/डीज़ल बिल — फोटो खींचो, ऑफिस चेक करके अप्रूव करेगा।</p>
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  {DOC_KINDS.map(([k, label]) => (
-                    <button key={k} onClick={() => setDocKind(k)}
-                      className={`py-3 px-2 rounded-2xl text-[13px] font-black border transition-all active:scale-95
-                        ${docKind === k ? 'bg-amber-500/20 border-amber-400 text-amber-300' : 'bg-[#0a0a0a] border-white/10 text-white/70'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                {QTY_KINDS.includes(docKind) && (
-                  <input type="number" inputMode="decimal" value={docQty} onChange={e => setDocQty(e.target.value)}
-                    placeholder={docKind === 'LOADING_QTY' ? 'कितना लोड हुआ? (KL / MT)' : 'कितना उतरा? (KL / MT)'}
-                    className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-amber-500 transition-all placeholder:text-white/30 mb-4" />
-                )}
-                {['HSD_BILL', 'TYRE_BILL', 'MAINTENANCE_BILL', 'TOLL_BILL', 'OTHER_BILL'].includes(docKind) && (
-                  <input type="number" inputMode="decimal" value={docAmount} onChange={e => setDocAmount(e.target.value)}
-                    placeholder="बिल कितने रुपये का? (₹)"
-                    className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[18px] text-lg font-black text-white outline-none focus:border-amber-500 transition-all placeholder:text-white/30 mb-4" />
-                )}
-                <label className={`w-full bg-[#0a0a0a] border-2 border-dashed ${docFile ? 'border-emerald-500 text-emerald-400' : 'border-white/20 text-white/60'} font-bold text-sm py-8 rounded-[20px] flex flex-col items-center justify-center cursor-pointer transition-colors mb-4`}>
-                  <span className="text-3xl mb-2">📸</span>
-                  {docFile ? '✅ फोटो लग गयी — बदलने के लिए दबाओ' : 'कागज़ की फोटो खींचो'}
-                  <input type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-                    onChange={e => { setDocFile(e.target.files?.[0] || null); e.target.value = ''; }} />
-                </label>
-                <button onClick={submitDocument} disabled={sendingDoc}
-                  className="w-full bg-amber-600 active:bg-amber-500 disabled:bg-zinc-700 text-white font-black text-lg py-4 rounded-[18px] shadow-[0_10px_20px_rgba(217,119,6,0.3)] active:scale-95 transition-transform min-h-[56px]">
-                  {sendingDoc ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
-                </button>
-                {myDocs.length > 0 && (
-                  <div className="mt-5 space-y-2">
-                    {myDocs.slice(0, 10).map(d => (
-                      <div key={d.id} className="flex justify-between items-center bg-[#0a0a0a] border border-white/5 rounded-2xl p-3">
-                        <div className="min-w-0">
-                          <p className="text-[13px] font-black text-white truncate">
-                            {(DOC_KINDS.find(([k]) => k === d.doc_type)?.[1]) ?? d.doc_type}
-                            {d.amount ? ` · ${inr(d.amount)}` : ''}
-                          </p>
-                          <p className="text-[11px] text-white/50 truncate">
-                            {String(d.created_at || '').slice(0, 10)}{d.reject_reason ? ` · ${d.reject_reason}` : ''}
-                          </p>
-                        </div>
-                        <span className={`text-[12px] font-black px-3 py-1.5 rounded-full whitespace-nowrap
-                          ${d.status === 'APPROVED' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30'
-                            : d.status === 'REJECTED' ? 'text-red-400 bg-red-500/10 border border-red-500/30'
-                            : d.status === 'NEEDS_CORRECTION' ? 'text-orange-300 bg-orange-500/10 border border-orange-500/30'
-                            : 'text-amber-400 bg-amber-500/10 border border-amber-500/30'}`}>
-                          {d.status === 'APPROVED' ? '✅ हो गया' : d.status === 'REJECTED' ? '❌ वापस' : d.status === 'NEEDS_CORRECTION' ? '🔁 सुधार कर दोबारा भेजो' : '⏳ चेक हो रहा'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 📨 मेरी रिक्वेस्ट — status timeline (closes the phone-call loop) */}
-              <div className="bg-[#121212] rounded-[28px] p-6 border border-white/5 shadow-2xl">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-lg font-black text-white">📨 मेरी रिक्वेस्ट</h3>
-                  <button onClick={() => fetchDriverExtras(driver)} className="text-[12px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-xl">🔄 ताज़ा करो</button>
-                </div>
-                {myRequests.length === 0 ? (
-                  <p className="text-sm text-white/50 text-center py-4">अभी कोई रिक्वेस्ट नहीं भेजी।</p>
-                ) : (
-                  <div className="space-y-3">
-                    {myRequests.map(r => {
-                      const st = REQ_STATUS[r.status] || REQ_STATUS.PENDING;
-                      return (
-                        <div key={r.id} className="flex justify-between items-center bg-[#0a0a0a] border border-white/5 rounded-2xl p-4">
-                          <div className="min-w-0">
-                            <p className="text-sm font-black text-white truncate">{r.type === 'EXPENSE' ? '⛽ खर्चा' : r.type === 'ADVANCE' ? '💸 एडवांस' : r.type === 'FUEL' ? '⛽ डीज़ल' : r.type} {r.amount ? `· ${inr(r.amount)}` : ''}</p>
-                            <p className="text-[11px] text-white/50 truncate">{String(r.createdAt || '').slice(0, 10)} · {r.remarks || ''}</p>
-                          </div>
-                          <span className="text-[12px] font-black px-3 py-1.5 rounded-full whitespace-nowrap" style={{ color: st.color, background: st.color + '1a', border: `1px solid ${st.color}55` }}>{st.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 🪪 TAB 3: KYC & PROFILE - ONLY FOR OWN DRIVERS */}
-          {activeTab === 'KYC' && driverType === 'OWN' && (
-            <div className="p-5 animate-fade-in-up space-y-6">
-              
-              <div className="flex items-center justify-between bg-[#121212] p-4 rounded-2xl border border-white/5 shadow-lg">
-                <span className="text-sm font-black text-white">My Documents</span>
-                {driver.approval_status === 'APPROVED' ? (
-                  <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black border border-emerald-500/20">✅ VERIFIED</span>
-                ) : (
-                  <span className="bg-orange-500/10 text-orange-400 px-3 py-1 rounded-full text-[10px] font-black border border-orange-500/20 animate-pulse">⏳ PENDING VERIFICATION</span>
-                )}
-              </div>
-
-              {/* TEXT INPUTS FOR AADHAR & BANK */}
-              <div className="bg-[#121212] p-6 rounded-[24px] border border-white/5 shadow-xl space-y-5">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2"><span>📋</span> Basic Details</h3>
-                
-                <div>
-                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5 pl-1">Aadhar Number</label>
-                  <input type="text" defaultValue={driver.aadhar_no || ''} onBlur={(e) => updateDriverKYC('aadhar_no', e.target.value)} disabled={driver.approval_status === 'APPROVED'} className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[20px] text-sm font-black text-white font-mono tracking-widest outline-none focus:border-blue-500 disabled:opacity-60 transition-all placeholder:text-white/20" placeholder="XXXX XXXX XXXX" />
-                </div>
-                
-                <div>
-                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5 pl-1">Bank Account Number</label>
-                  <input type="text" defaultValue={driver.account_no || ''} onBlur={(e) => updateDriverKYC('account_no', e.target.value)} disabled={driver.approval_status === 'APPROVED'} className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[20px] text-sm font-black text-white font-mono tracking-widest outline-none focus:border-emerald-500 disabled:opacity-60 transition-all placeholder:text-white/20" placeholder="A/C No" />
-                </div>
-                
-                <div>
-                  <label className="block text-[10px] font-bold text-white/40 uppercase tracking-widest mb-1.5 pl-1">Bank IFSC Code</label>
-                  <input type="text" defaultValue={driver.ifsc_code || ''} onBlur={(e) => updateDriverKYC('ifsc_code', e.target.value)} disabled={driver.approval_status === 'APPROVED'} className="w-full bg-[#0a0a0a] border border-white/10 p-4 rounded-[20px] text-sm font-black text-white font-mono tracking-widest outline-none focus:border-emerald-500 disabled:opacity-60 uppercase transition-all placeholder:text-white/20" placeholder="IFSC" />
-                </div>
-              </div>
-
-              {/* PHOTO UPLOADS */}
-              <div className="space-y-4">
-                {[
-                  { id: 'dl_photo', title: 'Driving License (DL)', icon: '🪪', key: driver.dl_photo },
-                  { id: 'aadhar_photo', title: 'Aadhar Card', icon: '📄', key: driver.aadhar_photo },
-                  { id: 'bank_photo', title: 'Bank Passbook', icon: '🏦', key: driver.bank_photo }
-                ].map((doc) => (
-                  <div key={doc.id} className="bg-[#121212] p-5 rounded-[24px] border border-white/5 shadow-xl">
-                    <div className="flex justify-between items-center mb-4">
-                      <span className="text-sm font-bold text-white flex items-center gap-2">{doc.icon} {doc.title}</span>
-                      {doc.key ? <span className="text-[10px] text-emerald-400 font-bold bg-emerald-500/10 px-2 py-1 rounded-md">Uploaded ✅</span> : <span className="text-[10px] text-orange-400 font-bold bg-orange-500/10 px-2 py-1 rounded-md">Pending ⚠️</span>}
-                    </div>
-                    {doc.key ? (
-                      <div className="relative rounded-xl overflow-hidden h-32 border border-white/10 group">
-                        <img src={doc.key} alt="Doc" className="w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-opacity" />
-                        {driver.approval_status !== 'APPROVED' && (
-                          <label className="absolute inset-0 flex items-center justify-center cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity">
-                            <span className="bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded-lg shadow-lg">Retake Photo 📸</span>
-                            <input type="file" accept="image/*" onChange={(e) => handleDriverDocumentUpload(e, doc.id)} className="hidden" disabled={uploadingDoc === doc.id} />
-                          </label>
-                        )}
-                      </div>
-                    ) : (
-                      <label className="flex flex-col items-center justify-center w-full h-24 bg-white/5 border border-dashed border-white/20 rounded-xl cursor-pointer text-blue-400 text-xs font-bold hover:bg-white/10 hover:border-blue-500/50 transition-all">
-                        <span className="text-2xl mb-1">📸</span>
-                        Click Photo to Upload
-                        <input type="file" accept="image/*" capture="environment" onChange={(e) => handleDriverDocumentUpload(e, doc.id)} className="hidden" disabled={uploadingDoc === doc.id || driver.approval_status === 'APPROVED'} />
-                      </label>
-                    )}
-                    {uploadingDoc === doc.id && <p className="text-[10px] text-blue-400 mt-3 text-center animate-pulse font-bold">⏳ Uploading securely to ERP...</p>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
         </div>
-
-        {/* 📱 MODERN FLOATING BOTTOM NAV */}
-        <div className={`absolute bottom-6 left-6 right-6 bg-[#1a1a1a]/90 backdrop-blur-2xl border border-white/10 rounded-[32px] p-2 flex justify-between items-center z-50 shadow-[0_20px_40px_rgba(0,0,0,0.5)] ${driverType === 'MARKET' ? 'justify-center' : ''}`}>
-          
-          <button onClick={() => setActiveTab('TRIPS')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'TRIPS' ? 'text-blue-400 scale-105' : 'text-white/60'}`}>
-            <span className="text-2xl mb-0.5">🗺️</span><span className="text-[12px] font-black">ड्यूटी</span>
-          </button>
-
-          {/* 🔥 HIDE EXPENSES & KYC FOR MARKET DRIVER 🔥 */}
-          {driverType === 'OWN' && (
-            <>
-              <button onClick={() => setActiveTab('EXPENSES')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'EXPENSES' ? 'text-emerald-400 scale-105' : 'text-white/60'}`}>
-                <span className="text-2xl mb-0.5">📒</span><span className="text-[12px] font-black">खाता</span>
-              </button>
-              <button onClick={() => setActiveTab('KYC')} className={`flex-1 flex flex-col items-center py-2.5 transition-all min-h-[56px] ${activeTab === 'KYC' ? 'text-orange-400 scale-105' : 'text-white/60'}`}>
-                <span className="text-2xl mb-0.5">🪪</span><span className="text-[12px] font-black">कागज़</span>
-              </button>
-            </>
-          )}
-
-        </div>
-
       </div>
 
-      {/* 💸 पैसा माँगो sheet — proper numeric keypad, no window.prompt */}
-      <BottomSheet open={!!askSheet} onClose={() => setAskSheet(null)} title={askSheet?.title || ''} accent="#3b82f6" maxWidth={440}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', color: '#93c5fd', marginBottom: '8px' }}>कितने रुपये चाहिए?</label>
-            <input type="number" inputMode="decimal" autoFocus value={askAmount} onChange={e => setAskAmount(e.target.value)}
-              placeholder="₹ 0"
-              style={{ width: '100%', boxSizing: 'border-box', background: '#0a0a0a', border: '2px solid #3b82f6', borderRadius: '16px', color: 'white', fontSize: '32px', fontWeight: 900, textAlign: 'center', padding: '16px', outline: 'none' }} />
-            <div style={{ display: 'flex', gap: '8px', marginTop: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {[500, 1000, 2000, 5000].map(v => (
-                <button key={v} onClick={() => setAskAmount(String(v))} style={{ background: 'rgba(59,130,246,0.12)', color: '#93c5fd', border: '1px solid rgba(59,130,246,0.4)', borderRadius: '999px', padding: '10px 16px', fontWeight: 'bold', cursor: 'pointer', minHeight: '44px' }}>₹{v.toLocaleString('en-IN')}</button>
-              ))}
-            </div>
-          </div>
-          <input type="text" value={askRemarks} onChange={e => setAskRemarks(e.target.value)} placeholder="किस लिए? (optional)"
-            style={{ width: '100%', boxSizing: 'border-box', background: '#0a0a0a', border: '1px solid #334155', borderRadius: '14px', color: 'white', fontSize: '15px', padding: '14px', outline: 'none' }} />
-          <button onClick={() => { const a = parseFloat(askAmount); if (!Number.isFinite(a) || a <= 0) return alert('⚠️ Sahi amount daalein!'); sendRequest(askSheet.type, a, askRemarks || askSheet.title); }} disabled={sendingReq}
-            style={{ width: '100%', background: sendingReq ? '#3f3f46' : '#3b82f6', color: 'white', border: 'none', borderRadius: '16px', padding: '18px', fontSize: '18px', fontWeight: 900, cursor: 'pointer', minHeight: '56px' }}>
-            {sendingReq ? '⏳ भेज रहे हैं…' : 'ऑफिस को भेजो 🚀'}
-          </button>
+      {/* notices */}
+      {notices.slice(0, 2).map((n) => (
+        <div key={n.id} className="mx-3 mt-2 flex items-start gap-2 rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2" data-notice>
+          <span className="text-[18px]">📢</span>
+          <div className="min-w-0 flex-1"><div className="text-[14px] font-extrabold text-red-800">{n.title}</div>{n.body && <div className="text-[12px] font-semibold text-red-900/80">{n.body}</div>}</div>
+          <button onClick={() => dismissNotice(n)} className="text-[14px] font-black text-red-700">✕</button>
         </div>
-      </BottomSheet>
+      ))}
 
-      <style>{`
-        .animate-fade-in-up { animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-      `}</style>
+      {/* ledger */}
+      {!market && (
+        <div className="mx-3 mt-2 rounded-2xl border-2 border-slate-200 bg-white px-3 pb-1 pt-2" data-ledger>
+          <div className="flex items-center justify-between text-[12.5px] font-extrabold text-slate-700">💰 {t.ledger}<span className="text-[10.5px] font-semibold text-slate-500">{led?.trip_code ?? ''}{led?.rtkm ? ` · ${led.rtkm} km` : ''}</span></div>
+          <div className="grid grid-cols-[22px_1fr_auto] items-center gap-2 border-t border-slate-100 py-1.5">
+            <span className="text-[18px]">⛽</span>
+            <div><div className="text-[12.5px] font-extrabold leading-tight">{t.hsd}</div>
+              <div className="text-[10.5px] font-semibold text-slate-500">{led?.hsd?.target_l != null ? `${t.target} ${litres(led.hsd.target_l)} · ${t.got} ${litres(led.hsd.issued_l)}` : `${t.got} ${litres(led?.hsd?.issued_l ?? 0)}`}</div>
+              <Bar frac={hsdFrac} over={!!led?.hsd?.over} />
+              {led?.hsd?.over && <div className="mt-0.5 text-[10px] font-extrabold text-red-600">{t.over} {litres(-led.hsd.balance_l)} {t.overSuffix}</div>}
+            </div>
+            <Bal line={led?.hsd ? { ...led.hsd, target: led.hsd.target_l } : null} unit="L" />
+          </div>
+          <div className="grid grid-cols-[22px_1fr_auto] items-center gap-2 border-t border-slate-100 py-1.5">
+            <span className="text-[18px]">💵</span>
+            <div><div className="text-[12.5px] font-extrabold leading-tight">{t.cash}</div>
+              <div className="text-[10.5px] font-semibold text-slate-500">{led?.cash?.target != null ? `${t.target} ${inr(led.cash.target)} · ${t.got} ${inr(led.cash.paid)}` : `${t.got} ${inr(led?.cash?.paid ?? 0)}`}</div>
+              <Bar frac={cashFrac} over={!!led?.cash?.over} />
+              {led?.cash?.over && <div className="mt-0.5 text-[10px] font-extrabold text-red-600">{t.over} {inr(-led.cash.balance)} {t.overSuffix}</div>}
+            </div>
+            <Bal line={led?.cash ?? null} unit="₹" />
+          </div>
+        </div>
+      )}
+
+      {/* buttons */}
+      <div className="flex flex-1 flex-col gap-2 px-3 pb-3 pt-2">
+        <div className={`grid flex-1 gap-2 ${market ? 'grid-cols-2' : 'grid-cols-2'}`}>
+          <Tile docType="LOADING_INVOICE" tone="bg-violet-600" icon="📄" label={t.loading} sub={T.en.loading === t.loading ? 'लोडिंग इनवॉइस' : 'Loading Invoice'} onClick={() => openCamera('LOADING_INVOICE')} big={market} />
+          <Tile docType="POD" tone="bg-green-600" icon="📦" label={t.pod} sub={T.en.pod === t.pod ? 'अनलोडिंग पर्ची' : 'Unloading POD'} onClick={() => openCamera('POD')} big={market} />
+          {!market && <Tile docType="HSD_BILL" tone="bg-amber-500 text-[#1f1300]" icon="⛽" label={t.diesel} sub={T.en.diesel === t.diesel ? 'डीज़ल पर्ची' : 'Diesel Slip'} onClick={() => openCamera('HSD_BILL')} />}
+          {!market && <Tile docType="LOCKER" tone="bg-blue-600" icon="📋" label={t.locker} sub={T.en.locker === t.locker ? 'डिजिटल लॉकर' : 'Digital Locker'} badge={lockerPending ? `${lockerPending} ${t.pending}` : null} onClick={() => setScreen('LOCKER')} />}
+        </div>
+        {queue.length > 0 && <div className="rounded-xl bg-amber-100 px-3 py-1.5 text-center text-[12px] font-bold text-amber-900">⏳ {queue.length} {t.queuedN}</div>}
+        <a href={DISPATCH_MOBILE ? `tel:+91${DISPATCH_MOBILE}` : undefined} onClick={(e) => { if (!DISPATCH_MOBILE) { e.preventDefault(); say('📞 ' + t.call); } }}
+          className="block min-h-[48px] rounded-2xl bg-slate-900 text-center text-[17px] font-extrabold leading-[48px] text-white" data-call>📞 {t.call}</a>
+        {market && <button onClick={signOut} className="pt-1 text-center text-[12px] font-bold text-slate-400">⏻ {t.logout}</button>}
+      </div>
+      {toast && <div className="fixed bottom-24 left-1/2 z-[900] w-[88%] max-w-sm -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-center text-[15px] font-extrabold text-white shadow-2xl">{toast}</div>}
     </div>
   );
 }

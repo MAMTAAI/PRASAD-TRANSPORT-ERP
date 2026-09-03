@@ -143,6 +143,9 @@ function AppShell() {
     if (typeof window === 'undefined') return false;
     const { pathname, search } = window.location;
     if (/^\/(login|office)\/?$/i.test(pathname)) return false;
+    // The WhatsApp login link (/driver?k=…) is its own door — the token IS the
+    // login. It must reach DriverPortal's claim, never the OTP screen.
+    if (/^\/driver\/?$/i.test(pathname) || new URLSearchParams(search).has('k')) return false;
     if (/^\/app\/?$/i.test(pathname) || new URLSearchParams(search).has('gateway')) return true;
     return /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent || '');
   })();

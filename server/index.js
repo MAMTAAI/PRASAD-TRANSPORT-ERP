@@ -97,6 +97,7 @@ import { registerAccessRoutes } from './modules/access.routes.js';
 import { registerVendorPortalRoutes } from './modules/vendorPortal.routes.js';
 import { registerCustomerPortalRoutes } from './modules/customerPortal.routes.js';
 import { registerDriverPortalRoutes } from './modules/driverPortal.routes.js';
+import { registerDriverControlRoutes } from './modules/driverControl.routes.js';
 import { registerStatementRoutes } from './modules/statements.routes.js';
 import { startScheduler } from './lib/scheduler.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
@@ -338,6 +339,9 @@ await app.register(registerCustomerPortalRoutes, { prefix: '/api/v1' });
 // Driver app: own trips, khata, staged requests (2026-08-31 audit — replaces
 // the /ops and /masters surfaces drivers could or could not wrongly reach).
 await app.register(registerDriverPortalRoutes, { prefix: '/api/v1' });
+// Driver Control Dashboard (owner, 2026-09-03) — the slide-out's own reads and
+// the HSD / cash issuance; everything else it does rides existing routes.
+await app.register(registerDriverControlRoutes, { prefix: '/api/v1/driver-control' });
 // Account statement PDFs: each party downloads its own; the office any/all.
 await app.register(registerStatementRoutes, { prefix: '/api/v1' });
 

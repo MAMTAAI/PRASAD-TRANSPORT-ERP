@@ -37,6 +37,7 @@ import { expiryTone, expiryLabel } from './useDashboardData';
 import { uploadMedia, slug } from '../lib/uploadMedia';
 import { extractDocument } from '../lib/aiScanner';
 import { API_BASE } from '../lib/apiBase';
+import { openDriverControl } from '../components/DriverControlDrawer';
 
 const MASTERS = `${API_BASE}/api/v1/masters`;
 
@@ -235,8 +236,12 @@ export default function DriverCommandCenter({ drivers, alerts }) {
             <button
               key={d.id || d.name}
               type="button"
-              onClick={() => { setOpen(d); setNote(null); }}
-              title={`${d.name} — kaagaz dekhein aur upload karein`}
+              // A row opens the Driver Control Dashboard — the slide-out with
+              // status, ledger, locker, map (owner, 2026-09-03). The old
+              // upload-only modal remains for a row that carries no id.
+              onClick={() => { if (d.id) openDriverControl(d.id, d.name); else { setOpen(d); setNote(null); } }}
+              data-driver-link={d.id || undefined}
+              title={`${d.name} — Driver Control Dashboard`}
               className={`${ROW_CLS} items-center w-full text-left hover:border-cyan-500/40`}
             >
               <span className={`shrink-0 grid place-items-center w-5 h-5 rounded-md border text-[8px] font-black ${TONE_CHIP[worstOf(d)]}`}>

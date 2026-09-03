@@ -36,6 +36,7 @@ import { API_BASE } from '../lib/apiBase';
 import { GlassPanel, PanelHeader, Avatar, Dot } from './shared';
 import { MyWhatsApp, WA_LINK_ROLES } from '../ui/whatsappLink';
 import { compressImage, compressPdf } from '../lib/uploadMedia';
+import { openDriverControl } from '../components/DriverControlDrawer';
 
 const authHeaders = () => {
   const token = localStorage.getItem('prasad_token');
@@ -575,7 +576,15 @@ export default function DispatchTripChat({ trips, offline, onExpand, onNewContac
                       <>
                         <p className="text-[10px] text-slate-400 truncate">
                           {t.vehicle_no || 'gaadi darj nahi'}
-                          {t.driver_name ? <span className="text-slate-500"> · {t.driver_name}</span> : null}
+                          {/* The driver's name opens the Driver Control Dashboard
+                              (owner, 2026-09-03) — a slide-out over this screen. */}
+                          {t.driver_name ? (
+                            t.driver_id
+                              ? <span role="button" title="Driver Control Dashboard" data-driver-link
+                                  onClick={(e) => { e.stopPropagation(); openDriverControl(t.driver_id, t.driver_name); }}
+                                  className="cursor-pointer text-slate-400 underline decoration-dotted decoration-cyan-500/60 underline-offset-2 hover:text-cyan-300"> · {t.driver_name}</span>
+                              : <span className="text-slate-500"> · {t.driver_name}</span>
+                          ) : null}
                         </p>
                         <p className="text-[9.5px] text-slate-600 truncate">{lane(t)}</p>
                       </>

@@ -56,6 +56,7 @@ export default function RouteMap({
   height = 260,
   className = '',
   onStatus,          // (state) => void — 'ready' | 'nokey' | 'error'
+  light = false,     // the driver app is a light screen (owner, 2026-09-03): plain Google styling, not the ERP's dark theme
 }) {
   const box = useRef(null);
   const map = useRef(null);
@@ -73,11 +74,11 @@ export default function RouteMap({
         map.current = new g.maps.Map(box.current, {
           center: { lat: 26.35, lng: 91.15 },      // lower NH-27, where the fleet runs
           zoom: 7,
-          styles: DARK,
+          styles: light ? [] : DARK,
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: 'greedy',   // a phone map inside a scrolling page
-          backgroundColor: '#0b1220',
+          backgroundColor: light ? '#e8efe3' : '#0b1220',
         });
         setState('ready'); onStatus?.('ready');
       })

@@ -125,6 +125,21 @@ export function partnerDocDrawerProps(r, { userName, decide, isAdmin = true }) {
     ];
     approveLabel = '✅ Approve & update driver';
     footnote = 'Approve stores the passbook photo and updates the bank fields you fill (blank keeps the existing value). Driver payments use these.';
+  } else if (r.doc_type === 'PAN') {
+    fields = [
+      { key: 'pan_no', label: 'PAN number', value: r.ocr_data?.suggest?.pan_no ?? '', editable: true, hint: 'Blank keeps the number already on file.' },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & update driver';
+    footnote = 'Approve stores the PAN photo on the driver record and updates the PAN number if you fill it.';
+  } else if (r.doc_type === 'HZD') {
+    fields = [
+      { key: 'hzd_cert_no', label: 'Certificate no', value: r.ocr_data?.suggest?.hzd_cert_no ?? '', editable: true, hint: 'Blank keeps the number already on file.' },
+      { key: 'hzd_expiry', label: 'Valid till', value: r.ocr_data?.suggest?.hzd_expiry ?? '', editable: true, type: 'date' },
+      ...common,
+    ];
+    approveLabel = '✅ Approve & update driver';
+    footnote = 'Approve stores the Hazardous certificate on the driver record and updates its number / expiry if you fill them. An expired HZD stops the lorry at the first check.';
   } else {
     fields = [
       { key: 'bill_no', label: 'Reference no', value: r.bill_no ?? '', editable: true },
@@ -136,7 +151,7 @@ export function partnerDocDrawerProps(r, { userName, decide, isAdmin = true }) {
       ? 'Verify keeps the POD photo on the trip (driver_unloading_photo) and tells the driver. Freight and settlement are untouched.'
       : 'Verify marks the paper checked and tells the uploader on WhatsApp. This kind of paper writes no core column.';
   }
-  const EDIT_KEYS = ['bill_no', 'bill_date', 'vehicle_no', 'qty', 'license_no', 'license_expiry', 'aadhar_no', 'bank_name', 'account_no', 'ifsc_code'];
+  const EDIT_KEYS = ['bill_no', 'bill_date', 'vehicle_no', 'qty', 'license_no', 'license_expiry', 'aadhar_no', 'bank_name', 'account_no', 'ifsc_code', 'pan_no', 'hzd_cert_no', 'hzd_expiry'];
   return {
     title: `${DOC_LABEL[r.doc_type] ?? r.doc_type} · ${r.uploader_name}`,
     subtitle: `${String(r.uploader_role ?? '').toLowerCase()} app upload · ${when(r.created_at)}${r.trip_code ? ` · trip ${r.trip_code}` : ''}`,
