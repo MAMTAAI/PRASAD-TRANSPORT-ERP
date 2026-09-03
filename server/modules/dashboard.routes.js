@@ -476,7 +476,10 @@ export function registerDashboardRoutes(app) {
   // filters (filtersOf), so a company-scoped view never serves the group's
   // numbers. Same-payload-for-all is safe here: the route is staff-only via
   // the global guard, and it already serves identical data to every staff.
-  const V5_TTL_MS = Number(process.env.DASHBOARD_V5_CACHE_MS || 6000);
+  // 30 s: the hubs poll every 8 s, so a 6 s TTL missed on every poll and
+  // re-ran the whole handler for each of them. A write announces itself with
+  // ?fresh=1 (see src/mastercontrol/useDashboardData.ts) and skips the cache.
+  const V5_TTL_MS = Number(process.env.DASHBOARD_V5_CACHE_MS || 30000);
   const v5Cache = new Map();
 
   app.get('/dashboard/v5', async (req, reply) => {
@@ -487,8 +490,9 @@ export function registerDashboardRoutes(app) {
     const t0 = Date.now();
 
     const cacheKey = JSON.stringify(filtersOf(req.query));
+    const fresh = String(req.query?.fresh ?? '') === '1';
     const hit = v5Cache.get(cacheKey);
-    if (hit && t0 - hit.at < V5_TTL_MS) return hit.payload;
+    if (!fresh && hit && t0 - hit.at < V5_TTL_MS) return hit.payload;
 
     // ── THE 3-TIER FILTER ───────────────────────────────────────────────────
     // Company -> Branch -> Fleet/Owner. Every value is optional and NULL means
@@ -994,8 +998,14 @@ export function registerDashboardRoutes(app) {
                                  ELSE CASE WHEN e.dr_cr = 'DR' THEN e.amount ELSE -e.amount END
                             END), 0)::numeric(16,2) AS amount
           FROM account_groups g
-          LEFT JOIN ledger_entries e ON e.ledger_name IN (
-                 SELECT ledger_name FROM ledgers WHERE group_head = g.group_head)
+          -- DISTINCT because ledgers carries duplicate names (7 as of Sep-2026);
+          -- a plain join would count those entries once per duplicate. This is
+          -- the join form of "ledger_name IN (names of the group)": that IN was
+          -- planned as a correlated subplan run 91,000 times per call (1.5 s);
+          -- the join reads the ledger_entries_ledger_idx index (2 ms).
+          LEFT JOIN (SELECT DISTINCT ledger_name, group_head FROM ledgers) l
+                 ON l.group_head = g.group_head
+          LEFT JOIN ledger_entries e ON e.ledger_name = l.ledger_name
                AND ($1::uuid IS NULL OR e.company_id = $1::uuid)
          WHERE g.statement = 'PROFIT_AND_LOSS'
          GROUP BY g.group_head, g.account_type, g.sort_order

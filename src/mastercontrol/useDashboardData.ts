@@ -28,11 +28,14 @@ export default function useDashboardData(qs = '') {
   const [fetchedAt, setFetchedAt] = useState(null);
   const alive = useRef(true);
 
-  const load = useCallback(async () => {
+  // fresh=1 skips the server's 30 s cache — used only after a write announced
+  // itself, so "save and look" stays instant while the poll stays cheap.
+  const load = useCallback(async (fresh = false) => {
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 20000);
-      const res = await fetch(`${API_BASE}/api/v1/dashboard/v5${qs}`, {
+      const url = `${API_BASE}/api/v1/dashboard/v5${qs}${fresh ? (qs ? '&' : '?') + 'fresh=1' : ''}`;
+      const res = await fetch(url, {
         signal: ctl.signal,
         headers: { Authorization: `Bearer ${localStorage.getItem('prasad_token') || ''}` },
       });
@@ -70,7 +73,7 @@ export default function useDashboardData(qs = '') {
     // Cheaper and far less to go wrong than a socket, and it covers the case
     // that actually bites -- saving a trip in one tab and watching the dashboard
     // in another still needs the poll, but saving and looking is instant.
-    const onChanged = () => load();
+    const onChanged = () => load(true);
     window.addEventListener('erp:data-changed', onChanged);
     return () => {
       alive.current = false;
