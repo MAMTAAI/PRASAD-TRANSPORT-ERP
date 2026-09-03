@@ -260,6 +260,18 @@ export default function PendingExpenses() {
   const [rows, setRows] = useState([]);
   const [statusTab, setStatusTab] = useState('PENDING');
   const [busyId, setBusyId] = useState('');
+  // The three operating firms, and the one picked per pending card. Loaded once
+  // — the list is three rows and does not change mid-session (owner, 3-Sep).
+  const [companies, setCompanies] = useState([]);
+  const [pickedCo, setPickedCo] = useState({});
+  useEffect(() => {
+    fetch(`${API}/api/v1/finance/masters/companies`, {
+      headers: { ...(localStorage.getItem('prasad_token') ? { Authorization: `Bearer ${localStorage.getItem('prasad_token')}` } : {}) },
+    })
+      .then((r) => (r.ok ? r.json() : { companies: [] }))
+      .then((j) => setCompanies(j.companies ?? []))
+      .catch(() => setCompanies([]));
+  }, []);
   const [view, setView] = useState(null);   // the expense open in the approval drawer
 
   // Edit-before-approve: the pending row is corrected first (PATCH, admin only,
@@ -401,10 +413,15 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
 
   const handleApprove = async (row) => {
     if (!isAdmin) return alert('🔒 Sirf Admin approve kar sakte hain.');
+    // WHOSE BOOKS (owner, 3-Sep). Three firms, three ledgers — a bill with no
+    // company posts into none of them, so it is asked for here, on the card,
+    // where the person reading the bill already is.
+    const company = pickedCo[row.id] ?? row.company_id ?? '';
+    if (!company) return alert('⚠️ Pehle company chunein — ledger usi company ke naam par post hoga.');
     if (!window.confirm(`✅ Approve ₹${Number(row.amount).toLocaleString('en-IN')} (${row.expense_type}) ${row.trip_id ? `→ Trip ${row.trip_id} ka P&L retro-adjust hoga` : '(general expense)'}?\n\nJournal + ledger turant post honge.`)) return;
     setBusyId(row.id);
     try {
-      await approveRetroExpense(row, userName);
+      await approveRetroExpense(row, userName, company);
       await reload();
       alert(`✅ Posted! ${row.trip_id ? `Trip ${row.trip_id} ki settlement re-finalize ho gayi.` : 'Journal update ho gaya.'}`);
     } catch (e) { alert('❌ Approve failed: ' + (e?.message || '')); }
@@ -621,6 +638,29 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                   </div>
                 ) : (
                   <div style={{ fontSize: '12px', color: '#64748b' }}>Bina trip — general expense</div>
+                )}
+                {r.status === 'PENDING' && isAdmin && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+                    <span style={{ color: '#94a3b8', fontWeight: 700 }}>🏢 Company (books)</span>
+                    <select
+                      value={pickedCo[r.id] ?? r.company_id ?? ''}
+                      onChange={(e) => setPickedCo((m) => ({ ...m, [r.id]: e.target.value }))}
+                      className="modern-input"
+                      // A bare <select> ignores most of .modern-input and paints
+                      // itself white, which on this screen reads as a broken
+                      // field rather than a choice. colorScheme makes the native
+                      // dropdown dark too, not just the closed box.
+                      style={{
+                        flex: 1, minWidth: '190px', minHeight: '38px', colorScheme: 'dark',
+                        background: '#020617', color: '#e2e8f0', border: '1px solid #334155',
+                        borderRadius: '9px', padding: '6px 10px', fontWeight: 700,
+                      }}
+                      data-company={r.id}
+                    >
+                      <option value="">— choose the company —</option>
+                      {companies.map((c) => <option key={c.id} value={c.id}>{c.company_name}</option>)}
+                    </select>
+                  </div>
                 )}
                 {r.status === 'PENDING' && (
                   isAdmin ? (

@@ -368,16 +368,25 @@ function drawerFor(section, r, ctx) {
         { key: 'bill_date', label: 'Bill date', value: String(r.bill_date ?? '').slice(0, 10), editable: true, type: 'date' },
         { key: 'vehicle_no', label: 'Vehicle', value: r.vehicle_no ?? '', editable: true },
         { key: 'description', label: 'Description', value: r.description ?? '', editable: true, wide: true },
+        // WHOSE BOOKS. The three firms keep separate ledgers, and both legs of
+        // this voucher are stamped with whatever is chosen here — so the office
+        // can correct the vendor at the moment somebody actually reads the bill.
+        { key: 'company_id', label: 'Company (books)', value: r.company_id ?? '', editable: true, type: 'select',
+          options: [{ value: '', label: '— choose the company —' },
+                    ...(ctx.companies ?? []).map((c) => ({ value: c.id, label: c.company_name }))],
+          render: (v) => (ctx.companies ?? []).find((c) => c.id === v)?.company_name ?? (v ? String(v).slice(0, 8) : '— not set —') },
       ],
       approveLabel: '✅ Approve & Post',
       onSaveEdits: async (edits) => { await api(`/queues/expenses/${r.id}`, { method: 'PATCH', body: JSON.stringify(nullify(edits)) }); },
       onApprove: async (edits) => {
         if (Object.keys(edits).length) await api(`/queues/expenses/${r.id}`, { method: 'PATCH', body: JSON.stringify(nullify(edits)) });
         if (!(Number(edits.amount ?? r.amount) > 0)) throw new Error('Amount must be more than zero');
-        await api(`/queues/expenses/${r.id}/approve`, { method: 'POST', body: JSON.stringify({ approved_by: who }) });
+        const companyId = edits.company_id ?? r.company_id ?? '';
+        if (!companyId) throw new Error('Choose which company this bill belongs to — the ledger posts under it');
+        await api(`/queues/expenses/${r.id}/approve`, { method: 'POST', body: JSON.stringify({ approved_by: who, company_id: companyId }) });
       },
       onReject: async (reason) => { await api(`/queues/expenses/${r.id}/reject`, { method: 'POST', body: JSON.stringify({ reason, rejected_by: who }) }); },
-      footnote: 'Approve runs one transaction on the server: the row leaves the staging queue, TARA posts the JOURNAL (Dr expense / Cr creditor or cash) and the trip P&L is retro-adjusted. Edits are saved to the pending row first.',
+      footnote: 'Approve runs one transaction on the server: the row leaves the staging queue, TARA posts the JOURNAL under the chosen company (Dr expense / Cr creditor or cash) and the trip P&L is retro-adjusted. Edits are saved to the pending row first.',
     };
     case 'docs':
       // The Milan view: photo, OCR proposal, the admin's values — one drawer,
@@ -513,7 +522,21 @@ const nullify = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, 
 export function ApprovalDeskDrawer({ open, onClose, initialSection = null, counts, onDecided, onNavigate }) {
   useCss();
   const user = currentUser();
-  const ctx = useMemo(() => ({ isAdmin: isAdminRole(user), userName: user?.full_name || user?.name || user?.email || 'staff' }), [user]);
+  // The operating companies, for the expense drawer's company picker (owner,
+  // 3-Sep). Loaded once: the list is three rows and never changes mid-session.
+  const [companies, setCompanies] = useState([]);
+  useEffect(() => {
+    // /finance/masters/companies, not /masters/companies — this list lives on
+    // the cashbook module's prefix, and it already returns only ACTIVE rows.
+    api('/finance/masters/companies')
+      .then((j) => setCompanies(j.companies ?? []))
+      .catch(() => setCompanies([]));
+  }, []);
+  const ctx = useMemo(() => ({
+    isAdmin: isAdminRole(user),
+    userName: user?.full_name || user?.name || user?.email || 'staff',
+    companies,
+  }), [user, companies]);
   const [section, setSection] = useState(initialSection ?? 'expenses');
   const [rows, setRows] = useState({});          // key → array | { error }
   const [loading, setLoading] = useState('');

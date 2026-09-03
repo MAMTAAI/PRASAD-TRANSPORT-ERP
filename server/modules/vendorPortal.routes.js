@@ -736,6 +736,19 @@ export function registerVendorPortalRoutes(app) {
   // (FST_ERR_DUPLICATED_ROUTE, a crash loop); Fastify refuses to boot.
   const EXPENSE_TYPES = new Set(['FUEL', 'TYRE', 'MAINTENANCE', 'TOLL', 'OTHER']);
 
+  /** The operating companies a bill can be raised against (owner, 3-Sep).
+   *
+   *  Name and id only. A vendor is an outside party, so this answers with the
+   *  minimum the dropdown needs and nothing about the firms themselves — no
+   *  GSTIN, no bank, no addresses. Only ACTIVE ones: a closed entity must not
+   *  collect new payables. */
+  app.get('/portal/vendor/companies', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT id, company_name FROM companies WHERE status = 'ACTIVE' ORDER BY company_name`);
+    return { companies: rows };
+  });
+
   app.get('/portal/vendor/expense-bills', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
@@ -772,17 +785,35 @@ export function registerVendorPortalRoutes(app) {
         detail: 'a fleet partner is paid through its load settlements, not through expense bills — use "My Trips"',
       });
     }
+    // WHICH COMPANY IS THIS BILL AGAINST (owner, 3-Sep). The three operating
+    // firms keep separate books, so a bill with no company posts into none of
+    // them. The vendor picks it — they know whose truck they filled — and if
+    // they name a vehicle we already know the answer, so the plate wins over an
+    // empty box and the office can still change it at approval.
+    let companyId = UUID_RE.test(String(b.company_id ?? '')) ? b.company_id : null;
+    const plate = b.vehicle_no ? String(b.vehicle_no).toUpperCase().replace(/\s+/g, ' ').trim() : null;
+    if (!companyId && plate) {
+      const { rows: veh } = await query(
+        `SELECT company_id FROM vehicles WHERE upper(replace(vehicle_no, ' ', '')) = $1 LIMIT 1`,
+        [plate.replace(/\s+/g, '')]);
+      companyId = veh[0]?.company_id ?? null;
+    }
+    if (companyId) {
+      const { rows: co } = await query(`SELECT id FROM companies WHERE id = $1::uuid AND status = 'ACTIVE'`, [companyId]);
+      if (!co.length) return reply.code(400).send({ error: 'BAD_COMPANY', detail: 'that operating company does not exist' });
+    }
+
     const { rows } = await query(
       `INSERT INTO expense_approvals
          (vendor_id, vendor_name, expense_type, bill_no, bill_date, amount, description,
-          vehicle_no, source, entered_by, file_key)
-       VALUES ($1::uuid, $2, $3, $4, $5::date, $6, $7, $8, 'VENDOR_PORTAL', $9, $10)
-       RETURNING id, expense_type, amount, bill_no, bill_date, status, created_at`,
+          vehicle_no, source, entered_by, file_key, company_id)
+       VALUES ($1::uuid, $2, $3, $4, $5::date, $6, $7, $8, 'VENDOR_PORTAL', $9, $10, $11::uuid)
+       RETURNING id, expense_type, amount, bill_no, bill_date, status, created_at, company_id`,
       [req.party.vendorId, vend[0]?.vendor_name ?? 'vendor', type,
        b.bill_no ?? null, b.bill_date || null, amount,
        `[${type} bill via vendor portal] ${String(b.remarks ?? '').trim()}`.trim(),
-       b.vehicle_no ? String(b.vehicle_no).toUpperCase().replace(/\s+/g, ' ').trim() : null,
-       vend[0]?.vendor_name ?? 'vendor portal', fileKey]);
+       plate,
+       vend[0]?.vendor_name ?? 'vendor portal', fileKey, companyId]);
     return reply.code(201).send({
       ...rows[0],
       detail: 'Bill sent to the Prasad Transport office — it is in the Expenses queue now. '

@@ -85,6 +85,7 @@ const T = {
     camSlip: 'पर्ची की फोटो लो', camSlipSub: 'ट्रक नंबर और लीटर साफ़ दिखें', camBill: 'बिल की फोटो लो', camBillSub: 'GST बिल या जॉब-कार्ड · PDF भी चलेगा',
     frame: 'पर्ची को पीली चौखट के अंदर रखो', gallery: 'गैलरी', shoot: 'फोटो खींचो', back: 'वापस',
     confirmSlip: 'पर्ची कन्फ़र्म करो', confirmSlipSub: 'ट्रक · लीटर · रकम — फिर भेजो', confirmBill: 'बिल भेजो · Submit bill', confirmBillSub: 'ऑफिस की Expenses queue में जाएगा',
+    coLbl: 'किस कंपनी का बिल · Company', coNote: 'तीनों कंपनियों के हिसाब अलग हैं — सही कंपनी चुनो।', needCo: 'कंपनी चुनो',
     truckLbl: 'ट्रक · Truck', more: 'और', typeLbl: 'किस चीज़ की पर्ची · Type', expLbl: 'खर्चे का प्रकार · Expense type', litresLbl: 'लीटर · Litres', amountLbl: 'रकम · Amount', slipNo: 'पर्ची नं · Slip no', billNo: 'बिल नं · Bill no',
     dateLbl: 'तारीख · Date', remarks: 'टिप्पणी · Remarks', photoOn: 'फोटो लगी · photo attached', retake: 'दोबारा खींचो',
     sendSlip: 'ऑफिस को भेजो', sendBill: 'बिल ऑफिस को भेजो', sending: 'भेज रहे हैं…', needAmount: 'रकम भरो', needTruck: 'ट्रक नंबर चुनो या लिखो', needPhoto: 'पहले फोटो लो',
@@ -113,6 +114,7 @@ const T = {
     camSlip: 'Photograph the slip', camSlipSub: 'truck no + litres must be visible', camBill: 'Photograph the bill', camBillSub: 'GST bill or job-card · PDF works too',
     frame: 'Keep the slip inside the yellow frame', gallery: 'Gallery', shoot: 'Take photo', back: 'Back',
     confirmSlip: 'Confirm slip', confirmSlipSub: 'truck · litres · amount — then send', confirmBill: 'Submit bill', confirmBillSub: 'goes to the office Expenses queue',
+    coLbl: 'Which company', coNote: 'The three firms keep separate books — pick the right one.', needCo: 'Choose the company',
     truckLbl: 'Truck', more: 'more', typeLbl: 'Slip type', expLbl: 'Expense type', litresLbl: 'Litres', amountLbl: 'Amount', slipNo: 'Slip no', billNo: 'Bill no',
     dateLbl: 'Date', remarks: 'Remarks', photoOn: 'photo attached', retake: 'Retake',
     sendSlip: 'Send to office', sendBill: 'Send bill to office', sending: 'Sending…', needAmount: 'Enter the amount', needTruck: 'Pick or type the truck number', needPhoto: 'Take the photo first',
@@ -176,6 +178,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const [vis, setVis] = useState({});
   const [me, setMe] = useState(null);
   const [sum, setSum] = useState(null);
+  const [companies, setCompanies] = useState([]);
   const [docs, setDocs] = useState(null);
   const [bills, setBills] = useState(null);
   const [txns, setTxns] = useState(null);
@@ -199,7 +202,12 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const say = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
   const loadAll = useCallback(async (v = vis) => {
-    const [s, d, b] = await Promise.all([api('/portal/vendor/summary'), api('/portal/vendor/documents'), api('/portal/vendor/expense-bills')]);
+    const [s, d, b, co] = await Promise.all([
+      api('/portal/vendor/summary'), api('/portal/vendor/documents'), api('/portal/vendor/expense-bills'),
+      // The three operating firms, for the bill's company picker (owner, 3-Sep).
+      api('/portal/vendor/companies'),
+    ]);
+    if (co.ok) setCompanies(co.body?.companies ?? []);
     if (s.ok) setSum(s.body);
     setDocs(d.ok ? (d.body?.documents ?? []) : []);
     setBills(b.ok ? (b.body?.bills ?? []) : []);
@@ -241,6 +249,8 @@ export default function ServiceVendorApp({ gateError = '' }) {
     if (!shot) { setErr(t.needPhoto); return; }
     if (mode === 'SLIP' && !String(form.vehicle_no ?? '').trim()) { setErr(t.needTruck); return; }
     if (mode === 'BILL' && !(Number(form.amount) > 0)) { setErr(t.needAmount); return; }
+    // A bill with no company posts into none of the three sets of books.
+    if (mode === 'BILL' && companies.length > 1 && !form.company_id) { setErr(t.needCo); return; }
     setBusy(true);
     try {
       const isPdf = shot.type === 'application/pdf' || /\.pdf$/i.test(shot.name || '');
@@ -254,6 +264,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
             remarks: `vendor app v1 · ${form.doc_type}${form.remarks ? ' · ' + form.remarks : ''}` }) })
         : await api('/portal/vendor/expense-bills', { method: 'POST', body: JSON.stringify({
             expense_type: form.expense_type, amount: Number(form.amount), bill_no: form.bill_no || null, bill_date: form.bill_date || null,
+            company_id: form.company_id || null,
             vehicle_no: form.vehicle_no || null, remarks: form.remarks || '', file_key: up.path }) });
       if (!r.ok) throw new Error(r.body?.detail ?? r.body?.error ?? `HTTP ${r.status}`);
       setScreen('SENT');
@@ -378,6 +389,19 @@ export default function ServiceVendorApp({ gateError = '' }) {
               <div><Lbl>{t.typeLbl}</Lbl><div className="flex flex-wrap gap-1.5">{SLIP_TYPES.map((s) => <Chip key={s.v} on={form.doc_type === s.v} onClick={() => F('doc_type', s.v)}>{s.i} {t['type_' + s.v]}</Chip>)}</div></div>
             ) : (
               <div><Lbl>{t.expLbl}</Lbl><div className="flex flex-wrap gap-1.5">{EXP_TYPES.map((s) => <Chip key={s.v} on={form.expense_type === s.v} onClick={() => F('expense_type', s.v)}>{s.i} {s.v}</Chip>)}</div></div>
+            )}
+            {!slip && companies.length > 1 && (
+              <div>
+                <Lbl>{t.coLbl}</Lbl>
+                <div className="flex flex-wrap gap-1.5">
+                  {companies.map((c) => (
+                    <Chip key={c.id} on={form.company_id === c.id} onClick={() => F('company_id', c.id)}>
+                      {String(c.company_name).replace(/^M\/S\s+/i, '')}
+                    </Chip>
+                  ))}
+                </div>
+                <div className="mt-1 text-[11.5px] font-semibold text-slate-500">{t.coNote}</div>
+              </div>
             )}
             <div><Lbl>{t.truckLbl}</Lbl>
               <div className="flex flex-wrap gap-1.5">{chips.map((c) => <Chip key={c} on={form.vehicle_no === c} onClick={() => F('vehicle_no', c)}>{c}</Chip>)}</div>

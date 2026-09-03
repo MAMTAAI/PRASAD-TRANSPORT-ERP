@@ -148,6 +148,29 @@ export async function registerQueueRoutes(app) {
     const credit = exp.vendor_name ? `Creditors: ${exp.vendor_name}` : 'Cash';
     const tag = exp.trip_ref ? ` [Trip ${exp.trip_ref}]` : '';
 
+    // ── WHOSE BOOKS (owner, 3-Sep) ───────────────────────────────────────────
+    // Three operating firms keep three sets of books. A bill posted with no
+    // company lands in none of them, and the diesel of all three ends up in one
+    // undivided pile — which is what happened to every expense approved before
+    // migration 140. The office may correct the vendor's choice at this moment,
+    // because this is the moment somebody actually reads the bill.
+    const chosen = req.body?.company_id ?? exp.company_id ?? null;
+    if (!chosen) {
+      return reply.code(400).send({
+        error: 'NO_COMPANY',
+        detail: 'choose which operating company this bill belongs to before approving — the ledger posts under that company',
+      });
+    }
+    if (!UUID_RE.test(String(chosen))) return reply.code(400).send({ error: 'BAD_COMPANY' });
+    const { rows: co } = await query(
+      `SELECT id, company_name FROM companies WHERE id = $1::uuid`, [chosen]);
+    if (!co.length) return reply.code(400).send({ error: 'BAD_COMPANY', detail: 'no such operating company' });
+    // Remember the decision on the bill, so the queue and any later audit show
+    // the company the voucher was actually posted under.
+    if (String(exp.company_id ?? '') !== String(chosen)) {
+      await query('UPDATE expense_approvals SET company_id = $2::uuid WHERE id = $1::uuid', [exp.id, chosen]);
+    }
+
     let voucher;
     try {
       voucher = await postVoucher({
@@ -155,6 +178,11 @@ export async function registerQueueRoutes(app) {
         source_type: 'RETRO_EXPENSE',
         ref_no: exp.id,
         entry_date: exp.bill_date ?? new Date().toISOString().slice(0, 10),
+        // TARA stamps both legs with these, so the cost and the payable land in
+        // the same company's books — ledger isolation is a property of the
+        // voucher, not of a filter applied afterwards.
+        company: co[0].company_name,
+        company_id: co[0].id,
         narration: `Retro ${String(exp.expense_type).toLowerCase()} bill ${exp.bill_no ?? ''} — ${exp.vendor_name || 'cash'}${tag} (${exp.vehicle_no ?? ''})`.trim(),
         lines: [
           { ledger: debit.ledger, dr_cr: 'DR', amount, group: debit.group },

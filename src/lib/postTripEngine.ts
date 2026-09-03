@@ -130,12 +130,20 @@ export async function submitRetroExpense(exp: Partial<RetroExpense> & { amount: 
  *  Still idempotent, and more strictly than before: the voucher carries the
  *  approval id as its reference, so a replay returns 409 rather than posting
  *  the cost twice. */
-export async function approveRetroExpense(exp: RetroExpense & { id: string }, approverName: string): Promise<void> {
+export async function approveRetroExpense(
+  exp: RetroExpense & { id: string; company_id?: string | null },
+  approverName: string,
+  companyId?: string | null,
+): Promise<void> {
   const amount = round2(Number(exp.amount) || 0);
   if (amount <= 0) throw new Error('Zero-amount expense cannot be approved');
+  // Which company's books this posts under (owner, 3-Sep). The server refuses
+  // an approval without one, so an empty box here is caught before the call.
+  const company = companyId ?? exp.company_id ?? null;
+  if (!company) throw new Error('Choose which company this bill belongs to — the ledger posts under it');
   await queuesFetch(`/expenses/${exp.id}/approve`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ approved_by: approverName }),
+    body: JSON.stringify({ approved_by: approverName, company_id: company }),
   });
   logAudit({ action: 'RETRO_EXPENSE_APPROVED', target: exp.trip_id || exp.bill_no, details: `${exp.expense_type} ₹${amount} by ${approverName}` });
 }
