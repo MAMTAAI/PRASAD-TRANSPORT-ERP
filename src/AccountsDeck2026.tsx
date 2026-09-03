@@ -25,7 +25,7 @@ const rL = (n) => {                                   // ₹ in lakh/crore, comp
   if (v >= 1e5) return '₹' + (v / 1e5).toFixed(2) + ' L';
   return rs(v);
 };
-const CO_DOT = ['#ff9d2e', '#38bdf8', '#a78bfa', '#34d399', '#f472b6'];
+const CO_DOT = ['#ffb224', '#22d3ee', '#a78bfa', '#2fe39b', '#f472b6'];
 
 // Every existing Accounts screen, unchanged behind its tile. Ids must match the
 // App.tsx render switch and the SIDEBAR ACCOUNTS group — this rail is a second
@@ -89,11 +89,23 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
   return (
     <div className="ad-root">
       <style>{`
-        .ad-root { --ground:#0b1220; --surface:#131c2e; --surface2:#0f1727; --line:#22304a; --line2:#33455f;
-          --ink:#e6edf7; --ink2:#a9b8ce; --ink3:#6b7c96; --accent:#ffb020; --accent-soft:#2a2013;
-          --good:#34d399; --good-soft:#10281f; --warn:#f5b445; --crit:#ff7777; --crit-soft:#2c1618;
+        /* 2026 "Indigo Deck" palette — kept byte-identical to the Operations
+           deck (src/OperationsDeck2026.tsx) so the two Command Decks never
+           drift apart. See docs/mockups/theme-2026-indigo-deck.html. */
+        .ad-root { --ground:#0a1024; --surface:#121c38; --surface2:#18244a; --line:#27395f; --line2:#3d548a;
+          --ink:#eef3ff; --ink2:#a9bade; --ink3:#7288b3; --accent:#ffb224; --accent-soft:#33270c;
+          --good:#2fe39b; --good-soft:#0c2e26; --warn:#ffc03d; --crit:#ff6b81; --crit-soft:#331926;
+          --violet:#a78bfa; --violet-soft:#241f45; --sky:#22d3ee; --sky-soft:#0e2740;
+          --wash:radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,.10) 0%, transparent 60%),
+                 radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,.09) 0%, transparent 58%);
+          --sheen:linear-gradient(168deg, rgba(46,66,118,.42) 0%, rgba(18,28,56,0) 58%);
+          --tile:linear-gradient(160deg, rgba(46,66,118,.50) 0%, rgba(18,28,56,0) 62%);
+          --lift:0 2px 10px rgba(4,9,26,.45), inset 0 1px 0 rgba(255,255,255,.045);
+          --lift-hi:0 16px 38px rgba(4,9,26,.60), inset 0 1px 0 rgba(255,255,255,.07);
           --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
-          background:var(--ground); color:var(--ink); min-height:100vh; padding:clamp(14px,2.5vw,28px);
+          background:var(--wash),linear-gradient(180deg,#0b1228 0%,var(--ground) 100%);
+          background-attachment:fixed;
+          color:var(--ink); min-height:100vh; padding:clamp(14px,2.5vw,28px);
           font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
         .ad-root *{box-sizing:border-box;}
         .ad-num{font-family:var(--mono);font-variant-numeric:tabular-nums;}
@@ -113,15 +125,20 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
         .ad-strip .it{font-size:12.5px;color:var(--ink2);}
         .ad-strip .it b{color:var(--ink);} .ad-strip .it .g{color:var(--good);font-weight:700;} .ad-strip .it .r{color:var(--crit);font-weight:700;}
         .ad-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:18px;}
-        .ad-kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 16px;position:relative;overflow:hidden;}
-        .ad-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);opacity:.85;}
+        .ad-kpi{background:var(--tile),var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 16px;position:relative;overflow:hidden;box-shadow:var(--lift);transition:border-color .18s ease,box-shadow .22s ease,transform .18s ease;}
+        .ad-kpi:hover{border-color:var(--line2);transform:translateY(-3px);box-shadow:var(--lift-hi);}
+        /* The rail carries the tile's status colour and glows in it. Set --rail
+           on the tile; it falls back to amber, which is what every tile used. */
+        .ad-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--rail,var(--accent));box-shadow:0 0 18px var(--rail,var(--accent));}
+        .ad-kpi.good{--rail:var(--good);} .ad-kpi.sky{--rail:var(--sky);} .ad-kpi.bad{--rail:var(--crit);} .ad-kpi.ai{--rail:var(--violet);}
         .ad-kpi .l{font-size:11.5px;color:var(--ink3);font-weight:600;}
         .ad-kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;font-weight:650;letter-spacing:-.02em;margin:6px 0 2px;}
         .ad-kpi .v small{font-size:13px;color:var(--ink3);font-weight:500;}
         .ad-kpi .s{font-size:11.5px;color:var(--ink3);}
         .ad-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;align-items:start;margin-bottom:16px;}
         .ad-grid3{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;align-items:start;}
-        .ad-panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+        .ad-panel{background:var(--sheen),var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--lift);transition:border-color .2s ease;}
+        .ad-panel:hover{border-color:var(--line2);}
         .ad-panel>header{display:flex;align-items:baseline;justify-content:space-between;padding:14px 16px 11px;border-bottom:1px solid var(--line);}
         .ad-panel>header h2{font-size:13.5px;font-weight:700;margin:0;letter-spacing:-.01em;}
         .ad-panel>header .m{font-size:11px;color:var(--ink3);}
@@ -136,6 +153,8 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
         table.ad-tb{width:100%;border-collapse:collapse;font-size:12.5px;}
         table.ad-tb th{text-align:left;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);font-weight:600;padding:7px 6px 7px 0;border-bottom:1px solid var(--line);}
         table.ad-tb td{padding:8px 6px 8px 0;border-bottom:1px solid var(--line);color:var(--ink2);}
+        table.ad-tb tbody tr{transition:background .14s ease;}
+        table.ad-tb tbody tr:hover{background:var(--surface2);}
         table.ad-tb tr:last-child td{border-bottom:0;}
         table.ad-tb td.r,table.ad-tb th.r{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;}
         .ad-chip{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;display:inline-block;white-space:nowrap;}

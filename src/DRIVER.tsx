@@ -645,59 +645,59 @@ export default function DriverMgmt() {
   const totalAdvancesAll = transactions.filter(t => t.txn_type === 'ADVANCE_GIVEN').reduce((acc, curr) => acc + parseFloat(curr.amount || 0), 0);
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; transition: all 0.3s; }
-        .glass-card:hover { box-shadow: 0 10px 30px -10px rgba(56, 189, 248, 0.2); }
-        .glow-btn { background: linear-gradient(135deg, #3b82f6, #6366f1); color: white; border: none; padding: 12px 25px; border-radius: 50px; font-weight: bold; cursor: pointer; transition: 0.3s; box-shadow: 0 0 15px rgba(59, 130, 246, 0.3); }
+        .glass-card { background: rgba(24, 36, 74, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 20px; transition: all 0.3s; }
+        .glass-card:hover { box-shadow: 0 10px 30px -10px rgba(34, 211, 238, 0.2); }
+        .glow-btn { background: linear-gradient(135deg, #3b82f6, #7c8cff); color: white; border: none; padding: 12px 25px; border-radius: 50px; font-weight: bold; cursor: pointer; transition: 0.3s; box-shadow: 0 0 15px rgba(59, 130, 246, 0.3); }
         .glow-btn:hover { box-shadow: 0 0 25px rgba(59, 130, 246, 0.6); transform: translateY(-2px); }
-        .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
-        .tab-btn.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 8px 8px 0 0; }
+        .tab-btn { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
+        .tab-btn.active { color: #22d3ee; border-bottom: 3px solid #22d3ee; background: rgba(34, 211, 238, 0.1); border-radius: 8px 8px 0 0; }
         
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; overflow-y: auto; padding: 20px;}
-        .modal-content { background: #0f172a; border: 1px solid #c084fc; width: 100%; max-width: 1400px; padding: 40px; border-radius: 20px; box-shadow: 0 0 50px rgba(192, 132, 252, 0.2); }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 16, 36, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; overflow-y: auto; padding: 20px;}
+        .modal-content { background: #121c38; border: 1px solid #a78bfa; width: 100%; max-width: 1400px; padding: 40px; border-radius: 20px; box-shadow: 0 0 50px rgba(167, 139, 250, 0.2); }
         
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 10px; color: white; padding: 12px 16px; outline: none; width: 100%; box-sizing: border-box; font-size: 14px;}
-        .modern-input:focus { border-color: #c084fc; box-shadow: 0 0 15px rgba(192, 132, 252, 0.3); background: rgba(15, 23, 42, 0.9); }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 10px; color: white; padding: 12px 16px; outline: none; width: 100%; box-sizing: border-box; font-size: 14px;}
+        .modern-input:focus { border-color: #a78bfa; box-shadow: 0 0 15px rgba(167, 139, 250, 0.3); background: rgba(18, 28, 56, 0.9); }
         
-        .doc-card { background: rgba(15, 23, 42, 0.4); border: 1px solid rgba(51, 65, 85, 0.6); border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: inset 0 0 10px rgba(0,0,0,0.2); transition: 0.3s; position: relative;}
-        .doc-card:hover { border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6); }
-        .doc-card label { color: #cbd5e1; font-size: 11px; margin-bottom: 8px; display: block;}
+        .doc-card { background: rgba(18, 28, 56, 0.4); border: 1px solid rgba(39, 57, 95, 0.6); border-radius: 12px; padding: 15px; margin-bottom: 15px; box-shadow: inset 0 0 10px rgba(0,0,0,0.2); transition: 0.3s; position: relative;}
+        .doc-card:hover { border-color: rgba(34, 211, 238, 0.3); background: rgba(18, 28, 56, 0.6); }
+        .doc-card label { color: #c4d1ea; font-size: 11px; margin-bottom: 8px; display: block;}
         
-        .upload-btn { background: rgba(51, 65, 85, 0.8); border: 1px dashed #94a3b8; color: #cbd5e1; padding: 12px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
-        .upload-btn:hover { background: rgba(192, 132, 252, 0.2); border-color: #c084fc; color: #c084fc; }
+        .upload-btn { background: rgba(39, 57, 95, 0.8); border: 1px dashed #9aadd4; color: #c4d1ea; padding: 12px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
+        .upload-btn:hover { background: rgba(167, 139, 250, 0.2); border-color: #a78bfa; color: #a78bfa; }
         
-        .view-btn { background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; color: #10b981; padding: 10px; border-radius: 8px; text-decoration: none; text-align: center; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: 0.3s; width: 100%; box-sizing: border-box;}
-        .view-btn:hover { background: #10b981; color: #020617; box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); }
+        .view-btn { background: rgba(47, 227, 155, 0.1); border: 1px solid #2fe39b; color: #2fe39b; padding: 10px; border-radius: 8px; text-decoration: none; text-align: center; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; transition: 0.3s; width: 100%; box-sizing: border-box;}
+        .view-btn:hover { background: #10b981; color: #0a1024; box-shadow: 0 0 10px rgba(47, 227, 155, 0.4); }
         
-        .update-btn { background: rgba(245, 158, 11, 0.1); border: 1px dashed #f59e0b; color: #f59e0b; padding: 10px; border-radius: 8px; font-size: 11px;}
-        .update-btn:hover { background: #f59e0b; color: #020617; }
+        .update-btn { background: rgba(255, 178, 36, 0.1); border: 1px dashed #ffb224; color: #ffb224; padding: 10px; border-radius: 8px; font-size: 11px;}
+        .update-btn:hover { background: #f59e0b; color: #0a1024; }
 
-        .ai-btn { background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
-        .ai-btn:hover { background: #38bdf8; color: #0f172a; box-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
-        .ai-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: #64748b; color: #64748b; background: transparent;}
+        .ai-btn { background: rgba(34, 211, 238, 0.1); border: 1px solid #22d3ee; color: #22d3ee; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center; transition: 0.3s; font-size: 11px; display: flex; align-items: center; justify-content: center; font-weight: bold; width: 100%; box-sizing: border-box;}
+        .ai-btn:hover { background: #38bdf8; color: #121c38; box-shadow: 0 0 10px rgba(34, 211, 238, 0.5); }
+        .ai-btn:disabled { opacity: 0.3; cursor: not-allowed; border-color: #5d7196; color: #5d7196; background: transparent;}
         
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #e2e8f0; font-size: 13px; }
-        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #334155; color: #38bdf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #dde5f4; font-size: 13px; }
+        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #27395f; color: #22d3ee; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
         td { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
         tr:hover td { background: rgba(255,255,255,0.02); }
         
         .badge { padding: 6px 12px; border-radius: 20px; font-size: 10px; font-weight: bold; display: inline-block; letter-spacing: 0.5px;}
         
-        .action-btn { background: rgba(56, 189, 248, 0.1); border: 1px solid #38bdf8; color: #38bdf8; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: 0.2s; font-weight: bold; }
-        .action-btn:hover { background: #38bdf8; color: #0f172a; }
-        .action-btn.delete { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; color: #ef4444; }
+        .action-btn { background: rgba(34, 211, 238, 0.1); border: 1px solid #22d3ee; color: #22d3ee; padding: 6px 12px; border-radius: 20px; font-size: 11px; cursor: pointer; transition: 0.2s; font-weight: bold; }
+        .action-btn:hover { background: #38bdf8; color: #121c38; }
+        .action-btn.delete { background: rgba(255, 107, 129, 0.1); border-color: #ff6b81; color: #ff6b81; }
         .action-btn.delete:hover { background: #ef4444; color: white; }
         
-        label { font-size: 11px; color: #94a3b8; display: block; margin-bottom: 5px; text-transform: uppercase; font-weight: bold;}
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        label { font-size: 11px; color: #9aadd4; display: block; margin-bottom: 5px; text-transform: uppercase; font-weight: bold;}
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
       `}</style>
 
       {/* 🚀 Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '38px', fontWeight: '900', letterSpacing: '-1px' }}>Driver Command Center</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0 0 0', fontSize: '15px' }}>Full KYC, App Approvals, Alerts & Financial Settlements</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0 0 0', fontSize: '15px' }}>Full KYC, App Approvals, Alerts & Financial Settlements</p>
         </div>
         <button className="glow-btn" onClick={() => setIsModalOpen(true)}>👨‍✈️ + Register New Driver</button>
       </div>
@@ -708,7 +708,7 @@ export default function DriverMgmt() {
       {err && (
         <div style={{
           marginBottom: '20px', padding: '12px 16px', borderRadius: '12px',
-          background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.45)',
+          background: 'rgba(255, 107, 129,0.12)', border: '1px solid rgba(255, 107, 129,0.45)',
           color: '#fca5a5', fontSize: '13px', fontWeight: 600,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
         }}>
@@ -721,37 +721,37 @@ export default function DriverMgmt() {
 
       {/* 📊 SMART DASHBOARD STATS */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #38bdf8' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Registered</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #22d3ee' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Registered</div>
           <div style={{ fontSize: '32px', fontWeight: '900', color: '#fff' }}>{drivers.length}</div>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Active Drivers</div>
-          <div style={{ fontSize: '32px', fontWeight: '900', color: '#10b981' }}>{activeDriversCount}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #2fe39b' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Active Drivers</div>
+          <div style={{ fontSize: '32px', fontWeight: '900', color: '#2fe39b' }}>{activeDriversCount}</div>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #f59e0b' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Pending Approvals</div>
-          <div style={{ fontSize: '32px', fontWeight: '900', color: '#f59e0b' }}>{pendingApprovalsCount}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #ffb224' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Pending Approvals</div>
+          <div style={{ fontSize: '32px', fontWeight: '900', color: '#ffb224' }}>{pendingApprovalsCount}</div>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #c084fc' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Advances Given</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', color: '#c084fc' }}>₹{totalAdvancesAll.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #a78bfa' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Advances Given</div>
+          <div style={{ fontSize: '28px', fontWeight: '900', color: '#a78bfa' }}>₹{totalAdvancesAll.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
         </div>
       </div>
 
       {/* 🔔 NEW COMPONENT: PENDING & APPROVED REQUESTS */}
       {pendingRequests.length > 0 && (
-        <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderLeft: '4px solid #ef4444', animation: 'pulse 2s infinite' }}>
-          <h3 style={{ margin: '0 0 15px 0', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderLeft: '4px solid #ff6b81', animation: 'pulse 2s infinite' }}>
+          <h3 style={{ margin: '0 0 15px 0', color: '#ff6b81', display: 'flex', alignItems: 'center', gap: '10px' }}>
             🔔 Action Needed: App Requests ({pendingRequests.length})
           </h3>
           <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px' }}>
             {pendingRequests.map(req => (
-              <div key={req.id} style={{ minWidth: '300px', background: 'rgba(15, 23, 42, 0.8)', padding: '15px', borderRadius: '12px', border: `1px solid ${req.status === 'APPROVED' ? '#10b981' : '#334155'}`, flexShrink: 0 }}>
+              <div key={req.id} style={{ minWidth: '300px', background: 'rgba(18, 28, 56, 0.8)', padding: '15px', borderRadius: '12px', border: `1px solid ${req.status === 'APPROVED' ? '#2fe39b' : '#27395f'}`, flexShrink: 0 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
                   <b style={{ color: '#fff' }}>{req.driver_name || 'Driver'}</b>
                   <div style={{ display: 'flex', gap: '5px' }}>
-                    <span style={{ fontSize: '10px', background: 'rgba(239,68,68,0.2)', color: '#ef4444', padding: '3px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
+                    <span style={{ fontSize: '10px', background: 'rgba(255, 107, 129,0.2)', color: '#ff6b81', padding: '3px 8px', borderRadius: '10px', fontWeight: 'bold' }}>
                       {req.type || 'REQUEST'}
                     </span>
                     {req.status === 'APPROVED' && (
@@ -761,10 +761,10 @@ export default function DriverMgmt() {
                     )}
                   </div>
                 </div>
-                <p style={{ margin: '0 0 5px 0', color: '#cbd5e1', fontSize: '12px' }}>{req.remarks || 'Sent a request from mobile app.'}</p>
+                <p style={{ margin: '0 0 5px 0', color: '#c4d1ea', fontSize: '12px' }}>{req.remarks || 'Sent a request from mobile app.'}</p>
                 
                 {req.amount && (
-                  <p style={{ margin: '0 0 15px 0', color: '#38bdf8', fontWeight: 'bold', fontSize: '20px' }}>
+                  <p style={{ margin: '0 0 15px 0', color: '#22d3ee', fontWeight: 'bold', fontSize: '20px' }}>
                     ₹{req.amount}
                   </p>
                 )}
@@ -772,11 +772,11 @@ export default function DriverMgmt() {
                 {req.status === 'PENDING' ? (
                   <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
                     <button onClick={() => handleApproveRequest(req)} style={{ flex: 1, background: '#f59e0b', color: '#fff', border: 'none', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>👍 Pass/Approve</button>
-                    <button onClick={() => handleRejectRequest(req.id)} style={{ flex: 1, background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>❌ Reject</button>
+                    <button onClick={() => handleRejectRequest(req.id)} style={{ flex: 1, background: 'transparent', color: '#ff6b81', border: '1px solid #ff6b81', padding: '8px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>❌ Reject</button>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                    <button onClick={() => handlePayRequest(req)} style={{ width: '100%', background: '#10b981', color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', boxShadow: '0 4px 10px rgba(16,185,129,0.3)' }}>💳 Pay & Settle Khata</button>
+                    <button onClick={() => handlePayRequest(req)} style={{ width: '100%', background: '#10b981', color: '#fff', border: 'none', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', boxShadow: '0 4px 10px rgba(47, 227, 155,0.3)' }}>💳 Pay & Settle Khata</button>
                   </div>
                 )}
 
@@ -801,19 +801,19 @@ export default function DriverMgmt() {
               <span style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', fontSize: '15px', pointerEvents: 'none' }}>🔎</span>
               <input
                 className="modern-input"
-                style={{ paddingLeft: '42px', paddingRight: searchInput ? '38px' : '16px', border: '1px solid #38bdf8' }}
+                style={{ paddingLeft: '42px', paddingRight: searchInput ? '38px' : '16px', border: '1px solid #22d3ee' }}
                 placeholder="Search Driver Name / Mobile / Vehicle Number..."
                 value={searchInput}
                 onChange={e => setSearchInput(e.target.value)}
               />
               {searchInput && (
                 <button onClick={() => { setSearchInput(''); setSearchQuery(''); }} title="Clear search"
-                  style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+                  style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#9aadd4', cursor: 'pointer', fontSize: '14px' }}>✕</button>
               )}
             </div>
-            {q && <span style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{filteredDrivers.length} of {drivers.length} drivers</span>}
+            {q && <span style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }}>{filteredDrivers.length} of {drivers.length} drivers</span>}
           </div>
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Drivers from Server...</p> : (
+          {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Loading Drivers from Server...</p> : (
             <>
             <table>
               <thead>
@@ -833,12 +833,12 @@ export default function DriverMgmt() {
                     {/* Counts across pages, not within one: `from` is the
                         1-based index of this page's first row, so page 2 starts
                         at 26 rather than restarting at 1. */}
-                    <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 700, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+                    <td style={{ textAlign: 'center', color: '#5d7196', fontWeight: 700, fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
                       {pgFilteredDrivers.from + i}
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                        <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: '#1e293b', border: '2px solid #38bdf8', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyItems: 'center' }}>
+                        <div style={{ width: '50px', height: '50px', borderRadius: '50%', background: '#18244a', border: '2px solid #22d3ee', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyItems: 'center' }}>
                           {<AuthImg src={d.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<span style={{ fontSize: '20px' }}>👨‍✈️</span>} />}
                         </div>
                         <div>
@@ -849,30 +849,30 @@ export default function DriverMgmt() {
                             style={{ color: '#fff', fontSize: '16px', cursor: 'pointer', textDecoration: 'underline dotted rgba(34,211,238,0.7)', textUnderlineOffset: '3px' }}>{d.name}</b>
                           <button onClick={() => openDriverControl(d.id, d.name)} title="Driver Control Dashboard"
                             style={{ marginLeft: '8px', background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)', padding: '1px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, cursor: 'pointer' }}>⚙ CONTROL</button><br/>
-                          <span style={{ color: '#94a3b8', fontSize: '12px' }}>📱 {d.mobile}</span><br/>
-                          {linkedVehicles(d).length > 0 && <span style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🚛 {linkedVehicles(d).join(', ')}</span>}
+                          <span style={{ color: '#9aadd4', fontSize: '12px' }}>📱 {d.mobile}</span><br/>
+                          {linkedVehicles(d).length > 0 && <span style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 'bold' }}>🚛 {linkedVehicles(d).join(', ')}</span>}
                           {linkedVehicles(d).length > 0 && <br/>}
                           <button onClick={() => sendDriverWhatsApp(d)} style={{ background: 'rgba(34, 197, 94, 0.2)', color: '#22c55e', border: '1px solid #22c55e', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold', marginTop: '5px' }}>💬 WhatsApp</button>
                         </div>
                       </div>
                     </td>
                     <td>
-                      <span style={{ color: d.dl_photo ? '#10b981' : '#cbd5e1' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.dl_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <small style={{ color: '#64748b' }}>Exp: {d.license_expiry || 'N/A'}</small><ExpiryPill date={d.license_expiry} /><br/>
-                      <span style={{ color: d.hzd_photo ? '#10b981' : '#f59e0b', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.hzd_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
+                      <span style={{ color: d.dl_photo ? '#2fe39b' : '#c4d1ea' }}>DL: {d.license_no || 'N/A'} {d.dl_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.dl_photo); }} target="_blank" rel="noreferrer" style={{color:'#2fe39b', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <small style={{ color: '#5d7196' }}>Exp: {d.license_expiry || 'N/A'}</small><ExpiryPill date={d.license_expiry} /><br/>
+                      <span style={{ color: d.hzd_photo ? '#2fe39b' : '#ffb224', fontSize: '12px' }}>HZD: {d.hzd_cert_no || 'N/A'} {d.hzd_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.hzd_photo); }} target="_blank" rel="noreferrer" style={{color:'#2fe39b', textDecoration:'none'}}>✅</a>}</span>
                     </td>
                     <td>
-                      <span style={{ color: d.aadhar_photo ? '#10b981' : '#cbd5e1' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.aadhar_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <span style={{ color: d.pan_photo ? '#10b981' : '#cbd5e1' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.pan_photo); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span><br/>
-                      <span style={{ color: '#38bdf8', fontSize: '11px' }}>A/C: {d.account_no || 'N/A'}</span>
+                      <span style={{ color: d.aadhar_photo ? '#2fe39b' : '#c4d1ea' }}>UID: {d.aadhar_no || 'N/A'} {d.aadhar_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.aadhar_photo); }} target="_blank" rel="noreferrer" style={{color:'#2fe39b', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: d.pan_photo ? '#2fe39b' : '#c4d1ea' }}>PAN: {d.pan_no || 'N/A'} {d.pan_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(d.pan_photo); }} target="_blank" rel="noreferrer" style={{color:'#2fe39b', textDecoration:'none'}}>✅</a>}</span><br/>
+                      <span style={{ color: '#22d3ee', fontSize: '11px' }}>A/C: {d.account_no || 'N/A'}</span>
                     </td>
                     <td>
                        {/* 🌟 NEW: SHOW ADDITIONAL DOCS */}
-                       {(!d.additional_docs || d.additional_docs.length === 0) ? <span style={{ color: '#64748b', fontSize: '11px' }}>No Extra Docs</span> : 
+                       {(!d.additional_docs || d.additional_docs.length === 0) ? <span style={{ color: '#5d7196', fontSize: '11px' }}>No Extra Docs</span> : 
                          d.additional_docs.map((doc: any, i: number) => (
                            <div key={i} style={{ marginBottom: '4px', fontSize: '11px' }}>
-                              <span style={{ color: doc.link ? '#10b981' : '#cbd5e1' }}>• {doc.name} {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" style={{color:'#10b981', textDecoration:'none'}}>✅</a>}</span>
-                              {doc.valid_till && <div style={{ color: '#94a3b8', paddingLeft: '8px', fontSize: '10px' }}>Exp: {doc.valid_till}</div>}
+                              <span style={{ color: doc.link ? '#2fe39b' : '#c4d1ea' }}>• {doc.name} {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" style={{color:'#2fe39b', textDecoration:'none'}}>✅</a>}</span>
+                              {doc.valid_till && <div style={{ color: '#9aadd4', paddingLeft: '8px', fontSize: '10px' }}>Exp: {doc.valid_till}</div>}
                            </div>
                          ))
                        }
@@ -880,13 +880,13 @@ export default function DriverMgmt() {
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'flex-start' }}>
                         <span className="badge" style={{ 
-                          background: d.approval_status === 'APPROVED' ? 'rgba(16,185,129,0.1)' : d.approval_status === 'REJECTED' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)', 
-                          color: d.approval_status === 'APPROVED' ? '#10b981' : d.approval_status === 'REJECTED' ? '#ef4444' : '#f59e0b',
-                          border: `1px solid ${d.approval_status === 'APPROVED' ? '#10b981' : d.approval_status === 'REJECTED' ? '#ef4444' : '#f59e0b'}`
+                          background: d.approval_status === 'APPROVED' ? 'rgba(47, 227, 155,0.1)' : d.approval_status === 'REJECTED' ? 'rgba(255, 107, 129,0.1)' : 'rgba(255, 178, 36,0.1)', 
+                          color: d.approval_status === 'APPROVED' ? '#2fe39b' : d.approval_status === 'REJECTED' ? '#ff6b81' : '#ffb224',
+                          border: `1px solid ${d.approval_status === 'APPROVED' ? '#2fe39b' : d.approval_status === 'REJECTED' ? '#ff6b81' : '#ffb224'}`
                         }}>
                           {d.approval_status === 'APPROVED' ? '✅ VERIFIED' : d.approval_status === 'REJECTED' ? '❌ REJECTED' : '⏳ PENDING'}
                         </span>
-                        <span className="badge" style={{ background: d.status === 'ACTIVE' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: d.status === 'ACTIVE' ? '#10b981' : '#ef4444' }}>
+                        <span className="badge" style={{ background: d.status === 'ACTIVE' ? 'rgba(47, 227, 155,0.1)' : 'rgba(255, 107, 129,0.1)', color: d.status === 'ACTIVE' ? '#2fe39b' : '#ff6b81' }}>
                           {d.status === 'ACTIVE' ? '🟢 ON DUTY' : '🔴 INACTIVE'}
                         </span>
                       </div>
@@ -909,8 +909,8 @@ export default function DriverMgmt() {
       {/* 💸 TAB 2: SETTLEMENT & FINAL PAY */}
       {activeTab === 'SETTLEMENT' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '25px' }}>
-          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #f59e0b' }}>
-            <h2 style={{ color: '#f59e0b', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Create Ledger Entry</h2>
+          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #ffb224' }}>
+            <h2 style={{ color: '#ffb224', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Create Ledger Entry</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div><label>Select Driver *</label>
                 <select className="modern-input" value={selectedDriver} onChange={e=>setSelectedDriver(e.target.value)}>
@@ -927,44 +927,44 @@ export default function DriverMgmt() {
                 </select>
               </div>
               <div><label>Transaction Date</label><input type="date" className="modern-input" value={settleData.date} onChange={e=>setSettleData({...settleData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ color:'#38bdf8' }}>Amount (₹) *</label>
-                <input type="number" className="modern-input" placeholder="0.00" style={{ fontSize: '24px', fontWeight: 'bold', border: '1px solid #38bdf8', color: '#38bdf8' }} value={settleData.amount} onChange={e=>setSettleData({...settleData, amount: e.target.value})} />
+              <div><label style={{ color:'#22d3ee' }}>Amount (₹) *</label>
+                <input type="number" className="modern-input" placeholder="0.00" style={{ fontSize: '24px', fontWeight: 'bold', border: '1px solid #22d3ee', color: '#22d3ee' }} value={settleData.amount} onChange={e=>setSettleData({...settleData, amount: e.target.value})} />
               </div>
               <div><label>Remarks / Notes</label><input className="modern-input" placeholder="e.g. Trip Advance for AS01X1234" value={settleData.remarks} onChange={e=>setSettleData({...settleData, remarks: e.target.value})} /></div>
               <button className="glow-btn" style={{ marginTop: '10px', width: '100%', fontSize: '16px' }} onClick={handleSaveTransaction}>✅ Post to Ledger</button>
             </div>
           </div>
 
-          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #38bdf8' }}>
-            <h2 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Driver Khata Summary</h2>
+          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #22d3ee' }}>
+            <h2 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Driver Khata Summary</h2>
             {!selectedDriver ? (
-              <div style={{ textAlign: 'center', padding: '100px 20px', color: '#64748b', fontSize: '18px' }}>👈 Please select a driver from the dropdown above to view their complete financial summary.</div>
+              <div style={{ textAlign: 'center', padding: '100px 20px', color: '#5d7196', fontSize: '18px' }}>👈 Please select a driver from the dropdown above to view their complete financial summary.</div>
             ) : (
               <>
                 <h2 style={{ color: '#fff', margin: '0 0 20px 0', fontSize: '28px' }}>👤 {selectedDriver}</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-                  <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#10b981', fontWeight: 'bold', textTransform: 'uppercase' }}>(+) Total Earned (Salary)</div>
-                    <div style={{ fontSize: '32px', color: '#10b981', fontWeight: '900', marginTop: '5px' }}>₹{totalSalary.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div style={{ background: 'rgba(47, 227, 155, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(47, 227, 155, 0.3)' }}>
+                    <div style={{ fontSize: '13px', color: '#2fe39b', fontWeight: 'bold', textTransform: 'uppercase' }}>(+) Total Earned (Salary)</div>
+                    <div style={{ fontSize: '32px', color: '#2fe39b', fontWeight: '900', marginTop: '5px' }}>₹{totalSalary.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                   </div>
-                  <div style={{ background: 'rgba(245, 158, 11, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Total Advance Taken</div>
-                    <div style={{ fontSize: '32px', color: '#f59e0b', fontWeight: '900', marginTop: '5px' }}>₹{totalAdvance.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div style={{ background: 'rgba(255, 178, 36, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(255, 178, 36, 0.3)' }}>
+                    <div style={{ fontSize: '13px', color: '#ffb224', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Total Advance Taken</div>
+                    <div style={{ fontSize: '32px', color: '#ffb224', fontWeight: '900', marginTop: '5px' }}>₹{totalAdvance.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                   </div>
-                  <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#ef4444', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Shortages / Penalties</div>
-                    <div style={{ fontSize: '32px', color: '#ef4444', fontWeight: '900', marginTop: '5px' }}>₹{totalShortage.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div style={{ background: 'rgba(255, 107, 129, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(255, 107, 129, 0.3)' }}>
+                    <div style={{ fontSize: '13px', color: '#ff6b81', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Shortages / Penalties</div>
+                    <div style={{ fontSize: '32px', color: '#ff6b81', fontWeight: '900', marginTop: '5px' }}>₹{totalShortage.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                   </div>
-                  <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#38bdf8', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Final Payments Cleared</div>
-                    <div style={{ fontSize: '32px', color: '#38bdf8', fontWeight: '900', marginTop: '5px' }}>₹{totalPaid.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(34, 211, 238, 0.3)' }}>
+                    <div style={{ fontSize: '13px', color: '#22d3ee', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Final Payments Cleared</div>
+                    <div style={{ fontSize: '32px', color: '#22d3ee', fontWeight: '900', marginTop: '5px' }}>₹{totalPaid.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
                   </div>
                 </div>
-                <div style={{ background: netPayable >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', padding: '30px', borderRadius: '15px', border: `2px dashed ${netPayable >= 0 ? '#10b981' : '#ef4444'}`, textAlign: 'center' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: netPayable >= 0 ? '#10b981' : '#ef4444', letterSpacing: '1px' }}>
+                <div style={{ background: netPayable >= 0 ? 'rgba(47, 227, 155, 0.15)' : 'rgba(255, 107, 129, 0.15)', padding: '30px', borderRadius: '15px', border: `2px dashed ${netPayable >= 0 ? '#2fe39b' : '#ff6b81'}`, textAlign: 'center' }}>
+                  <h3 style={{ margin: '0 0 10px 0', color: netPayable >= 0 ? '#2fe39b' : '#ff6b81', letterSpacing: '1px' }}>
                     {netPayable >= 0 ? '💰 NET BALANCE PAYABLE TO DRIVER' : '⚠️ DRIVER OWES COMPANY (NEGATIVE BALANCE)'}
                   </h3>
-                  <div style={{ fontSize: '48px', fontWeight: '900', color: netPayable >= 0 ? '#10b981' : '#ef4444' }}>
+                  <div style={{ fontSize: '48px', fontWeight: '900', color: netPayable >= 0 ? '#2fe39b' : '#ff6b81' }}>
                     ₹{Math.abs(netPayable).toLocaleString(undefined, {minimumFractionDigits: 2})}
                   </div>
                 </div>
@@ -977,7 +977,7 @@ export default function DriverMgmt() {
       {/* 📓 TAB 3: ALL TRANSACTIONS */}
       {activeTab === 'LEDGER' && (
         <div className="glass-card" style={{ padding: '30px', overflowX: 'auto' }}>
-           <h2 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '20px', fontSize: '24px' }}>Global Transaction Ledger</h2>
+           <h2 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '20px', fontSize: '24px' }}>Global Transaction Ledger</h2>
            <table>
             <thead>
               <tr><th>Date</th><th>Driver Name</th><th>Transaction Category</th><th>Remarks / Trip Notes</th><th style={{ textAlign: 'right' }}>Amount (₹)</th></tr>
@@ -986,15 +986,15 @@ export default function DriverMgmt() {
               {transactions.length === 0 ? <tr><td colSpan={5} style={{textAlign: 'center', padding: '30px'}}>No transactions recorded yet.</td></tr> : 
                 transactions.map((t, i) => (
                 <tr key={i}>
-                  <td style={{ color: '#94a3b8' }}>{t.date}</td>
+                  <td style={{ color: '#9aadd4' }}>{t.date}</td>
                   <td style={{ fontWeight: 'bold', color: '#fff', fontSize: '15px' }}>{t.driver_name}</td>
                   <td>
-                    <span className="badge" style={{ background: t.txn_type.includes('SALARY') ? 'rgba(16,185,129,0.15)' : t.txn_type.includes('SHORTAGE') ? 'rgba(239,68,68,0.15)' : t.txn_type.includes('ADVANCE') ? 'rgba(245,158,11,0.15)' : 'rgba(56,189,248,0.15)', color: t.txn_type.includes('SALARY') ? '#10b981' : t.txn_type.includes('SHORTAGE') ? '#ef4444' : t.txn_type.includes('ADVANCE') ? '#f59e0b' : '#38bdf8', border: `1px solid ${t.txn_type.includes('SALARY') ? '#10b981' : t.txn_type.includes('SHORTAGE') ? '#ef4444' : t.txn_type.includes('ADVANCE') ? '#f59e0b' : '#38bdf8'}` }}>
+                    <span className="badge" style={{ background: t.txn_type.includes('SALARY') ? 'rgba(47, 227, 155,0.15)' : t.txn_type.includes('SHORTAGE') ? 'rgba(255, 107, 129,0.15)' : t.txn_type.includes('ADVANCE') ? 'rgba(255, 178, 36,0.15)' : 'rgba(34, 211, 238,0.15)', color: t.txn_type.includes('SALARY') ? '#2fe39b' : t.txn_type.includes('SHORTAGE') ? '#ff6b81' : t.txn_type.includes('ADVANCE') ? '#ffb224' : '#22d3ee', border: `1px solid ${t.txn_type.includes('SALARY') ? '#2fe39b' : t.txn_type.includes('SHORTAGE') ? '#ff6b81' : t.txn_type.includes('ADVANCE') ? '#ffb224' : '#22d3ee'}` }}>
                       {t.txn_type.replace('_', ' ')}
                     </span>
                   </td>
-                  <td style={{ color: '#cbd5e1' }}>{t.remarks || '-'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: '900', fontSize: '16px', color: t.txn_type.includes('SALARY') ? '#10b981' : '#ef4444' }}>
+                  <td style={{ color: '#c4d1ea' }}>{t.remarks || '-'}</td>
+                  <td style={{ textAlign: 'right', fontWeight: '900', fontSize: '16px', color: t.txn_type.includes('SALARY') ? '#2fe39b' : '#ff6b81' }}>
                     {t.txn_type.includes('SALARY') ? '+' : '-'} ₹{parseFloat(t.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}
                   </td>
                 </tr>
@@ -1010,23 +1010,23 @@ export default function DriverMgmt() {
           <div className="modal-content" style={{ display: 'flex', flexDirection: 'column', height: '95vh' }}>
             
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '28px' }}>
+              <h2 style={{ margin: 0, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '28px' }}>
                 {editingId ? '✏️ Update Driver & Approvals' : '🤖 Driver Onboarding & KYC'}
               </h2>
-              <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
             
-            {isScanning && <div style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', padding: '15px', textAlign: 'center', borderRadius: '10px', marginBottom: '20px', fontWeight: 'bold', border: '1px dashed #38bdf8', fontSize: '16px' }}>{scanMessage}</div>}
+            {isScanning && <div style={{ background: 'rgba(34, 211, 238, 0.2)', color: '#22d3ee', padding: '15px', textAlign: 'center', borderRadius: '10px', marginBottom: '20px', fontWeight: 'bold', border: '1px dashed #22d3ee', fontSize: '16px' }}>{scanMessage}</div>}
 
             <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth > 768 ? 'repeat(3, 1fr)' : '1fr', gap: '30px', overflowY: 'auto', paddingRight: '10px', flex: 1 }}>
               
               {/* --- COLUMN 1: CORE DETAILS --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <h4 style={{ color: '#38bdf8', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>👤 CORE DETAILS</h4>
+                <h4 style={{ color: '#22d3ee', margin: '0 0 10px 0', borderBottom: '1px dashed #27395f', paddingBottom: '5px' }}>👤 CORE DETAILS</h4>
                 
                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
-                  <div style={{ position: 'relative', width: '120px', height: '120px', borderRadius: '50%', border: '2px dashed #c084fc', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.2)' }}>
-                    {<AuthImg src={localPicPreview || driverData.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '12px' }}>📷<br/>Passport<br/>Photo</div>} />}
+                  <div style={{ position: 'relative', width: '120px', height: '120px', borderRadius: '50%', border: '2px dashed #a78bfa', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.2)' }}>
+                    {<AuthImg src={localPicPreview || driverData.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<div style={{ textAlign: 'center', color: '#9aadd4', fontSize: '12px' }}>📷<br/>Passport<br/>Photo</div>} />}
                     <input type="file" accept="image/*" onChange={(e) => handleDocUpload(e, 'profile_pic')} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }} />
                   </div>
                 </div>
@@ -1035,8 +1035,8 @@ export default function DriverMgmt() {
                 <div><label>Mobile Number *</label><input className="modern-input" value={driverData.mobile} onChange={e=>setDriverData({...driverData, mobile: e.target.value})} /></div>
                 
                 <div>
-                  <label style={{ color: '#f59e0b' }}>App Approval Status *</label>
-                  <select className="modern-input" value={driverData.approval_status || 'PENDING'} onChange={e=>setDriverData({...driverData, approval_status: e.target.value})} style={{ border: '1px solid #f59e0b' }}>
+                  <label style={{ color: '#ffb224' }}>App Approval Status *</label>
+                  <select className="modern-input" value={driverData.approval_status || 'PENDING'} onChange={e=>setDriverData({...driverData, approval_status: e.target.value})} style={{ border: '1px solid #ffb224' }}>
                     <option value="PENDING">⏳ Pending (From App)</option>
                     <option value="APPROVED">✅ Approved & Verified</option>
                     <option value="REJECTED">❌ Rejected (Invalid Docs)</option>
@@ -1054,12 +1054,12 @@ export default function DriverMgmt() {
 
               {/* --- COLUMN 2: LICENSES & AADHAAR --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <h4 style={{ color: '#10b981', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>🪪 LICENSE & AADHAAR</h4>
+                <h4 style={{ color: '#2fe39b', margin: '0 0 10px 0', borderBottom: '1px dashed #27395f', paddingBottom: '5px' }}>🪪 LICENSE & AADHAAR</h4>
                 
                 <div className="doc-card">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <label style={{ margin: 0 }}>Driving License Details</label>
-                    <a href="https://parivahan.gov.in/rcdlstatus/" target="_blank" rel="noreferrer" style={{ fontSize: '10px', color: '#38bdf8', textDecoration: 'none', background: 'rgba(56,189,248,0.1)', padding: '3px 8px', borderRadius: '5px', border: '1px solid #38bdf8', transition: '0.3s' }}>🌐 Verify Parivahan</a>
+                    <a href="https://parivahan.gov.in/rcdlstatus/" target="_blank" rel="noreferrer" style={{ fontSize: '10px', color: '#22d3ee', textDecoration: 'none', background: 'rgba(34, 211, 238,0.1)', padding: '3px 8px', borderRadius: '5px', border: '1px solid #22d3ee', transition: '0.3s' }}>🌐 Verify Parivahan</a>
                   </div>
                   <input className="modern-input" placeholder="DL Number" value={driverData.license_no} onChange={e=>setDriverData({...driverData, license_no: e.target.value})} style={{marginBottom:'10px'}}/>
                   <input type="date" className="modern-input" value={driverData.license_expiry} onChange={e=>setDriverData({...driverData, license_expiry: e.target.value})} style={{colorScheme:'dark', marginBottom:'15px'}}/>
@@ -1122,7 +1122,7 @@ export default function DriverMgmt() {
 
               {/* --- COLUMN 3: HAZARDOUS, BANK & 🌟 ADDITIONAL DOCS --- */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <h4 style={{ color: '#f59e0b', margin: '0 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>⚠️ HAZARDOUS & BANK</h4>
+                <h4 style={{ color: '#ffb224', margin: '0 0 10px 0', borderBottom: '1px dashed #27395f', paddingBottom: '5px' }}>⚠️ HAZARDOUS & BANK</h4>
                 
                 <div className="doc-card">
                   <label>Hazardous Certificate Details</label>
@@ -1151,16 +1151,16 @@ export default function DriverMgmt() {
                 </div>
                 
                 {/* 🌟 NEW: ADDITIONAL CUSTOM DOCUMENTS SECTION 🌟 */}
-                <h4 style={{ color: '#c084fc', margin: '20px 0 10px 0', borderBottom: '1px dashed #334155', paddingBottom: '5px' }}>📂 ADDITIONAL DOCUMENTS</h4>
+                <h4 style={{ color: '#a78bfa', margin: '20px 0 10px 0', borderBottom: '1px dashed #27395f', paddingBottom: '5px' }}>📂 ADDITIONAL DOCUMENTS</h4>
                 
                 {driverData.additional_docs?.map((doc: any, index: number) => (
-                   <div key={doc.id} className="doc-card" style={{ borderColor: '#c084fc' }}>
-                      <button onClick={() => removeCustomDoc(doc.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px' }}>✕</button>
-                      <label style={{ color: '#c084fc' }}>{doc.name}</label>
+                   <div key={doc.id} className="doc-card" style={{ borderColor: '#a78bfa' }}>
+                      <button onClick={() => removeCustomDoc(doc.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ff6b81', cursor: 'pointer', fontSize: '14px' }}>✕</button>
+                      <label style={{ color: '#a78bfa' }}>{doc.name}</label>
                       <input type="date" className="modern-input" value={doc.valid_till} onChange={e=>handleCustomDocChange(doc.id, 'valid_till', e.target.value)} style={{colorScheme:'dark', marginBottom:'15px'}} title="Expiry Date (If applicable)"/>
                       <div style={{ display: 'grid', gridTemplateColumns: doc.link ? '1fr 1fr' : '1fr', gap: '8px' }}>
-                        {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" className="view-btn" style={{ borderColor: '#c084fc', color: '#c084fc', background: 'rgba(192, 132, 252, 0.1)' }}>👁️ View File</a>}
-                        <label className={`upload-btn ${doc.link ? 'update-btn' : ''}`} style={doc.link ? { borderColor: '#c084fc', color: '#c084fc' } : {}}>
+                        {doc.link && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(doc.link); }} target="_blank" rel="noreferrer" className="view-btn" style={{ borderColor: '#a78bfa', color: '#a78bfa', background: 'rgba(167, 139, 250, 0.1)' }}>👁️ View File</a>}
+                        <label className={`upload-btn ${doc.link ? 'update-btn' : ''}`} style={doc.link ? { borderColor: '#a78bfa', color: '#a78bfa' } : {}}>
                           {uploadingField === doc.id ? '⏳ Uploading...' : doc.link ? '🔄 Change File' : '📎 Upload File'}
                           <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, doc.id)} />
                         </label>
@@ -1169,7 +1169,7 @@ export default function DriverMgmt() {
                 ))}
 
                 <div style={{ display: 'flex', gap: '10px' }}>
-                   <input type="text" className="modern-input" placeholder="e.g. Police Verification" value={newCustomDocName} onChange={e=>setNewCustomDocName(e.target.value)} style={{ border: '1px solid #c084fc' }}/>
+                   <input type="text" className="modern-input" placeholder="e.g. Police Verification" value={newCustomDocName} onChange={e=>setNewCustomDocName(e.target.value)} style={{ border: '1px solid #a78bfa' }}/>
                    <button onClick={handleAddCustomDoc} style={{ background: '#c084fc', color: '#fff', border: 'none', padding: '10px 15px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>+ Add</button>
                 </div>
 
@@ -1180,7 +1180,7 @@ export default function DriverMgmt() {
             <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '20px' }}>
               <button 
                 onClick={closeModal} 
-                style={{ padding: '15px 30px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', borderRadius: '50px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', transition: '0.3s' }}
+                style={{ padding: '15px 30px', background: 'rgba(255, 107, 129, 0.1)', border: '1px solid #ff6b81', color: '#ff6b81', borderRadius: '50px', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', transition: '0.3s' }}
               >
                 ⬅️ Go Back (Cancel)
               </button>

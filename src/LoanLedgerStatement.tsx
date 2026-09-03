@@ -54,24 +54,24 @@ const dmy = (d: any) => {
 // Print has no colour to lean on, so status has to read as a word. On screen the
 // colour is a shortcut; on paper the word is the whole signal.
 const STATUS: Record<string, { label: string; colour: string }> = {
-  PAID:       { label: 'Paid',      colour: '#10b981' },
-  PAID_LATE:  { label: 'Paid late', colour: '#f59e0b' },
+  PAID:       { label: 'Paid',      colour: '#2fe39b' },
+  PAID_LATE:  { label: 'Paid late', colour: '#ffb224' },
   PART_PAID:  { label: 'Part paid', colour: '#f97316' },
-  OVERDUE:    { label: 'Overdue',   colour: '#ef4444' },
-  UPCOMING:   { label: 'Upcoming',  colour: '#64748b' },
+  OVERDUE:    { label: 'Overdue',   colour: '#ff6b81' },
+  UPCOMING:   { label: 'Upcoming',  colour: '#5d7196' },
 };
 
 const PRINT_CSS = `
 /* ── screen ────────────────────────────────────────────────────────────── */
 #loan-ledger-print .lls-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 #loan-ledger-print .lls-table th,
-#loan-ledger-print .lls-table td { padding: 6px 8px; border-bottom: 1px solid #334155; white-space: nowrap; }
-#loan-ledger-print .lls-table th { text-align: left; color: #94a3b8; font-size: 11px;
-  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #475569; }
+#loan-ledger-print .lls-table td { padding: 6px 8px; border-bottom: 1px solid #27395f; white-space: nowrap; }
+#loan-ledger-print .lls-table th { text-align: left; color: #9aadd4; font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #3d548a; }
 #loan-ledger-print .lls-num { text-align: right; font-variant-numeric: tabular-nums; }
-#loan-ledger-print .lls-tier-break td { border-top: 2px solid #6366f1; }
-#loan-ledger-print h1, #loan-ledger-print h2, #loan-ledger-print h3 { color: #f1f5f9; }
-#loan-ledger-print .lls-table td { color: #e2e8f0; }
+#loan-ledger-print .lls-tier-break td { border-top: 2px solid #7c8cff; }
+#loan-ledger-print h1, #loan-ledger-print h2, #loan-ledger-print h3 { color: #eef3fa; }
+#loan-ledger-print .lls-table td { color: #dde5f4; }
 
 /* ── print ─────────────────────────────────────────────────────────────── */
 @media print {
@@ -181,10 +181,10 @@ const ledgerRow = (d: any, r: any) => [d.loan_account_no, d.vehicle_no, d.financ
 // number on the page that has to be readable. Print overrides all of it to
 // black on white anyway.
 const card: React.CSSProperties = {
-  background: '#0f172a', border: '1px solid #334155', borderRadius: 12, padding: 18,
-  color: '#e2e8f0',
+  background: '#121c38', border: '1px solid #27395f', borderRadius: 12, padding: 18,
+  color: '#dde5f4',
 };
-const label: React.CSSProperties = { color: '#94a3b8', fontSize: 11, textTransform: 'uppercase',
+const label: React.CSSProperties = { color: '#9aadd4', fontSize: 11, textTransform: 'uppercase',
   letterSpacing: '.05em', margin: 0 };
 
 /**
@@ -222,7 +222,7 @@ function FyTable({ years, showLoanColumn = false }: any) {
         {years.map((y: any) => (
           <tr key={y.fy_start}>
             <td><b>{y.fy_label}</b><br />
-              <small style={{ color: '#94a3b8' }}>{dmy(y.fy_from)} → {dmy(y.fy_to)}</small></td>
+              <small style={{ color: '#9aadd4' }}>{dmy(y.fy_from)} → {dmy(y.fy_to)}</small></td>
             {showLoanColumn && <td>{y.loans}</td>}
             <td className="lls-num">{y.instalments}</td>
             {!showLoanColumn && (
@@ -237,12 +237,12 @@ function FyTable({ years, showLoanColumn = false }: any) {
                 interest as principal would overstate that year's profit by the
                 same amount, per truck. */}
             <td className="lls-num">{inr(y.principal_repaid ?? y.principal)}</td>
-            <td className="lls-num" style={{ color: '#f59e0b' }}>
+            <td className="lls-num" style={{ color: '#ffb224' }}>
               {inr(y.interest_charged ?? y.interest)}
             </td>
             <td className="lls-num">{y.closing_liability == null ? '—' : inr(y.closing_liability)}</td>
             <td className="lls-num">{inr(y.cleared)}</td>
-            <td className="lls-num" style={{ color: Number(y.unpaid_in_year) > 0 ? '#ef4444' : undefined }}>
+            <td className="lls-num" style={{ color: Number(y.unpaid_in_year) > 0 ? '#ff6b81' : undefined }}>
               {Number(y.unpaid_in_year) > 0 ? inr(y.unpaid_in_year) : '—'}
             </td>
             <td className="lls-num">{inr(y.closing_arrears)}</td>
@@ -251,7 +251,7 @@ function FyTable({ years, showLoanColumn = false }: any) {
         ))}
       </tbody>
       <tfoot>
-        <tr style={{ fontWeight: 900, borderTop: '2px solid #475569' }}>
+        <tr style={{ fontWeight: 900, borderTop: '2px solid #3d548a' }}>
           <td colSpan={showLoanColumn ? 3 : 3}>Whole term — {sum('instalments')} instalments</td>
           <td />
           <td className="lls-num">{inr(sum('emi_due'))}</td>
@@ -428,7 +428,7 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
               const i = raw.indexOf(':');
               setSel({ kind: raw.slice(0, i), value: raw.slice(i + 1) });
             }}
-            style={{ background: '#1e293b', minWidth: 380 }}>
+            style={{ background: '#18244a', minWidth: 380 }}>
             {!!financiers.length && (
               <optgroup label="Finance company — whole book">
                 {financiers.map((f: any) => (
@@ -450,12 +450,12 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
         <div>
           <p style={label}>Opening balance struck at</p>
           <input type="date" className="modern-input" value={asOf}
-            onChange={(e) => setAsOf(e.target.value)} style={{ background: '#1e293b' }} />
+            onChange={(e) => setAsOf(e.target.value)} style={{ background: '#18244a' }} />
         </div>
         <div>
           <p style={label}>Show</p>
           <select className="modern-input" value={view} onChange={(e) => setView(e.target.value)}
-            style={{ background: '#1e293b' }}>
+            style={{ background: '#18244a' }}>
             <option value="BOTH">Year summary + full ledger</option>
             <option value="YEARS">Financial year summary only</option>
             <option value="LEDGER">Full ledger only (start to end)</option>
@@ -464,7 +464,7 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
         <div>
           <p style={label}>Financial year</p>
           <select className="modern-input" value={fy} onChange={(e) => setFy(e.target.value)}
-            style={{ background: '#1e293b' }}>
+            style={{ background: '#18244a' }}>
             <option value="">Whole term — every year</option>
             {fyOptions.map((o) => (
               <option key={o.start} value={String(o.start)}>{o.label}</option>
@@ -472,7 +472,7 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
           </select>
         </div>
         <button className="glow-btn" onClick={() => window.print()}
-          style={{ background: '#334155', border: '1px solid #475569' }}>
+          style={{ background: '#27395f', border: '1px solid #3d548a' }}>
           🖨️ Print {fy ? fyOptions.find((o) => String(o.start) === fy)?.label : 'PDF'}
         </button>
         <button className="glow-btn" onClick={downloadYears}
@@ -486,9 +486,9 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
       </div>
 
       {loading && <p style={{ color: '#818cf8' }}>Building statement…</p>}
-      {error && <p style={{ color: '#ef4444' }}>Could not load the ledger: {error}</p>}
+      {error && <p style={{ color: '#ff6b81' }}>Could not load the ledger: {error}</p>}
       {!loading && !error && !statement.length && (
-        <p style={{ color: '#94a3b8' }}>Select a finance company or a loan.</p>
+        <p style={{ color: '#9aadd4' }}>Select a finance company or a loan.</p>
       )}
 
       {!!statement.length && (
@@ -498,14 +498,14 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
           {isGroup && payload.group && (
             <div className="lls-keep" style={{ marginBottom: 22 }}>
               <div style={{ textAlign: 'center', paddingBottom: 12,
-                borderBottom: '2px solid #334155', marginBottom: 16 }}>
+                borderBottom: '2px solid #27395f', marginBottom: 16 }}>
                 <h1 style={{ margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: 2 }}>
                   PRASAD TRANSPORT
                 </h1>
                 <div style={{ fontSize: 13, marginTop: 4, letterSpacing: 1 }}>
                   LOAN LEDGER STATEMENT — {payload.group.financier}
                 </div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                <div style={{ fontSize: 11, color: '#9aadd4', marginTop: 2 }}>
                   {payload.group.loans} contracts · {payload.group.vehicles} vehicles ·
                   {' '}{dmy(payload.group.first_disbursal)} → {dmy(payload.group.last_maturity)}
                 </div>
@@ -536,7 +536,7 @@ export default function LoanLedgerStatement({ loans = [], initialLoanNo = null }
                   nothing to reconcile — and averaged into one number they would
                   quietly poison it. */}
               {payload.group.loans_with_ledger < payload.group.loans && (
-                <div style={{ padding: 10, border: '1px solid #f59e0b', borderRadius: 6,
+                <div style={{ padding: 10, border: '1px solid #ffb224', borderRadius: 6,
                   fontSize: 12, marginBottom: 14 }}>
                   <b>{payload.group.loans - payload.group.loans_with_ledger} of{' '}
                   {payload.group.loans} contracts in this group have no lender ledger.</b>
@@ -610,11 +610,11 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
 
       {/* ── letterhead ────────────────────────────────────────────── */}
       <div className="lls-keep" style={{ textAlign: 'center', paddingBottom: 12,
-        borderBottom: '2px solid #334155', marginBottom: 16 }}>
+        borderBottom: '2px solid #27395f', marginBottom: 16 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 900, letterSpacing: 2 }}>
           {data.vehicle_no} · {data.loan_type || 'Loan'}
         </h1>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+        <div style={{ fontSize: 11, color: '#9aadd4', marginTop: 4 }}>
           {data.financier} · Contract {data.loan_account_no}
           {data.company_name ? ' · ' + data.company_name : ''}
         </div>
@@ -659,7 +659,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
       )}
 
       {/* ── OPENING BALANCE, with its arithmetic ──────────────────── */}
-      <div className="lls-opening lls-keep" style={{ border: '2px solid #6366f1', borderRadius: 10,
+      <div className="lls-opening lls-keep" style={{ border: '2px solid #7c8cff', borderRadius: 10,
         padding: 14, marginBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
           flexWrap: 'wrap', gap: 8 }}>
@@ -674,7 +674,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
         {/* ZERO ARREARS AND ZERO HISTORY ARE NOT THE SAME THING, and this is the
             one place a statement could quietly say they are. */}
         {!data.has_ledger_history && (
-          <div style={{ marginTop: 10, padding: 10, border: '1px solid #f59e0b',
+          <div style={{ marginTop: 10, padding: 10, border: '1px solid #ffb224',
             borderRadius: 6, fontSize: 12 }}>
             <b>No transaction history is held for this loan</b>, so arrears cannot be
             struck at a cut-off and the figures below are not evidence of anything.
@@ -705,7 +705,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
               <td>Add: LPC / bounce &amp; penal charges raised before {dmy(asOf)}</td>
               <td className="lls-num" style={{ textAlign: 'right' }}>₹{inr(open?.penal_charges_before)}</td>
             </tr>
-            <tr className="lls-rule" style={{ borderTop: '1px solid #475569', fontWeight: 900 }}>
+            <tr className="lls-rule" style={{ borderTop: '1px solid #3d548a', fontWeight: 900 }}>
               <td style={{ paddingTop: 6 }}>Opening balance (arrears carried forward)</td>
               <td className="lls-num" style={{ textAlign: 'right', paddingTop: 6 }}>
                 ₹{inr(open?.opening_balance)}
@@ -719,16 +719,16 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
             figure that has none. */}
         {(Number(open?.undated_penal_outstanding) > 0
           || Number(open?.accrued_overdue_interest) > 0) && (
-          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #475569',
-            fontSize: 11, color: '#94a3b8' }}>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #3d548a',
+            fontSize: 11, color: '#9aadd4' }}>
             {Number(open?.undated_penal_outstanding) > 0 && (
               <div>Memo — penal charges outstanding, undated on the lender's statement:{' '}
-                <b style={{ color: '#e2e8f0' }}>₹{inr(open?.undated_penal_outstanding)}</b>.
+                <b style={{ color: '#dde5f4' }}>₹{inr(open?.undated_penal_outstanding)}</b>.
                 {' '}Excluded above because the lender does not state when they were raised.</div>
             )}
             {Number(open?.accrued_overdue_interest) > 0 && (
               <div style={{ marginTop: 3 }}>Memo — overdue interest accrued on instalments due
-                before the cut-off: <b style={{ color: '#e2e8f0' }}>₹{inr(open?.accrued_overdue_interest)}</b>.
+                before the cut-off: <b style={{ color: '#dde5f4' }}>₹{inr(open?.accrued_overdue_interest)}</b>.
                 {' '}The lender discloses this as an accrual; it is not a sum it has debited.</div>
             )}
           </div>
@@ -767,7 +767,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
           </thead>
           <tbody>
             {rows.map((r: any, i: number) => {
-              const st = STATUS[r.status] ?? { label: r.status, colour: '#94a3b8' };
+              const st = STATUS[r.status] ?? { label: r.status, colour: '#9aadd4' };
               const preCutoff = String(r.due_date).slice(0, 10) < asOf;
               // A rule where the financial year turns, so a reader can find
               // 2024-25 in a 58-row list without counting.
@@ -778,7 +778,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
                     style={{ opacity: preCutoff ? 0.75 : 1 }}>
                   <td>{String(r.instalment_no).padStart(3, '0')}</td>
                   <td>{dmy(r.due_date)}</td>
-                  <td style={{ color: '#94a3b8' }}>
+                  <td style={{ color: '#9aadd4' }}>
                     {r.fy_start}-{String((r.fy_start + 1) % 100).padStart(2, '0')}
                   </td>
                   <td className="lls-num">{inr(r.due_amount)}</td>
@@ -799,7 +799,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
             })}
           </tbody>
           <tfoot>
-            <tr style={{ fontWeight: 900, borderTop: '2px solid #475569' }}>
+            <tr style={{ fontWeight: 900, borderTop: '2px solid #3d548a' }}>
               <td colSpan={3}>
                 {fy ? 'Year' : 'Total'} — {rows.length} instalment{rows.length === 1 ? '' : 's'}
               </td>
@@ -859,7 +859,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
       )}
 
       <div className="lls-keep" style={{ marginTop: 18, paddingTop: 10,
-        borderTop: '1px solid #334155', fontSize: 11, color: '#94a3b8',
+        borderTop: '1px solid #27395f', fontSize: 11, color: '#9aadd4',
         display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
           {data.from_lender_statement
@@ -869,7 +869,7 @@ function LoanBlock({ data, asOf, view, fy, pageBreak }: any) {
           {data.health && (
             <>
               {' '}Reconciliation against the lender's closing balance:{' '}
-              <b style={{ color: Number(data.health.drift) === 0 ? '#10b981' : '#ef4444' }}>
+              <b style={{ color: Number(data.health.drift) === 0 ? '#2fe39b' : '#ff6b81' }}>
                 {Number(data.health.drift) === 0
                   ? 'agrees' : 'differs by ₹' + inr(data.health.drift)}
               </b>.

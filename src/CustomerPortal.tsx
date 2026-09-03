@@ -230,7 +230,7 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
     <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-blue-500 selection:text-white">
       
       {/* 🚀 LEFT SIDEBAR (CORPORATE THEME) */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0f172a] text-white flex flex-col shadow-2xl transition-transform duration-300 lg:relative lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#121c38] text-white flex flex-col shadow-2xl transition-transform duration-300 lg:relative lg:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:20px_20px] opacity-[0.03]"></div>
         
         <div className="p-6 flex items-center gap-3 border-b border-slate-800 relative z-10">

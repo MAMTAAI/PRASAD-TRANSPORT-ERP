@@ -19,48 +19,48 @@ const CSS = `
 @keyframes adFade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes adSlide { from { transform: translateX(40px); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes adPop { from { transform: scale(.96); opacity: 0 } to { transform: none; opacity: 1 } }
-.ad-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(2,6,23,.72); backdrop-filter: blur(6px); animation: adFade .18s ease; display: flex; justify-content: flex-end; }
-.ad-panel { width: min(1180px, 100vw); height: 100%; background: #0b1220; border-left: 1px solid #1e293b; display: grid; grid-template-rows: auto 1fr; animation: adSlide .22s cubic-bezier(.2,.8,.2,1); color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
-.ad-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #1e293b; background: linear-gradient(180deg, #0f172a, #0b1220); }
+.ad-overlay { position: fixed; inset: 0; z-index: 10000; background: rgba(10, 16, 36,.72); backdrop-filter: blur(6px); animation: adFade .18s ease; display: flex; justify-content: flex-end; }
+.ad-panel { width: min(1180px, 100vw); height: 100%; background: #0a1024; border-left: 1px solid #18244a; display: grid; grid-template-rows: auto 1fr; animation: adSlide .22s cubic-bezier(.2,.8,.2,1); color: #dde5f4; font-family: 'Inter', system-ui, sans-serif; }
+.ad-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid #18244a; background: linear-gradient(180deg, #121c38, #0a1024); }
 .ad-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .9fr); min-height: 0; }
-.ad-viewer { position: relative; background: #020617; border-right: 1px solid #1e293b; display: flex; flex-direction: column; min-height: 0; }
-.ad-viewer iframe, .ad-viewer img { flex: 1; width: 100%; height: 100%; border: 0; object-fit: contain; background: #0b1220; }
+.ad-viewer { position: relative; background: #0a1024; border-right: 1px solid #18244a; display: flex; flex-direction: column; min-height: 0; }
+.ad-viewer iframe, .ad-viewer img { flex: 1; width: 100%; height: 100%; border: 0; object-fit: contain; background: #0a1024; }
 .ad-side { overflow: auto; padding: 16px 18px 28px; display: flex; flex-direction: column; gap: 14px; }
-.ad-tool { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e293b; background: #0b1220; font-size: 12px; color: #94a3b8; }
-.ad-btn { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-weight: 700; font-size: 12.5px; cursor: pointer; transition: transform .12s ease, background .15s, border-color .15s, opacity .15s; display: inline-flex; align-items: center; gap: 6px; }
-.ad-btn:hover { transform: translateY(-1px); border-color: #475569; }
+.ad-tool { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #18244a; background: #0a1024; font-size: 12px; color: #9aadd4; }
+.ad-btn { min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #27395f; background: #121c38; color: #dde5f4; font-weight: 700; font-size: 12.5px; cursor: pointer; transition: transform .12s ease, background .15s, border-color .15s, opacity .15s; display: inline-flex; align-items: center; gap: 6px; }
+.ad-btn:hover { transform: translateY(-1px); border-color: #3d548a; }
 .ad-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.ad-btn--ok { background: linear-gradient(135deg, #10b981, #059669); border-color: transparent; color: #fff; }
-.ad-btn--no { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.45); color: #fca5a5; }
+.ad-btn--ok { background: linear-gradient(135deg, #2fe39b, #2fe39b); border-color: transparent; color: #fff; }
+.ad-btn--no { background: rgba(255, 107, 129,.1); border-color: rgba(255, 107, 129,.45); color: #fca5a5; }
 .ad-btn--ghost { background: transparent; }
 .ad-field { display: grid; gap: 4px; }
-.ad-label { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: #64748b; font-weight: 700; }
-.ad-val { font-size: 14px; color: #f1f5f9; min-height: 22px; word-break: break-word; }
-.ad-input { width: 100%; box-sizing: border-box; background: #020617; border: 1px solid #334155; color: #f1f5f9; border-radius: 9px; padding: 9px 11px; font-size: 14px; color-scheme: dark; transition: border-color .15s, box-shadow .15s; }
-.ad-input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,.18); }
+.ad-label { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: #5d7196; font-weight: 700; }
+.ad-val { font-size: 14px; color: #eef3fa; min-height: 22px; word-break: break-word; }
+.ad-input { width: 100%; box-sizing: border-box; background: #0a1024; border: 1px solid #27395f; color: #eef3fa; border-radius: 9px; padding: 9px 11px; font-size: 14px; color-scheme: dark; transition: border-color .15s, box-shadow .15s; }
+.ad-input:focus { outline: none; border-color: #22d3ee; box-shadow: 0 0 0 3px rgba(34, 211, 238,.18); }
 .ad-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .04em; border: 1px solid transparent; }
 .ad-amount { font-size: 34px; font-weight: 900; letter-spacing: -.02em; line-height: 1.1; }
-.ad-reason { animation: adPop .16s ease; background: rgba(239,68,68,.06); border: 1px dashed rgba(239,68,68,.5); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
-.ad-note { font-size: 11.5px; color: #64748b; line-height: 1.55; }
+.ad-reason { animation: adPop .16s ease; background: rgba(255, 107, 129,.06); border: 1px dashed rgba(255, 107, 129,.5); border-radius: 12px; padding: 12px; display: grid; gap: 8px; }
+.ad-note { font-size: 11.5px; color: #5d7196; line-height: 1.55; }
 .ad-milan { border: 1px solid rgba(139,92,246,.4); background: rgba(139,92,246,.07); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; }
 .ad-mhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; font-weight: 900; color: #c4b5fd; }
-.ad-mrow { display: grid; grid-template-columns: minmax(70px, .8fr) 1fr 1fr auto; gap: 8px; align-items: center; font-size: 12px; padding: 6px 8px; border-radius: 9px; background: rgba(2,6,23,.45); }
-.ad-mrow .k { color: #94a3b8; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
-.ad-mrow .v { color: #f1f5f9; word-break: break-word; }
+.ad-mrow { display: grid; grid-template-columns: minmax(70px, .8fr) 1fr 1fr auto; gap: 8px; align-items: center; font-size: 12px; padding: 6px 8px; border-radius: 9px; background: rgba(10, 16, 36,.45); }
+.ad-mrow .k { color: #9aadd4; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+.ad-mrow .v { color: #eef3fa; word-break: break-word; }
 .ad-mrow .ocr { color: #c4b5fd; font-weight: 700; word-break: break-word; }
 .ad-mbtn { min-height: 26px; padding: 0 9px; border-radius: 7px; border: 1px solid rgba(139,92,246,.5); background: rgba(139,92,246,.15); color: #e9d5ff; font-size: 11px; font-weight: 800; cursor: pointer; }
 .ad-mbtn:disabled { opacity: .4; cursor: not-allowed; }
-.ad-raw { font-size: 11px; color: #94a3b8; white-space: pre-wrap; max-height: 160px; overflow: auto; background: rgba(2,6,23,.5); border-radius: 8px; padding: 8px; }
-@media (max-width: 860px) { .ad-body { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr } .ad-viewer { border-right: 0; border-bottom: 1px solid #1e293b } .ad-panel { width: 100vw } }
+.ad-raw { font-size: 11px; color: #9aadd4; white-space: pre-wrap; max-height: 160px; overflow: auto; background: rgba(10, 16, 36,.5); border-radius: 8px; padding: 8px; }
+@media (max-width: 860px) { .ad-body { grid-template-columns: 1fr; grid-template-rows: 46vh 1fr } .ad-viewer { border-right: 0; border-bottom: 1px solid #18244a } .ad-panel { width: 100vw } }
 `;
 
 const TONES = {
-  green: { color: '#34d399', background: 'rgba(16,185,129,.12)', borderColor: 'rgba(16,185,129,.35)' },
-  amber: { color: '#fbbf24', background: 'rgba(245,158,11,.12)', borderColor: 'rgba(245,158,11,.35)' },
-  red:   { color: '#f87171', background: 'rgba(239,68,68,.12)', borderColor: 'rgba(239,68,68,.35)' },
-  cyan:  { color: '#38bdf8', background: 'rgba(56,189,248,.12)', borderColor: 'rgba(56,189,248,.35)' },
+  green: { color: '#2fe39b', background: 'rgba(47, 227, 155,.12)', borderColor: 'rgba(47, 227, 155,.35)' },
+  amber: { color: '#fbbf24', background: 'rgba(255, 178, 36,.12)', borderColor: 'rgba(255, 178, 36,.35)' },
+  red:   { color: '#ff8b9c', background: 'rgba(255, 107, 129,.12)', borderColor: 'rgba(255, 107, 129,.35)' },
+  cyan:  { color: '#22d3ee', background: 'rgba(34, 211, 238,.12)', borderColor: 'rgba(34, 211, 238,.35)' },
   violet:{ color: '#a78bfa', background: 'rgba(139,92,246,.12)', borderColor: 'rgba(139,92,246,.35)' },
-  slate: { color: '#94a3b8', background: 'rgba(148,163,184,.12)', borderColor: 'rgba(148,163,184,.3)' },
+  slate: { color: '#9aadd4', background: 'rgba(148,163,184,.12)', borderColor: 'rgba(148,163,184,.3)' },
 };
 export const Pill = ({ tone = 'slate', children }) => <span className="ad-pill" style={TONES[tone] ?? TONES.slate}>{children}</span>;
 
@@ -101,7 +101,7 @@ function useVaultBlob(fileKey, open) {
 
 export default function ApprovalDrawer({
   open, onClose,
-  title, subtitle, accent = '#38bdf8',
+  title, subtitle, accent = '#22d3ee',
   fileKey = null, fileLabel = 'Document',
   amount = null, amountLabel = 'Amount',
   chips = [],                 // [{ label, tone }]
@@ -206,7 +206,7 @@ export default function ApprovalDrawer({
           <div style={{ width: 6, alignSelf: 'stretch', borderRadius: 4, background: accent }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-            {subtitle && <div style={{ fontSize: 12, color: '#94a3b8' }}>{subtitle}</div>}
+            {subtitle && <div style={{ fontSize: 12, color: '#9aadd4' }}>{subtitle}</div>}
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {chips.map((c, i) => <Pill key={i} tone={c.tone}>{c.label}</Pill>)}
@@ -218,22 +218,22 @@ export default function ApprovalDrawer({
           {/* ── The paper ── */}
           <div className="ad-viewer">
             <div className="ad-tool">
-              <span style={{ fontWeight: 700, color: '#cbd5e1' }}>📎 {fileLabel}</span>
+              <span style={{ fontWeight: 700, color: '#c4d1ea' }}>📎 {fileLabel}</span>
               <span style={{ flex: 1 }} />
               {blob.url && <button className="ad-btn" style={{ minHeight: 32 }} onClick={() => window.open(blob.url, '_blank', 'noopener')}>↗ Open</button>}
               {blob.url && <button className="ad-btn" style={{ minHeight: 32 }} onClick={print}>🖨 Print</button>}
             </div>
             {!fileKey && (
-              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#475569', fontSize: 13, padding: 24, textAlign: 'center' }}>
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#3d548a', fontSize: 13, padding: 24, textAlign: 'center' }}>
                 <div><div style={{ fontSize: 40 }}>📄</div>No document attached to this row.<br />Manual and AI-scanned entries carry only their fields.</div>
               </div>
             )}
-            {fileKey && blob.loading && <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#94a3b8', fontSize: 13 }}>Fetching from the vault…</div>}
-            {fileKey && blob.error && <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#f87171', fontSize: 13 }}>Could not open the file ({blob.error})</div>}
+            {fileKey && blob.loading && <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#9aadd4', fontSize: 13 }}>Fetching from the vault…</div>}
+            {fileKey && blob.error && <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#ff8b9c', fontSize: 13 }}>Could not open the file ({blob.error})</div>}
             {blob.url && blob.kind === 'pdf' && <iframe ref={iframeRef} title="pdf" src={blob.url} />}
             {blob.url && blob.kind === 'image' && <img src={blob.url} alt={fileLabel} />}
             {blob.url && blob.kind === 'other' && (
-              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#94a3b8', fontSize: 13 }}>
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#9aadd4', fontSize: 13 }}>
                 This file type has no inline preview. <button className="ad-btn" onClick={() => window.open(blob.url, '_blank', 'noopener')}>Open it</button>
               </div>
             )}
@@ -264,15 +264,15 @@ export default function ApprovalDrawer({
                 {ocr.status === 'DONE' && ocr.match && ocr.match.total > 0 && (
                   <div style={{ display: 'grid', gap: 4 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                      <span style={{ fontWeight: 900, color: ocr.match.score >= 80 ? '#34d399' : ocr.match.score >= 50 ? '#fbbf24' : '#f87171' }}>
+                      <span style={{ fontWeight: 900, color: ocr.match.score >= 80 ? '#2fe39b' : ocr.match.score >= 50 ? '#fbbf24' : '#ff8b9c' }}>
                         Milan score {ocr.match.score}%
                       </span>
                       <span className="ad-note">{ocr.match.passed}/{ocr.match.total} checks against the trip and the masters</span>
                     </div>
                     {ocr.match.checks.map((c, i) => (
                       <div key={i} style={{ display: 'flex', gap: 8, fontSize: 11.5, alignItems: 'baseline' }}>
-                        <span style={{ fontWeight: 900, color: c.ok ? '#34d399' : '#f87171' }}>{c.ok ? '✓' : '✗'}</span>
-                        <span style={{ color: '#e2e8f0' }}>{c.name}</span>
+                        <span style={{ fontWeight: 900, color: c.ok ? '#2fe39b' : '#ff8b9c' }}>{c.ok ? '✓' : '✗'}</span>
+                        <span style={{ color: '#dde5f4' }}>{c.name}</span>
                         {c.note && <span className="ad-note">— {c.note}</span>}
                       </div>
                     ))}
@@ -295,9 +295,9 @@ export default function ApprovalDrawer({
                         <div key={r.key} className="ad-mrow">
                           <span className="k">{r.label}</span>
                           <span className="ocr">{String(r.value)}</span>
-                          <span className="v">{empty ? <span style={{ color: '#475569' }}>—</span> : String(r.current)}</span>
+                          <span className="v">{empty ? <span style={{ color: '#3d548a' }}>—</span> : String(r.current)}</span>
                           <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                            <span title={match ? 'matches' : empty ? 'not filled yet' : 'differs from OCR'} style={{ fontWeight: 900, color: match ? '#34d399' : empty ? '#94a3b8' : '#fbbf24' }}>{match ? '✓' : empty ? '·' : '⚠'}</span>
+                            <span title={match ? 'matches' : empty ? 'not filled yet' : 'differs from OCR'} style={{ fontWeight: 900, color: match ? '#2fe39b' : empty ? '#9aadd4' : '#fbbf24' }}>{match ? '✓' : empty ? '·' : '⚠'}</span>
                             {canDecide && r.editable && !match && <button className="ad-mbtn" onClick={() => useOcr(r.key, r.value)}>Use</button>}
                           </span>
                         </div>
@@ -346,7 +346,7 @@ export default function ApprovalDrawer({
                         value={draft[f.key] ?? ''} onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))} />
                     )
                   ) : (
-                    <div className="ad-val">{f.render ? f.render(draft[f.key] ?? f.value) : (draft[f.key] ?? f.value ?? '') === '' ? <span style={{ color: '#475569' }}>—</span> : String(draft[f.key] ?? f.value)}</div>
+                    <div className="ad-val">{f.render ? f.render(draft[f.key] ?? f.value) : (draft[f.key] ?? f.value ?? '') === '' ? <span style={{ color: '#3d548a' }}>—</span> : String(draft[f.key] ?? f.value)}</div>
                   )}
                   {f.hint && <div className="ad-note">{f.hint}</div>}
                 </div>
@@ -355,7 +355,7 @@ export default function ApprovalDrawer({
 
             {children}
 
-            {err && <div style={{ color: '#fca5a5', fontSize: 12.5, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.35)', borderRadius: 10, padding: '8px 10px' }}>❌ {err}</div>}
+            {err && <div style={{ color: '#fca5a5', fontSize: 12.5, background: 'rgba(255, 107, 129,.08)', border: '1px solid rgba(255, 107, 129,.35)', borderRadius: 10, padding: '8px 10px' }}>❌ {err}</div>}
 
             {canDecide ? (
               <div style={{ display: 'grid', gap: 10, marginTop: 4 }}>
@@ -390,7 +390,7 @@ export default function ApprovalDrawer({
                 )}
               </div>
             ) : (
-              <div style={{ fontSize: 12, color: '#f59e0b', textAlign: 'center', padding: 12, background: 'rgba(245,158,11,0.08)', borderRadius: 10 }}>
+              <div style={{ fontSize: 12, color: '#ffb224', textAlign: 'center', padding: 12, background: 'rgba(255, 178, 36,0.08)', borderRadius: 10 }}>
                 🔒 Only an Admin can decide this row. You can view and print.
               </div>
             )}

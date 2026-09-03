@@ -29,7 +29,7 @@ const stripMd = (s) => String(s).replace(/\*\*(.+?)\*\*/g, '$1').replace(/^#+\s*
 
 /** AI answer renderer: normal lines wrap as text; bullet lines become
  *  44px-min tappable suggestion chips (tap → asks Mamta about that point). */
-export function AssistantText({ text, onTapSuggestion, accent = '#c084fc' }) {
+export function AssistantText({ text, onTapSuggestion, accent = '#a78bfa' }) {
   const lines = String(text || '').split('\n');
   const blocks = [];
   let para = [];
@@ -53,7 +53,7 @@ export function AssistantText({ text, onTapSuggestion, accent = '#c084fc' }) {
           style={{
             display: 'flex', alignItems: 'flex-start', gap: '8px', width: '100%', textAlign: 'left',
             background: `${accent}14`, border: `1px solid ${accent}55`, borderRadius: '12px',
-            padding: '10px 12px', margin: '6px 0', color: '#e2e8f0', cursor: 'pointer',
+            padding: '10px 12px', margin: '6px 0', color: '#dde5f4', cursor: 'pointer',
             minHeight: '44px', fontSize: 'inherit', lineHeight: 1.45, fontFamily: 'inherit',
             overflowWrap: 'anywhere', wordBreak: 'break-word',
           }}

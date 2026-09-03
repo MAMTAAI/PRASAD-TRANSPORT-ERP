@@ -46,10 +46,10 @@ const KIND_TABS = [
   { key: 'MATRIX', label: 'Role Matrix', icon: '🧩', role: null, hint: 'Which pages and fields each role may see at all' },
 ];
 const STATE = {
-  ACTIVE:   { label: 'Active',   color: '#34d399', bg: 'rgba(16,185,129,.12)', br: 'rgba(16,185,129,.35)' },
-  PENDING:  { label: 'Pending',  color: '#fbbf24', bg: 'rgba(245,158,11,.12)', br: 'rgba(245,158,11,.35)' },
-  BLOCKED:  { label: 'Blocked',  color: '#f87171', bg: 'rgba(239,68,68,.12)',  br: 'rgba(239,68,68,.35)' },
-  ARCHIVED: { label: 'Archived', color: '#94a3b8', bg: 'rgba(148,163,184,.12)', br: 'rgba(148,163,184,.3)' },
+  ACTIVE:   { label: 'Active',   color: '#2fe39b', bg: 'rgba(47, 227, 155,.12)', br: 'rgba(47, 227, 155,.35)' },
+  PENDING:  { label: 'Pending',  color: '#fbbf24', bg: 'rgba(255, 178, 36,.12)', br: 'rgba(255, 178, 36,.35)' },
+  BLOCKED:  { label: 'Blocked',  color: '#ff8b9c', bg: 'rgba(255, 107, 129,.12)',  br: 'rgba(255, 107, 129,.35)' },
+  ARCHIVED: { label: 'Archived', color: '#9aadd4', bg: 'rgba(148,163,184,.12)', br: 'rgba(148,163,184,.3)' },
 };
 const QUARANTINE = [
   { key: 'expense_bills', label: 'Expense bills', icon: '🧾', go: 'EXPENSE_APPROVALS' },
@@ -66,37 +66,37 @@ const QUARANTINE = [
 const CSS = `
 @keyframes ahUp { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
 @keyframes ahIn { from { opacity: 0; transform: scale(.98) } to { opacity: 1; transform: none } }
-.ah { color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; padding-bottom: 60px; }
-.ah-card { background: rgba(15,23,42,.7); border: 1px solid #1e293b; border-radius: 16px; }
-.ah-tab { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; border: 1px solid transparent; background: transparent; color: #94a3b8; font-weight: 700; font-size: 13px; cursor: pointer; transition: all .15s ease; white-space: nowrap; }
-.ah-tab:hover { color: #e2e8f0; background: rgba(30,41,59,.6); }
-.ah-tab.on { color: #fff; background: linear-gradient(135deg, rgba(56,189,248,.18), rgba(139,92,246,.18)); border-color: rgba(56,189,248,.35); }
-.ah-count { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #1e293b; color: #cbd5e1; }
+.ah { color: #dde5f4; font-family: 'Inter', system-ui, sans-serif; padding-bottom: 60px; }
+.ah-card { background: rgba(18, 28, 56,.7); border: 1px solid #18244a; border-radius: 16px; }
+.ah-tab { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; border: 1px solid transparent; background: transparent; color: #9aadd4; font-weight: 700; font-size: 13px; cursor: pointer; transition: all .15s ease; white-space: nowrap; }
+.ah-tab:hover { color: #dde5f4; background: rgba(24, 36, 74,.6); }
+.ah-tab.on { color: #fff; background: linear-gradient(135deg, rgba(34, 211, 238,.18), rgba(139,92,246,.18)); border-color: rgba(34, 211, 238,.35); }
+.ah-count { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: #18244a; color: #c4d1ea; }
 .ah-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .04em; border: 1px solid; transition: all .2s; }
-.ah-btn { min-height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-weight: 700; font-size: 12px; cursor: pointer; transition: transform .12s, border-color .15s, background .15s, opacity .15s; white-space: nowrap; }
-.ah-btn:hover { transform: translateY(-1px); border-color: #475569; }
+.ah-btn { min-height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #27395f; background: #121c38; color: #dde5f4; font-weight: 700; font-size: 12px; cursor: pointer; transition: transform .12s, border-color .15s, background .15s, opacity .15s; white-space: nowrap; }
+.ah-btn:hover { transform: translateY(-1px); border-color: #3d548a; }
 .ah-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.ah-btn--ok { background: linear-gradient(135deg,#10b981,#059669); border-color: transparent; color: #fff; }
-.ah-btn--no { background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.45); color: #fca5a5; }
-.ah-btn--warn { background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.45); color: #fcd34d; }
+.ah-btn--ok { background: linear-gradient(135deg,#2fe39b,#2fe39b); border-color: transparent; color: #fff; }
+.ah-btn--no { background: rgba(255, 107, 129,.1); border-color: rgba(255, 107, 129,.45); color: #fca5a5; }
+.ah-btn--warn { background: rgba(255, 178, 36,.1); border-color: rgba(255, 178, 36,.45); color: #fcd34d; }
 .ah-btn--ghost { background: transparent; }
-.ah-input { background: #020617; border: 1px solid #334155; color: #f1f5f9; border-radius: 9px; padding: 8px 10px; font-size: 13px; color-scheme: dark; transition: border-color .15s, box-shadow .15s; }
-.ah-input:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,.18); }
+.ah-input { background: #0a1024; border: 1px solid #27395f; color: #eef3fa; border-radius: 9px; padding: 8px 10px; font-size: 13px; color-scheme: dark; transition: border-color .15s, box-shadow .15s; }
+.ah-input:focus { outline: none; border-color: #22d3ee; box-shadow: 0 0 0 3px rgba(34, 211, 238,.18); }
 .ah-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
-.ah-table th { text-align: left; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #64748b; padding: 10px 12px; border-bottom: 1px solid #1e293b; position: sticky; top: 0; background: #0b1220; z-index: 1; }
-.ah-table td { padding: 11px 12px; border-bottom: 1px solid rgba(30,41,59,.7); vertical-align: middle; }
+.ah-table th { text-align: left; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #5d7196; padding: 10px 12px; border-bottom: 1px solid #18244a; position: sticky; top: 0; background: #0a1024; z-index: 1; }
+.ah-table td { padding: 11px 12px; border-bottom: 1px solid rgba(24, 36, 74,.7); vertical-align: middle; }
 .ah-row { animation: ahUp .25s ease both; transition: background .15s; }
-.ah-row:hover { background: rgba(30,41,59,.35); }
-.ah-sub { font-size: 11.5px; color: #94a3b8; }
-.ah-expand { animation: ahIn .2s ease; background: rgba(2,6,23,.55); }
-.ah-switch { position: relative; width: 38px; height: 22px; border-radius: 999px; background: #334155; border: 0; cursor: pointer; transition: background .2s; flex: none; }
+.ah-row:hover { background: rgba(24, 36, 74,.35); }
+.ah-sub { font-size: 11.5px; color: #9aadd4; }
+.ah-expand { animation: ahIn .2s ease; background: rgba(10, 16, 36,.55); }
+.ah-switch { position: relative; width: 38px; height: 22px; border-radius: 999px; background: #27395f; border: 0; cursor: pointer; transition: background .2s; flex: none; }
 .ah-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; }
 .ah-switch.on { background: #10b981; } .ah-switch.on::after { transform: translateX(16px); }
 .ah-switch:disabled { opacity: .4; cursor: not-allowed; }
 .ah-q { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.ah-qcard { padding: 12px 14px; border-radius: 14px; border: 1px solid #1e293b; background: rgba(2,6,23,.5); cursor: pointer; transition: transform .15s, border-color .15s; }
-.ah-qcard:hover { transform: translateY(-2px); border-color: #38bdf8; }
-.ah-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 10001; background: #0f172a; border: 1px solid #334155; color: #e2e8f0; padding: 10px 16px; border-radius: 12px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: ahUp .2s ease; max-width: 90vw; }
+.ah-qcard { padding: 12px 14px; border-radius: 14px; border: 1px solid #18244a; background: rgba(10, 16, 36,.5); cursor: pointer; transition: transform .15s, border-color .15s; }
+.ah-qcard:hover { transform: translateY(-2px); border-color: #22d3ee; }
+.ah-toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 10001; background: #121c38; border: 1px solid #27395f; color: #dde5f4; padding: 10px 16px; border-radius: 12px; font-size: 13px; box-shadow: 0 10px 30px rgba(0,0,0,.4); animation: ahUp .2s ease; max-width: 90vw; }
 `;
 let cssMounted = false;
 
@@ -212,7 +212,7 @@ export default function AccessHub({ onNavigate }) {
   };
 
   if (!admin) {
-    return <div className="ah" style={{ padding: 40, textAlign: 'center', color: '#f59e0b' }}>🔒 The Access Control Hub is for Admin / Super Admin only.</div>;
+    return <div className="ah" style={{ padding: 40, textAlign: 'center', color: '#ffb224' }}>🔒 The Access Control Hub is for Admin / Super Admin only.</div>;
   }
 
   const stagingTotal = summary ? Object.values(summary.staging ?? {}).reduce((s, n) => s + (Number(n) || 0), 0) : 0;
@@ -223,11 +223,11 @@ export default function AccessHub({ onNavigate }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14, marginBottom: 18 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(22px, 5vw, 28px)', fontWeight: 900 }}>🛂 Access Control Hub <span className="pt-badge pt-badge--ai" style={{ verticalAlign: 'middle' }}>Admin</span></h2>
-          <p style={{ margin: '5px 0 0', color: '#94a3b8', fontSize: 14 }}>Who may enter which portal and what they see — decided here, checked by the server on every request. Nothing an outside party sends touches the books until an APPROVE below.</p>
+          <p style={{ margin: '5px 0 0', color: '#9aadd4', fontSize: 14 }}>Who may enter which portal and what they see — decided here, checked by the server on every request. Nothing an outside party sends touches the books until an APPROVE below.</p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           {summary?.guard && (
-            <span className="ah-pill" style={{ color: summary.guard.mode === 'enforce' ? '#34d399' : '#fbbf24', background: 'rgba(2,6,23,.6)', borderColor: '#1e293b' }}>
+            <span className="ah-pill" style={{ color: summary.guard.mode === 'enforce' ? '#2fe39b' : '#fbbf24', background: 'rgba(10, 16, 36,.6)', borderColor: '#18244a' }}>
               🛡 quarantine fence: {summary.guard.mode}
             </span>
           )}
@@ -245,13 +245,13 @@ export default function AccessHub({ onNavigate }) {
           {QUARANTINE.map((c) => {
             const n = Number(summary?.staging?.[c.key] ?? 0);
             return (
-              <div key={c.key} className="ah-qcard" style={{ borderColor: n > 0 ? 'rgba(245,158,11,.45)' : undefined }}
+              <div key={c.key} className="ah-qcard" style={{ borderColor: n > 0 ? 'rgba(255, 178, 36,.45)' : undefined }}
                    onClick={() => (c.tab ? setKind(c.tab) : onNavigate?.(c.go))}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: 18 }}>{c.icon}</span>
-                  <span style={{ fontSize: 22, fontWeight: 900, color: n > 0 ? '#fbbf24' : '#475569' }}>{summary ? n : '…'}</span>
+                  <span style={{ fontSize: 22, fontWeight: 900, color: n > 0 ? '#fbbf24' : '#3d548a' }}>{summary ? n : '…'}</span>
                 </div>
-                <div style={{ fontSize: 12, color: '#cbd5e1', marginTop: 4, fontWeight: 600 }}>{c.label}</div>
+                <div style={{ fontSize: 12, color: '#c4d1ea', marginTop: 4, fontWeight: 600 }}>{c.label}</div>
               </div>
             );
           })}
@@ -266,7 +266,7 @@ export default function AccessHub({ onNavigate }) {
             <button key={t.key} className={`ah-tab ${kind === t.key ? 'on' : ''}`} onClick={() => setKind(t.key)} title={t.hint}>
               <span>{t.icon}</span>{t.label}
               {s && <span className="ah-count">{s.total}</span>}
-              {s?.PENDING > 0 && <span className="ah-count" style={{ background: 'rgba(245,158,11,.2)', color: '#fbbf24' }}>{s.PENDING} pending</span>}
+              {s?.PENDING > 0 && <span className="ah-count" style={{ background: 'rgba(255, 178, 36,.2)', color: '#fbbf24' }}>{s.PENDING} pending</span>}
             </button>
           );
         })}
@@ -275,12 +275,12 @@ export default function AccessHub({ onNavigate }) {
       {kind === 'MATRIX' ? (
         <div className="ah-card" style={{ padding: 16 }}>
           <div className="ah-sub" style={{ marginBottom: 10 }}>Role-wide pages and fields. Sensitive fields (freight, driver phone, balances, target price) are off until switched on here. A party's own toggles (in its row) can only narrow this further.</div>
-          <Suspense fallback={<div style={{ padding: 30, color: '#94a3b8' }}>Loading the matrix…</div>}><PortalAccessControl /></Suspense>
+          <Suspense fallback={<div style={{ padding: 30, color: '#9aadd4' }}>Loading the matrix…</div>}><PortalAccessControl /></Suspense>
         </div>
       ) : (
         <div className="ah-card" style={{ overflow: 'hidden' }}>
           {/* ── Toolbar ── */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', borderBottom: '1px solid #1e293b' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '12px 14px', borderBottom: '1px solid #18244a' }}>
             <input className="ah-input" style={{ width: 240 }} placeholder={`Search ${tab?.label?.toLowerCase()} — name, mobile, email`} value={q} onChange={(e) => setQ(e.target.value)} />
             <div style={{ display: 'flex', gap: 4 }}>
               {['ALL', 'ACTIVE', 'PENDING', 'BLOCKED', 'ARCHIVED'].map((s) => (
@@ -292,7 +292,7 @@ export default function AccessHub({ onNavigate }) {
             <span style={{ flex: 1 }} />
             <span className="ah-sub">{tab?.hint}</span>
           </div>
-          {err && <div style={{ margin: 12, padding: '8px 12px', borderRadius: 10, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.35)', color: '#fca5a5', fontSize: 12.5 }}>❌ {err}</div>}
+          {err && <div style={{ margin: 12, padding: '8px 12px', borderRadius: 10, background: 'rgba(255, 107, 129,.08)', border: '1px solid rgba(255, 107, 129,.35)', color: '#fca5a5', fontSize: 12.5 }}>❌ {err}</div>}
 
           <div style={{ overflowX: 'auto', maxHeight: '68vh', overflowY: 'auto' }}>
             <table className="ah-table">
@@ -304,8 +304,8 @@ export default function AccessHub({ onNavigate }) {
                 <th style={{ minWidth: 300 }}>Decisions</th>
               </tr></thead>
               <tbody>
-                {loading && rows.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>Loading…</td></tr>}
-                {!loading && visible.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>Nothing here{q ? ' for that search' : ''}.</td></tr>}
+                {loading && rows.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#9aadd4' }}>Loading…</td></tr>}
+                {!loading && visible.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#5d7196' }}>Nothing here{q ? ' for that search' : ''}.</td></tr>}
                 {visible.map((r, i) => {
                   const isEd = editing?.id === r.id;
                   const d = editing?.draft ?? {};
@@ -343,15 +343,15 @@ export default function AccessHub({ onNavigate }) {
                                     "cannot log in" about a lorry is noise, so it
                                     shows what it actually is instead. */}
                                 {kind === 'MARKET_VEHICLE'
-                                  ? <span style={{ color: '#94a3b8' }}>{[r.vehicle_class, r.capacity ? `${r.capacity} T` : null].filter(Boolean).join(' · ') || 'truck'}</span>
-                                  : r.mobile ? `📱 ${r.mobile}` : <span style={{ color: '#f87171' }}>no mobile — cannot log in</span>}
+                                  ? <span style={{ color: '#9aadd4' }}>{[r.vehicle_class, r.capacity ? `${r.capacity} T` : null].filter(Boolean).join(' · ') || 'truck'}</span>
+                                  : r.mobile ? `📱 ${r.mobile}` : <span style={{ color: '#ff8b9c' }}>no mobile — cannot log in</span>}
                                 {r.email && !String(r.email).includes('@login.prasadtransport.com') ? ` · ${r.email}` : ''}
                                 {kind === 'DRIVER' && r.license_no ? ` · DL ${r.license_no}` : ''}
                                 {kind === 'MARKET_DRIVER' && r.licence_no ? ` · DL ${r.licence_no}` : ''}
                                 {kind === 'MARKET_VEHICLE' ? [r.vehicle_class, r.capacity ? `${r.capacity} T` : null].filter(Boolean).map((x) => ` · ${x}`).join('') : ''}
                                 {r.vendor_type && kind === 'SERVICE_VENDOR' ? ` · ${r.vendor_type}` : ''}
                               </div>
-                              <div className="ah-sub" style={{ color: '#64748b' }}>
+                              <div className="ah-sub" style={{ color: '#5d7196' }}>
                                 {kind === 'FLEET_PARTNER' ? `${r.trucks ?? 0} trucks` : kind === 'SERVICE_VENDOR' ? `${r.bills ?? 0} bills` : kind === 'CUSTOMER' ? `${r.activity ?? 0} loads` : kind === 'DRIVER' ? `${r.activity ?? 0} trips` : kind === 'MARKET_VEHICLE' ? `${r.activity ?? 0} trips` : `${r.activity ?? 0} trucks named`}
                                 {r.record_status && r.record_status !== 'ACTIVE' ? ` · master: ${r.record_status}` : ''}
                               </div>
@@ -361,25 +361,25 @@ export default function AccessHub({ onNavigate }) {
                         {/* Login / Partner */}
                         <td>
                           {isMarket ? (
-                            <div><div style={{ color: '#cbd5e1' }}>{r.partner_name ?? '—'}</div><div className="ah-sub">registered {rel(r.created_at)}</div></div>
+                            <div><div style={{ color: '#c4d1ea' }}>{r.partner_name ?? '—'}</div><div className="ah-sub">registered {rel(r.created_at)}</div></div>
                           ) : kind === 'DRIVER' ? (
-                            <div><div style={{ color: '#cbd5e1' }}>OTP / login link</div><div className="ah-sub">last seen {rel(r.last_seen)}</div></div>
+                            <div><div style={{ color: '#c4d1ea' }}>OTP / login link</div><div className="ah-sub">last seen {rel(r.last_seen)}</div></div>
                           ) : r.login_id ? (
                             <div>
-                              <span className="ah-pill" style={r.login_status === 'ACTIVE' && r.account_status !== 'SUSPENDED' ? { color: '#34d399', background: 'rgba(16,185,129,.1)', borderColor: 'rgba(16,185,129,.3)' } : { color: '#f87171', background: 'rgba(239,68,68,.1)', borderColor: 'rgba(239,68,68,.3)' }}>
+                              <span className="ah-pill" style={r.login_status === 'ACTIVE' && r.account_status !== 'SUSPENDED' ? { color: '#2fe39b', background: 'rgba(47, 227, 155,.1)', borderColor: 'rgba(47, 227, 155,.3)' } : { color: '#ff8b9c', background: 'rgba(255, 107, 129,.1)', borderColor: 'rgba(255, 107, 129,.3)' }}>
                                 {r.login_status === 'ACTIVE' && r.account_status !== 'SUSPENDED' ? 'login ✓' : 'login suspended'}
                               </span>
                               <div className="ah-sub" style={{ marginTop: 4 }}>last login {rel(r.last_login_at ?? r.last_seen)}{r.must_change_password ? ' · first login pending' : ''}</div>
                             </div>
                           ) : (
-                            <div><span className="ah-pill" style={{ color: '#94a3b8', background: 'rgba(148,163,184,.1)', borderColor: 'rgba(148,163,184,.3)' }}>no login</span><div className="ah-sub" style={{ marginTop: 4 }}>Activate creates it</div></div>
+                            <div><span className="ah-pill" style={{ color: '#9aadd4', background: 'rgba(148,163,184,.1)', borderColor: 'rgba(148,163,184,.3)' }}>no login</span><div className="ah-sub" style={{ marginTop: 4 }}>Activate creates it</div></div>
                           )}
                         </td>
                         {/* Sessions */}
                         <td>
                           {isMarket ? <span className="ah-sub">—</span> : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontWeight: 800, color: r.live_sessions > 0 ? '#34d399' : '#475569' }}>{r.live_sessions ?? 0}</span>
+                              <span style={{ fontWeight: 800, color: r.live_sessions > 0 ? '#2fe39b' : '#3d548a' }}>{r.live_sessions ?? 0}</span>
                               {r.live_sessions > 0 && <button className="ah-btn ah-btn--ghost" style={{ minHeight: 28, fontSize: 11 }} disabled={busyRow} onClick={() => revoke(r)}>end all</button>}
                             </div>
                           )}
@@ -417,7 +417,7 @@ export default function AccessHub({ onNavigate }) {
                       {/* Reason prompt for block / archive */}
                       {asking?.id === r.id && (
                         <tr className="ah-expand"><td colSpan={5} style={{ padding: '10px 14px' }}>
-                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 12, borderRadius: 12, border: `1px dashed ${asking.action === 'archive' ? 'rgba(239,68,68,.5)' : 'rgba(245,158,11,.5)'}` }}>
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: 12, borderRadius: 12, border: `1px dashed ${asking.action === 'archive' ? 'rgba(255, 107, 129,.5)' : 'rgba(255, 178, 36,.5)'}` }}>
                             <b style={{ color: asking.action === 'archive' ? '#fca5a5' : '#fcd34d', fontSize: 13 }}>
                               {asking.action === 'archive' ? '🗄 Archive' : '⛔ Block'} {r.name} — why?
                             </b>
@@ -442,7 +442,7 @@ export default function AccessHub({ onNavigate }) {
                         <tr className="ah-expand"><td colSpan={5} style={{ padding: '12px 16px 16px' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
                             <div>
-                              <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>What this party sees</div>
+                              <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#5d7196', fontWeight: 800, marginBottom: 8 }}>What this party sees</div>
                               {kind === 'DRIVER' || kind === 'MARKET_DRIVER' ? (
                                 <div className="ah-sub">{kind === 'DRIVER' ? 'Drivers have the gate only: duty screen, own uploads, own khata — no freight, no rates. Per-page toggles for drivers are a follow-up (the driver app does not read the matrix yet).' : 'A market driver has no app. Approval lets the partner name them on a truck.'}</div>
                               ) : !detail[r.id] ? <div className="ah-sub">Loading…</div> : (
@@ -452,10 +452,10 @@ export default function AccessHub({ onNavigate }) {
                                     const roleOff = !m.is_visible;
                                     const isField = !!m.parent_key;
                                     return (
-                                      <div key={m.module_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(15,23,42,.6)', marginLeft: isField ? 18 : 0, opacity: roleOff ? 0.55 : 1 }}>
+                                      <div key={m.module_key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 10, background: 'rgba(18, 28, 56,.6)', marginLeft: isField ? 18 : 0, opacity: roleOff ? 0.55 : 1 }}>
                                         <button className={`ah-switch ${!partyOff && !roleOff ? 'on' : ''}`} disabled={roleOff || busyRow} onClick={() => toggleFeature(r, m.short, partyOff)} title={roleOff ? 'hidden for every ' + tab.role.toLowerCase() + ' in the Role Matrix' : partyOff ? 'switch on for this party' : 'hide for this party'} />
                                         <div style={{ flex: 1 }}>
-                                          <div style={{ fontSize: 12.5, color: '#e2e8f0', fontWeight: isField ? 500 : 700 }}>{String(m.label).trim()}{m.sensitive ? <span style={{ color: '#fbbf24', marginLeft: 6, fontSize: 10 }}>sensitive</span> : null}</div>
+                                          <div style={{ fontSize: 12.5, color: '#dde5f4', fontWeight: isField ? 500 : 700 }}>{String(m.label).trim()}{m.sensitive ? <span style={{ color: '#fbbf24', marginLeft: 6, fontSize: 10 }}>sensitive</span> : null}</div>
                                           {roleOff && <div className="ah-sub" style={{ fontSize: 10.5 }}>off for the whole role — open it in the Role Matrix first</div>}
                                         </div>
                                       </div>
@@ -466,17 +466,17 @@ export default function AccessHub({ onNavigate }) {
                               )}
                             </div>
                             <div>
-                              <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 800, marginBottom: 8 }}>Audit trail</div>
+                              <div style={{ fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: '#5d7196', fontWeight: 800, marginBottom: 8 }}>Audit trail</div>
                               {!detail[r.id] ? <div className="ah-sub">Loading…</div> : (
                                 <div style={{ display: 'grid', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
                                   {[...(detail[r.id].audit.hub ?? []).map((a) => ({ t: a.created_at, who: a.actor_name, what: a.action, why: a.reason, extra: a.after?.note ?? (a.after?.changes ? Object.entries(a.after.changes).map(([k, v]) => `${k} → ${v ?? '—'}`).join(', ') : null) })),
                                     ...(detail[r.id].audit.gate ?? []).map((g) => ({ t: g.created_at, who: g.actor_name, what: g.now_visible ? 'GATE OPENED' : 'GATE CLOSED', why: null }))]
                                     .sort((a, b) => new Date(b.t) - new Date(a.t))
                                     .map((e, i) => (
-                                      <div key={i} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '6px 10px', borderRadius: 10, background: 'rgba(15,23,42,.6)' }}>
-                                        <span style={{ color: '#64748b', whiteSpace: 'nowrap' }}>{fmtDt(e.t)}</span>
-                                        <span style={{ fontWeight: 800, color: e.what.includes('BLOCK') || e.what.includes('ARCHIVE') || e.what.includes('CLOSED') ? '#f87171' : e.what.includes('ACTIVATE') || e.what.includes('OPENED') ? '#34d399' : '#cbd5e1' }}>{e.what}</span>
-                                        <span style={{ color: '#94a3b8', flex: 1 }}>{e.who ?? 'office'}{e.why ? ` — “${e.why}”` : ''}{e.extra ? ` — ${e.extra}` : ''}</span>
+                                      <div key={i} style={{ display: 'flex', gap: 10, fontSize: 12, padding: '6px 10px', borderRadius: 10, background: 'rgba(18, 28, 56,.6)' }}>
+                                        <span style={{ color: '#5d7196', whiteSpace: 'nowrap' }}>{fmtDt(e.t)}</span>
+                                        <span style={{ fontWeight: 800, color: e.what.includes('BLOCK') || e.what.includes('ARCHIVE') || e.what.includes('CLOSED') ? '#ff8b9c' : e.what.includes('ACTIVATE') || e.what.includes('OPENED') ? '#2fe39b' : '#c4d1ea' }}>{e.what}</span>
+                                        <span style={{ color: '#9aadd4', flex: 1 }}>{e.who ?? 'office'}{e.why ? ` — “${e.why}”` : ''}{e.extra ? ` — ${e.extra}` : ''}</span>
                                       </div>
                                     ))}
                                   {(detail[r.id].audit.hub?.length ?? 0) + (detail[r.id].audit.gate?.length ?? 0) === 0 && <div className="ah-sub">No decisions recorded yet for this party.</div>}

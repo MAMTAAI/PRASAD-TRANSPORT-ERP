@@ -201,51 +201,51 @@ function InboxUI() {
   };
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
         ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        ::-webkit-scrollbar-track { background: rgba(18, 28, 56, 0.5); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #27395f; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3d548a; }
 
-        .glass-card { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .glass-card { background: rgba(24, 36, 74, 0.6); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
         
-        .glow-btn { background: linear-gradient(135deg, #3b82f6, #6366f1); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; justify-content: center; }
-        .glow-btn:hover:not(:disabled) { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); transform: translateY(-2px); }
+        .glow-btn { background: linear-gradient(135deg, #3b82f6, #7c8cff); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; justify-content: center; }
+        .glow-btn:hover:not(:disabled) { box-shadow: 0 0 20px rgba(124, 140, 255, 0.6); transform: translateY(-2px); }
         .glow-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         
         /* 🗂️ Fixed Tabs CSS */
-        .tabs-container { display: flex; flex-wrap: wrap; background: rgba(15, 23, 42, 0.95); border-bottom: 2px solid rgba(255,255,255,0.05); border-radius: 20px 20px 0 0; }
-        .tab-btn { flex: 1; min-width: 80px; padding: 15px 10px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 14px; text-align: center; }
-        .tab-btn.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.05); }
+        .tabs-container { display: flex; flex-wrap: wrap; background: rgba(18, 28, 56, 0.95); border-bottom: 2px solid rgba(255,255,255,0.05); border-radius: 20px 20px 0 0; }
+        .tab-btn { flex: 1; min-width: 80px; padding: 15px 10px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 14px; text-align: center; }
+        .tab-btn.active { color: #22d3ee; border-bottom: 3px solid #22d3ee; background: rgba(34, 211, 238, 0.05); }
         .tab-btn:hover:not(.active) { color: white; background: rgba(255,255,255,0.03); }
 
-        .ai-btn { background: linear-gradient(135deg, #c084fc, #9333ea); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
-        .ai-btn:hover:not(:disabled) { box-shadow: 0 0 20px rgba(192, 132, 252, 0.6); transform: scale(1.02); }
+        .ai-btn { background: linear-gradient(135deg, #a78bfa, #9333ea); color: white; border: none; padding: 10px 20px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
+        .ai-btn:hover:not(:disabled) { box-shadow: 0 0 20px rgba(167, 139, 250, 0.6); transform: scale(1.02); }
         .ai-btn:disabled { opacity: 0.6; cursor: wait; }
         
         .email-item { padding: 18px 20px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: all 0.3s ease; display: flex; gap: 15px; align-items: flex-start; }
-        .email-item:hover { background: rgba(56, 189, 248, 0.08); transform: translateX(5px); }
-        .email-item.active { background: linear-gradient(90deg, rgba(56, 189, 248, 0.15) 0%, rgba(30, 41, 59, 0) 100%); border-left: 4px solid #38bdf8; }
+        .email-item:hover { background: rgba(34, 211, 238, 0.08); transform: translateX(5px); }
+        .email-item.active { background: linear-gradient(90deg, rgba(34, 211, 238, 0.15) 0%, rgba(24, 36, 74, 0) 100%); border-left: 4px solid #22d3ee; }
         
-        .avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #38bdf8, #818cf8); display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 18px; flex-shrink: 0; box-shadow: 0 4px 10px rgba(56, 189, 248, 0.3); }
+        .avatar { width: 42px; height: 42px; border-radius: 50%; background: linear-gradient(135deg, #22d3ee, #818cf8); display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 18px; flex-shrink: 0; box-shadow: 0 4px 10px rgba(34, 211, 238, 0.3); }
         
-        .modern-textarea { background: rgba(15, 23, 42, 0.6); border: 1px solid #c084fc; border-radius: 10px; color: white; padding: 15px; width: 100%; height: 200px; font-family: inherit; font-size: 14px; outline: none; box-sizing: border-box; resize: none; line-height: 1.5; }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; border-radius: 10px; color: white; padding: 12px 15px; width: 100%; font-family: inherit; font-size: 14px; outline: none; box-sizing: border-box; margin-bottom: 15px; }
-        .modern-input:focus, .modern-textarea:focus { box-shadow: 0 0 15px rgba(192, 132, 252, 0.3); border-color: #c084fc; }
+        .modern-textarea { background: rgba(18, 28, 56, 0.6); border: 1px solid #a78bfa; border-radius: 10px; color: white; padding: 15px; width: 100%; height: 200px; font-family: inherit; font-size: 14px; outline: none; box-sizing: border-box; resize: none; line-height: 1.5; }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid #27395f; border-radius: 10px; color: white; padding: 12px 15px; width: 100%; font-family: inherit; font-size: 14px; outline: none; box-sizing: border-box; margin-bottom: 15px; }
+        .modern-input:focus, .modern-textarea:focus { box-shadow: 0 0 15px rgba(167, 139, 250, 0.3); border-color: #a78bfa; }
 
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal-content { background: #0f172a; border: 1px solid #334155; padding: 30px; border-radius: 20px; width: 650px; max-width: 90%; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+        .modal-content { background: #121c38; border: 1px solid #27395f; padding: 30px; border-radius: 20px; width: 650px; max-width: 90%; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
       `}</style>
 
       {/* ⚙️ Settings Modal */}
       {showSettings && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <h2 style={{ margin: '0 0 20px 0', color: '#38bdf8' }}>⚙️ Signature Settings</h2>
-            <textarea className="modern-textarea" style={{ height: '150px', borderColor: '#334155' }} value={signature} onChange={(e) => setSignature(e.target.value)} />
+            <h2 style={{ margin: '0 0 20px 0', color: '#22d3ee' }}>⚙️ Signature Settings</h2>
+            <textarea className="modern-textarea" style={{ height: '150px', borderColor: '#27395f' }} value={signature} onChange={(e) => setSignature(e.target.value)} />
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #64748b' }} onClick={() => setShowSettings(false)}>Cancel</button>
+              <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #5d7196' }} onClick={() => setShowSettings(false)}>Cancel</button>
               <button className="glow-btn" style={{ background: '#10b981' }} onClick={saveSignature}>Save Signature</button>
             </div>
           </div>
@@ -257,7 +257,7 @@ function InboxUI() {
         <div className="modal-overlay">
           <div className="modal-content">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h2 style={{ margin: 0, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 ✍️ New Message
               </h2>
               {/* 🧠 नया जादुई AI बटन */}
@@ -272,8 +272,8 @@ function InboxUI() {
             <textarea className="modern-textarea" style={{ height: '250px' }} value={composeData.body} onChange={(e) => setComposeData({...composeData, body: e.target.value})} />
             
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #64748b' }} onClick={() => setShowCompose(false)}>Discard</button>
-              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={sendNewEmail} disabled={isComposing}>
+              <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #5d7196' }} onClick={() => setShowCompose(false)}>Discard</button>
+              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)' }} onClick={sendNewEmail} disabled={isComposing}>
                 {isComposing ? '📤 Sending...' : '📤 Send Email'}
               </button>
             </div>
@@ -284,10 +284,10 @@ function InboxUI() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '35px', fontWeight: '900', background: 'linear-gradient(135deg, #38bdf8, #c084fc)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+          <h1 style={{ margin: 0, fontSize: '35px', fontWeight: '900', background: 'linear-gradient(135deg, #22d3ee, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             📧 Advanced Webmail & AI Desk
           </h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0', fontSize: '14px' }}>Full Mailbox Access (Inbox, Sent, Drafts, Spam, Bin) & AI Replies</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0', fontSize: '14px' }}>Full Mailbox Access (Inbox, Sent, Drafts, Spam, Bin) & AI Replies</p>
         </div>
         {!token ? (
           <button className="glow-btn" onClick={() => login()}>🔗 Connect Official Gmail</button>
@@ -296,9 +296,9 @@ function InboxUI() {
             <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ec4899, #f43f5e)', padding: '10px 20px', fontSize: '15px' }} onClick={openComposeModal}>
               ➕ Compose
             </button>
-            <span style={{ color: '#10b981', fontWeight: 'bold', background: 'rgba(16, 185, 129, 0.1)', padding: '8px 15px', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.3)' }}>✅ Connected</span>
-            <button className="glow-btn" style={{ background: '#334155' }} onClick={() => setShowSettings(true)}>⚙️</button>
-            <button className="glow-btn" style={{ background: '#334155' }} onClick={() => fetchEmails(token, activeTab)}>🔄</button>
+            <span style={{ color: '#2fe39b', fontWeight: 'bold', background: 'rgba(47, 227, 155, 0.1)', padding: '8px 15px', borderRadius: '10px', border: '1px solid rgba(47, 227, 155,0.3)' }}>✅ Connected</span>
+            <button className="glow-btn" style={{ background: '#27395f' }} onClick={() => setShowSettings(true)}>⚙️</button>
+            <button className="glow-btn" style={{ background: '#27395f' }} onClick={() => fetchEmails(token, activeTab)}>🔄</button>
           </div>
         )}
       </div>
@@ -306,7 +306,7 @@ function InboxUI() {
       {!token ? (
         <div className="glass-card" style={{ padding: '60px', textAlign: 'center', marginTop: '50px', maxWidth: '600px', margin: '50px auto' }}>
           <div style={{ fontSize: '80px', marginBottom: '20px' }}>🔐</div>
-          <h2 style={{ color: '#f8fafc', fontSize: '28px' }}>Google Authentication Required</h2>
+          <h2 style={{ color: '#f6f8fd', fontSize: '28px' }}>Google Authentication Required</h2>
           <button className="glow-btn" style={{ fontSize: '18px', padding: '15px 40px', margin: '0 auto' }} onClick={() => login()}>Authenticate with Google</button>
         </div>
       ) : (
@@ -325,24 +325,24 @@ function InboxUI() {
             </div>
             
             {loading ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#38bdf8', animation: 'pulse 1.5s infinite' }}>Loading folder... ⏳</div>
+              <div style={{ padding: '40px', textAlign: 'center', color: '#22d3ee', animation: 'pulse 1.5s infinite' }}>Loading folder... ⏳</div>
             ) : emails.length === 0 ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>No emails found in {activeTab}.</div>
+              <div style={{ padding: '40px', textAlign: 'center', color: '#9aadd4' }}>No emails found in {activeTab}.</div>
             ) : (
               emails.map((email) => (
                 <div key={email.id} className={`email-item ${selectedEmail?.id === email.id ? 'active' : ''}`} onClick={() => setSelectedEmail(email)}>
                   <div className="avatar">{email.from.charAt(0).toUpperCase()}</div>
                   <div style={{ overflow: 'hidden', flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <div style={{ fontWeight: 'bold', color: '#f8fafc', fontSize: '15px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <div style={{ fontWeight: 'bold', color: '#f6f8fd', fontSize: '15px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {(activeTab === 'sent' || activeTab === 'draft') ? `To: ${email.from}` : email.from}
                       </div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>{new Date(email.date).toLocaleDateString()}</div>
+                      <div style={{ fontSize: '11px', color: '#5d7196' }}>{new Date(email.date).toLocaleDateString()}</div>
                     </div>
-                    <div style={{ color: '#38bdf8', fontSize: '13px', fontWeight: '600', marginBottom: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ color: '#22d3ee', fontSize: '13px', fontWeight: '600', marginBottom: '6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {email.subject}
                     </div>
-                    <div style={{ color: '#94a3b8', fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.4' }}>
+                    <div style={{ color: '#9aadd4', fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.4' }}>
                       {email.snippet}
                     </div>
                   </div>
@@ -354,53 +354,53 @@ function InboxUI() {
           {/* 📖 EMAIL READING & MAMTA AI DESK */}
           <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {!selectedEmail ? (
-              <div style={{ margin: 'auto', textAlign: 'center', color: '#64748b' }}>
+              <div style={{ margin: 'auto', textAlign: 'center', color: '#5d7196' }}>
                 <div style={{ fontSize: '60px', opacity: 0.3, marginBottom: '15px' }}>✉️</div>
                 <div style={{ fontSize: '18px' }}>Select an email from the list</div>
               </div>
             ) : (
               <>
-                <div style={{ padding: '30px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(15, 23, 42, 0.7)' }}>
+                <div style={{ padding: '30px', borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(18, 28, 56, 0.7)' }}>
                   <h2 style={{ margin: '0 0 15px 0', color: '#fff', fontSize: '24px', lineHeight: '1.3' }}>{selectedEmail.subject}</h2>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#94a3b8', fontSize: '14px', background: 'rgba(0,0,0,0.2)', padding: '10px 15px', borderRadius: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#9aadd4', fontSize: '14px', background: 'rgba(0,0,0,0.2)', padding: '10px 15px', borderRadius: '10px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <div className="avatar" style={{ width: '30px', height: '30px', fontSize: '14px' }}>{selectedEmail.from.charAt(0).toUpperCase()}</div>
-                      <div><b>{(activeTab === 'sent' || activeTab === 'draft') ? 'To:' : 'From:'}</b> <span style={{ color: '#e2e8f0' }}>{selectedEmail.fullFrom}</span></div>
+                      <div><b>{(activeTab === 'sent' || activeTab === 'draft') ? 'To:' : 'From:'}</b> <span style={{ color: '#dde5f4' }}>{selectedEmail.fullFrom}</span></div>
                     </div>
-                    <div style={{ color: '#64748b' }}>{new Date(selectedEmail.date).toLocaleString()}</div>
+                    <div style={{ color: '#5d7196' }}>{new Date(selectedEmail.date).toLocaleString()}</div>
                   </div>
                 </div>
 
-                <div style={{ padding: '30px', color: '#cbd5e1', fontSize: '15px', lineHeight: '1.8', overflowY: 'auto', flex: 1 }}>
+                <div style={{ padding: '30px', color: '#c4d1ea', fontSize: '15px', lineHeight: '1.8', overflowY: 'auto', flex: 1 }}>
                   <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)' }}>
                     {selectedEmail.snippet}...
                   </div>
                   
-                  <div style={{ borderTop: '1px dashed #334155', margin: '30px 0' }}></div>
+                  <div style={{ borderTop: '1px dashed #27395f', margin: '30px 0' }}></div>
                   
                   {/* 🤖 MAMTA AI SECTION */}
-                  <div style={{ background: 'linear-gradient(180deg, rgba(192, 132, 252, 0.05) 0%, rgba(15, 23, 42, 0) 100%)', border: '1px solid rgba(192, 132, 252, 0.3)', padding: '25px', borderRadius: '20px' }}>
+                  <div style={{ background: 'linear-gradient(180deg, rgba(167, 139, 250, 0.05) 0%, rgba(18, 28, 56, 0) 100%)', border: '1px solid rgba(167, 139, 250, 0.3)', padding: '25px', borderRadius: '20px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <h3 style={{ margin: 0, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px' }}>
+                      <h3 style={{ margin: 0, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px' }}>
                         <span style={{ fontSize: '24px' }}>🤖</span> Mamta AI Smart Reply
                       </h3>
                       <button className="ai-btn" onClick={() => handleMamtaAiReply(selectedEmail)}>✨ Draft Auto-Reply</button>
                     </div>
 
                     {isAiThinking ? (
-                      <div style={{ color: '#c084fc', padding: '30px', textAlign: 'center', animation: 'pulse 1s infinite' }}>Mamta AI is reading the email... 🧠</div>
+                      <div style={{ color: '#a78bfa', padding: '30px', textAlign: 'center', animation: 'pulse 1s infinite' }}>Mamta AI is reading the email... 🧠</div>
                     ) : aiDraft ? (
                       <div style={{ animation: 'fadeIn 0.5s' }}>
                         <textarea className="modern-textarea" value={aiDraft} onChange={(e) => setAiDraft(e.target.value)}></textarea>
                         <div style={{ textAlign: 'right', marginTop: '15px', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                          <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #64748b' }} onClick={() => setAiDraft('')}>Cancel</button>
-                          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={sendRealEmail} disabled={isSending}>
+                          <button className="glow-btn" style={{ background: 'transparent', border: '1px solid #5d7196' }} onClick={() => setAiDraft('')}>Cancel</button>
+                          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)' }} onClick={sendRealEmail} disabled={isSending}>
                             {isSending ? '📤 Sending...' : '📤 Send Reply'}
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div style={{ color: '#64748b', fontSize: '14px', textAlign: 'center', padding: '20px', border: '1px dashed #334155', borderRadius: '10px' }}>
+                      <div style={{ color: '#5d7196', fontSize: '14px', textAlign: 'center', padding: '20px', border: '1px dashed #27395f', borderRadius: '10px' }}>
                         Click the ✨ <b>Draft Auto-Reply</b> button above to let Mamta AI analyze this email and write a response for you.
                       </div>
                     )}

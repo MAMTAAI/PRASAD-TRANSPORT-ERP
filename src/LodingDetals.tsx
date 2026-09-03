@@ -596,24 +596,24 @@ export default function LodingDetals() {
     return masters.vehicles.filter((v: any) => !q || clean(v.vehicle_no).includes(q)).slice(0, 40);
   }, [masters.vehicles, vehSearch]);
 
-  const inputStyle = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
-  const autoFillStyle = { ...inputStyle, background: 'rgba(56,189,248,0.05)', border: '1px dashed #38bdf8', color: '#94a3b8' };
-  const lowConf = (field: string) => scanLowConf.includes(field) ? { borderColor: '#f59e0b', background: 'rgba(245,158,11,0.08)' } : {};
+  const inputStyle = { width: '100%', padding: '12px', background: '#121c38', border: '1px solid #3d548a', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
+  const autoFillStyle = { ...inputStyle, background: 'rgba(34, 211, 238,0.05)', border: '1px dashed #22d3ee', color: '#9aadd4' };
+  const lowConf = (field: string) => scanLowConf.includes(field) ? { borderColor: '#ffb224', background: 'rgba(255, 178, 36,0.08)' } : {};
 
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(22px,5vw,30px)', color: '#fff' }}>🚛 Loading Register</h2>
-          <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>
+          <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>
             Live PostgreSQL · LR numbers reserved server-side{trips.length ? ` · ${trips.length} trips` : ''}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={loadAll} style={{ background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', fontSize: 13 }}>🔄 Refresh</button>
+          <button onClick={loadAll} style={{ background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee', padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', fontSize: 13 }}>🔄 Refresh</button>
           <button onClick={syncGmailInvoices} disabled={syncing}
             title="Pull IOCL AC5 invoices from prasadtransport699@gmail.com and jaiswalenterprise2016@gmail.com"
-            style={{ background: syncing ? '#334155' : '#0f766e', color: syncing ? '#94a3b8' : '#ccfbf1', border: `1px solid ${syncing ? '#475569' : '#14b8a6'}`, padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: syncing ? 'wait' : 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
+            style={{ background: syncing ? '#27395f' : '#0f766e', color: syncing ? '#9aadd4' : '#ccfbf1', border: `1px solid ${syncing ? '#3d548a' : '#14b8a6'}`, padding: '12px 20px', borderRadius: '30px', fontWeight: 'bold', cursor: syncing ? 'wait' : 'pointer', fontSize: 13, whiteSpace: 'nowrap' }}>
             {syncing ? '⏳ Syncing…' : '📨 Sync Gmail Invoices'}
           </button>
           <button onClick={() => setShowInboxModal(true)}
@@ -633,8 +633,8 @@ export default function LodingDetals() {
           style={{
             position: 'fixed', top: 18, right: 18, zIndex: 9999, maxWidth: 460,
             padding: '14px 18px', borderRadius: 12, cursor: 'pointer', fontSize: 13, lineHeight: 1.5,
-            background: toast.kind === 'ok' ? 'rgba(16,185,129,0.14)' : toast.kind === 'err' ? 'rgba(239,68,68,0.14)' : 'rgba(56,189,248,0.14)',
-            border: `1px solid ${toast.kind === 'ok' ? '#10b981' : toast.kind === 'err' ? '#ef4444' : '#38bdf8'}`,
+            background: toast.kind === 'ok' ? 'rgba(47, 227, 155,0.14)' : toast.kind === 'err' ? 'rgba(255, 107, 129,0.14)' : 'rgba(34, 211, 238,0.14)',
+            border: `1px solid ${toast.kind === 'ok' ? '#2fe39b' : toast.kind === 'err' ? '#ff6b81' : '#22d3ee'}`,
             color: toast.kind === 'ok' ? '#a7f3d0' : toast.kind === 'err' ? '#fecaca' : '#bae6fd',
             boxShadow: '0 12px 40px rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)',
           }}
@@ -645,23 +645,23 @@ export default function LodingDetals() {
       )}
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}</code>. Check that the ERP API is running.</div>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}</code>. Check that the ERP API is running.</div>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', borderBottom: '1px solid #334155', paddingBottom: '10px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '25px', borderBottom: '1px solid #27395f', paddingBottom: '10px', flexWrap: 'wrap' }}>
         {[
-          { k: 'MANUAL', label: '✍️ DIRECT ENTRY', color: '#10b981' },
-          { k: 'ADVICE', label: '📋 LOADING ADVICE', color: '#f59e0b', count: adviceCount },
-          { k: 'AUTO', label: '📱 APP SYNC', color: '#38bdf8', count: pendingDriverApprovals.length },
-          { k: 'REGISTER', label: '📋 SHEET VIEW', color: '#f59e0b' },
+          { k: 'MANUAL', label: '✍️ DIRECT ENTRY', color: '#2fe39b' },
+          { k: 'ADVICE', label: '📋 LOADING ADVICE', color: '#ffb224', count: adviceCount },
+          { k: 'AUTO', label: '📱 APP SYNC', color: '#22d3ee', count: pendingDriverApprovals.length },
+          { k: 'REGISTER', label: '📋 SHEET VIEW', color: '#ffb224' },
         ].map((tb) => (
           <button key={tb.k} onClick={() => setActiveTab(tb.k)}
-            style={{ padding: '10px 20px', background: activeTab === tb.k ? `${tb.color}1a` : 'transparent', color: activeTab === tb.k ? tb.color : '#94a3b8', border: 'none', borderBottom: `3px solid ${activeTab === tb.k ? tb.color : 'transparent'}`, fontWeight: 'bold', cursor: 'pointer' }}>
+            style={{ padding: '10px 20px', background: activeTab === tb.k ? `${tb.color}1a` : 'transparent', color: activeTab === tb.k ? tb.color : '#9aadd4', border: 'none', borderBottom: `3px solid ${activeTab === tb.k ? tb.color : 'transparent'}`, fontWeight: 'bold', cursor: 'pointer' }}>
             {tb.label}
-            {tb.count ? <span style={{ background: tb.color, color: '#0f172a', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', marginLeft: '4px' }}>{tb.count}</span> : null}
+            {tb.count ? <span style={{ background: tb.color, color: '#121c38', padding: '1px 8px', borderRadius: '10px', fontSize: '11px', marginLeft: '4px' }}>{tb.count}</span> : null}
           </button>
         ))}
       </div>
@@ -670,14 +670,14 @@ export default function LodingDetals() {
 
       {/* ✍️ DIRECT ENTRY */}
       {activeTab === 'MANUAL' && (
-        <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '15px', padding: 'clamp(16px,3vw,30px)' }}>
-          <div style={{ marginBottom: '20px', background: 'rgba(16,185,129,0.05)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(16,185,129,0.2)' }}>
-            <label style={{ color: '#10b981', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>
-              🔍 Start Loading Entry * {loading && <span style={{ color: '#38bdf8' }}>(loading…)</span>}
+        <div style={{ background: '#18244a', border: '1px solid #27395f', borderRadius: '15px', padding: 'clamp(16px,3vw,30px)' }}>
+          <div style={{ marginBottom: '20px', background: 'rgba(47, 227, 155,0.05)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(47, 227, 155,0.2)' }}>
+            <label style={{ color: '#2fe39b', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>
+              🔍 Start Loading Entry * {loading && <span style={{ color: '#22d3ee' }}>(loading…)</span>}
             </label>
-            <select value={selectedTripId} onChange={handleManualTripSelect} style={{ ...inputStyle, borderColor: '#10b981', fontSize: 15 }}>
+            <select value={selectedTripId} onChange={handleManualTripSelect} style={{ ...inputStyle, borderColor: '#2fe39b', fontSize: 15 }}>
               <option value="">-- Choose Option --</option>
-              <option value="NEW" style={{ background: '#10b981', color: '#0f172a', fontWeight: 'bold' }}>➕ CREATE FRESH DIRECT ENTRY</option>
+              <option value="NEW" style={{ background: '#10b981', color: '#121c38', fontWeight: 'bold' }}>➕ CREATE FRESH DIRECT ENTRY</option>
               <optgroup label="Auto-Fill from Pending Trips:">
                 {pendingManualTrips.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -689,14 +689,14 @@ export default function LodingDetals() {
           </div>
 
           {selectedTripId === 'NEW' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', background: 'rgba(56,189,248,0.05)', padding: '15px', border: '1px dashed #38bdf8', borderRadius: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', background: 'rgba(34, 211, 238,0.05)', padding: '15px', border: '1px dashed #22d3ee', borderRadius: '10px', flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <label style={{ color: '#38bdf8', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
-                  🤖 Mamta AI Scanner <span style={{ fontSize: '10px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 6px', marginLeft: '4px' }}>100% LOCAL</span>
+                <label style={{ color: '#22d3ee', fontSize: '14px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>
+                  🤖 Mamta AI Scanner <span style={{ fontSize: '10px', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', padding: '1px 6px', marginLeft: '4px' }}>100% LOCAL</span>
                 </label>
-                <p style={{ margin: 0, color: '#94a3b8', fontSize: '12px' }}>Upload an invoice or loading slip (PDF/photo) — read on-device by DeepSeek (via Ollama), no internet. Auto-fills the form below.</p>
+                <p style={{ margin: 0, color: '#9aadd4', fontSize: '12px' }}>Upload an invoice or loading slip (PDF/photo) — read on-device by DeepSeek (via Ollama), no internet. Auto-fills the form below.</p>
               </div>
-              <label style={{ background: '#38bdf8', color: '#0f172a', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: isScanningFile ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
+              <label style={{ background: '#38bdf8', color: '#121c38', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: isScanningFile ? 'not-allowed' : 'pointer', fontSize: '13px' }}>
                 {isScanningFile ? '⏳ Scanning…' : '📎 Upload & Scan'}
                 <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleManualFileUpload} disabled={isScanningFile} />
               </label>
@@ -706,7 +706,7 @@ export default function LodingDetals() {
           {selectedTripId && (
             <>
               {!isNewEntry && f.trip_code && (
-                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 14px', marginBottom: '15px', fontSize: '12px', color: '#f59e0b' }}>
+                <div style={{ background: 'rgba(255, 178, 36,0.1)', border: '1px solid #ffb224', borderRadius: '8px', padding: '10px 14px', marginBottom: '15px', fontSize: '12px', color: '#ffb224' }}>
                   📋 Editing <b>{f.trip_code}</b>
                   {trips.find((t) => t.id === selectedTripId)?.advice_no
                     ? ` — this is advice ${trips.find((t) => t.id === selectedTripId).advice_no}. Saving converts it into a live trip and every advance already issued carries over.`
@@ -715,18 +715,18 @@ export default function LodingDetals() {
               )}
 
               <div style={{ marginBottom: '15px' }}>
-                <label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Operating Company (drives the LR series) *</label>
-                <select value={f.operating_company} onChange={(e) => setF({ ...f, operating_company: e.target.value })} style={{ ...inputStyle, borderColor: '#f59e0b' }}>
+                <label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Operating Company (drives the LR series) *</label>
+                <select value={f.operating_company} onChange={(e) => setF({ ...f, operating_company: e.target.value })} style={{ ...inputStyle, borderColor: '#ffb224' }}>
                   {masters.companies.map((c: any) => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
                 </select>
               </div>
 
               {isNewEntry && (
-                <div style={{ background: 'rgba(245,158,11,0.1)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #f59e0b' }}>
-                  <label style={{ color: '#f59e0b', fontSize: '13px', fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>🔗 1. Search &amp; Select Route from RTKM Master (Optional)</label>
+                <div style={{ background: 'rgba(255, 178, 36,0.1)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #ffb224' }}>
+                  <label style={{ color: '#ffb224', fontSize: '13px', fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>🔗 1. Search &amp; Select Route from RTKM Master (Optional)</label>
                   <input list="master-route-list" placeholder="🔍 Type depot or consignee to search…" value={routeSearchValue}
                     onChange={(e) => handleRouteSearchChange(e.target.value)} autoComplete="off"
-                    style={{ ...inputStyle, borderColor: '#f59e0b' }} />
+                    style={{ ...inputStyle, borderColor: '#ffb224' }} />
                   <datalist id="master-route-list">
                     {masters.routes.map((r: any) => (
                       <option key={r.id} value={`${r.Depot_Link} ➔ ${r.Consignee_Name} | Rate: ₹${resolveRate(r, f.loading_date || today()).rate || '0'}`} />
@@ -737,26 +737,26 @@ export default function LodingDetals() {
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '20px' }}>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>LR No / Trip Code</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>LR No / Trip Code</label>
                   <input type="text" readOnly style={autoFillStyle}
                     value={isNewEntry ? 'auto-assigned on save' : f.trip_code}
                     title="Minted by the server inside the insert transaction, so two people cannot reserve the same LR" />
                 </div>
 
                 <div style={{ position: 'relative' }}>
-                  <label style={{ color: '#38bdf8', fontSize: '11px', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Vehicle No * 🔍</label>
+                  <label style={{ color: '#22d3ee', fontSize: '11px', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Vehicle No * 🔍</label>
                   <input type="text" value={vehSearch} placeholder="Type to search…"
                     onChange={(e) => { setVehSearch(e.target.value.toUpperCase()); setShowVehDropdown(true); }}
                     onFocus={() => setShowVehDropdown(true)} onBlur={handleVehicleBlur}
-                    style={{ ...inputStyle, borderColor: '#38bdf8', ...lowConf('vehicle_no') }} autoComplete="off" />
+                    style={{ ...inputStyle, borderColor: '#22d3ee', ...lowConf('vehicle_no') }} autoComplete="off" />
                   {showVehDropdown && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#0f172a', border: '1px solid #38bdf8', zIndex: 999, maxHeight: '200px', overflowY: 'auto', borderRadius: '8px', marginTop: '5px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#121c38', border: '1px solid #22d3ee', zIndex: 999, maxHeight: '200px', overflowY: 'auto', borderRadius: '8px', marginTop: '5px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}>
                       {vehicleMatches.length === 0
-                        ? <div style={{ padding: '12px', color: '#64748b', fontSize: '12px' }}>No vehicle found…</div>
+                        ? <div style={{ padding: '12px', color: '#5d7196', fontSize: '12px' }}>No vehicle found…</div>
                         : vehicleMatches.map((v: any) => (
                           <div key={v.id} onMouseDown={() => handleVehicleSelect(v.vehicle_no)}
-                            style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #1e293b', fontSize: 13, color: '#e2e8f0' }}>
-                            {v.vehicle_no} <span style={{ color: '#64748b', fontSize: 11 }}>{v.vehicle_type ?? ''}{v.capacity_kl ? ` · ${v.capacity_kl} KL` : ''}</span>
+                            style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #18244a', fontSize: 13, color: '#dde5f4' }}>
+                            {v.vehicle_no} <span style={{ color: '#5d7196', fontSize: 11 }}>{v.vehicle_type ?? ''}{v.capacity_kl ? ` · ${v.capacity_kl} KL` : ''}</span>
                           </div>
                         ))}
                     </div>
@@ -764,18 +764,18 @@ export default function LodingDetals() {
                 </div>
 
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Driver Name</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Driver Name</label>
                   <select value={f.driver_name} onChange={handleDriverSelect} style={{ ...inputStyle, ...lowConf('driver_name') }}>
                     <option value="">-- Select Driver --</option>
                     {masters.drivers.map((d: any) => <option key={d.id} value={d.name}>{d.name}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Driver Mobile</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Driver Mobile</label>
                   <input type="text" value={f.driver_mobile} onChange={(e) => setF({ ...f, driver_mobile: e.target.value })} style={inputStyle} />
                 </div>
                 <div>
-                  <label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Customer Name (Billed To)</label>
+                  <label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Customer Name (Billed To)</label>
                   <input type="text" list="customer-list" value={f.customer_name}
                     onChange={(e) => {
                       const c = masters.customers.find((x: any) => x.customer_name === e.target.value);
@@ -786,16 +786,16 @@ export default function LodingDetals() {
                     {masters.customers.map((c: any) => <option key={c.id} value={c.customer_name} />)}
                   </datalist>
                   {f.customer_name && !f.customer_id && (
-                    <div style={{ color: '#f59e0b', fontSize: 10, marginTop: 4 }}>⚠️ Not in the customer master — a bill cannot be raised until it is linked.</div>
+                    <div style={{ color: '#ffb224', fontSize: 10, marginTop: 4 }}>⚠️ Not in the customer master — a bill cannot be raised until it is linked.</div>
                   )}
                 </div>
-                <div><label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Loading Point</label>
+                <div><label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Loading Point</label>
                   <input type="text" value={f.loading_point} onChange={(e) => setF({ ...f, loading_point: e.target.value })} style={{ ...inputStyle, ...lowConf('loading_point') }} /></div>
-                <div><label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Consignee / Destination</label>
+                <div><label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Consignee / Destination</label>
                   <input type="text" value={f.consignee_name} onChange={(e) => setF({ ...f, consignee_name: e.target.value })} style={{ ...inputStyle, ...lowConf('consignee_name') }} /></div>
-                <div><label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px' }}>RTKM (Distance)</label>
+                <div><label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px' }}>RTKM (Distance)</label>
                   <input type="number" value={f.rtkm} onChange={(e) => setF({ ...f, rtkm: e.target.value })} style={inputStyle} /></div>
-                <div><label style={{ color: '#f59e0b', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Rate / Freight</label>
+                <div><label style={{ color: '#ffb224', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Rate / Freight</label>
                   <input type="number" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} style={inputStyle} /></div>
               </div>
 
@@ -806,7 +806,7 @@ export default function LodingDetals() {
                 </div>
                 <div>
                   <label style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Challan / Invoice No *</label>
-                  <input type="text" value={f.challan_no} onChange={(e) => setF({ ...f, challan_no: e.target.value })} style={{ ...inputStyle, borderColor: '#f59e0b', ...lowConf('challan_no') }} placeholder="Enter challan no" />
+                  <input type="text" value={f.challan_no} onChange={(e) => setF({ ...f, challan_no: e.target.value })} style={{ ...inputStyle, borderColor: '#ffb224', ...lowConf('challan_no') }} placeholder="Enter challan no" />
                 </div>
                 <div>
                   <label style={{ color: '#fff', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Product Type / Material *</label>
@@ -816,14 +816,14 @@ export default function LodingDetals() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Loaded Qty / Weight</label>
+                  <label style={{ color: '#2fe39b', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Loaded Qty / Weight</label>
                   <input type="number" value={f.loaded_qty} onChange={(e) => setF({ ...f, loaded_qty: e.target.value })}
-                    style={{ ...inputStyle, borderColor: '#10b981', fontSize: '16px', fontWeight: 'bold', color: '#10b981', ...lowConf('loaded_qty') }} placeholder="0.00" />
+                    style={{ ...inputStyle, borderColor: '#2fe39b', fontSize: '16px', fontWeight: 'bold', color: '#2fe39b', ...lowConf('loaded_qty') }} placeholder="0.00" />
                 </div>
               </div>
 
               <button onClick={handleManualSave} disabled={saving}
-                style={{ width: '100%', background: saving ? '#334155' : 'linear-gradient(135deg,#10b981,#059669)', color: '#fff', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: '900', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '16px', boxShadow: '0 5px 15px rgba(16,185,129,0.4)' }}>
+                style={{ width: '100%', background: saving ? '#27395f' : 'linear-gradient(135deg,#2fe39b,#2fe39b)', color: '#fff', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: '900', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '16px', boxShadow: '0 5px 15px rgba(47, 227, 155,0.4)' }}>
                 {saving ? '⌛ Saving…' : isNewEntry ? '🚀 SAVE LOADING ENTRY & DISPATCH' : '💾 UPDATE / CONVERT TO TRIP'}
               </button>
             </>
@@ -835,24 +835,24 @@ export default function LodingDetals() {
       {activeTab === 'AUTO' && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
           {pendingDriverApprovals.length === 0
-            ? <div style={{ color: '#64748b', padding: 30, textAlign: 'center', gridColumn: '1 / -1', background: 'rgba(30,41,59,0.3)', borderRadius: 14, border: '1px dashed #334155' }}>No pending approvals from the driver app.</div>
+            ? <div style={{ color: '#5d7196', padding: 30, textAlign: 'center', gridColumn: '1 / -1', background: 'rgba(24, 36, 74,0.3)', borderRadius: 14, border: '1px dashed #27395f' }}>No pending approvals from the driver app.</div>
             : pendingDriverApprovals.map((t) => (
-              <div key={t.id} style={{ background: '#1e293b', border: '1px solid #38bdf8', borderRadius: '15px', padding: '20px' }}>
+              <div key={t.id} style={{ background: '#18244a', border: '1px solid #22d3ee', borderRadius: '15px', padding: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '18px' }}>{t.vehicle_no}</span>
-                  <span style={{ background: '#334155', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>{t.trip_code}</span>
+                  <span style={{ color: '#22d3ee', fontWeight: 'bold', fontSize: '18px' }}>{t.vehicle_no}</span>
+                  <span style={{ background: '#27395f', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>{t.trip_code}</span>
                 </div>
                 <div style={{ marginBottom: '10px' }}><span className="pt-pill pt-pill--loading">Loading</span></div>
-                <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '15px' }}>📍 {t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</div>
-                <div style={{ background: 'rgba(56,189,248,0.1)', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
-                  <div style={{ fontSize: '12px', color: '#94a3b8' }}>Driver's submitted qty:</div>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#38bdf8' }}>{t.driver_loaded_qty}</div>
+                <div style={{ color: '#9aadd4', fontSize: '13px', marginBottom: '15px' }}>📍 {t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</div>
+                <div style={{ background: 'rgba(34, 211, 238,0.1)', padding: '15px', borderRadius: '10px', marginBottom: '15px' }}>
+                  <div style={{ fontSize: '12px', color: '#9aadd4' }}>Driver's submitted qty:</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#22d3ee' }}>{t.driver_loaded_qty}</div>
                   {t.driver_loading_photo && (
-                    <a href={t.driver_loading_photo} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#10b981' }}>📎 View slip photo</a>
+                    <a href={t.driver_loading_photo} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#2fe39b' }}>📎 View slip photo</a>
                   )}
                 </div>
                 <button onClick={() => handleApproveDriverLoading(t)} disabled={saving}
-                  style={{ width: '100%', background: '#38bdf8', color: '#0f172a', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+                  style={{ width: '100%', background: '#38bdf8', color: '#121c38', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
                   ✅ Verify &amp; Sync to Customer Portal
                 </button>
               </div>
@@ -862,12 +862,12 @@ export default function LodingDetals() {
 
       {/* 📋 SHEET VIEW */}
       {activeTab === 'REGISTER' && (
-        <div style={{ background: '#1e293b', borderRadius: '15px', padding: '20px', border: '1px solid #334155' }}>
+        <div style={{ background: '#18244a', borderRadius: '15px', padding: '20px', border: '1px solid #27395f' }}>
           <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <input type="text" placeholder="🔍 Search vehicle, challan, trip code, party…" value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)} style={{ ...inputStyle, flex: 2, minWidth: 220, borderColor: '#38bdf8' }} />
+              onChange={(e) => setSearchQuery(e.target.value)} style={{ ...inputStyle, flex: 2, minWidth: 220, borderColor: '#22d3ee' }} />
             <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
-              style={{ ...inputStyle, flex: 1, minWidth: 180, borderColor: '#f59e0b', color: '#f59e0b' }}>
+              style={{ ...inputStyle, flex: 1, minWidth: 180, borderColor: '#ffb224', color: '#ffb224' }}>
               <option value="">🏢 All Companies</option>
               {masters.companies.map((c: any) => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
             </select>
@@ -875,17 +875,17 @@ export default function LodingDetals() {
 
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap' }}>
-              <thead style={{ background: '#0f172a', color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase' }}>
+              <thead style={{ background: '#121c38', color: '#ffb224', fontSize: '11px', textTransform: 'uppercase' }}>
                 <tr>
                   <th style={{ padding: '15px' }}>LR / Trip</th>
-                  <th style={{ padding: '15px', color: '#f59e0b' }}>Company</th>
-                  <th style={{ padding: '15px', color: '#38bdf8' }}>Customer / Party</th>
+                  <th style={{ padding: '15px', color: '#ffb224' }}>Company</th>
+                  <th style={{ padding: '15px', color: '#22d3ee' }}>Customer / Party</th>
                   <th style={{ padding: '15px' }}>Loading Date</th>
                   <th style={{ padding: '15px' }}>Challan</th>
                   <th style={{ padding: '15px' }}>From ➔ To</th>
-                  <th style={{ padding: '15px', color: '#38bdf8' }}>Vehicle</th>
+                  <th style={{ padding: '15px', color: '#22d3ee' }}>Vehicle</th>
                   <th style={{ padding: '15px' }}>Product</th>
-                  <th style={{ padding: '15px', color: '#10b981' }}>Loaded Qty</th>
+                  <th style={{ padding: '15px', color: '#2fe39b' }}>Loaded Qty</th>
                   <th style={{ padding: '15px' }}>Driver</th>
                   <th style={{ padding: '15px' }}>Status</th>
                   <th style={{ padding: '15px', textAlign: 'center' }}>Actions</th>
@@ -893,31 +893,31 @@ export default function LodingDetals() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#38bdf8' }}>Loading from PostgreSQL…</td></tr>
+                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#22d3ee' }}>Loading from PostgreSQL…</td></tr>
                 ) : filteredRegister.length === 0 ? (
-                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#64748b' }}>No loaded trips for these filters.</td></tr>
+                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#5d7196' }}>No loaded trips for these filters.</td></tr>
                 ) : filteredRegister.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '12px' }}>
-                    <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.trip_code}</td>
-                    <td style={{ padding: '12px 15px', color: '#f59e0b' }}>{t.operating_company ?? '—'}</td>
+                  <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea', fontSize: '12px' }}>
+                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.trip_code}</td>
+                    <td style={{ padding: '12px 15px', color: '#ffb224' }}>{t.operating_company ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.customer_name ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.loading_date ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.challan_no ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</td>
-                    <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.vehicle_no}</td>
+                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.vehicle_no}</td>
                     <td style={{ padding: '12px 15px' }}>{t.product_type ?? '—'}</td>
-                    <td style={{ padding: '12px 15px', color: '#10b981', fontWeight: 'bold' }}>{t.loaded_qty ?? '—'}</td>
+                    <td style={{ padding: '12px 15px', color: '#2fe39b', fontWeight: 'bold' }}>{t.loaded_qty ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.driver_name ?? '—'}</td>
                     <td style={{ padding: '12px 15px' }}>
                       <span className={`pt-pill ${t.status === 'COMPLETED' ? 'pt-pill--completed' : t.status === 'CANCELLED' ? '' : 'pt-pill--loading'}`}>{t.status}</span>
-                      {t.bill_no && <div style={{ fontSize: 10, color: '#10b981', marginTop: 3 }}>🧾 {t.bill_no}</div>}
+                      {t.bill_no && <div style={{ fontSize: 10, color: '#2fe39b', marginTop: 3 }}>🧾 {t.bill_no}</div>}
                     </td>
                     <td style={{ padding: '12px 15px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        <button onClick={() => handleEditTrip(t)} title="Edit" style={{ background: 'rgba(56,189,248,.12)', border: '1px solid #38bdf8', color: '#38bdf8', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>✏️</button>
-                        <button onClick={() => generateAndSavePDF(t)} title="4-copy LR print" style={{ background: 'rgba(245,158,11,.12)', border: '1px solid #f59e0b', color: '#f59e0b', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>🖨️</button>
+                        <button onClick={() => handleEditTrip(t)} title="Edit" style={{ background: 'rgba(34, 211, 238,.12)', border: '1px solid #22d3ee', color: '#22d3ee', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>✏️</button>
+                        <button onClick={() => generateAndSavePDF(t)} title="4-copy LR print" style={{ background: 'rgba(255, 178, 36,.12)', border: '1px solid #ffb224', color: '#ffb224', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>🖨️</button>
                         <button onClick={() => sendCustomerWhatsApp(t)} title="WhatsApp the customer" style={{ background: 'rgba(34,197,94,.12)', border: '1px solid #22c55e', color: '#22c55e', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>💬</button>
-                        <button onClick={() => handleDeleteTrip(t)} title="Delete / cancel" style={{ background: 'rgba(239,68,68,.12)', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                        <button onClick={() => handleDeleteTrip(t)} title="Delete / cancel" style={{ background: 'rgba(255, 107, 129,.12)', border: '1px solid #ff6b81', color: '#ff6b81', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
                       </div>
                     </td>
                   </tr>
@@ -930,27 +930,27 @@ export default function LodingDetals() {
 
       {/* 📥 SMART INBOX */}
       {showInboxModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.9)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.9)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setShowInboxModal(false)}>
           <div onClick={(e) => e.stopPropagation()} onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
-            style={{ width: '100%', maxWidth: 620, background: '#0f172a', border: `2px dashed ${isDragging ? '#10b981' : '#38bdf8'}`, borderRadius: 18, padding: 34, textAlign: 'center' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📥 Smart Inbox</h3>
-            <p style={{ color: '#94a3b8', fontSize: 13 }}>
+            style={{ width: '100%', maxWidth: 620, background: '#121c38', border: `2px dashed ${isDragging ? '#2fe39b' : '#22d3ee'}`, borderRadius: 18, padding: 34, textAlign: 'center' }}>
+            <h3 style={{ color: '#22d3ee', marginTop: 0 }}>📥 Smart Inbox</h3>
+            <p style={{ color: '#9aadd4', fontSize: 13 }}>
               Drop a loading slip or invoice here, paste one from the clipboard, or browse. It is read on-device by DeepSeek (via Ollama) — nothing leaves this machine.
             </p>
             <div style={{ fontSize: 48, margin: '18px 0' }}>{isScanningFile ? '⏳' : isDragging ? '📥' : '📄'}</div>
             <button onClick={syncGmailInvoices} disabled={syncing}
-              style={{ background: syncing ? '#334155' : '#0f766e', color: syncing ? '#94a3b8' : '#ccfbf1', border: `1px solid ${syncing ? '#475569' : '#14b8a6'}`, padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: syncing ? 'wait' : 'pointer', display: 'block', margin: '0 auto 14px' }}>
+              style={{ background: syncing ? '#27395f' : '#0f766e', color: syncing ? '#9aadd4' : '#ccfbf1', border: `1px solid ${syncing ? '#3d548a' : '#14b8a6'}`, padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: syncing ? 'wait' : 'pointer', display: 'block', margin: '0 auto 14px' }}>
               {syncing ? '⏳ Syncing both mailboxes…' : '📨 Sync Gmail Invoices'}
             </button>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: '#5d7196', marginBottom: 14 }}>
               prasadtransport699@gmail.com &nbsp;·&nbsp; jaiswalenterprise2016@gmail.com
             </div>
-            <label style={{ background: '#38bdf8', color: '#0f172a', padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: isScanningFile ? 'not-allowed' : 'pointer', display: 'inline-block' }}>
+            <label style={{ background: '#38bdf8', color: '#121c38', padding: '12px 26px', borderRadius: 10, fontWeight: 900, cursor: isScanningFile ? 'not-allowed' : 'pointer', display: 'inline-block' }}>
               {isScanningFile ? 'Scanning…' : '📎 Browse a file'}
               <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleManualFileUpload} disabled={isScanningFile} />
             </label>
-            <button onClick={() => setShowInboxModal(false)} style={{ display: 'block', margin: '18px auto 0', background: 'transparent', border: '1px solid #475569', color: '#94a3b8', borderRadius: 8, padding: '10px 20px', cursor: 'pointer' }}>Close</button>
+            <button onClick={() => setShowInboxModal(false)} style={{ display: 'block', margin: '18px auto 0', background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4', borderRadius: 8, padding: '10px 20px', cursor: 'pointer' }}>Close</button>
           </div>
         </div>
       )}

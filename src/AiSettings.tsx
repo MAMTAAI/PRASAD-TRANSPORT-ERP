@@ -61,12 +61,12 @@ export default function AiSettings() {
   };
 
   const installed: string[] = health?.models || [];
-  const card = { background: 'rgba(30,41,59,0.5)', border: '1px solid #334155', borderRadius: '16px', padding: '22px', marginBottom: '20px' };
+  const card = { background: 'rgba(24, 36, 74,0.5)', border: '1px solid #27395f', borderRadius: '16px', padding: '22px', marginBottom: '20px' };
 
   return (
     <div style={{ padding: '24px', color: '#fff', maxWidth: '900px', margin: '0 auto' }}>
-      <h2 style={{ color: '#c084fc', margin: 0 }}>🧠 AI Brain Control <span style={{ fontSize: '11px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }}>100% LOCAL</span></h2>
-      <p style={{ color: '#94a3b8', marginTop: '6px' }}>Local AI engine ka control (Ollama) — model, temperature, Mamta persona (sab .env/code change ke bina).</p>
+      <h2 style={{ color: '#a78bfa', margin: 0 }}>🧠 AI Brain Control <span style={{ fontSize: '11px', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }}>100% LOCAL</span></h2>
+      <p style={{ color: '#9aadd4', marginTop: '6px' }}>Local AI engine ka control (Ollama) — model, temperature, Mamta persona (sab .env/code change ke bina).</p>
 
       {/* Live health */}
       <div style={card}>
@@ -74,32 +74,32 @@ export default function AiSettings() {
           <h3 style={{ margin: 0, fontSize: '16px' }}>⚡ Engine Health</h3>
           <button onClick={refreshHealth} className="pt-btn pt-btn--ghost" style={{ fontSize: '12px', padding: '6px 12px' }}>🔄 Refresh</button>
         </div>
-        {checking ? <div style={{ color: '#94a3b8' }}>Checking…</div> : (
+        {checking ? <div style={{ color: '#9aadd4' }}>Checking…</div> : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: '12px' }}>
-            <Stat label="Ollama" value={health?.online ? '🟢 Online' : '🔴 Offline'} color={health?.online ? '#10b981' : '#ef4444'} />
-            <Stat label="Primary model" value={health?.primaryInstalled ? '✅ Installed' : '⚠️ Missing'} color={health?.primaryInstalled ? '#10b981' : '#f59e0b'} />
-            <Stat label="Models loaded" value={String(installed.length)} color="#38bdf8" />
-            <Stat label="Endpoint" value={LLM_CONFIG.baseUrl.replace('http://', '')} color="#94a3b8" />
+            <Stat label="Ollama" value={health?.online ? '🟢 Online' : '🔴 Offline'} color={health?.online ? '#2fe39b' : '#ff6b81'} />
+            <Stat label="Primary model" value={health?.primaryInstalled ? '✅ Installed' : '⚠️ Missing'} color={health?.primaryInstalled ? '#2fe39b' : '#ffb224'} />
+            <Stat label="Models loaded" value={String(installed.length)} color="#22d3ee" />
+            <Stat label="Endpoint" value={LLM_CONFIG.baseUrl.replace('http://', '')} color="#9aadd4" />
           </div>
         )}
-        {installed.length > 0 && <div style={{ marginTop: '10px', fontSize: '11px', color: '#64748b' }}>Installed: {installed.join(', ')}</div>}
-        {health && !health.online && <div style={{ marginTop: '10px', color: '#ef4444', fontSize: '13px' }}>⚠️ Ollama nahi mila. `ollama serve` chalu karein.</div>}
+        {installed.length > 0 && <div style={{ marginTop: '10px', fontSize: '11px', color: '#5d7196' }}>Installed: {installed.join(', ')}</div>}
+        {health && !health.online && <div style={{ marginTop: '10px', color: '#ff6b81', fontSize: '13px' }}>⚠️ Ollama nahi mila. `ollama serve` chalu karein.</div>}
       </div>
 
       {/* Model + temperature + persona */}
       <div style={card}>
         <h3 style={{ margin: '0 0 14px', fontSize: '16px' }}>🎛️ Active Configuration</h3>
-        <label style={{ fontSize: '12px', color: '#94a3b8' }}>Active model</label>
+        <label style={{ fontSize: '12px', color: '#9aadd4' }}>Active model</label>
         <select value={model} onChange={e => setModel(e.target.value)} style={inp}>
           <option value="gemma4:12b">gemma4:12b — primary (accurate)</option>
           <option value="gemma4:e4b">gemma4:e4b — fast (live chat)</option>
           {installed.filter(m => !['gemma4:12b', 'gemma4:e4b'].includes(m)).map(m => <option key={m} value={m}>{m}</option>)}
         </select>
 
-        <label style={{ fontSize: '12px', color: '#94a3b8', marginTop: '14px', display: 'block' }}>Temperature: <b style={{ color: '#c084fc' }}>{Number(temp).toFixed(2)}</b> <span style={{ color: '#64748b' }}>(0 = precise, 1 = creative)</span></label>
+        <label style={{ fontSize: '12px', color: '#9aadd4', marginTop: '14px', display: 'block' }}>Temperature: <b style={{ color: '#a78bfa' }}>{Number(temp).toFixed(2)}</b> <span style={{ color: '#5d7196' }}>(0 = precise, 1 = creative)</span></label>
         <input type="range" min="0" max="1" step="0.05" value={temp} onChange={e => setTemp(parseFloat(e.target.value))} style={{ width: '100%' }} />
 
-        <label style={{ fontSize: '12px', color: '#94a3b8', marginTop: '14px', display: 'block' }}>Mamta persona (system instruction)</label>
+        <label style={{ fontSize: '12px', color: '#9aadd4', marginTop: '14px', display: 'block' }}>Mamta persona (system instruction)</label>
         <textarea value={persona} onChange={e => setPersona(e.target.value)} style={{ ...inp, height: '120px', fontFamily: 'inherit' }} />
 
         <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
@@ -107,32 +107,32 @@ export default function AiSettings() {
           <button onClick={reset} className="pt-btn pt-btn--ghost">↺ Reset to defaults</button>
           <button onClick={runTest} disabled={testing} className={`pt-btn pt-btn--primary ${testing ? 'is-loading' : ''}`}>{testing ? 'Testing…' : '🧪 Test Brain'}</button>
         </div>
-        {testOut && <div style={{ marginTop: '14px', background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#10b981' }}>{testOut}</div>}
+        {testOut && <div style={{ marginTop: '14px', background: '#121c38', border: '1px solid #27395f', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#2fe39b' }}>{testOut}</div>}
       </div>
 
       {/* 💡 Self-improvement proposals (Phase 14.3) — admin reviews, never auto-applied */}
       <div style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px' }}>💡 Self-Improvement Proposals <span style={{ fontSize: '11px', color: '#64748b' }}>(from 👎 feedback — admin approves)</span></h3>
+          <h3 style={{ margin: 0, fontSize: '16px' }}>💡 Self-Improvement Proposals <span style={{ fontSize: '11px', color: '#5d7196' }}>(from 👎 feedback — admin approves)</span></h3>
           <button onClick={runProposals} disabled={proposing} className={`pt-btn pt-btn--ai ${proposing ? 'is-loading' : ''}`}>{proposing ? 'Analyzing…' : '🔍 Generate Proposals'}</button>
         </div>
         {proposals
-          ? <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#e2e8f0', fontSize: '13px' }}>{proposals}</div>
-          : <p style={{ color: '#94a3b8', fontSize: '13px', margin: 0 }}>Mamta 👎 feedback + aaj ke signals se safe improvement suggestions degi. Ye sirf suggestions hain — koi auto-change nahi (no self-modifying code).</p>}
+          ? <div style={{ background: '#121c38', border: '1px solid #27395f', borderRadius: '10px', padding: '14px', whiteSpace: 'pre-wrap', color: '#dde5f4', fontSize: '13px' }}>{proposals}</div>
+          : <p style={{ color: '#9aadd4', fontSize: '13px', margin: 0 }}>Mamta 👎 feedback + aaj ke signals se safe improvement suggestions degi. Ye sirf suggestions hain — koi auto-change nahi (no self-modifying code).</p>}
       </div>
 
-      <div style={{ padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: '1px dashed #f59e0b', borderRadius: '10px', fontSize: '12px', color: '#f59e0b' }}>
+      <div style={{ padding: '12px 16px', background: 'rgba(255, 178, 36,0.08)', border: '1px dashed #ffb224', borderRadius: '10px', fontSize: '12px', color: '#ffb224' }}>
         ⚠️ Config localStorage mein save hota hai (is browser/device ke liye, turant lagu). RBAC: financial AI answers sirf Admin/Accounts ko milte hain (UGER se controlled).
       </div>
     </div>
   );
 }
 
-const inp: any = { width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '10px', outline: 'none', marginTop: '6px' };
+const inp: any = { width: '100%', padding: '12px', background: '#121c38', border: '1px solid #27395f', color: '#fff', borderRadius: '10px', outline: 'none', marginTop: '6px' };
 function Stat({ label, value, color }: any) {
   return (
-    <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '10px', padding: '12px' }}>
-      <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>{label}</div>
+    <div style={{ background: '#121c38', border: '1px solid #18244a', borderRadius: '10px', padding: '12px' }}>
+      <div style={{ fontSize: '11px', color: '#9aadd4', textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: '16px', fontWeight: 'bold', color, marginTop: '4px' }}>{value}</div>
     </div>
   );

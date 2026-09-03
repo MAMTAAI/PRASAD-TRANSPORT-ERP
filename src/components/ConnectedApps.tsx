@@ -31,9 +31,9 @@ const API = `${API_BASE}/api/v1`;
 const REFRESH_MS = 20_000;   // a presence view, not the books
 
 const C = {
-  card: '#1e293b', line: '#334155', text: '#e2e8f0',
-  dim: '#94a3b8', faint: '#64748b',
-  emerald: '#10b981', amber: '#f59e0b', ruby: '#ef4444', sky: '#38bdf8', violet: '#8b5cf6',
+  card: '#18244a', line: '#27395f', text: '#dde5f4',
+  dim: '#9aadd4', faint: '#5d7196',
+  emerald: '#2fe39b', amber: '#ffb224', ruby: '#ff6b81', sky: '#22d3ee', violet: '#8b5cf6',
 };
 
 const KIND = {
@@ -116,14 +116,14 @@ export default function ConnectedApps() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
         <h3 style={{ margin: 0, fontSize: 16 }}>📡 Connected Apps — live</h3>
         <span style={{
-          background: totals.online_now ? 'rgba(16,185,129,.15)' : 'rgba(100,116,139,.18)',
+          background: totals.online_now ? 'rgba(47, 227, 155,.15)' : 'rgba(100,116,139,.18)',
           color: totals.online_now ? C.emerald : C.faint,
           borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 700,
         }}>
           {totals.online_now ?? 0} online
         </span>
         {totals.tracking > 0 && (
-          <span style={{ background: 'rgba(56,189,248,.15)', color: C.sky, borderRadius: 999,
+          <span style={{ background: 'rgba(34, 211, 238,.15)', color: C.sky, borderRadius: 999,
                          padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>
             {totals.tracking} tracking
           </span>
@@ -134,7 +134,7 @@ export default function ConnectedApps() {
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,.12)', border: `1px solid ${C.ruby}`, color: '#fecaca',
+        <div style={{ background: 'rgba(255, 107, 129,.12)', border: `1px solid ${C.ruby}`, color: '#fecaca',
                       borderRadius: 8, padding: '8px 12px', fontSize: 13, margin: '10px 0' }}>{err}</div>
       )}
 
@@ -211,7 +211,7 @@ export default function ConnectedApps() {
             onboarding gap: if the login channel is down, onboarding is not the
             next action — re-linking WhatsApp is. */}
         {ch && !ch.ok && (
-          <div style={{ background: 'rgba(239,68,68,.12)', border: `1px solid ${C.ruby}`,
+          <div style={{ background: 'rgba(255, 107, 129,.12)', border: `1px solid ${C.ruby}`,
                         borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#fecaca',
                         marginTop: 10, lineHeight: 1.6 }}>
             🚫 <b>Driver login band hai.</b> Driver OTP se login karta hai aur OTP {ch.name} se jaata hai —
@@ -222,7 +222,7 @@ export default function ConnectedApps() {
         )}
 
         {neverUsed.length > 0 && (
-          <div style={{ background: 'rgba(245,158,11,.12)', border: `1px solid ${C.amber}`,
+          <div style={{ background: 'rgba(255, 178, 36,.12)', border: `1px solid ${C.amber}`,
                         borderRadius: 8, padding: '9px 12px', fontSize: 12, color: '#fde68a',
                         marginTop: 10, lineHeight: 1.6 }}>
             ⚠️ {neverUsed.map((r) => `${r.never_used} ${(KIND[r.kind] ?? KIND.UNKNOWN).label.toLowerCase()}s`).join(', ')}

@@ -135,31 +135,31 @@ export default function EmailParserSettings() {
     catch { alert('❌ Delete nahi hua!'); }
   };
 
-  const inputStyle = { width: '100%', padding: '12px 15px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '14px', boxSizing: 'border-box' };
-  const labelStyle = { color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' };
-  const card = { background: 'rgba(30, 41, 59, 0.4)', backdropFilter: 'blur(12px)', border: '1px solid #1e293b', borderRadius: '15px', padding: '25px', marginBottom: '25px' };
+  const inputStyle = { width: '100%', padding: '12px 15px', background: '#121c38', border: '1px solid #27395f', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '14px', boxSizing: 'border-box' };
+  const labelStyle = { color: '#22d3ee', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' };
+  const card = { background: 'rgba(24, 36, 74, 0.4)', backdropFilter: 'blur(12px)', border: '1px solid #18244a', borderRadius: '15px', padding: '25px', marginBottom: '25px' };
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif" }}>
       <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-        <h1 style={{ color: '#38bdf8', fontSize: '32px', margin: '0 0 10px 0' }}>📧 Email Bill Parser</h1>
-        <p style={{ color: '#94a3b8', margin: 0 }}>Customer-mapped email accounts se bills auto-fetch hokar AI extraction ke baad review queue me aati hain</p>
+        <h1 style={{ color: '#22d3ee', fontSize: '32px', margin: '0 0 10px 0' }}>📧 Email Bill Parser</h1>
+        <p style={{ color: '#9aadd4', margin: 0 }}>Customer-mapped email accounts se bills auto-fetch hokar AI extraction ke baad review queue me aati hain</p>
       </div>
 
       {loadError && (
-        <div style={{ ...card, border: '1px solid #ef4444', color: '#fca5a5', textAlign: 'center', fontWeight: 'bold' }}>{loadError}</div>
+        <div style={{ ...card, border: '1px solid #ff6b81', color: '#fca5a5', textAlign: 'center', fontWeight: 'bold' }}>{loadError}</div>
       )}
 
       {/* 🔘 EMAIL AUTO-FETCH MODE (Master Switch) */}
-      <div style={{ ...card, border: masterOn ? '1px solid #10b981' : '1px solid #334155', display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ ...card, border: masterOn ? '1px solid #2fe39b' : '1px solid #27395f', display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: '240px' }}>
-          <b style={{ color: masterOn ? '#10b981' : '#94a3b8', fontSize: '16px' }}>⚡ Email Auto-Fetch Mode</b>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+          <b style={{ color: masterOn ? '#2fe39b' : '#9aadd4', fontSize: '16px' }}>⚡ Email Auto-Fetch Mode</b>
+          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#5d7196' }}>
             ON hone par background parser (email-parser.cjs) neeche ke SAARE Active accounts par loop karta hai — har account ki PDF bills us account ke mapped customer ke billing rules ke saath extract hoti hain.
           </p>
         </div>
         <button onClick={() => saveMaster(!masterOn)}
-          style={{ background: masterOn ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', color: 'white', border: 'none', borderRadius: '999px', padding: '12px 26px', fontWeight: '900', fontSize: '15px', cursor: 'pointer', minWidth: '150px' }}>
+          style={{ background: masterOn ? 'linear-gradient(135deg, #2fe39b, #2fe39b)' : '#27395f', color: 'white', border: 'none', borderRadius: '999px', padding: '12px 26px', fontWeight: '900', fontSize: '15px', cursor: 'pointer', minWidth: '150px' }}>
           {masterOn ? '🟢 MASTER ON' : '⚪ MASTER OFF'}
         </button>
         <div>
@@ -170,8 +170,8 @@ export default function EmailParserSettings() {
       </div>
 
       {/* ➕ ADD / EDIT EMAIL FORM */}
-      <div style={{ ...card, border: editingId ? '2px solid #f59e0b' : '1px solid #1e293b' }}>
-        <b style={{ color: editingId ? '#f59e0b' : '#38bdf8' }}>{editingId ? '✏️ Edit Email Account' : '➕ Add New Email'}</b>
+      <div style={{ ...card, border: editingId ? '2px solid #ffb224' : '1px solid #18244a' }}>
+        <b style={{ color: editingId ? '#ffb224' : '#22d3ee' }}>{editingId ? '✏️ Edit Email Account' : '➕ Add New Email'}</b>
         <form onSubmit={handleSave} style={{ marginTop: '15px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '18px', marginBottom: '18px' }}>
             <div>
@@ -195,8 +195,8 @@ export default function EmailParserSettings() {
                 onChange={e => setFormData({ ...formData, imap_port: e.target.value })} required />
             </div>
             <div>
-              <label style={{ ...labelStyle, color: '#f59e0b' }}>Associated Customer / Company *</label>
-              <select style={{ ...inputStyle, borderColor: '#f59e0b' }} value={formData.customer}
+              <label style={{ ...labelStyle, color: '#ffb224' }}>Associated Customer / Company *</label>
+              <select style={{ ...inputStyle, borderColor: '#ffb224' }} value={formData.customer}
                 onChange={e => setFormData({ ...formData, customer: e.target.value })} required>
                 <option value="">-- Select Customer --</option>
                 {customers.map(c => {
@@ -204,7 +204,7 @@ export default function EmailParserSettings() {
                   return <option key={c.id} value={cName}>{cName}</option>;
                 })}
               </select>
-              <small style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+              <small style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginTop: '4px' }}>
                 Is account ki bills IS customer ke billing/loading rules ke context me extract hongi.
               </small>
             </div>
@@ -219,10 +219,10 @@ export default function EmailParserSettings() {
           <div style={{ display: 'flex', gap: '12px' }}>
             {editingId && (
               <button type="button" onClick={() => { setEditingId(null); setFormData(emptyForm); }}
-                style={{ flex: 1, background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '13px', borderRadius: '8px', fontWeight: '900', cursor: 'pointer' }}>❌ CANCEL</button>
+                style={{ flex: 1, background: 'transparent', color: '#ff6b81', border: '1px solid #ff6b81', padding: '13px', borderRadius: '8px', fontWeight: '900', cursor: 'pointer' }}>❌ CANCEL</button>
             )}
             <button type="submit" disabled={saving}
-              style={{ flex: 2, background: editingId ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #38bdf8, #3b82f6)', color: '#0f172a', border: 'none', padding: '13px', borderRadius: '8px', fontWeight: '900', fontSize: '15px', cursor: 'pointer' }}>
+              style={{ flex: 2, background: editingId ? 'linear-gradient(135deg, #ffb224, #d97706)' : 'linear-gradient(135deg, #22d3ee, #3b82f6)', color: '#121c38', border: 'none', padding: '13px', borderRadius: '8px', fontWeight: '900', fontSize: '15px', cursor: 'pointer' }}>
               {saving ? '⏳ SAVING…' : (editingId ? '💾 UPDATE ACCOUNT' : '💾 ADD EMAIL ACCOUNT')}
             </button>
           </div>
@@ -231,13 +231,13 @@ export default function EmailParserSettings() {
 
       {/* 📋 MANAGED EMAIL ACCOUNTS */}
       <div style={{ ...card, padding: '20px', overflowX: 'auto' }}>
-        <b style={{ color: '#38bdf8' }}>📋 Managed Email Accounts ({accounts.length})</b>
+        <b style={{ color: '#22d3ee' }}>📋 Managed Email Accounts ({accounts.length})</b>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap', marginTop: '12px' }}>
-          <thead style={{ color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase', borderBottom: '2px solid #334155' }}>
+          <thead style={{ color: '#ffb224', fontSize: '11px', textTransform: 'uppercase', borderBottom: '2px solid #27395f' }}>
             <tr>
               <th style={{ padding: '12px 10px' }}>EMAIL</th>
               <th style={{ padding: '12px 10px' }}>IMAP</th>
-              <th style={{ padding: '12px 10px', color: '#f59e0b' }}>CUSTOMER / COMPANY</th>
+              <th style={{ padding: '12px 10px', color: '#ffb224' }}>CUSTOMER / COMPANY</th>
               <th style={{ padding: '12px 10px' }}>LAST CHECK</th>
               <th style={{ padding: '12px 10px', textAlign: 'center' }}>STATUS</th>
               <th style={{ padding: '12px 10px', textAlign: 'center' }}>ACTION</th>
@@ -245,31 +245,31 @@ export default function EmailParserSettings() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ padding: '25px', textAlign: 'center', color: '#38bdf8' }}>Loading…</td></tr>
+              <tr><td colSpan={6} style={{ padding: '25px', textAlign: 'center', color: '#22d3ee' }}>Loading…</td></tr>
             ) : accounts.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: '25px', textAlign: 'center', color: '#64748b' }}>Koi email account nahi — upar "Add New Email" se pehla account jodein.</td></tr>
+              <tr><td colSpan={6} style={{ padding: '25px', textAlign: 'center', color: '#5d7196' }}>Koi email account nahi — upar "Add New Email" se pehla account jodein.</td></tr>
             ) : accounts.map(a => {
               const active = a.status === 'Active';
               return (
-                <tr key={a.id} style={{ borderBottom: '1px solid #1e293b', color: active ? '#cbd5e1' : '#64748b', fontSize: '13px', opacity: active ? 1 : 0.6 }}>
-                  <td style={{ padding: '12px 10px', fontWeight: 'bold' }}>{a.email}<div style={{ fontSize: '10px', color: '#64748b', fontWeight: 'normal' }}>🔑 ••••••••</div></td>
-                  <td style={{ padding: '12px 10px', color: '#94a3b8' }}>{a.imap_host}:{a.imap_port}</td>
-                  <td style={{ padding: '12px 10px', color: '#f59e0b', fontWeight: 'bold' }}>{a.customer || '—'}</td>
+                <tr key={a.id} style={{ borderBottom: '1px solid #18244a', color: active ? '#c4d1ea' : '#5d7196', fontSize: '13px', opacity: active ? 1 : 0.6 }}>
+                  <td style={{ padding: '12px 10px', fontWeight: 'bold' }}>{a.email}<div style={{ fontSize: '10px', color: '#5d7196', fontWeight: 'normal' }}>🔑 ••••••••</div></td>
+                  <td style={{ padding: '12px 10px', color: '#9aadd4' }}>{a.imap_host}:{a.imap_port}</td>
+                  <td style={{ padding: '12px 10px', color: '#ffb224', fontWeight: 'bold' }}>{a.customer || '—'}</td>
                   <td style={{ padding: '12px 10px', fontSize: '11px' }}>
                     {a.last_checked_at?.seconds ? new Date(a.last_checked_at.seconds * 1000).toLocaleString('en-IN') : 'never'}
-                    {a.last_result && <div style={{ color: /FAIL/.test(a.last_result) ? '#ef4444' : '#10b981', fontSize: '10px' }}>{a.last_result}</div>}
-                    {a.last_error && <div style={{ color: '#ef4444', fontSize: '10px', maxWidth: '220px', whiteSpace: 'normal' }} title={a.last_error}>⚠ {a.last_error.slice(0, 80)}</div>}
+                    {a.last_result && <div style={{ color: /FAIL/.test(a.last_result) ? '#ff6b81' : '#2fe39b', fontSize: '10px' }}>{a.last_result}</div>}
+                    {a.last_error && <div style={{ color: '#ff6b81', fontSize: '10px', maxWidth: '220px', whiteSpace: 'normal' }} title={a.last_error}>⚠ {a.last_error.slice(0, 80)}</div>}
                   </td>
                   <td style={{ padding: '12px 10px', textAlign: 'center' }}>
                     <button onClick={() => toggleStatus(a)}
-                      style={{ background: active ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: active ? '#10b981' : '#ef4444', border: `1px solid ${active ? '#10b981' : '#ef4444'}`, padding: '4px 12px', borderRadius: '20px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+                      style={{ background: active ? 'rgba(47, 227, 155,0.1)' : 'rgba(255, 107, 129,0.1)', color: active ? '#2fe39b' : '#ff6b81', border: `1px solid ${active ? '#2fe39b' : '#ff6b81'}`, padding: '4px 12px', borderRadius: '20px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
                       {active ? '🟢 ACTIVE' : '🔴 INACTIVE'}
                     </button>
                   </td>
                   <td style={{ padding: '12px 10px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                      <button onClick={() => handleEdit(a)} style={{ background: 'rgba(56,189,248,0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>✏️ Edit</button>
-                      <button onClick={() => handleDelete(a)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
+                      <button onClick={() => handleEdit(a)} style={{ background: 'rgba(34, 211, 238,0.1)', border: '1px solid #22d3ee', color: '#22d3ee', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>✏️ Edit</button>
+                      <button onClick={() => handleDelete(a)} style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#ff6b81', padding: '5px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>
                     </div>
                   </td>
                 </tr>
@@ -281,18 +281,18 @@ export default function EmailParserSettings() {
 
       {/* 📄 RECENTLY PARSED BILLS */}
       <div style={{ ...card, padding: '20px' }}>
-        <b style={{ color: '#10b981' }}>📄 Recently Parsed Bills (latest {parsed.length})</b>
+        <b style={{ color: '#2fe39b' }}>📄 Recently Parsed Bills (latest {parsed.length})</b>
         {parsed.length === 0 ? (
-          <p style={{ color: '#64748b', fontSize: '13px', margin: '12px 0 0' }}>Abhi koi parsed bill nahi. Master ON + Active account hone par yahan aayengi (status PENDING_REVIEW).</p>
+          <p style={{ color: '#5d7196', fontSize: '13px', margin: '12px 0 0' }}>Abhi koi parsed bill nahi. Master ON + Active account hone par yahan aayengi (status PENDING_REVIEW).</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
             {parsed.map(p => (
-              <div key={p.id} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid #334155', borderRadius: '10px', padding: '10px 14px', display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontSize: '13px' }}>
-                <b style={{ color: '#10b981' }}>Bill {p.bill_no || '?'}</b>
-                <span style={{ color: '#f59e0b' }}>{p.customer}</span>
-                <span style={{ color: '#94a3b8' }}>{p.rows?.length || 0} rows · {fmtINR(p.row_sum)}</span>
-                <span style={{ color: '#64748b', fontSize: '11px' }}>📎 {p.attachment} · via {p.source_email}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 'bold', color: p.status === 'PENDING_REVIEW' ? '#f59e0b' : '#10b981', border: `1px solid ${p.status === 'PENDING_REVIEW' ? '#f59e0b' : '#10b981'}`, borderRadius: '10px', padding: '2px 8px' }}>{p.status}</span>
+              <div key={p.id} style={{ background: 'rgba(18, 28, 56,0.6)', border: '1px solid #27395f', borderRadius: '10px', padding: '10px 14px', display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', fontSize: '13px' }}>
+                <b style={{ color: '#2fe39b' }}>Bill {p.bill_no || '?'}</b>
+                <span style={{ color: '#ffb224' }}>{p.customer}</span>
+                <span style={{ color: '#9aadd4' }}>{p.rows?.length || 0} rows · {fmtINR(p.row_sum)}</span>
+                <span style={{ color: '#5d7196', fontSize: '11px' }}>📎 {p.attachment} · via {p.source_email}</span>
+                <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 'bold', color: p.status === 'PENDING_REVIEW' ? '#ffb224' : '#2fe39b', border: `1px solid ${p.status === 'PENDING_REVIEW' ? '#ffb224' : '#2fe39b'}`, borderRadius: '10px', padding: '2px 8px' }}>{p.status}</span>
               </div>
             ))}
           </div>

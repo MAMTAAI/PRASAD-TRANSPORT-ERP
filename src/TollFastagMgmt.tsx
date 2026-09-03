@@ -534,34 +534,34 @@ export default function TollFastagMgmt() {
   const reportTotal = reportTxns.reduce((s, t) => s + txnAmt(t), 0);
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', fontFamily: 'sans-serif' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; backdrop-filter: blur(10px); }
+        .glass-card { background: rgba(24, 36, 74, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; backdrop-filter: blur(10px); }
         .glow-btn { background: #3b82f6; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
         .glow-btn:hover { background: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
-        .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .tab-btn.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 8px 8px 0 0; }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 12px; width: 100%; box-sizing: border-box; outline: none; }
-        .modern-input:focus { border-color: #38bdf8; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #cbd5e1; font-size: 13px; }
-        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #334155; color: #38bdf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
-        td { padding: 12px 15px; border-bottom: 1px solid #334155; }
+        .tab-btn { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .tab-btn.active { color: #22d3ee; border-bottom: 3px solid #22d3ee; background: rgba(34, 211, 238, 0.1); border-radius: 8px 8px 0 0; }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 12px; width: 100%; box-sizing: border-box; outline: none; }
+        .modern-input:focus { border-color: #22d3ee; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #c4d1ea; font-size: 13px; }
+        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #27395f; color: #22d3ee; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+        td { padding: 12px 15px; border-bottom: 1px solid #27395f; }
         tr:hover { background: rgba(255,255,255,0.02); }
         .badge { padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: bold; }
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
       `}</style>
 
       {/* 🚀 Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '36px', fontWeight: '900' }}>Fastag & Toll Central</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Trip-Wise Billing & Oil Company Reimbursements</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Trip-Wise Billing & Oil Company Reimbursements</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #8b5cf6, #7e22ce)' }} onClick={handleExportCSV}>
              📥 Download e-TRP Excel (CSV)
           </button>
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={() => setActiveTab('STATEMENT')}>
+          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)' }} onClick={() => setActiveTab('STATEMENT')}>
              📄 Upload FASTag Statement
           </button>
         </div>
@@ -569,51 +569,51 @@ export default function TollFastagMgmt() {
 
       {/* 📊 Fastag Dashboard Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #10b981' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Wallet Recharges</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', color: '#10b981' }}>₹{totalRechargeAmount.toLocaleString()}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #2fe39b' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Wallet Recharges</div>
+          <div style={{ fontSize: '28px', fontWeight: '900', color: '#2fe39b' }}>₹{totalRechargeAmount.toLocaleString()}</div>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #ef4444' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Toll Deductions</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', color: '#ef4444' }}>₹{totalTollAmount.toLocaleString()}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #ff6b81' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Toll Deductions</div>
+          <div style={{ fontSize: '28px', fontWeight: '900', color: '#ff6b81' }}>₹{totalTollAmount.toLocaleString()}</div>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #38bdf8' }}>
-          <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Estimated Wallet Balance</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', color: '#38bdf8' }}>₹{estimatedBalance.toLocaleString()}</div>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '4px solid #22d3ee' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>Estimated Wallet Balance</div>
+          <div style={{ fontSize: '28px', fontWeight: '900', color: '#22d3ee' }}>₹{estimatedBalance.toLocaleString()}</div>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #27395f', overflowX: 'auto' }}>
         <button className={`pt-tab ${activeTab === 'STATEMENT' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('STATEMENT')}>📄 STATEMENT SYNC</button>
-        <button className={`pt-tab ${activeTab === 'CLAIMS' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('CLAIMS')}>🧾 IOCL TOLL CLAIMS {claims.length > 0 && <span className="pt-tab__count" style={{ background: '#f59e0b', color: '#0f172a' }}>{claims.length}</span>}</button>
+        <button className={`pt-tab ${activeTab === 'CLAIMS' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('CLAIMS')}>🧾 IOCL TOLL CLAIMS {claims.length > 0 && <span className="pt-tab__count" style={{ background: '#f59e0b', color: '#121c38' }}>{claims.length}</span>}</button>
         <button className={`pt-tab ${activeTab === 'TRIP_ENTRY' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ MANUAL TOLL ENTRY</button>
         <button className={`pt-tab ${activeTab === 'TRANSACTIONS' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
         <button className={`pt-tab ${activeTab === 'RECHARGE' ? 'is-active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
-        <button className={`pt-tab ${activeTab === 'PROVIDERS' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('PROVIDERS')}>🔌 API PROVIDERS {providers.filter(p => p.active).length > 0 && <span className="pt-tab__count" style={{ background: '#22c55e', color: '#0f172a' }}>{providers.filter(p => p.active).length}</span>}</button>
+        <button className={`pt-tab ${activeTab === 'PROVIDERS' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('PROVIDERS')}>🔌 API PROVIDERS {providers.filter(p => p.active).length > 0 && <span className="pt-tab__count" style={{ background: '#22c55e', color: '#121c38' }}>{providers.filter(p => p.active).length}</span>}</button>
         <button className={`pt-tab ${activeTab === 'REPORTS' ? 'is-active' : ''}`} onClick={() => setActiveTab('REPORTS')}>📊 REPORTS</button>
-        <button className={`pt-tab ${activeTab === 'AUTO_SYNC' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('AUTO_SYNC')}>⚙️ AUTO-SYNC (24h) {autoSync.master_switch && <span className="pt-tab__count" style={{ background: '#10b981', color: '#0f172a' }}>ON</span>}</button>
+        <button className={`pt-tab ${activeTab === 'AUTO_SYNC' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('AUTO_SYNC')}>⚙️ AUTO-SYNC (24h) {autoSync.master_switch && <span className="pt-tab__count" style={{ background: '#10b981', color: '#121c38' }}>ON</span>}</button>
       </div>
 
       {/* ═══════════ ⚙️ TAB: TOLL PORTAL SETTINGS — Daily 24h Auto-Sync ═══════════ */}
       {activeTab === 'AUTO_SYNC' && (
-        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: autoSync.master_switch ? '4px solid #10b981' : '4px solid #64748b' }}>
-          <h2 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>⚙️ Toll Portal Settings — Automatic Statement Sync</h2>
-          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>Background runner (toll-sync.cjs) FASTag portal me login karke pichhle 24 ghante ki toll transactions STRICTLY din me ek baar fetch karta hai. Duplicate entries transaction-ref guardrail se hamesha blocked rehti hain.</p>
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: autoSync.master_switch ? '4px solid #2fe39b' : '4px solid #5d7196' }}>
+          <h2 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>⚙️ Toll Portal Settings — Automatic Statement Sync</h2>
+          <p style={{ color: '#9aadd4', fontSize: '13px', margin: '0 0 20px' }}>Background runner (toll-sync.cjs) FASTag portal me login karke pichhle 24 ghante ki toll transactions STRICTLY din me ek baar fetch karta hai. Duplicate entries transaction-ref guardrail se hamesha blocked rehti hain.</p>
 
           {autoSyncLocked && (
-            <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ef4444', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
+            <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ff6b81', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
               🔒 Ye settings sirf ADMIN ke liye hain (portal login credentials yahan store hote hain) — admin login ke bina save nahi hoga.
             </div>
           )}
           <>
               {/* 🔘 MASTER TOGGLE + PREFERRED TIME + STATUS */}
-              <div style={{ display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap', padding: '18px', background: 'rgba(16,185,129,0.05)', border: `1px solid ${autoSync.master_switch ? '#10b981' : '#334155'}`, borderRadius: '12px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', gap: '18px', alignItems: 'center', flexWrap: 'wrap', padding: '18px', background: 'rgba(47, 227, 155,0.05)', border: `1px solid ${autoSync.master_switch ? '#2fe39b' : '#27395f'}`, borderRadius: '12px', marginBottom: '18px' }}>
                 <button onClick={() => saveAutoSync({ master_switch: !autoSync.master_switch })} disabled={savingSync}
-                  style={{ background: autoSync.master_switch ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155', color: 'white', border: 'none', borderRadius: '999px', padding: '13px 26px', fontWeight: '900', fontSize: '15px', cursor: 'pointer', minWidth: '230px' }}>
+                  style={{ background: autoSync.master_switch ? 'linear-gradient(135deg, #2fe39b, #2fe39b)' : '#27395f', color: 'white', border: 'none', borderRadius: '999px', padding: '13px 26px', fontWeight: '900', fontSize: '15px', cursor: 'pointer', minWidth: '230px' }}>
                   {autoSync.master_switch ? '🟢 Daily 24h Auto-Sync: ON' : '⚪ Daily 24h Auto-Sync: OFF'}
                 </button>
                 <div>
-                  <label className="pt-label" style={{ color: '#38bdf8' }}>Preferred Sync Time</label>
+                  <label className="pt-label" style={{ color: '#22d3ee' }}>Preferred Sync Time</label>
                   <select className="pt-input" style={{ width: '150px' }} value={autoSync.sync_time}
                     onChange={e => saveAutoSync({ sync_time: e.target.value })}>
                     {Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`).map(t => (
@@ -621,7 +621,7 @@ export default function TollFastagMgmt() {
                     ))}
                   </select>
                 </div>
-                <div style={{ flex: 1, minWidth: '240px', fontSize: '13px', fontWeight: 'bold', color: autoSync.master_switch ? '#10b981' : '#94a3b8' }}>
+                <div style={{ flex: 1, minWidth: '240px', fontSize: '13px', fontWeight: 'bold', color: autoSync.master_switch ? '#2fe39b' : '#9aadd4' }}>
                   {autoSync.master_switch
                     ? `⏰ Next automatic scan scheduled in 24 hours at ${hour12(autoSync.sync_time)}`
                     : '💤 Automatic sync is completely disabled'}
@@ -629,7 +629,7 @@ export default function TollFastagMgmt() {
               </div>
 
               {/* 🔐 PORTAL CREDENTIALS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '18px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', marginBottom: '18px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #3d548a' }}>
                 <div><label className="pt-label">Portal Login URL *</label><input className="pt-input" placeholder="https://fastag.icicibank.com/…" value={autoSync.portal_url} onChange={e => setAutoSync({ ...autoSync, portal_url: e.target.value })} onBlur={() => saveAutoSync({ portal_url: autoSync.portal_url })} /></div>
                 <div><label className="pt-label">Portal Username *</label><input className="pt-input" value={autoSync.portal_user} onChange={e => setAutoSync({ ...autoSync, portal_user: e.target.value })} onBlur={() => saveAutoSync({ portal_user: autoSync.portal_user })} autoComplete="off" /></div>
                 <div><label className="pt-label">Portal Password *</label><input type="password" className="pt-input" value={autoSync.portal_password} onChange={e => setAutoSync({ ...autoSync, portal_password: e.target.value })} onBlur={() => saveAutoSync({ portal_password: autoSync.portal_password })} autoComplete="new-password" /></div>
@@ -644,17 +644,17 @@ export default function TollFastagMgmt() {
 
               {/* ⚡ FORCE SYNC + LAST RUN STATUS */}
               <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #ea580c)' }} disabled={savingSync || autoSync.force_sync_requested} onClick={forceSyncNow}>
+                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #ea580c)' }} disabled={savingSync || autoSync.force_sync_requested} onClick={forceSyncNow}>
                   {autoSync.force_sync_requested ? '⏳ Sync request pending…' : '⚡ Force Sync Now (last 24h)'}
                 </button>
-                <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                  <div>Last sync: <b style={{ color: '#cbd5e1' }}>{autoSync.last_sync_at?.seconds ? new Date(autoSync.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</b>{autoSync.last_sync_trigger ? ` (${autoSync.last_sync_trigger})` : ''}</div>
-                  {autoSync.last_sync_result && <div style={{ color: /FAIL/.test(autoSync.last_sync_result) ? '#ef4444' : '#10b981', fontWeight: 'bold' }}>{autoSync.last_sync_result}</div>}
-                  {autoSync.last_sync_error && <div style={{ color: '#ef4444' }}>⚠ {autoSync.last_sync_error}</div>}
+                <div style={{ fontSize: '12px', color: '#9aadd4' }}>
+                  <div>Last sync: <b style={{ color: '#c4d1ea' }}>{autoSync.last_sync_at?.seconds ? new Date(autoSync.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</b>{autoSync.last_sync_trigger ? ` (${autoSync.last_sync_trigger})` : ''}</div>
+                  {autoSync.last_sync_result && <div style={{ color: /FAIL/.test(autoSync.last_sync_result) ? '#ff6b81' : '#2fe39b', fontWeight: 'bold' }}>{autoSync.last_sync_result}</div>}
+                  {autoSync.last_sync_error && <div style={{ color: '#ff6b81' }}>⚠ {autoSync.last_sync_error}</div>}
                 </div>
                 <button className="pt-btn pt-btn--ghost" style={{ marginLeft: 'auto', minHeight: '40px' }} onClick={fetchAutoSync}>🔄 Refresh Status</button>
               </div>
-              <p style={{ fontSize: '11px', color: '#64748b', margin: '14px 0 0' }}>
+              <p style={{ fontSize: '11px', color: '#5d7196', margin: '14px 0 0' }}>
                 🛡️ Duplicate guardrail: har toll ka database ID uske Transaction Ref + Amount se banta hai — Force Sync kitni baar bhi dabao, same toll expense dobara kabhi save nahi hota (same rule Statement Sync upload par bhi lagta hai). Scheduled run din me sirf ek baar, chunee hui time par chalta hai; Master OFF par runner turant terminate ho jata hai.
               </p>
           </>
@@ -666,16 +666,16 @@ export default function TollFastagMgmt() {
         <div className="pt-anim-up">
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #22c55e', marginBottom: '20px' }}>
             <h2 style={{ color: '#22c55e', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>🔌 FASTag API Providers — Auto-Sync Integration</h2>
-            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 18px' }}>GTROPY, ICICI, SBI, Wheelseye, BlackBuck — har provider ki API credentials yahan securely store karein. Active providers <b style={{ color: '#38bdf8' }}>daily auto-sync</b> aur Force Sync par transactions fetch karte hain; toll debit trip par auto-map hota hai, credit se wallet balance update. Duplicate <b>ext_txn_id</b> se hamesha block.</p>
+            <p style={{ color: '#9aadd4', fontSize: '13px', margin: '0 0 18px' }}>GTROPY, ICICI, SBI, Wheelseye, BlackBuck — har provider ki API credentials yahan securely store karein. Active providers <b style={{ color: '#22d3ee' }}>daily auto-sync</b> aur Force Sync par transactions fetch karte hain; toll debit trip par auto-map hota hai, credit se wallet balance update. Duplicate <b>ext_txn_id</b> se hamesha block.</p>
 
             {provLocked && (
-              <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ef4444', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
+              <div style={{ padding: '14px', textAlign: 'center', color: '#fca5a5', border: '1px dashed #ff6b81', borderRadius: '12px', fontWeight: 'bold', marginBottom: '18px' }}>
                 🔒 API credentials sirf ADMIN manage kar sakte hain (auth tokens/passwords yahan store hote hain).
               </div>
             )}
 
             {/* ➕ Add / edit provider form */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #475569' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '15px', padding: '18px', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', border: '1px dashed #3d548a' }}>
               <div>
                 <label className="pt-label" style={{ color: '#22c55e' }}>Provider Type *</label>
                 <select className="pt-input" value={provForm.type} onChange={e => onProviderTypeChange(e.target.value)}>
@@ -697,7 +697,7 @@ export default function TollFastagMgmt() {
                   {KNOWN_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
-              <div><label className="pt-label">Sync Window (days back)</label><input type="number" min={1} max={730} className="pt-input" value={provForm.sync_window_days || 2} onChange={e => setProvForm({ ...provForm, sync_window_days: parseInt(e.target.value) || 2 })} /><span style={{ fontSize: '10px', color: '#64748b' }}>Daily sync: 2. Bade backfill (90d+) auto ≤85-day slices me chunk hote hain.</span></div>
+              <div><label className="pt-label">Sync Window (days back)</label><input type="number" min={1} max={730} className="pt-input" value={provForm.sync_window_days || 2} onChange={e => setProvForm({ ...provForm, sync_window_days: parseInt(e.target.value) || 2 })} /><span style={{ fontSize: '10px', color: '#5d7196' }}>Daily sync: 2. Bade backfill (90d+) auto ≤85-day slices me chunk hote hain.</span></div>
               <div style={{ display: 'flex', alignItems: 'flex-end' }}>
                 <button className={`pt-chip ${provForm.active ? 'is-on is-on--success' : ''}`} style={{ width: '100%', minHeight: '44px' }} onClick={() => setProvForm({ ...provForm, active: !provForm.active })}>
                   {provForm.active ? '🟢 Active (auto-sync ON)' : '⚪ Paused'}
@@ -709,15 +709,15 @@ export default function TollFastagMgmt() {
                 {provSaving ? 'Saving…' : editingProvider ? '💾 Update Provider' : '➕ Add Provider'}
               </button>
               {editingProvider && <button className="pt-btn pt-btn--ghost" onClick={resetProvForm} style={{ minHeight: '46px' }}>✕ Cancel edit</button>}
-              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #ea580c)' }} onClick={handleProviderForceSync}>⚡ Sync All Active Now</button>
+              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #ea580c)' }} onClick={handleProviderForceSync}>⚡ Sync All Active Now</button>
             </div>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '12px 0 0' }}>ℹ️ {providerTemplate(provForm.type).notes}</p>
+            <p style={{ fontSize: '11px', color: '#5d7196', margin: '12px 0 0' }}>ℹ️ {providerTemplate(provForm.type).notes}</p>
           </div>
 
           {/* 📇 Configured providers */}
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)', marginBottom: '20px' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📇 Configured Providers</h3>
-            {providers.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi provider add nahi hua. Upar form se GTROPY se shuru karein.</div> : (
+            <h3 style={{ color: '#22d3ee', marginTop: 0 }}>📇 Configured Providers</h3>
+            {providers.length === 0 ? <div style={{ color: '#5d7196', padding: '15px' }}>Abhi tak koi provider add nahi hua. Upar form se GTROPY se shuru karein.</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ minWidth: '820px' }}>
                   <thead><tr><th>Label</th><th>Type</th><th>Company</th><th style={{ textAlign: 'center' }}>Status</th><th>Last Sync</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
@@ -733,13 +733,13 @@ export default function TollFastagMgmt() {
                           </button>
                         </td>
                         <td style={{ fontSize: '11px' }}>
-                          <div style={{ color: '#cbd5e1' }}>{p.last_sync_at?.seconds ? new Date(p.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</div>
-                          {p.last_sync_result && <div style={{ color: /FAIL/.test(p.last_sync_result) ? '#ef4444' : '#10b981' }}>{p.last_sync_result}</div>}
-                          {p.last_sync_error && <div style={{ color: '#ef4444' }}>⚠ {p.last_sync_error}</div>}
+                          <div style={{ color: '#c4d1ea' }}>{p.last_sync_at?.seconds ? new Date(p.last_sync_at.seconds * 1000).toLocaleString('en-IN') : 'never'}</div>
+                          {p.last_sync_result && <div style={{ color: /FAIL/.test(p.last_sync_result) ? '#ff6b81' : '#2fe39b' }}>{p.last_sync_result}</div>}
+                          {p.last_sync_error && <div style={{ color: '#ff6b81' }}>⚠ {p.last_sync_error}</div>}
                         </td>
                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <button className="pt-btn pt-btn--ghost" style={{ minHeight: '36px', padding: '5px 12px', marginRight: '6px' }} onClick={() => handleEditProvider(p)}>✏️ Edit</button>
-                          <button className="pt-btn pt-btn--ghost" style={{ minHeight: '36px', padding: '5px 12px', color: '#ef4444', borderColor: '#ef4444' }} onClick={() => handleDeleteProvider(p)}>🗑️</button>
+                          <button className="pt-btn pt-btn--ghost" style={{ minHeight: '36px', padding: '5px 12px', color: '#ff6b81', borderColor: '#ff6b81' }} onClick={() => handleDeleteProvider(p)}>🗑️</button>
                         </td>
                       </tr>
                     ))}
@@ -752,8 +752,8 @@ export default function TollFastagMgmt() {
           {/* 💰 Live wallet balances (per account_id) */}
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
             <h3 style={{ color: '#22c55e', marginTop: 0 }}>💰 Live FASTag Wallet Balances</h3>
-            <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 12px' }}>Har account ka balance incoming debit/credit txns se real-time update hota hai (background runner).</p>
-            {accounts.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi account sync nahi hua — provider add karke Sync chalayein.</div> : (
+            <p style={{ color: '#9aadd4', fontSize: '12px', margin: '0 0 12px' }}>Har account ka balance incoming debit/credit txns se real-time update hota hai (background runner).</p>
+            {accounts.length === 0 ? <div style={{ color: '#5d7196', padding: '15px' }}>Abhi tak koi account sync nahi hua — provider add karke Sync chalayein.</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ minWidth: '680px' }}>
                   <thead><tr><th>Account ID</th><th>Vehicle</th><th style={{ textAlign: 'right' }}>Debits ₹</th><th style={{ textAlign: 'right' }}>Credits ₹</th><th style={{ textAlign: 'right' }}>Balance ₹</th><th>Last Txn</th></tr></thead>
@@ -761,11 +761,11 @@ export default function TollFastagMgmt() {
                     {accounts.map(a => (
                       <tr key={a.id}>
                         <td style={{ fontWeight: 700, color: '#fff', fontSize: '12px' }}>{a.account_id}</td>
-                        <td style={{ color: '#38bdf8' }}>{a.vehicle_number || '-'}</td>
-                        <td style={{ textAlign: 'right', color: '#ef4444' }}>{Number(a.total_debit || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ textAlign: 'right', color: '#10b981' }}>{Number(a.total_credit || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 900, color: Number(a.balance) < 0 ? '#ef4444' : '#22c55e' }}>{Number(a.balance || 0).toLocaleString('en-IN')}</td>
-                        <td style={{ fontSize: '11px', color: '#94a3b8' }}>{a.last_txn_at ? (a.last_txn_at.seconds ? new Date(a.last_txn_at.seconds * 1000).toLocaleString('en-IN') : String(a.last_txn_at)) : '-'}</td>
+                        <td style={{ color: '#22d3ee' }}>{a.vehicle_number || '-'}</td>
+                        <td style={{ textAlign: 'right', color: '#ff6b81' }}>{Number(a.total_debit || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', color: '#2fe39b' }}>{Number(a.total_credit || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 900, color: Number(a.balance) < 0 ? '#ff6b81' : '#22c55e' }}>{Number(a.balance || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ fontSize: '11px', color: '#9aadd4' }}>{a.last_txn_at ? (a.last_txn_at.seconds ? new Date(a.last_txn_at.seconds * 1000).toLocaleString('en-IN') : String(a.last_txn_at)) : '-'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -781,7 +781,7 @@ export default function TollFastagMgmt() {
         <div className="pt-anim-up">
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #818cf8', marginBottom: '20px' }}>
             <h2 style={{ color: '#818cf8', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>📊 Toll Expense Reports</h2>
-            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 18px' }}>Date range + vehicle filter karke Vehicle-wise, Trip-wise ya Date-wise total toll expense dekhein. Export CSV bhi kar sakte hain.</p>
+            <p style={{ color: '#9aadd4', fontSize: '13px', margin: '0 0 18px' }}>Date range + vehicle filter karke Vehicle-wise, Trip-wise ya Date-wise total toll expense dekhein. Export CSV bhi kar sakte hain.</p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '15px', marginBottom: '15px' }}>
               <div>
@@ -805,17 +805,17 @@ export default function TollFastagMgmt() {
 
             <div className="pt-stagger" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#818cf8' }}>Matching Tolls</div><div className="pt-kpi__value">{reportTxns.length}</div><div className="pt-kpi__sub">{report.from} → {report.to}</div></div>
-              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#f59e0b' }}>₹{reportTotal.toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{reportGroups.length} {report.mode.toLowerCase()} groups</div></div>
-              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#38bdf8' }}>Vehicles</div><div className="pt-kpi__value" style={{ color: '#38bdf8' }}>{report.vehicle === 'ALL' ? reportVehicles.length : 1}</div><div className="pt-kpi__sub">in range</div></div>
+              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#ffb224' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#ffb224' }}>₹{reportTotal.toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{reportGroups.length} {report.mode.toLowerCase()} groups</div></div>
+              <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#22d3ee' }}>Vehicles</div><div className="pt-kpi__value" style={{ color: '#22d3ee' }}>{report.vehicle === 'ALL' ? reportVehicles.length : 1}</div><div className="pt-kpi__sub">in range</div></div>
             </div>
           </div>
 
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-              <h3 style={{ color: '#38bdf8', margin: 0 }}>{report.mode === 'VEHICLE' ? '🚚 Vehicle-Wise' : report.mode === 'TRIP' ? '🛣️ Trip-Wise' : '📅 Date-Wise'} Breakdown</h3>
+              <h3 style={{ color: '#22d3ee', margin: 0 }}>{report.mode === 'VEHICLE' ? '🚚 Vehicle-Wise' : report.mode === 'TRIP' ? '🛣️ Trip-Wise' : '📅 Date-Wise'} Breakdown</h3>
               <button className="pt-btn pt-btn--ghost" style={{ minHeight: '38px' }} onClick={exportReportCSV}>📥 Export CSV</button>
             </div>
-            {reportGroups.length === 0 ? <div style={{ color: '#64748b', padding: '20px', textAlign: 'center' }}>Is filter par koi toll transaction nahi mila.</div> : (
+            {reportGroups.length === 0 ? <div style={{ color: '#5d7196', padding: '20px', textAlign: 'center' }}>Is filter par koi toll transaction nahi mila.</div> : (
               <div style={{ overflowX: 'auto', marginTop: '10px' }}>
                 <table style={{ minWidth: '620px' }}>
                   <thead><tr>
@@ -829,15 +829,15 @@ export default function TollFastagMgmt() {
                     {reportGroups.map(g => (
                       <tr key={g.key}>
                         <td style={{ fontWeight: 900, color: '#fff' }}>{g.key}</td>
-                        {report.mode !== 'VEHICLE' && <td style={{ fontSize: '12px', color: '#38bdf8' }}>{[...g.vehicles].filter(Boolean).join(', ') || '-'}</td>}
+                        {report.mode !== 'VEHICLE' && <td style={{ fontSize: '12px', color: '#22d3ee' }}>{[...g.vehicles].filter(Boolean).join(', ') || '-'}</td>}
                         <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{g.count}</span></td>
-                        <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
-                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{(g.total / g.count).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td style={{ textAlign: 'right', color: '#2fe39b', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', color: '#9aadd4' }}>{(g.total / g.count).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                       </tr>
                     ))}
                     <tr style={{ background: 'rgba(129,140,248,0.08)', fontWeight: 900 }}>
                       <td colSpan={report.mode !== 'VEHICLE' ? 3 : 2} style={{ textAlign: 'right' }}>GRAND TOTAL ({reportTxns.length} tolls):</td>
-                      <td style={{ textAlign: 'right', color: '#f59e0b', fontSize: '15px' }}>₹{reportTotal.toLocaleString('en-IN')}</td>
+                      <td style={{ textAlign: 'right', color: '#ffb224', fontSize: '15px' }}>₹{reportTotal.toLocaleString('en-IN')}</td>
                       <td></td>
                     </tr>
                   </tbody>
@@ -850,15 +850,15 @@ export default function TollFastagMgmt() {
 
       {/* ═══════════ 📄 TAB: STATEMENT SYNC (Multi-bank FASTag upload) ═══════════ */}
       {activeTab === 'STATEMENT' && (
-        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #10b981' }}>
-          <h2 style={{ color: '#10b981', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>📄 FASTag Statement Sync — Multi-Bank, Offline</h2>
-          <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>ICICI PDF e-statement, ya kisi bhi bank ka CSV/Excel upload karein. Har toll <b style={{ color: '#38bdf8' }}>vehicle + date/time window</b> se sahi trip par auto-map hota hai (Loading → Unloading ke beech). Duplicate kabhi save nahi hote.</p>
+        <div className="glass-card pt-anim-up" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #2fe39b' }}>
+          <h2 style={{ color: '#2fe39b', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>📄 FASTag Statement Sync — Multi-Bank, Offline</h2>
+          <p style={{ color: '#9aadd4', fontSize: '13px', margin: '0 0 20px' }}>ICICI PDF e-statement, ya kisi bhi bank ka CSV/Excel upload karein. Har toll <b style={{ color: '#22d3ee' }}>vehicle + date/time window</b> se sahi trip par auto-map hota hai (Loading → Unloading ke beech). Duplicate kabhi save nahi hote.</p>
 
           {!stmt && (
-            <label className="pt-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', border: '2px dashed #10b981', cursor: parsing ? 'wait' : 'pointer', textAlign: 'center' }}>
+            <label className="pt-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '40px', border: '2px dashed #2fe39b', cursor: parsing ? 'wait' : 'pointer', textAlign: 'center' }}>
               <div style={{ fontSize: '42px' }}>{parsing ? '⏳' : '📤'}</div>
-              <div style={{ fontWeight: 900, fontSize: '17px', color: '#10b981' }}>{parsing ? 'Parsing statement…' : 'Upload FASTag Statement'}</div>
-              <div style={{ color: '#94a3b8', fontSize: '12px' }}>PDF (ICICI e-statement) · CSV · Excel (.xlsx/.xls)</div>
+              <div style={{ fontWeight: 900, fontSize: '17px', color: '#2fe39b' }}>{parsing ? 'Parsing statement…' : 'Upload FASTag Statement'}</div>
+              <div style={{ color: '#9aadd4', fontSize: '12px' }}>PDF (ICICI e-statement) · CSV · Excel (.xlsx/.xls)</div>
               <input type="file" hidden accept=".pdf,.csv,.xlsx,.xls" onChange={handleStatementFile} disabled={parsing} />
             </label>
           )}
@@ -867,15 +867,15 @@ export default function TollFastagMgmt() {
             <div className="pt-anim-fade">
               {/* Parse summary + company selector */}
               <div className="pt-stagger" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '18px' }}>
-                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#10b981' }}>Tolls Parsed</div><div className="pt-kpi__value">{stmtMaps.length}</div><div className="pt-kpi__sub">{stmt.bank || 'statement'} · {stmt.period_from || '?'} → {stmt.period_to || '?'}</div></div>
-                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#38bdf8' }}>Trip-Mapped</div><div className="pt-kpi__value" style={{ color: '#38bdf8' }}>{stmtMaps.filter(m => m.confidence === 'MATCHED').length}</div><div className="pt-kpi__sub">+ {stmtMaps.filter(m => m.confidence === 'AMBIGUOUS').length} ambiguous (best-guess)</div></div>
-                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#ef4444' }}>Unmapped</div><div className="pt-kpi__value" style={{ color: '#ef4444' }}>{stmtMaps.filter(m => !m.trip).length}</div><div className="pt-kpi__sub">koi trip window match nahi</div></div>
-                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#f59e0b' }}>₹{stmtMaps.reduce((s, m) => s + m.txn.amount, 0).toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{stmtFileName}</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#2fe39b' }}>Tolls Parsed</div><div className="pt-kpi__value">{stmtMaps.length}</div><div className="pt-kpi__sub">{stmt.bank || 'statement'} · {stmt.period_from || '?'} → {stmt.period_to || '?'}</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#22d3ee' }}>Trip-Mapped</div><div className="pt-kpi__value" style={{ color: '#22d3ee' }}>{stmtMaps.filter(m => m.confidence === 'MATCHED').length}</div><div className="pt-kpi__sub">+ {stmtMaps.filter(m => m.confidence === 'AMBIGUOUS').length} ambiguous (best-guess)</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#ff6b81' }}>Unmapped</div><div className="pt-kpi__value" style={{ color: '#ff6b81' }}>{stmtMaps.filter(m => !m.trip).length}</div><div className="pt-kpi__sub">koi trip window match nahi</div></div>
+                <div className="pt-kpi"><div className="pt-kpi__label" style={{ color: '#ffb224' }}>Total Toll ₹</div><div className="pt-kpi__value" style={{ color: '#ffb224' }}>₹{stmtMaps.reduce((s, m) => s + m.txn.amount, 0).toLocaleString('en-IN')}</div><div className="pt-kpi__sub">{stmtFileName}</div></div>
               </div>
 
-              <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '18px', background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '12px', padding: '15px' }}>
+              <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '18px', background: 'rgba(47, 227, 155,0.05)', border: '1px solid rgba(47, 227, 155,0.25)', borderRadius: '12px', padding: '15px' }}>
                 <div style={{ flex: '1 1 260px' }}>
-                  <label className="pt-label" style={{ color: '#10b981' }}>🏢 Corporate Account (Company Ledger) {stmt.company && <span className="pt-badge pt-badge--success" style={{ marginLeft: '6px' }}>auto-detected</span>}</label>
+                  <label className="pt-label" style={{ color: '#2fe39b' }}>🏢 Corporate Account (Company Ledger) {stmt.company && <span className="pt-badge pt-badge--success" style={{ marginLeft: '6px' }}>auto-detected</span>}</label>
                   <select className="pt-input" value={stmtCompany} onChange={e => setStmtCompany(e.target.value)}>
                     {[...new Set([stmtCompany, ...KNOWN_COMPANIES, ...(stmt.company ? [stmt.company] : [])])].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
@@ -896,13 +896,13 @@ export default function TollFastagMgmt() {
                         <td style={{ fontWeight: 900, color: '#fff' }}>{m.txn.vehicle_no}</td>
                         <td style={{ fontSize: '12px' }}>{m.txn.txn_datetime}</td>
                         <td style={{ fontSize: '12px' }}>{m.txn.plaza}</td>
-                        <td style={{ fontSize: '10px', color: '#94a3b8', maxWidth: '180px', wordBreak: 'break-all' }}>{m.txn.ref_no}</td>
-                        <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 'bold' }}>{m.txn.amount.toLocaleString('en-IN')}</td>
+                        <td style={{ fontSize: '10px', color: '#9aadd4', maxWidth: '180px', wordBreak: 'break-all' }}>{m.txn.ref_no}</td>
+                        <td style={{ textAlign: 'right', color: '#ffb224', fontWeight: 'bold' }}>{m.txn.amount.toLocaleString('en-IN')}</td>
                         <td>
                           {m.trip
                             ? <span className={`pt-badge ${m.confidence === 'MATCHED' ? 'pt-badge--success' : 'pt-badge--warning'}`}>{m.confidence === 'MATCHED' ? '🎯' : '⚠'} {m.trip.trip_id || m.trip.Trip_ID || m.trip.id}</span>
                             : <span className="pt-badge pt-badge--danger">UNMAPPED</span>}
-                          {m.trip && <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '6px' }}>{m.trip.loading_point || ''} ➔ {m.trip.consignee_name || ''}</span>}
+                          {m.trip && <span style={{ fontSize: '10px', color: '#5d7196', marginLeft: '6px' }}>{m.trip.loading_point || ''} ➔ {m.trip.consignee_name || ''}</span>}
                         </td>
                       </tr>
                     ))}
@@ -917,13 +917,13 @@ export default function TollFastagMgmt() {
       {/* ═══════════ 🧾 TAB: IOCL TOLL CLAIMS (Auto-generate exact format) ═══════════ */}
       {activeTab === 'CLAIMS' && (
         <div className="pt-anim-up">
-          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #f59e0b', marginBottom: '20px' }}>
-            <h2 style={{ color: '#f59e0b', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>🧾 Auto-Generate IOCL Toll Claim (Exact Format)</h2>
-            <p style={{ color: '#94a3b8', fontSize: '13px', margin: '0 0 20px' }}>Mapped tolls se Summary + Annexure-I wala hubahu IOCL "Claim for Reimbursement of Toll" PDF banta hai — trip ke challan/loading/destination details auto-fill.</p>
+          <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 30px)', borderTop: '4px solid #ffb224', marginBottom: '20px' }}>
+            <h2 style={{ color: '#ffb224', marginTop: 0, marginBottom: '5px', fontSize: '20px' }}>🧾 Auto-Generate IOCL Toll Claim (Exact Format)</h2>
+            <p style={{ color: '#9aadd4', fontSize: '13px', margin: '0 0 20px' }}>Mapped tolls se Summary + Annexure-I wala hubahu IOCL "Claim for Reimbursement of Toll" PDF banta hai — trip ke challan/loading/destination details auto-fill.</p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '15px', marginBottom: '15px' }}>
               <div>
-                <label className="pt-label" style={{ color: '#f59e0b' }}>Company (Vendor) *</label>
+                <label className="pt-label" style={{ color: '#ffb224' }}>Company (Vendor) *</label>
                 <select className="pt-input" value={claimForm.company} onChange={e => handleCompanyChange(e.target.value)}>
                   {KNOWN_COMPANIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -947,7 +947,7 @@ export default function TollFastagMgmt() {
 
             {claimLoaded && (
               claimGroups.length === 0 ? (
-                <div className="pt-anim-pop" style={{ marginTop: '18px', textAlign: 'center', padding: '25px', color: '#64748b', border: '1px dashed #334155', borderRadius: '12px' }}>
+                <div className="pt-anim-pop" style={{ marginTop: '18px', textAlign: 'center', padding: '25px', color: '#5d7196', border: '1px dashed #27395f', borderRadius: '12px' }}>
                   Is period mein {claimForm.company} ka koi unclaimed trip-mapped toll nahi mila. Pehle Statement Sync se tolls upload karein.
                 </div>
               ) : (
@@ -960,24 +960,24 @@ export default function TollFastagMgmt() {
                           <tr key={i}>
                             <td>{i + 1}</td>
                             <td style={{ fontWeight: 900, color: '#fff' }}>{g.truck_no}</td>
-                            <td>{g.invoice_no || <span style={{ color: '#ef4444' }}>challan missing</span>}</td>
+                            <td>{g.invoice_no || <span style={{ color: '#ff6b81' }}>challan missing</span>}</td>
                             <td style={{ fontSize: '12px' }}>{g.invoice_date}</td>
                             <td style={{ fontSize: '12px' }}>{g.loading_loc}</td>
                             <td><input className="pt-input" style={{ minHeight: '38px', padding: '6px 10px', width: '90px' }} value={g.loading_code} placeholder="2377" onChange={e => setClaimGroups(gs => gs.map((x, xi) => xi === i ? { ...x, loading_code: e.target.value } : x))} /></td>
                             <td style={{ fontSize: '12px' }}>{g.dest_name}</td>
                             <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{g.txns.length}</span></td>
-                            <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
+                            <td style={{ textAlign: 'right', color: '#2fe39b', fontWeight: 900 }}>{g.total.toLocaleString('en-IN')}</td>
                           </tr>
                         ))}
-                        <tr style={{ background: 'rgba(245,158,11,0.08)', fontWeight: 900 }}>
+                        <tr style={{ background: 'rgba(255, 178, 36,0.08)', fontWeight: 900 }}>
                           <td colSpan={8} style={{ textAlign: 'right' }}>TOTAL CLAIM ({claimGroups.reduce((s, g) => s + g.txns.length, 0)} tolls):</td>
-                          <td style={{ textAlign: 'right', color: '#f59e0b', fontSize: '16px' }}>₹{claimGroups.reduce((s, g) => s + g.total, 0).toLocaleString('en-IN')}</td>
+                          <td style={{ textAlign: 'right', color: '#ffb224', fontSize: '16px' }}>₹{claimGroups.reduce((s, g) => s + g.total, 0).toLocaleString('en-IN')}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
                   <button className={`pt-btn ${generating ? 'is-loading' : ''}`} disabled={generating} onClick={handleGenerateClaim}
-                    style={{ minHeight: '52px', width: '100%', marginTop: '18px', fontWeight: 900, fontSize: '15px', background: 'linear-gradient(135deg, #f59e0b, #ea580c)', color: '#fff', border: 'none' }}>
+                    style={{ minHeight: '52px', width: '100%', marginTop: '18px', fontWeight: 900, fontSize: '15px', background: 'linear-gradient(135deg, #ffb224, #ea580c)', color: '#fff', border: 'none' }}>
                     {generating ? 'Generating…' : '🖨️ Generate Claim — Summary + Annexure-I (Print & Save)'}
                   </button>
                 </div>
@@ -987,8 +987,8 @@ export default function TollFastagMgmt() {
 
           {/* Claims register */}
           <div className="glass-card" style={{ padding: 'clamp(16px, 3vw, 25px)' }}>
-            <h3 style={{ color: '#38bdf8', marginTop: 0 }}>📚 Generated Claims Register</h3>
-            {claims.length === 0 ? <div style={{ color: '#64748b', padding: '15px' }}>Abhi tak koi claim generate nahi hua.</div> : (
+            <h3 style={{ color: '#22d3ee', marginTop: 0 }}>📚 Generated Claims Register</h3>
+            {claims.length === 0 ? <div style={{ color: '#5d7196', padding: '15px' }}>Abhi tak koi claim generate nahi hua.</div> : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ minWidth: '640px' }}>
                   <thead><tr><th>Claim No</th><th>Company</th><th>Plant</th><th>Period</th><th style={{ textAlign: 'center' }}>Tolls</th><th style={{ textAlign: 'right' }}>Amount ₹</th><th style={{ textAlign: 'center' }}>Action</th></tr></thead>
@@ -1000,7 +1000,7 @@ export default function TollFastagMgmt() {
                         <td style={{ fontSize: '12px' }}>{cl.plant_name}</td>
                         <td style={{ fontSize: '12px' }}>{cl.period_from} → {cl.period_to}</td>
                         <td style={{ textAlign: 'center' }}><span className="pt-badge pt-badge--info">{cl.txn_count}</span></td>
-                        <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 900 }}>{Number(cl.total || 0).toLocaleString('en-IN')}</td>
+                        <td style={{ textAlign: 'right', color: '#2fe39b', fontWeight: 900 }}>{Number(cl.total || 0).toLocaleString('en-IN')}</td>
                         <td style={{ textAlign: 'center' }}><button className="pt-btn pt-btn--ghost" style={{ minHeight: '40px', padding: '6px 14px' }} onClick={() => handleReprintClaim(cl)}>🖨️ Reprint</button></td>
                       </tr>
                     ))}
@@ -1014,13 +1014,13 @@ export default function TollFastagMgmt() {
 
       {/* 🛣️ NEW TAB: TRIP-WISE TOLL ENTRY (MANUAL & BILLABLE) */}
       {activeTab === 'TRIP_ENTRY' && (
-        <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #38bdf8' }}>
-           <h2 style={{ color: '#38bdf8', marginTop: 0, marginBottom: '20px', fontSize: '20px' }}>Record Trip-Wise Toll (For Billing/Claim)</h2>
+        <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #22d3ee' }}>
+           <h2 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '20px', fontSize: '20px' }}>Record Trip-Wise Toll (For Billing/Claim)</h2>
            
            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
               <div style={{ gridColumn: 'span 2' }}>
-                 <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>1. Select Link Trip (Auto-fills details) *</label>
-                 <select className="modern-input" value={tripToll.trip_id} onChange={(e) => handleTripSelect(e.target.value)} style={{ border: '1px solid #38bdf8' }}>
+                 <label style={{ fontSize: '12px', color: '#9aadd4', fontWeight: 'bold' }}>1. Select Link Trip (Auto-fills details) *</label>
+                 <select className="modern-input" value={tripToll.trip_id} onChange={(e) => handleTripSelect(e.target.value)} style={{ border: '1px solid #22d3ee' }}>
                     <option value="">-- Custom Manual Entry (No Trip Link) --</option>
                     {trips.map(t => (
                        <option key={t.id} value={t.id}>
@@ -1030,27 +1030,27 @@ export default function TollFastagMgmt() {
                  </select>
               </div>
               <div>
-                 <label style={{ fontSize: '12px', color: '#f59e0b', fontWeight: 'bold' }}>2. Billing Type (Imp for Claim) *</label>
-                 <select className="modern-input" value={tripToll.billing_type} onChange={e=>setTripToll({...tripToll, billing_type: e.target.value})} style={{ border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 'bold' }}>
+                 <label style={{ fontSize: '12px', color: '#ffb224', fontWeight: 'bold' }}>2. Billing Type (Imp for Claim) *</label>
+                 <select className="modern-input" value={tripToll.billing_type} onChange={e=>setTripToll({...tripToll, billing_type: e.target.value})} style={{ border: '1px solid #ffb224', color: '#ffb224', fontWeight: 'bold' }}>
                     <option value="Reimbursable (Bill to Co.)">🟢 Reimbursable (Bill to Oil Co.)</option>
                     <option value="Company Paid (Direct)">🔴 Company Paid Direct (No Bill)</option>
                  </select>
               </div>
            </div>
 
-           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', border: '1px dashed #475569' }}>
-              <div><label style={{ fontSize: '11px', color: '#cbd5e1' }}>Vehicle No *</label><input className="modern-input" value={tripToll.vehicle_no} onChange={e=>setTripToll({...tripToll, vehicle_no: e.target.value})} /></div>
-              <div><label style={{ fontSize: '11px', color: '#cbd5e1' }}>Invoice / Challan No</label><input className="modern-input" value={tripToll.invoice_no} onChange={e=>setTripToll({...tripToll, invoice_no: e.target.value})} /></div>
-              <div><label style={{ fontSize: '11px', color: '#cbd5e1' }}>Invoice Date</label><input type="date" className="modern-input" value={tripToll.invoice_date} onChange={e=>setTripToll({...tripToll, invoice_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ fontSize: '11px', color: '#cbd5e1' }}>Loading Location</label><input className="modern-input" value={tripToll.loading_loc} onChange={e=>setTripToll({...tripToll, loading_loc: e.target.value})} /></div>
-              <div><label style={{ fontSize: '11px', color: '#cbd5e1' }}>Destination Name</label><input className="modern-input" value={tripToll.dest_loc} onChange={e=>setTripToll({...tripToll, dest_loc: e.target.value})} /></div>
+           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', padding: '20px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px', border: '1px dashed #3d548a' }}>
+              <div><label style={{ fontSize: '11px', color: '#c4d1ea' }}>Vehicle No *</label><input className="modern-input" value={tripToll.vehicle_no} onChange={e=>setTripToll({...tripToll, vehicle_no: e.target.value})} /></div>
+              <div><label style={{ fontSize: '11px', color: '#c4d1ea' }}>Invoice / Challan No</label><input className="modern-input" value={tripToll.invoice_no} onChange={e=>setTripToll({...tripToll, invoice_no: e.target.value})} /></div>
+              <div><label style={{ fontSize: '11px', color: '#c4d1ea' }}>Invoice Date</label><input type="date" className="modern-input" value={tripToll.invoice_date} onChange={e=>setTripToll({...tripToll, invoice_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+              <div><label style={{ fontSize: '11px', color: '#c4d1ea' }}>Loading Location</label><input className="modern-input" value={tripToll.loading_loc} onChange={e=>setTripToll({...tripToll, loading_loc: e.target.value})} /></div>
+              <div><label style={{ fontSize: '11px', color: '#c4d1ea' }}>Destination Name</label><input className="modern-input" value={tripToll.dest_loc} onChange={e=>setTripToll({...tripToll, dest_loc: e.target.value})} /></div>
            </div>
 
            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginTop: '20px' }}>
-              <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Toll Txn Date</label><input type="date" className="modern-input" value={tripToll.txn_date} onChange={e=>setTripToll({...tripToll, txn_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Transaction Ref No (Tag)</label><input className="modern-input" value={tripToll.txn_ref} onChange={e=>setTripToll({...tripToll, txn_ref: e.target.value})} /></div>
-              <div><label style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold' }}>Toll Amount (₹) *</label><input type="number" className="modern-input" style={{ borderColor: '#ef4444', color: '#ef4444', fontWeight: 'bold' }} value={tripToll.toll_amount} onChange={e=>setTripToll({...tripToll, toll_amount: e.target.value})} /></div>
-              <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Remarks</label><input className="modern-input" value={tripToll.remarks} onChange={e=>setTripToll({...tripToll, remarks: e.target.value})} /></div>
+              <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Toll Txn Date</label><input type="date" className="modern-input" value={tripToll.txn_date} onChange={e=>setTripToll({...tripToll, txn_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+              <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Transaction Ref No (Tag)</label><input className="modern-input" value={tripToll.txn_ref} onChange={e=>setTripToll({...tripToll, txn_ref: e.target.value})} /></div>
+              <div><label style={{ fontSize: '12px', color: '#ff6b81', fontWeight: 'bold' }}>Toll Amount (₹) *</label><input type="number" className="modern-input" style={{ borderColor: '#ff6b81', color: '#ff6b81', fontWeight: 'bold' }} value={tripToll.toll_amount} onChange={e=>setTripToll({...tripToll, toll_amount: e.target.value})} /></div>
+              <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Remarks</label><input className="modern-input" value={tripToll.remarks} onChange={e=>setTripToll({...tripToll, remarks: e.target.value})} /></div>
            </div>
 
            <button className="glow-btn" style={{ width: '100%', justifyContent: 'center', marginTop: '25px', padding: '15px', fontSize: '16px' }} onClick={handleSaveTripToll} disabled={loading}>
@@ -1062,7 +1062,7 @@ export default function TollFastagMgmt() {
       {/* 📋 TOLL TRANSACTIONS LOG TAB */}
       {activeTab === 'TRANSACTIONS' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Syncing Database...</p> : (
+          {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Syncing Database...</p> : (
             <table>
               <thead>
                 <tr>
@@ -1081,24 +1081,24 @@ export default function TollFastagMgmt() {
                     <tr key={i}>
                       <td>
                          <b style={{ color: '#fff', fontSize: '14px' }}>{t.Vehicle_No || t.vehicle_no}</b><br/>
-                         <span style={{ fontSize: '11px', color: '#38bdf8' }}>Inv: {t.invoice_no || t.Invoice_No || '-'}</span>
+                         <span style={{ fontSize: '11px', color: '#22d3ee' }}>Inv: {t.invoice_no || t.Invoice_No || '-'}</span>
                       </td>
                       <td>
-                         <span style={{ color: '#94a3b8', fontSize: '12px' }}>{t.loading_loc || 'IOCL/BPCL'} ➔ <br/>{t.dest_loc || t.Toll_Plaza_Name || t.Plaza || 'Unknown'}</span>
+                         <span style={{ color: '#9aadd4', fontSize: '12px' }}>{t.loading_loc || 'IOCL/BPCL'} ➔ <br/>{t.dest_loc || t.Toll_Plaza_Name || t.Plaza || 'Unknown'}</span>
                       </td>
                       <td>
-                         <span style={{ color: '#cbd5e1', fontSize: '11px' }}>Date: {t.Txn_Date || t.txn_date || t.date}</span><br/>
-                         <span style={{ color: '#64748b', fontSize: '10px' }}>Ref: {t.Transaction_Ref || t.txn_ref || t.Ref_No || '-'}</span>
+                         <span style={{ color: '#c4d1ea', fontSize: '11px' }}>Date: {t.Txn_Date || t.txn_date || t.date}</span><br/>
+                         <span style={{ color: '#5d7196', fontSize: '10px' }}>Ref: {t.Transaction_Ref || t.txn_ref || t.Ref_No || '-'}</span>
                       </td>
-                      <td style={{ color: '#ef4444', fontWeight: '900', fontSize: '15px' }}>₹{parseFloat(t.Amount || t.amount || t.toll_amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                      <td style={{ color: '#ff6b81', fontWeight: '900', fontSize: '15px' }}>₹{parseFloat(t.Amount || t.amount || t.toll_amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                       
                       <td style={{ textAlign: 'center' }}>
                          <button 
                            onClick={() => toggleBillable(t.id, t.is_billable)}
                            style={{ 
-                             background: (t.is_billable || t.billing_type?.includes('Reimbursable')) ? 'rgba(16, 185, 129, 0.1)' : 'rgba(71, 85, 105, 0.3)', 
-                             color: (t.is_billable || t.billing_type?.includes('Reimbursable')) ? '#10b981' : '#94a3b8', 
-                             border: `1px solid ${(t.is_billable || t.billing_type?.includes('Reimbursable')) ? '#10b981' : '#475569'}`, 
+                             background: (t.is_billable || t.billing_type?.includes('Reimbursable')) ? 'rgba(47, 227, 155, 0.1)' : 'rgba(61, 84, 138, 0.3)', 
+                             color: (t.is_billable || t.billing_type?.includes('Reimbursable')) ? '#2fe39b' : '#9aadd4', 
+                             border: `1px solid ${(t.is_billable || t.billing_type?.includes('Reimbursable')) ? '#2fe39b' : '#3d548a'}`, 
                              padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', transition: '0.3s' 
                            }}
                          >
@@ -1119,23 +1119,23 @@ export default function TollFastagMgmt() {
          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
             
             {/* Recharge Entry Form */}
-            <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #10b981' }}>
-              <h2 style={{ color: '#10b981', marginTop: 0, marginBottom: '20px', fontSize: '20px' }}>Add Fastag Recharge</h2>
+            <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #2fe39b' }}>
+              <h2 style={{ color: '#2fe39b', marginTop: 0, marginBottom: '20px', fontSize: '20px' }}>Add Fastag Recharge</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Recharge Date</label><input type="date" className="modern-input" value={rechargeData.date} onChange={e=>setRechargeData({...rechargeData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-                <div><label style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold' }}>Amount (₹) *</label><input type="number" className="modern-input" style={{ border: '1px solid #38bdf8', fontSize: '18px', fontWeight: 'bold', color: '#38bdf8' }} value={rechargeData.recharge_amount} onChange={e=>setRechargeData({...rechargeData, recharge_amount: e.target.value})} /></div>
+                <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Recharge Date</label><input type="date" className="modern-input" value={rechargeData.date} onChange={e=>setRechargeData({...rechargeData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                <div><label style={{ fontSize: '12px', color: '#22d3ee', fontWeight: 'bold' }}>Amount (₹) *</label><input type="number" className="modern-input" style={{ border: '1px solid #22d3ee', fontSize: '18px', fontWeight: 'bold', color: '#22d3ee' }} value={rechargeData.recharge_amount} onChange={e=>setRechargeData({...rechargeData, recharge_amount: e.target.value})} /></div>
                 <div>
-                  <label style={{ fontSize: '12px', color: '#94a3b8' }}>Payment Source</label>
+                  <label style={{ fontSize: '12px', color: '#9aadd4' }}>Payment Source</label>
                   <select className="modern-input" value={rechargeData.payment_source} onChange={e=>setRechargeData({...rechargeData, payment_source: e.target.value})}>
                     <option value="Bank Transfer">Bank Transfer (HDFC/SBI etc)</option>
                     <option value="Credit Card">Credit Card</option>
                     <option value="UPI">UPI</option>
                   </select>
                 </div>
-                <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Bank Ref / UTR No</label><input className="modern-input" value={rechargeData.transaction_id} onChange={e=>setRechargeData({...rechargeData, transaction_id: e.target.value})} /></div>
-                <div><label style={{ fontSize: '12px', color: '#94a3b8' }}>Remarks</label><input className="modern-input" placeholder="e.g. Monthly Topup" value={rechargeData.remarks} onChange={e=>setRechargeData({...rechargeData, remarks: e.target.value})} /></div>
+                <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Bank Ref / UTR No</label><input className="modern-input" value={rechargeData.transaction_id} onChange={e=>setRechargeData({...rechargeData, transaction_id: e.target.value})} /></div>
+                <div><label style={{ fontSize: '12px', color: '#9aadd4' }}>Remarks</label><input className="modern-input" placeholder="e.g. Monthly Topup" value={rechargeData.remarks} onChange={e=>setRechargeData({...rechargeData, remarks: e.target.value})} /></div>
                 
-                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', justifyContent: 'center', marginTop: '10px' }} onClick={handleSaveRecharge} disabled={loading}>
+                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)', justifyContent: 'center', marginTop: '10px' }} onClick={handleSaveRecharge} disabled={loading}>
                     ✅ Add Funds to Wallet
                 </button>
               </div>
@@ -1153,8 +1153,8 @@ export default function TollFastagMgmt() {
                     recharges.map((r, i) => (
                       <tr key={i}>
                         <td>{r.date}</td>
-                        <td style={{ color: '#10b981', fontWeight: 'bold', fontSize: '16px' }}>+ ₹{parseFloat(r.recharge_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        <td><span className="badge" style={{ background: 'rgba(56,189,248,0.2)', color: '#38bdf8' }}>{r.payment_source}</span></td>
+                        <td style={{ color: '#2fe39b', fontWeight: 'bold', fontSize: '16px' }}>+ ₹{parseFloat(r.recharge_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        <td><span className="badge" style={{ background: 'rgba(34, 211, 238,0.2)', color: '#22d3ee' }}>{r.payment_source}</span></td>
                         <td>{r.transaction_id || '-'}</td>
                         <td>{r.remarks || '-'}</td>
                       </tr>

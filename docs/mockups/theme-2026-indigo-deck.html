@@ -1,0 +1,810 @@
+<title>Indigo Deck</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* ===================================================================
+     PRASAD ERP — 2026 THEME PROPOSAL · "INDIGO DECK"
+     A live before/after of the palette shift. The toggle flips one
+     data-skin attribute on the frame below; every colour in the mock
+     comes from CSS variables — which is exactly how the real change
+     works, so this demo is honest about the mechanism.
+     =================================================================== */
+
+  :root {
+    /* --- page chrome (the pitch, not the product) --- */
+    --pg-ground: #070c1c;
+    --pg-wash-1: #10204a;
+    --pg-wash-2: #1b1338;
+    --pg-panel: #0e1730;
+    --pg-line: #22314f;
+    --pg-ink: #eef2fd;
+    --pg-ink2: #9fb0d4;
+    --pg-ink3: #67799f;
+    --pg-cyan: #22d3ee;
+    --pg-amber: #ffb224;
+    --font-ui: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+    --font-num: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+    /* the app's real face — the mock panels must render in what ships */
+    --font-app: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1100px 620px at 12% -8%, var(--pg-wash-1) 0%, transparent 62%),
+      radial-gradient(860px 520px at 92% 4%, var(--pg-wash-2) 0%, transparent 58%),
+      var(--pg-ground);
+    background-attachment: fixed;
+    color: var(--pg-ink);
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 34px clamp(16px, 3vw, 40px) 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+  }
+
+  /* ---------- pitch masthead ---------- */
+  .pitch { display: flex; flex-wrap: wrap; gap: 22px 32px; align-items: flex-end; justify-content: space-between; }
+  .pitch .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--pg-cyan); margin: 0 0 10px;
+  }
+  .pitch h1 {
+    font-size: clamp(30px, 4.4vw, 46px); font-weight: 800; letter-spacing: -.028em;
+    line-height: 1.02; margin: 0; text-wrap: balance;
+  }
+  .pitch h1 em { font-style: normal; color: var(--pg-cyan); }
+  .pitch .lede {
+    margin: 14px 0 0; max-width: 62ch; font-size: 14.5px; line-height: 1.62;
+    color: var(--pg-ink2); font-weight: 500;
+  }
+
+  /* ---------- before / after switch ---------- */
+  .switch {
+    display: flex; gap: 4px; padding: 5px;
+    background: var(--pg-panel); border: 1px solid var(--pg-line);
+    border-radius: 14px; flex: none;
+  }
+  .switch button {
+    font: inherit; font-size: 12.5px; font-weight: 700; letter-spacing: .04em;
+    text-transform: uppercase; cursor: pointer; border: 0; background: transparent;
+    color: var(--pg-ink3); padding: 10px 18px; border-radius: 10px;
+    display: flex; align-items: center; gap: 8px; transition: color .16s, background .16s;
+  }
+  .switch button:hover { color: var(--pg-ink); }
+  .switch button[aria-pressed="true"] { background: #1a2750; color: var(--pg-ink); box-shadow: inset 0 0 0 1px #2e4270; }
+  .switch button:focus-visible { outline: 2px solid var(--pg-cyan); outline-offset: 2px; }
+  .swatch-dot { width: 11px; height: 11px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); }
+
+  /* ---------- browser frame ---------- */
+  .frame {
+    border: 1px solid var(--pg-line); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 32px 80px rgba(2, 6, 20, .62);
+    background: #0b1220;
+  }
+  .frame-bar {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: #0a1122; border-bottom: 1px solid var(--pg-line);
+  }
+  .frame-bar .lights { display: flex; gap: 6px; }
+  .frame-bar .lights i { width: 10px; height: 10px; border-radius: 50%; background: #263b63; }
+  .frame-bar .url {
+    font-family: var(--font-num); font-size: 11.5px; color: var(--pg-ink3);
+    background: #0e1730; border: 1px solid var(--pg-line); border-radius: 7px;
+    padding: 5px 12px; flex: 1; max-width: 420px;
+  }
+  .frame-bar .tag {
+    margin-left: auto; font-size: 10px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--pg-ink3);
+  }
+
+  /* ===================================================================
+     THE MOCK ITSELF
+     Every colour below reads a --sk-* variable. [data-skin="old"] holds
+     today's shipped values; [data-skin="new"] holds the proposal.
+     =================================================================== */
+
+  /* ---- TODAY (what the owner is looking at now) ---- */
+  .app[data-skin="old"] {
+    --sk-ground: #020617;
+    --sk-ground-grad: none;
+    --sk-nav: #0f172a;
+    --sk-panel: #0f172a;
+    --sk-panel-grad: none;
+    --sk-raised: #1e293b;
+    --sk-line: #334155;
+    --sk-line-2: #475569;
+    --sk-ink: #f1f5f9;
+    --sk-ink-2: #94a3b8;
+    --sk-ink-3: #64748b;
+    --sk-live: #38bdf8;
+    --sk-live-soft: rgba(56,189,248,.12);
+    --sk-good: #10b981;
+    --sk-good-soft: rgba(16,185,129,.12);
+    --sk-warn: #f59e0b;
+    --sk-warn-soft: rgba(245,158,11,.12);
+    --sk-crit: #ef4444;
+    --sk-crit-soft: rgba(239,68,68,.12);
+    --sk-ai: #c084fc;
+    --sk-ai-soft: rgba(192,132,252,.12);
+    --sk-rail: 3px;
+    --sk-radius: 12px;
+    --sk-shadow: 0 2px 8px rgba(0,0,0,.25);
+    --sk-shadow-hi: 0 8px 24px rgba(0,0,0,.35);
+    --sk-glow: none;
+    --sk-tile-grad: none;
+  }
+
+  /* ---- PROPOSED: INDIGO DECK ---- */
+  .app[data-skin="new"] {
+    --sk-ground: #0a1024;
+    --sk-ground-grad:
+      radial-gradient(980px 540px at 88% -6%, rgba(34,211,238,.09) 0%, transparent 60%),
+      radial-gradient(760px 520px at 4% 102%, rgba(167,139,250,.08) 0%, transparent 58%);
+    --sk-nav: linear-gradient(185deg, #101b3c 0%, #0b1329 100%);
+    --sk-panel: #121c38;
+    --sk-panel-grad: linear-gradient(168deg, rgba(38,56,102,.42) 0%, rgba(18,28,56,0) 58%);
+    --sk-raised: #18244a;
+    --sk-line: #27395f;
+    --sk-line-2: #3d548a;
+    --sk-ink: #eef3ff;
+    --sk-ink-2: #a9bade;
+    --sk-ink-3: #7288b3;
+    --sk-live: #22d3ee;
+    --sk-live-soft: rgba(34,211,238,.13);
+    --sk-good: #2fe39b;
+    --sk-good-soft: rgba(47,227,155,.13);
+    --sk-warn: #ffb224;
+    --sk-warn-soft: rgba(255,178,36,.13);
+    --sk-crit: #ff6b81;
+    --sk-crit-soft: rgba(255,107,129,.13);
+    --sk-ai: #a78bfa;
+    --sk-ai-soft: rgba(167,139,250,.14);
+    --sk-rail: 4px;
+    --sk-radius: 14px;
+    --sk-shadow: 0 2px 10px rgba(4,9,26,.45), inset 0 1px 0 rgba(255,255,255,.045);
+    --sk-shadow-hi: 0 16px 38px rgba(4,9,26,.6), inset 0 1px 0 rgba(255,255,255,.07);
+    --sk-glow: 0 0 22px;
+    --sk-tile-grad: linear-gradient(160deg, rgba(46,66,118,.5) 0%, rgba(18,28,56,0) 62%);
+  }
+
+  .app {
+    display: grid; grid-template-columns: 246px 1fr;
+    font-family: var(--font-app);
+    background: var(--sk-ground-grad, none), var(--sk-ground);
+    color: var(--sk-ink);
+    min-height: 720px;
+    transition: background .35s ease, color .35s ease;
+  }
+  .app * { box-sizing: border-box; }
+  .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+  /* ---------- sidebar ---------- */
+  .nav {
+    background: var(--sk-nav); border-right: 1px solid var(--sk-line);
+    padding: 16px 12px; display: flex; flex-direction: column; gap: 4px;
+    transition: background .35s ease, border-color .35s ease;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 16px; }
+  .brand .mark {
+    width: 38px; height: 38px; border-radius: 11px; flex: none;
+    display: grid; place-items: center; font-size: 17px; font-weight: 900; color: #04101c;
+    background: linear-gradient(140deg, var(--sk-live), #4f7cf7);
+    box-shadow: var(--sk-glow, 0 0) rgba(34,211,238,.42);
+    transition: box-shadow .35s ease;
+  }
+  .brand b { font-size: 14px; font-weight: 800; letter-spacing: .01em; display: block; line-height: 1.15; }
+  .brand span { font-size: 9.5px; font-weight: 700; letter-spacing: .17em; text-transform: uppercase; color: var(--sk-ink-3); }
+
+  .nav-group {
+    font-size: 9.5px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--sk-ink-3); padding: 14px 10px 6px;
+  }
+  .nav a {
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px;
+    border-radius: 9px; font-size: 12.5px; font-weight: 600;
+    color: var(--sk-ink-2); text-decoration: none; border: 1px solid transparent;
+    transition: background .16s, color .16s, border-color .16s;
+  }
+  .nav a i { font-style: normal; font-size: 14px; width: 18px; text-align: center; flex: none; }
+  .nav a:hover { background: var(--sk-raised); color: var(--sk-ink); }
+  .nav a[aria-current="page"] {
+    background: var(--sk-live-soft); color: var(--sk-live);
+    border-color: color-mix(in oklab, var(--sk-live) 38%, var(--sk-line));
+    box-shadow: var(--sk-glow, 0 0) color-mix(in oklab, var(--sk-live) 22%, transparent);
+  }
+  .nav a .cnt {
+    margin-left: auto; font-family: var(--font-num); font-size: 10.5px; font-weight: 600;
+    padding: 1px 7px; border-radius: 20px;
+    background: var(--sk-warn-soft); color: var(--sk-warn);
+  }
+
+  /* ---------- top bar ---------- */
+  .top {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 22px; border-bottom: 1px solid var(--sk-line);
+    background: var(--sk-panel); transition: background .35s ease, border-color .35s ease;
+  }
+  .firm {
+    display: flex; gap: 4px; padding: 4px;
+    background: var(--sk-raised); border: 1px solid var(--sk-line); border-radius: 11px;
+  }
+  .firm button {
+    font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; border: 0;
+    background: transparent; color: var(--sk-ink-3); padding: 6px 12px; border-radius: 8px;
+  }
+  .firm button[aria-pressed="true"] { background: var(--sk-ai-soft); color: var(--sk-ai); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700;
+    padding: 5px 11px; border-radius: 20px; border: 1px solid transparent; white-space: nowrap;
+  }
+  .pill.live {
+    background: var(--sk-live-soft); color: var(--sk-live);
+    border-color: color-mix(in oklab, var(--sk-live) 34%, var(--sk-line));
+    box-shadow: var(--sk-glow, 0 0) color-mix(in oklab, var(--sk-live) 20%, transparent);
+  }
+  .pill.good { background: var(--sk-good-soft); color: var(--sk-good); border-color: color-mix(in oklab, var(--sk-good) 32%, var(--sk-line)); }
+  .beacon { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: beat 1.9s ease-in-out infinite; }
+  @keyframes beat { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .38; transform: scale(.82); } }
+  .top .spacer { margin-left: auto; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center;
+    font-size: 13px; background: var(--sk-raised); border: 1px solid var(--sk-line);
+  }
+
+  /* ---------- deck body ---------- */
+  .deck { padding: 20px 22px 26px; display: flex; flex-direction: column; gap: 14px; }
+  .mast { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  .mast h2 { font-size: 19px; font-weight: 750; letter-spacing: -.015em; margin: 0; }
+  .mast p { margin: 3px 0 0; font-size: 11.5px; color: var(--sk-ink-3); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .strip {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+    border-radius: var(--sk-radius); padding: 11px 15px;
+    background: var(--sk-crit-soft);
+    border: 1px solid color-mix(in oklab, var(--sk-crit) 36%, var(--sk-line));
+    box-shadow: var(--sk-glow, 0 0) color-mix(in oklab, var(--sk-crit) 14%, transparent);
+  }
+  .strip b { font-size: 12.5px; color: var(--sk-crit); }
+  .strip span { font-size: 12px; color: var(--sk-ink-2); }
+
+  /* KPI row — structured grid, equal tracks, one rail colour per metric */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpi {
+    position: relative; overflow: hidden; padding: 15px 16px;
+    background: var(--sk-tile-grad, none), var(--sk-panel);
+    border: 1px solid var(--sk-line); border-radius: var(--sk-radius);
+    box-shadow: var(--sk-shadow); cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .22s ease, background .35s ease;
+  }
+  .kpi::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: var(--sk-rail); background: var(--rail);
+    box-shadow: var(--sk-glow, 0 0) var(--rail);
+  }
+  .kpi:hover { transform: translateY(-3px); border-color: var(--sk-line-2); box-shadow: var(--sk-shadow-hi); }
+  .kpi .l { font-size: 11px; font-weight: 650; color: var(--sk-ink-3); letter-spacing: .02em; }
+  .kpi .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 26px; font-weight: 600; letter-spacing: -.03em; margin: 7px 0 3px; color: var(--sk-ink); }
+  .kpi .v small { font-size: 12px; font-weight: 400; color: var(--sk-ink-3); }
+  .kpi .s { font-size: 11px; color: var(--sk-ink-3); }
+  .kpi .go {
+    position: absolute; right: 12px; top: 12px; font-size: 9px; font-weight: 800;
+    letter-spacing: .11em; text-transform: uppercase; color: var(--sk-ink-3);
+  }
+  .kpi:hover .go { color: var(--sk-ink-2); }
+
+  /* approval desk chip row */
+  .desk {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+    background: var(--sk-panel); border: 1px solid var(--sk-line);
+    border-radius: var(--sk-radius); padding: 11px 14px;
+  }
+  .desk .t { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--sk-ink-3); font-weight: 800; margin-right: 4px; }
+  .desk button {
+    font: inherit; cursor: pointer; display: flex; align-items: baseline; gap: 8px;
+    border: 1px solid var(--sk-line); background: var(--sk-raised); color: var(--sk-ink-2);
+    padding: 7px 12px; border-radius: 10px; font-size: 12px; font-weight: 600;
+    transition: border-color .16s, color .16s, transform .16s, box-shadow .2s;
+  }
+  .desk button:hover { border-color: var(--sk-line-2); color: var(--sk-ink); transform: translateY(-2px); }
+  .desk button b { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 14px; color: var(--sk-ink); font-weight: 600; }
+  .desk button[data-hot="1"] {
+    border-color: color-mix(in oklab, var(--sk-warn) 46%, var(--sk-line));
+    background: var(--sk-warn-soft); color: var(--sk-ink);
+    box-shadow: var(--sk-glow, 0 0) color-mix(in oklab, var(--sk-warn) 16%, transparent);
+  }
+  .desk button[data-hot="1"] b { color: var(--sk-warn); }
+  .desk button i { font-style: normal; font-size: 10.5px; color: var(--sk-ink-3); font-weight: 500; }
+
+  /* two-column panel grid */
+  .grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; align-items: start; }
+  .panel {
+    background: var(--sk-panel-grad, none), var(--sk-panel);
+    border: 1px solid var(--sk-line); border-radius: var(--sk-radius);
+    overflow: hidden; box-shadow: var(--sk-shadow);
+    transition: background .35s ease, border-color .35s ease, box-shadow .35s ease;
+  }
+  .panel > header {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    padding: 13px 15px 10px; border-bottom: 1px solid var(--sk-line);
+  }
+  .panel > header h3 { font-size: 13px; font-weight: 700; margin: 0; letter-spacing: -.01em; }
+  .panel > header .m { font-size: 10.5px; color: var(--sk-ink-3); }
+  .panel .body { padding: 4px 15px 13px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    text-align: left; font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--sk-ink-3); font-weight: 700; padding: 8px 6px 8px 0;
+    border-bottom: 1px solid var(--sk-line);
+  }
+  td { padding: 9px 6px 9px 0; border-bottom: 1px solid var(--sk-line); color: var(--sk-ink-2); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.r, th.r { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+  td b { color: var(--sk-ink); font-weight: 650; }
+  td .sub { display: block; font-size: 10.5px; color: var(--sk-ink-3); margin-top: 2px; }
+  tbody tr { transition: background .14s; }
+  tbody tr:hover { background: var(--sk-raised); }
+
+  .chip {
+    font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px;
+    display: inline-block; white-space: nowrap; letter-spacing: .03em;
+  }
+  .chip.ok { background: var(--sk-good-soft); color: var(--sk-good); }
+  .chip.warn { background: var(--sk-warn-soft); color: var(--sk-warn); }
+  .chip.bad { background: var(--sk-crit-soft); color: var(--sk-crit); }
+  .chip.info { background: var(--sk-live-soft); color: var(--sk-live); }
+
+  .money { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 15px 15px; }
+  .money .box {
+    background: var(--sk-raised); border: 1px solid var(--sk-line);
+    border-radius: 11px; padding: 11px 13px;
+  }
+  .money .box .l { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--sk-ink-3); font-weight: 800; }
+  .money .box .v { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 600; margin-top: 5px; }
+  .money .box .s { font-size: 10.5px; color: var(--sk-ink-3); margin-top: 2px; }
+  .money .box.hi { border-color: color-mix(in oklab, var(--sk-good) 34%, var(--sk-line)); }
+  .money .box.hi .v { color: var(--sk-good); }
+  .money .box.due { border-color: color-mix(in oklab, var(--sk-warn) 34%, var(--sk-line)); }
+  .money .box.due .v { color: var(--sk-warn); }
+
+  .foot { font-size: 10.5px; color: var(--sk-ink-3); display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; }
+
+  /* ===================================================================
+     palette specimen + change list (pitch chrome again)
+     =================================================================== */
+  .sec-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  .sec-head h2 { font-size: 20px; font-weight: 750; letter-spacing: -.02em; margin: 0; }
+  .sec-head p { margin: 0; font-size: 13px; color: var(--pg-ink3); }
+
+  .ramp { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 12px; }
+  .ramp .cell {
+    background: var(--pg-panel); border: 1px solid var(--pg-line);
+    border-radius: 13px; padding: 13px 14px;
+  }
+  .ramp .cell .role { font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; color: var(--pg-ink3); }
+  .ramp .pair { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+  .ramp .blk { width: 34px; height: 34px; border-radius: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+  .ramp .hex { font-family: var(--font-num); font-size: 11.5px; color: var(--pg-ink2); line-height: 1.5; }
+  .ramp .hex s { display: block; color: var(--pg-ink3); text-decoration-color: #52648b; }
+  .ramp .why { margin: 11px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--pg-ink3); }
+
+  .files { border: 1px solid var(--pg-line); border-radius: 15px; overflow: hidden; background: var(--pg-panel); }
+  .files table { font-size: 13px; }
+  .files th { color: var(--pg-ink3); border-bottom-color: var(--pg-line); padding: 11px 16px; }
+  .files td { color: var(--pg-ink2); border-bottom-color: var(--pg-line); padding: 12px 16px; }
+  .files td:first-child { font-family: var(--font-num); font-size: 12px; color: var(--pg-ink); }
+  .files td.r { text-align: right; font-family: var(--font-num); }
+  .files tbody tr:hover { background: #14203c; }
+
+  .ask {
+    border: 1px solid color-mix(in oklab, var(--pg-amber) 34%, var(--pg-line));
+    background: linear-gradient(150deg, rgba(255,178,36,.09), rgba(14,23,48,0) 64%), var(--pg-panel);
+    border-radius: 15px; padding: 20px 22px;
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  }
+  .ask .big { font-size: 30px; line-height: 1; }
+  .ask h3 { margin: 0 0 5px; font-size: 15px; font-weight: 750; }
+  .ask p { margin: 0; font-size: 13px; color: var(--pg-ink2); line-height: 1.55; max-width: 74ch; }
+
+  @media (max-width: 1040px) {
+    .app { grid-template-columns: 1fr; }
+    .nav { display: none; }
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+    .grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 620px) {
+    .kpis { grid-template-columns: 1fr; }
+    .money { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="pitch">
+    <div>
+      <p class="eyebrow">Theme proposal · 3 September 2026</p>
+      <h1>Indigo Deck<br><em>a control room, not a black screen</em></h1>
+      <p class="lede">
+        Today every deck sits on <span class="num">#020617</span> — near-black, so the panels, the
+        borders and the numbers all read as one flat sheet. Indigo Deck lifts the ground to a deep
+        navy, tints the panels above it, and gives each status its own live colour: cyan for
+        tracking, green for active, amber for anything waiting on a person. Flip the switch and
+        watch the same Command Deck change.
+      </p>
+    </div>
+    <div class="switch" role="group" aria-label="Compare themes">
+      <button type="button" id="btn-old" aria-pressed="false">
+        <span class="swatch-dot" style="background:#020617"></span> Today
+      </button>
+      <button type="button" id="btn-new" aria-pressed="true">
+        <span class="swatch-dot" style="background:linear-gradient(135deg,#0a1024,#22d3ee)"></span> Indigo Deck
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ THE MOCK ============ -->
+  <div class="frame">
+    <div class="frame-bar">
+      <span class="lights"><i style="background:#3a4f7d"></i><i style="background:#2b3c63"></i><i style="background:#22314f"></i></span>
+      <span class="url">65.0.27.161 / operations / command-deck</span>
+      <span class="tag" id="skin-tag">Indigo Deck</span>
+    </div>
+
+    <div class="app" id="app" data-skin="new">
+
+      <!-- ---------- sidebar ---------- -->
+      <nav class="nav">
+        <div class="brand">
+          <span class="mark">P</span>
+          <span>
+            <b>PRASAD TRANSPORT</b>
+            <span>Operations</span>
+          </span>
+        </div>
+        <div class="firm" style="margin:0 4px 6px">
+          <button type="button" aria-pressed="true">Prasad</button>
+          <button type="button" aria-pressed="false">Jaiswal Ent</button>
+        </div>
+        <p class="nav-group">Home</p>
+        <a href="#" aria-current="page"><i>🛰️</i> Command Deck</a>
+        <a href="#"><i>🚀</i> Master Control v5.0</a>
+        <a href="#"><i>📱</i> Super App</a>
+        <p class="nav-group">Dispatch</p>
+        <a href="#"><i>🛣️</i> Trip Management</a>
+        <a href="#"><i>📦</i> Loading Details</a>
+        <a href="#"><i>🌍</i> Bazaar Admin <span class="cnt">10</span></a>
+        <a href="#"><i>🚚</i> Market Vehicles <span class="cnt">2</span></a>
+        <a href="#"><i>🛰</i> Live Tracking (GPS)</a>
+        <p class="nav-group">Fleet</p>
+        <a href="#"><i>🚛</i> Our Vehicle Fleet</a>
+        <a href="#"><i>👨‍✈️</i> Driver Master</a>
+        <a href="#"><i>⛽</i> Fuel (HSD)</a>
+        <a href="#"><i>🛠️</i> Workshop / Maint.</a>
+      </nav>
+
+      <!-- ---------- main ---------- -->
+      <div>
+        <div class="top">
+          <span class="pill live"><span class="beacon"></span> 63 trucks reporting</span>
+          <span class="pill good">Books posted · 2 Sep</span>
+          <span class="spacer"></span>
+          <span class="pill" style="background:var(--sk-raised);color:var(--sk-ink-2);border-color:var(--sk-line)">Synced 11:42</span>
+          <span class="avatar">👑</span>
+        </div>
+
+        <div class="deck">
+          <div class="mast">
+            <div>
+              <h2>Operations — Command Deck</h2>
+              <p>Market fleet · one read of <span class="num">/api/v1/bazaar/overview</span> · refreshes every 60s</p>
+            </div>
+            <span class="pill live"><span class="beacon"></span> Live</span>
+          </div>
+
+          <div class="strip">
+            <b>3 settlements have no firm named</b>
+            <span>No money moves until a settlement carries Prasad or Jaiswal Ent — open Bazaar Admin to name them.</span>
+          </div>
+
+          <div class="kpis">
+            <div class="kpi" style="--rail:var(--sk-live)" tabindex="0">
+              <span class="go">Open ▸</span>
+              <div class="l">Loads on the board</div>
+              <div class="v">14 <small>open</small></div>
+              <div class="s">6 awaiting review · 4 award requested</div>
+            </div>
+            <div class="kpi" style="--rail:var(--sk-ai)" tabindex="0">
+              <span class="go">Open ▸</span>
+              <div class="l">Settlements in flight</div>
+              <div class="v">9</div>
+              <div class="s">2 awaiting partner confirm</div>
+            </div>
+            <div class="kpi" style="--rail:var(--sk-warn)" tabindex="0">
+              <span class="go">Open ▸</span>
+              <div class="l">Money held, not released</div>
+              <div class="v">₹18.42 <small>L</small></div>
+              <div class="s">₹6.10 L blocked on POD verify</div>
+            </div>
+            <div class="kpi" style="--rail:var(--sk-good)" tabindex="0">
+              <span class="go">Open ▸</span>
+              <div class="l">Partner trucks active</div>
+              <div class="v">63 <small>/ 65</small></div>
+              <div class="s">2 awaiting approval</div>
+            </div>
+          </div>
+
+          <div class="desk">
+            <span class="t">Approval desk</span>
+            <button type="button" data-hot="1"><b>4</b> Award requests <i>desk confirms</i></button>
+            <button type="button" data-hot="1"><b>12</b> Expense bills <i>₹3.86 L waiting</i></button>
+            <button type="button"><b>11</b> KYC <i>7 partner · 4 customer</i></button>
+            <button type="button"><b>9</b> Partner uploads <i>from the app</i></button>
+            <button type="button"><b>6</b> Loads to review</button>
+            <button type="button"><b>5</b> Market drivers</button>
+            <button type="button"><b>2</b> Market trucks</button>
+          </div>
+
+          <div class="grid">
+            <section class="panel">
+              <header>
+                <h3>Settlements in flight</h3>
+                <span class="m">9 rows · newest first</span>
+              </header>
+              <div class="body">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Partner &amp; truck</th>
+                      <th>Route</th>
+                      <th>Stage</th>
+                      <th class="r">Freight</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><b>Sharma Logistics</b><span class="sub">MH 14 KL 8821</span></td>
+                      <td>Panipat → Ludhiana<span class="sub">IOCL · 12 KL</span></td>
+                      <td><span class="chip warn">POD uploaded</span><span class="sub">desk: verify POD</span></td>
+                      <td class="r"><b>₹42,800</b><span class="sub">₹21,400 adv</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Yadav Transports</b><span class="sub">HR 55 AB 4417</span></td>
+                      <td>Bathinda → Jaipur<span class="sub">HPCL · 20 KL</span></td>
+                      <td><span class="chip ok">Advance paid</span><span class="sub">partner uploads POD</span></td>
+                      <td class="r"><b>₹61,500</b><span class="sub">₹30,000 adv</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Verma Transport</b><span class="sub">not yet assigned</span></td>
+                      <td>Panipat → Karnal<span class="sub">Aadhar Green · 9 KL</span></td>
+                      <td><span class="chip info">Confirmed</span><span class="sub">partner assigns truck</span></td>
+                      <td class="r"><b>₹18,900</b><span class="sub">—</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Balaji Carriers</b><span class="sub">PB 10 EF 2093</span></td>
+                      <td>Ludhiana → Ambala<span class="sub">BPCL · 16 KL</span></td>
+                      <td><span class="chip bad">No firm named</span><span class="sub">blocked — name the firm</span></td>
+                      <td class="r"><b>₹27,300</b><span class="sub">held</span></td>
+                    </tr>
+                    <tr>
+                      <td><b>Singh Roadlines</b><span class="sub">UP 16 GH 7712</span></td>
+                      <td>Mathura → Agra<span class="sub">IOCL · 12 KL</span></td>
+                      <td><span class="chip ok">POD verified</span><span class="sub">desk: release balance</span></td>
+                      <td class="r"><b>₹22,100</b><span class="sub">₹11,000 adv</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <header>
+                <h3>Market money</h3>
+                <span class="m">this month</span>
+              </header>
+              <div class="money">
+                <div class="box hi">
+                  <div class="l">Settled</div>
+                  <div class="v">₹9.74 L</div>
+                  <div class="s">31 settlements</div>
+                </div>
+                <div class="box due">
+                  <div class="l">Balance due</div>
+                  <div class="v">₹6.10 L</div>
+                  <div class="s">after POD verify</div>
+                </div>
+                <div class="box">
+                  <div class="l">Advance out</div>
+                  <div class="v">₹4.28 L</div>
+                  <div class="s">9 in flight</div>
+                </div>
+                <div class="box">
+                  <div class="l">Service vendors</div>
+                  <div class="v">₹3.86 L</div>
+                  <div class="s">12 bills pending</div>
+                </div>
+              </div>
+              <p style="margin:0;padding:0 15px 14px;font-size:11px;line-height:1.55;color:var(--sk-ink-3)">
+                Bazaar loads are not company-scoped — the settlement carries the firm. The 3 rows
+                without one are counted here but never posted.
+              </p>
+            </section>
+          </div>
+
+          <div class="foot">
+            <span>Example figures — the shipped deck reads the live API.</span>
+            <span>Prasad Transport Terminals · Master Control v5.0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PALETTE SPECIMEN ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>What actually changes</h2>
+      <p>Seven values. Every screen reads them through a token, so nothing is re-drawn by hand.</p>
+    </div>
+    <div class="ramp" style="margin-top:16px">
+      <div class="cell">
+        <div class="role">App ground</div>
+        <div class="pair">
+          <span class="blk" style="background:#0a1024"></span>
+          <span class="hex">#0a1024<s>#020617</s></span>
+        </div>
+        <p class="why">Deep navy with a cyan wash top-right and violet bottom-left. Reads as blue, not as an off monitor.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Panel</div>
+        <div class="pair">
+          <span class="blk" style="background:#121c38"></span>
+          <span class="hex">#121c38<s>#0f172a</s></span>
+        </div>
+        <p class="why">Lifted and tinted so a card is visibly a card before you look for its border.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Raised / inset</div>
+        <div class="pair">
+          <span class="blk" style="background:#18244a"></span>
+          <span class="hex">#18244a<s>#1e293b</s></span>
+        </div>
+        <p class="why">Chips, table hover, money boxes — one step above the panel, never below it.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Hairline</div>
+        <div class="pair">
+          <span class="blk" style="background:#27395f"></span>
+          <span class="hex">#27395f<s>#334155</s></span>
+        </div>
+        <p class="why">Blue-tinted, and it brightens to #3d548a on hover so a card answers the pointer.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Live tracking</div>
+        <div class="pair">
+          <span class="blk" style="background:#22d3ee;box-shadow:0 0 18px rgba(34,211,238,.55),inset 0 0 0 1px rgba(255,255,255,.12)"></span>
+          <span class="hex">#22d3ee<s>#38bdf8</s></span>
+        </div>
+        <p class="why">Glowing cyan. GPS, live pills, the active nav row — anything moving right now.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Active / settled</div>
+        <div class="pair">
+          <span class="blk" style="background:#2fe39b;box-shadow:0 0 18px rgba(47,227,155,.5),inset 0 0 0 1px rgba(255,255,255,.12)"></span>
+          <span class="hex">#2fe39b<s>#10b981</s></span>
+        </div>
+        <p class="why">Neon green, brighter than the old emerald so money that landed reads at a glance.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Waiting on a person</div>
+        <div class="pair">
+          <span class="blk" style="background:#ffb224;box-shadow:0 0 18px rgba(255,178,36,.5),inset 0 0 0 1px rgba(255,255,255,.12)"></span>
+          <span class="hex">#ffb224<s>#f59e0b</s></span>
+        </div>
+        <p class="why">Vibrant amber on every queue with work in it — the desk chips light up on their own.</p>
+      </div>
+      <div class="cell">
+        <div class="role">Blocked / critical</div>
+        <div class="pair">
+          <span class="blk" style="background:#ff6b81;box-shadow:0 0 18px rgba(255,107,129,.45),inset 0 0 0 1px rgba(255,255,255,.12)"></span>
+          <span class="hex">#ff6b81<s>#ef4444</s></span>
+        </div>
+        <p class="why">Rose rather than fire-engine red — carries on navy without vibrating against it.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CHANGE LIST ============ -->
+  <section>
+    <div class="sec-head">
+      <h2>Where it lands</h2>
+      <p>Token-level, so one edit retints whole screens rather than one card at a time.</p>
+    </div>
+    <div class="files" style="margin-top:16px">
+      <table>
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>What changes</th>
+            <th class="r">Reach</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>tailwind.config.cjs</td>
+            <td>Override the <span class="num">slate</span> ramp with the navy ramp above, and add <span class="num">live / active / pending</span> accents plus glow shadows.</td>
+            <td class="r">1,819 classes</td>
+          </tr>
+          <tr>
+            <td>src/design-system.css</td>
+            <td>Re-point the <span class="num">--pt-*</span> tokens; gradient ground, tinted cards, hover lift, glow rings, grid utilities.</td>
+            <td class="r">every pt-* module</td>
+          </tr>
+          <tr>
+            <td>src/OperationsDeck2026.tsx<br>src/AccountsDeck2026.tsx</td>
+            <td>One scoped variable block each — the decks are already fully token-driven.</td>
+            <td class="r">2 blocks</td>
+          </tr>
+          <tr>
+            <td>src/App.tsx</td>
+            <td>Shell ground becomes the navy gradient; top bar and mobile tab bar follow it.</td>
+            <td class="r">app frame</td>
+          </tr>
+          <tr>
+            <td>src/**/*.tsx</td>
+            <td>Mechanical hex swap of the four legacy darks (<span class="num">#020617 · #0f172a · #0b1220 · #1e293b</span>) to the new ramp. Colour values only.</td>
+            <td class="r">~340 spots</td>
+          </tr>
+          <tr>
+            <td>index.html</td>
+            <td>PWA <span class="num">theme-color</span> so the phone status bar and splash match the new ground.</td>
+            <td class="r">launch</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="ask">
+    <span class="big">🛰️</span>
+    <div>
+      <h3>Say the word and I ship it</h3>
+      <p>
+        Reply <b>YES</b> and this goes on to production the same way as every other task —
+        <span class="num">npm run ship:release</span>, boot-tested, with the deployed SHA confirmed.
+        Want a different direction instead? Tell me which value is wrong — a warmer graphite ground,
+        a deeper royal blue, softer accents — and I will re-cut this page before touching the code.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var app = document.getElementById('app');
+    var tag = document.getElementById('skin-tag');
+    var oldBtn = document.getElementById('btn-old');
+    var newBtn = document.getElementById('btn-new');
+
+    function set(skin) {
+      app.setAttribute('data-skin', skin);
+      var isNew = skin === 'new';
+      newBtn.setAttribute('aria-pressed', String(isNew));
+      oldBtn.setAttribute('aria-pressed', String(!isNew));
+      tag.textContent = isNew ? 'Indigo Deck' : 'Today · #020617';
+    }
+
+    oldBtn.addEventListener('click', function () { set('old'); });
+    newBtn.addEventListener('click', function () { set('new'); });
+  })();
+</script>

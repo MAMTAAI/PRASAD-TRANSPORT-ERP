@@ -47,7 +47,7 @@ export default function FilterBar({ filters, set, clear, active }) {
 
   return (
     <div className="no-print sticky top-0 z-40 -mx-1 mb-4 px-1">
-      <div className="rounded-2xl border border-slate-700/70 bg-[#0b1220]/95 backdrop-blur-md px-3 py-2.5
+      <div className="rounded-2xl border border-slate-700/70 bg-[#0a1024]/95 backdrop-blur-md px-3 py-2.5
                       shadow-[0_6px_24px_rgba(0,0,0,0.45)]">
         <div className="flex items-center gap-2 flex-wrap">
 

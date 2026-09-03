@@ -221,11 +221,11 @@ export default function FleetCardMgmt() {
   const totalWallet = useMemo(() => round2(cards.reduce((s, c) => s + (parseFloat(c.current_balance) || 0), 0)), [cards]);
 
   const S = {
-    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" },
-    card: { background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
-    input: { background: 'rgba(15,23,42,0.7)', border: '1px solid #334155', borderRadius: '10px', color: 'white', padding: '12px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '44px', colorScheme: 'dark' },
-    btn: (bg, dis) => ({ background: dis ? '#475569' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '14px 20px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px', fontSize: '15px' }),
-    label: { display: 'block', fontSize: '12px', color: '#94a3b8', fontWeight: 'bold', margin: '12px 0 6px' },
+    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif" },
+    card: { background: 'rgba(24, 36, 74,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
+    input: { background: 'rgba(18, 28, 56,0.7)', border: '1px solid #27395f', borderRadius: '10px', color: 'white', padding: '12px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '44px', colorScheme: 'dark' },
+    btn: (bg, dis) => ({ background: dis ? '#3d548a' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '14px 20px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px', fontSize: '15px' }),
+    label: { display: 'block', fontSize: '12px', color: '#9aadd4', fontWeight: 'bold', margin: '12px 0 6px' },
   };
 
   const sheetForm = (isSettle) => (
@@ -251,7 +251,7 @@ export default function FleetCardMgmt() {
         <div style={{ flex: 1, minWidth: '140px' }}><label style={S.label}>Date</label><input type="date" style={S.input} value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
         <div style={{ flex: 1, minWidth: '140px' }}><label style={S.label}>Ref / Bill No (optional)</label><input style={S.input} value={form.ref} onChange={e => setForm({ ...form, ref: e.target.value })} /></div>
       </div>
-      <button onClick={isSettle ? saveSettlement : saveRecharge} disabled={saving} style={{ ...S.btn(isSettle ? '#10b981' : '#3b82f6', saving), width: '100%', marginTop: '18px' }}>
+      <button onClick={isSettle ? saveSettlement : saveRecharge} disabled={saving} style={{ ...S.btn(isSettle ? '#2fe39b' : '#3b82f6', saving), width: '100%', marginTop: '18px' }}>
         {saving ? '⌛ Saving…' : isSettle ? '🤝 Pump Settle Karo (Card Swipe)' : '💰 Wallet Recharge Darj Karo'}
       </button>
     </div>
@@ -259,41 +259,41 @@ export default function FleetCardMgmt() {
 
   return (
     <div style={S.page}>
-      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>💳 Fleet Card & Settlement</h1>
-      <p style={{ color: '#94a3b8', margin: '0 0 18px 0', fontSize: '13px' }}>Pump udhaar → Card swipe settlement → Freight-deduction recharge. Mamta AI statement reconciler niche hai.</p>
+      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#22d3ee' }}>💳 Fleet Card & Settlement</h1>
+      <p style={{ color: '#9aadd4', margin: '0 0 18px 0', fontSize: '13px' }}>Pump udhaar → Card swipe settlement → Freight-deduction recharge. Mamta AI statement reconciler niche hai.</p>
 
       {/* Wallets */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '14px', marginBottom: '18px' }}>
         {cards.map(c => (
-          <div key={c.id} style={{ ...S.card, marginBottom: 0, borderLeft: `5px solid ${CARD_PROVIDERS[c.provider]?.color || '#38bdf8'}` }}>
-            <div style={{ fontSize: '13px', color: '#94a3b8', fontWeight: 'bold' }}>{c.name}</div>
-            <div style={{ fontSize: 'clamp(22px, 5vw, 30px)', fontWeight: 900, color: (parseFloat(c.current_balance) || 0) < 0 ? '#ef4444' : '#10b981' }}>{inr(c.current_balance)}</div>
+          <div key={c.id} style={{ ...S.card, marginBottom: 0, borderLeft: `5px solid ${CARD_PROVIDERS[c.provider]?.color || '#22d3ee'}` }}>
+            <div style={{ fontSize: '13px', color: '#9aadd4', fontWeight: 'bold' }}>{c.name}</div>
+            <div style={{ fontSize: 'clamp(22px, 5vw, 30px)', fontWeight: 900, color: (parseFloat(c.current_balance) || 0) < 0 ? '#ff6b81' : '#2fe39b' }}>{inr(c.current_balance)}</div>
           </div>
         ))}
         <div style={{ ...S.card, marginBottom: 0, borderLeft: '5px solid #8b5cf6', background: 'rgba(139,92,246,0.08)' }}>
           <div style={{ fontSize: '13px', color: '#c4b5fd', fontWeight: 'bold' }}>Total Wallet Balance</div>
-          <div style={{ fontSize: 'clamp(22px, 5vw, 30px)', fontWeight: 900, color: '#c084fc' }}>{inr(totalWallet)}</div>
+          <div style={{ fontSize: 'clamp(22px, 5vw, 30px)', fontWeight: 900, color: '#a78bfa' }}>{inr(totalWallet)}</div>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
         <button onClick={() => openSheet('RECHARGE')} style={{ ...S.btn('#3b82f6', false), flex: isMobile ? 1 : 'none' }}>💰 Recharge (Freight Deduction)</button>
-        <button onClick={() => openSheet('SETTLE')} style={{ ...S.btn('#10b981', false), flex: isMobile ? 1 : 'none' }}>🤝 Pump Settlement (Card Swipe)</button>
+        <button onClick={() => openSheet('SETTLE')} style={{ ...S.btn('#2fe39b', false), flex: isMobile ? 1 : 'none' }}>🤝 Pump Settlement (Card Swipe)</button>
       </div>
 
       {/* Transactions */}
       <div style={S.card}>
-        <b style={{ color: '#38bdf8' }}>📒 Card Transactions</b>
-        {loading ? <p style={{ color: '#64748b' }}>Loading…</p> : txns.length === 0 ? <p style={{ color: '#64748b', fontSize: '13px' }}>Abhi koi entry nahi. Upar ke buttons se recharge/settlement darj karein.</p> : (
+        <b style={{ color: '#22d3ee' }}>📒 Card Transactions</b>
+        {loading ? <p style={{ color: '#5d7196' }}>Loading…</p> : txns.length === 0 ? <p style={{ color: '#5d7196', fontSize: '13px' }}>Abhi koi entry nahi. Upar ke buttons se recharge/settlement darj karein.</p> : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
             {txns.slice(0, 30).map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(15,23,42,0.6)', border: '1px solid #1e293b', borderRadius: '10px', padding: '10px 14px', gap: '10px', flexWrap: 'wrap' }}>
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(18, 28, 56,0.6)', border: '1px solid #18244a', borderRadius: '10px', padding: '10px 14px', gap: '10px', flexWrap: 'wrap' }}>
                 <div style={{ minWidth: 0 }}>
-                  <b style={{ fontSize: '13px', color: t.type === 'RECHARGE' ? '#3b82f6' : '#10b981' }}>{t.type === 'RECHARGE' ? '💰 Recharge' : '🤝 Settlement'}</b>
-                  <span style={{ fontSize: '12px', color: '#94a3b8', marginLeft: '8px' }}>{t.party || CARD_PROVIDERS[t.provider]?.name}</span>
-                  <div style={{ fontSize: '11px', color: '#64748b' }}>{toISODate(t.date)} · {CARD_PROVIDERS[t.provider]?.name}{t.ref ? ` · ${t.ref}` : ''}</div>
+                  <b style={{ fontSize: '13px', color: t.type === 'RECHARGE' ? '#3b82f6' : '#2fe39b' }}>{t.type === 'RECHARGE' ? '💰 Recharge' : '🤝 Settlement'}</b>
+                  <span style={{ fontSize: '12px', color: '#9aadd4', marginLeft: '8px' }}>{t.party || CARD_PROVIDERS[t.provider]?.name}</span>
+                  <div style={{ fontSize: '11px', color: '#5d7196' }}>{toISODate(t.date)} · {CARD_PROVIDERS[t.provider]?.name}{t.ref ? ` · ${t.ref}` : ''}</div>
                 </div>
-                <b style={{ color: t.type === 'RECHARGE' ? '#3b82f6' : '#f59e0b', whiteSpace: 'nowrap' }}>{t.type === 'RECHARGE' ? '+' : '−'}{inr(t.amount)}</b>
+                <b style={{ color: t.type === 'RECHARGE' ? '#3b82f6' : '#ffb224', whiteSpace: 'nowrap' }}>{t.type === 'RECHARGE' ? '+' : '−'}{inr(t.amount)}</b>
               </div>
             ))}
           </div>
@@ -302,8 +302,8 @@ export default function FleetCardMgmt() {
 
       {/* 🤖 AI Reconciler */}
       <div style={{ ...S.card, border: '1px solid #8b5cf6' }}>
-        <b style={{ color: '#c084fc', fontSize: '15px' }}>🤖 Mamta AI — Statement Reconciler</b>
-        <p style={{ color: '#94a3b8', fontSize: '12px', margin: '6px 0 12px' }}>IOCL / HPCL / BPCL ka monthly statement PDF daalein — Mamta AI har swipe ko aapki settlement entries se milayegi aur missing/unknown swipe pakdegi.</p>
+        <b style={{ color: '#a78bfa', fontSize: '15px' }}>🤖 Mamta AI — Statement Reconciler</b>
+        <p style={{ color: '#9aadd4', fontSize: '12px', margin: '6px 0 12px' }}>IOCL / HPCL / BPCL ka monthly statement PDF daalein — Mamta AI har swipe ko aapki settlement entries se milayegi aur missing/unknown swipe pakdegi.</p>
         <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           <select style={{ ...S.input, width: 'auto', flex: isMobile ? 1 : 'none' }} value={reconProvider} onChange={e => setReconProvider(e.target.value)}>
             {Object.entries(CARD_PROVIDERS).map(([k, m]) => <option key={k} value={k}>{m.name}</option>)}
@@ -320,32 +320,32 @@ export default function FleetCardMgmt() {
               else if (kind === 'BPCL_STATEMENT') setReconProvider('BPCL');
               else if (kind === 'BPCL_FREIGHT_BILL') alert('🧭 Yeh BPCL ka AP210 FREIGHT BILL hai, card statement nahi.\nIse ACCOUNTS → 🤖 AI Bill Scanner me kholein — wahan freight + TDS + FLEET CARD DEBIT sab auto-file hoga.');
             } catch {}
-          }} style={{ color: '#94a3b8', flex: 1, minWidth: '200px' }} />
+          }} style={{ color: '#9aadd4', flex: 1, minWidth: '200px' }} />
           <button onClick={runRecon} disabled={reconBusy} style={S.btn('#8b5cf6', reconBusy)}>{reconBusy ? '⌛ Padh rahi hai…' : '🔍 Reconcile'}</button>
         </div>
-        {reconFile && !reconBusy && <p style={{ fontSize: '12px', color: '#10b981', marginTop: '8px' }}>📎 {reconFile.name}</p>}
-        {reconProgress && <p style={{ fontSize: '13px', color: '#c084fc', marginTop: '10px' }}>{reconProgress}</p>}
+        {reconFile && !reconBusy && <p style={{ fontSize: '12px', color: '#2fe39b', marginTop: '8px' }}>📎 {reconFile.name}</p>}
+        {reconProgress && <p style={{ fontSize: '13px', color: '#a78bfa', marginTop: '10px' }}>{reconProgress}</p>}
 
         {stmt && recon && (
           <div style={{ marginTop: '18px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 150px), 1fr))', gap: '10px', marginBottom: '14px' }}>
-              <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#6ee7b7' }}>Swipes Matched</div><b style={{ fontSize: '22px', color: '#10b981' }}>{recon.totals.swipesMatched}</b></div>
-              <div style={{ background: recon.totals.swipesMissing ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${recon.totals.swipesMissing ? '#ef4444' : '#334155'}`, borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#fca5a5' }}>⚠️ ERP me Missing</div><b style={{ fontSize: '22px', color: recon.totals.swipesMissing ? '#ef4444' : '#64748b' }}>{recon.totals.swipesMissing}</b><div style={{ fontSize: '11px', color: '#fca5a5' }}>{recon.totals.missingAmount ? inr(recon.totals.missingAmount) : ''}</div></div>
-              <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#fcd34d' }}>ERP entry, statement me nahi</div><b style={{ fontSize: '22px', color: '#f59e0b' }}>{recon.unmatchedErp.length}</b></div>
+              <div style={{ background: 'rgba(47, 227, 155,0.1)', border: '1px solid #2fe39b', borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#6ee7b7' }}>Swipes Matched</div><b style={{ fontSize: '22px', color: '#2fe39b' }}>{recon.totals.swipesMatched}</b></div>
+              <div style={{ background: recon.totals.swipesMissing ? 'rgba(255, 107, 129,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${recon.totals.swipesMissing ? '#ff6b81' : '#27395f'}`, borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#fca5a5' }}>⚠️ ERP me Missing</div><b style={{ fontSize: '22px', color: recon.totals.swipesMissing ? '#ff6b81' : '#5d7196' }}>{recon.totals.swipesMissing}</b><div style={{ fontSize: '11px', color: '#fca5a5' }}>{recon.totals.missingAmount ? inr(recon.totals.missingAmount) : ''}</div></div>
+              <div style={{ background: 'rgba(255, 178, 36,0.08)', border: '1px solid #ffb224', borderRadius: '10px', padding: '12px', textAlign: 'center' }}><div style={{ fontSize: '11px', color: '#fcd34d' }}>ERP entry, statement me nahi</div><b style={{ fontSize: '22px', color: '#ffb224' }}>{recon.unmatchedErp.length}</b></div>
             </div>
             {stmt.balanceChecks.map((c, i) => (
-              <p key={i} style={{ fontSize: '12px', color: c.ok ? '#10b981' : '#ef4444', margin: '4px 0' }}>{c.ok ? '✔' : '✖'} {c.label}: {c.detail}</p>
+              <p key={i} style={{ fontSize: '12px', color: c.ok ? '#2fe39b' : '#ff6b81', margin: '4px 0' }}>{c.ok ? '✔' : '✖'} {c.label}: {c.detail}</p>
             ))}
-            {stmt.warnings.map((w, i) => <p key={i} style={{ fontSize: '12px', color: '#f59e0b', margin: '4px 0' }}>⚠️ {w}</p>)}
+            {stmt.warnings.map((w, i) => <p key={i} style={{ fontSize: '12px', color: '#ffb224', margin: '4px 0' }}>⚠️ {w}</p>)}
 
             {recon.totals.swipesMissing > 0 && (
               <div style={{ marginTop: '12px' }}>
-                <b style={{ color: '#ef4444', fontSize: '13px' }}>🚨 Statement me swipe hai, ERP me settlement entry NAHI (missed payment ya fraud check karein):</b>
+                <b style={{ color: '#ff6b81', fontSize: '13px' }}>🚨 Statement me swipe hai, ERP me settlement entry NAHI (missed payment ya fraud check karein):</b>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
                   {recon.swipes.filter(s => s.status === 'MISSING_IN_ERP').map((s, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', flexWrap: 'wrap' }}>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', background: 'rgba(255, 107, 129,0.08)', border: '1px solid rgba(255, 107, 129,0.4)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', flexWrap: 'wrap' }}>
                       <span>{s.stmt.date} · <b>{s.stmt.description}</b>{s.stmt.vehicle_no ? ` · 🚛 ${s.stmt.vehicle_no}` : ''}</span>
-                      <b style={{ color: '#ef4444' }}>{inr(s.stmt.amount)}</b>
+                      <b style={{ color: '#ff6b81' }}>{inr(s.stmt.amount)}</b>
                     </div>
                   ))}
                 </div>
@@ -353,11 +353,11 @@ export default function FleetCardMgmt() {
             )}
             {recon.unmatchedErp.length > 0 && (
               <div style={{ marginTop: '12px' }}>
-                <b style={{ color: '#f59e0b', fontSize: '13px' }}>🟡 ERP me entry hai par statement me nahi mili (galat card/amount/date ho sakta hai):</b>
+                <b style={{ color: '#ffb224', fontSize: '13px' }}>🟡 ERP me entry hai par statement me nahi mili (galat card/amount/date ho sakta hai):</b>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
                   {recon.unmatchedErp.map((u, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', flexWrap: 'wrap' }}>
-                      <span>{u.label}</span><b style={{ color: '#f59e0b' }}>{inr(u.amount)}</b>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', background: 'rgba(255, 178, 36,0.06)', border: '1px solid rgba(255, 178, 36,0.35)', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', flexWrap: 'wrap' }}>
+                      <span>{u.label}</span><b style={{ color: '#ffb224' }}>{inr(u.amount)}</b>
                     </div>
                   ))}
                 </div>
@@ -368,11 +368,11 @@ export default function FleetCardMgmt() {
       </div>
 
       <BottomSheet open={rechargeSheet} onClose={() => setRechargeSheet(false)} title="💰 Wallet Recharge (Freight Deduction)" accent="#3b82f6" maxWidth={520}>
-        <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: 0 }}>Company ne freight bill se jo ~40% advance kaata, woh card wallet me aata hai — yahan darj karein.</p>
+        <p style={{ color: '#9aadd4', fontSize: '12px', marginTop: 0 }}>Company ne freight bill se jo ~40% advance kaata, woh card wallet me aata hai — yahan darj karein.</p>
         {sheetForm(false)}
       </BottomSheet>
-      <BottomSheet open={settleSheet} onClose={() => setSettleSheet(false)} title="🤝 Pump Settlement (Card Swipe)" accent="#10b981" maxWidth={520}>
-        <p style={{ color: '#94a3b8', fontSize: '12px', marginTop: 0 }}>Pump ka udhaar bill card swipe se chukaya — pump ka baaki ghatega, card ka balance bhi.</p>
+      <BottomSheet open={settleSheet} onClose={() => setSettleSheet(false)} title="🤝 Pump Settlement (Card Swipe)" accent="#2fe39b" maxWidth={520}>
+        <p style={{ color: '#9aadd4', fontSize: '12px', marginTop: 0 }}>Pump ka udhaar bill card swipe se chukaya — pump ka baaki ghatega, card ka balance bhi.</p>
         {sheetForm(true)}
       </BottomSheet>
     </div>

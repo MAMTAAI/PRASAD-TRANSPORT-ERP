@@ -74,7 +74,7 @@ const CHIP = (tone) => `inline-flex items-center gap-1 rounded-full border px-2 
   tone === 'cy' ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300' : tone === 'em' ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
     : tone === 'am' ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : tone === 'rd' ? 'border-red-500/40 bg-red-500/10 text-red-300'
       : tone === 'vi' ? 'border-violet-500/40 bg-violet-500/10 text-violet-300' : 'border-slate-700 bg-white/[0.03] text-slate-400'}`;
-const INP = 'w-full rounded-lg border border-slate-600 bg-[#0f172a] px-2.5 py-1.5 text-[12px] text-white outline-none focus:border-cyan-400';
+const INP = 'w-full rounded-lg border border-slate-600 bg-[#121c38] px-2.5 py-1.5 text-[12px] text-white outline-none focus:border-cyan-400';
 
 function useBlobOpener() {
   return useCallback(async (keyOrUrl) => {

@@ -210,7 +210,7 @@ export default function Login({ onLoginSuccess, onBackToWeb, onAccountHold }: Lo
   };
 
   // ── render helpers ────────────────────────────────────────────────────────
-  const INPUT = 'w-full rounded-xl border border-slate-700 bg-[#0b1220] px-4 py-3 text-[14px] text-white placeholder-slate-600 outline-none transition-colors focus:border-cyan-400/70';
+  const INPUT = 'w-full rounded-xl border border-slate-700 bg-[#0a1024] px-4 py-3 text-[14px] text-white placeholder-slate-600 outline-none transition-colors focus:border-cyan-400/70';
   const LABEL = 'mb-1.5 mt-3 block text-[10.5px] font-black uppercase tracking-[0.12em] text-slate-400';
   const PRIMARY = 'mt-5 w-full rounded-xl bg-cyan-400 px-4 py-3.5 text-[14px] font-black text-[#02131a] shadow-[0_8px_24px_rgba(34,211,238,0.25)] transition-all hover:bg-cyan-300 disabled:opacity-60';
   const GHOST = 'mt-2 w-full rounded-xl border border-slate-700 bg-white/[0.03] px-4 py-3 text-[13px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white';
@@ -225,7 +225,7 @@ export default function Login({ onLoginSuccess, onBackToWeb, onAccountHold }: Lo
   ) : null;
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020617] p-6 font-sans text-slate-200 selection:bg-cyan-500 selection:text-white"
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0a1024] p-6 font-sans text-slate-200 selection:bg-cyan-500 selection:text-white"
       data-gate="1">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] opacity-[0.03] [background-size:20px_20px]" />
       <div className="pointer-events-none absolute -top-40 left-1/4 h-[520px] w-[520px] rounded-full bg-cyan-600/15 blur-[120px]" />

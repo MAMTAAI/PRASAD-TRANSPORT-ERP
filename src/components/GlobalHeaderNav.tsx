@@ -16,9 +16,9 @@
 import React from 'react';
 
 export const MODULES = [
-  { id: 'OPERATION', label: 'OPERATIONS',       icon: '🚛', from: '#3b82f6', to: '#6366f1', rgb: '59,130,246' },
-  { id: 'ACCOUNTS',  label: 'ACCOUNTS & ADMIN', icon: '💰', from: '#10b981', to: '#059669', rgb: '16,185,129' },
-  { id: 'CRM',       label: 'CRM (MAMTA AI)',   icon: '🤝', from: '#f59e0b', to: '#d97706', rgb: '245,158,11' },
+  { id: 'OPERATION', label: 'OPERATIONS',       icon: '🚛', from: '#3b82f6', to: '#7c8cff', rgb: '59,130,246' },
+  { id: 'ACCOUNTS',  label: 'ACCOUNTS & ADMIN', icon: '💰', from: '#2fe39b', to: '#2fe39b', rgb: '16,185,129' },
+  { id: 'CRM',       label: 'CRM (MAMTA AI)',   icon: '🤝', from: '#ffb224', to: '#d97706', rgb: '245,158,11' },
 ];
 
 // `allowed` is the list of module ids this user may enter. Undefined means
@@ -45,7 +45,7 @@ export default function GlobalHeaderNav({ activeModule, onChange, compact = fals
                    font-weight: 800; cursor: pointer; white-space: nowrap;
                    transition: background .2s, color .2s, border-color .2s, transform .15s; }
         .ghn-tab:hover { transform: translateY(-1px); }
-        .ghn-tab:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+        .ghn-tab:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
         .ghn-tab.is-active { animation: ghnGlow 2.6s ease-in-out infinite; }
         /* The underline is the third signal — it survives a greyscale print and
            a monochrome display, where fill and glow both disappear. */
@@ -68,8 +68,8 @@ export default function GlobalHeaderNav({ activeModule, onChange, compact = fals
               '--ghn-rgb': m.rgb,
               padding: compact ? '8px 12px' : '12px 20px',
               fontSize: compact ? 11 : 13,
-              background: on ? `linear-gradient(135deg, ${m.from}, ${m.to})` : '#1e293b',
-              color: on ? '#fff' : '#94a3b8',
+              background: on ? `linear-gradient(135deg, ${m.from}, ${m.to})` : '#18244a',
+              color: on ? '#fff' : '#9aadd4',
               borderColor: on ? `rgba(${m.rgb}, .85)` : 'transparent',
             }}
           >

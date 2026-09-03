@@ -224,7 +224,7 @@ export default function MasterTripSettlement() {
     alert(waResultText(await sendWhatsApp({ phone: mobile, message, role: 'Driver' })));
   };
 
-  const inputStyle = { width: '100%', padding: '12px 14px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '10px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
+  const inputStyle = { width: '100%', padding: '12px 14px', background: '#121c38', border: '1px solid #3d548a', color: '#fff', borderRadius: '10px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
   const vehicleOptions = useMemo(() => [...new Set(masters.vehicles.map((v: any) => v.vehicle_no).filter(Boolean))].sort(), [masters.vehicles]);
   const driverOptions = useMemo(() => [...new Set(masters.drivers.map((d: any) => d.name).filter(Boolean))].sort(), [masters.drivers]);
   const settlementHistory = settlements;
@@ -233,18 +233,18 @@ export default function MasterTripSettlement() {
     <div className="pt-anim-fade" style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px' }}>
       <div style={{ marginBottom: '25px' }}>
         <h2 style={{ margin: 0, fontSize: 'clamp(22px, 5vw, 28px)', color: '#fff' }}>🧾 Master Trip Settlement</h2>
-        <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>
+        <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>
           Consolidated multi-trip driver hisaab — HSD, cash advances, bhatta &amp; extra expenses · live PostgreSQL
         </p>
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
           ⚠️ {err}
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '25px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '25px', borderBottom: '1px solid #27395f', overflowX: 'auto' }}>
         <button className={`pt-tab ${activeTab === 'SETTLEMENT' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('SETTLEMENT')}>💰 TRIP SETTLEMENT</button>
         <button className={`pt-tab ${activeTab === 'UNLOADING' ? 'is-active' : ''}`} onClick={() => setActiveTab('UNLOADING')}>🏁 UNLOADING / CLOSE TRIP</button>
         <button className={`pt-tab ${activeTab === 'HISTORY' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('HISTORY')}>📋 SETTLEMENT HISTORY</button>
@@ -254,9 +254,9 @@ export default function MasterTripSettlement() {
 
       {/* 📋 HISTORY */}
       {activeTab === 'HISTORY' && (
-        <div className="pt-anim-up" style={{ background: '#1e293b', borderRadius: '16px', overflowX: 'auto', border: '1px solid #334155' }}>
+        <div className="pt-anim-up" style={{ background: '#18244a', borderRadius: '16px', overflowX: 'auto', border: '1px solid #27395f' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap', fontSize: '13px' }}>
-            <thead style={{ background: '#0f172a', color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase' }}>
+            <thead style={{ background: '#121c38', color: '#ffb224', fontSize: '11px', textTransform: 'uppercase' }}>
               <tr>
                 <th style={{ padding: '14px' }}>Settlement No</th><th style={{ padding: '14px' }}>Vehicle / Driver</th>
                 <th style={{ padding: '14px' }}>Period</th><th style={{ padding: '14px' }}>Trips</th>
@@ -267,17 +267,17 @@ export default function MasterTripSettlement() {
             </thead>
             <tbody>
               {settlementHistory.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No settlements yet.</td></tr>
+                <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#5d7196' }}>No settlements yet.</td></tr>
               ) : settlementHistory.map((s) => (
-                <tr key={s.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1' }}>
-                  <td style={{ padding: '12px 14px', fontWeight: 'bold', color: '#38bdf8' }}>{s.settlement_no}</td>
-                  <td style={{ padding: '12px 14px' }}>{s.vehicle_no || '—'}<br /><small style={{ color: '#94a3b8' }}>{s.driver_name || '—'}</small></td>
-                  <td style={{ padding: '12px 14px', color: '#94a3b8' }}>{s.from_date || '…'} → {s.to_date || '…'}</td>
+                <tr key={s.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea' }}>
+                  <td style={{ padding: '12px 14px', fontWeight: 'bold', color: '#22d3ee' }}>{s.settlement_no}</td>
+                  <td style={{ padding: '12px 14px' }}>{s.vehicle_no || '—'}<br /><small style={{ color: '#9aadd4' }}>{s.driver_name || '—'}</small></td>
+                  <td style={{ padding: '12px 14px', color: '#9aadd4' }}>{s.from_date || '…'} → {s.to_date || '…'}</td>
                   <td style={{ padding: '12px 14px' }}>{s.trip_count}</td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#f59e0b' }}>{inr(s.total_cash)}</td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#38bdf8' }}>{inr(s.total_hsd_amt)}</td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#10b981' }}>{inr(num(s.total_allowance) + num(s.total_extra))}</td>
-                  <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: '900', color: num(s.net_balance) >= 0 ? '#10b981' : '#ef4444' }}>{inr(s.net_balance)}</td>
+                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#ffb224' }}>{inr(s.total_cash)}</td>
+                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#22d3ee' }}>{inr(s.total_hsd_amt)}</td>
+                  <td style={{ padding: '12px 14px', textAlign: 'right', color: '#2fe39b' }}>{inr(num(s.total_allowance) + num(s.total_extra))}</td>
+                  <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: '900', color: num(s.net_balance) >= 0 ? '#2fe39b' : '#ff6b81' }}>{inr(s.net_balance)}</td>
                   <td style={{ padding: '12px 14px' }}>
                     {s.mode === 'POSTED' ? <span className="pt-badge pt-badge--success">📓 Posted{s.voucher_id ? '' : ' (no journal)'}</span>
                       : s.status === 'CONSUMED' ? <span className="pt-badge pt-badge--info">🔁 CF → {s.consumed_by}</span>
@@ -293,52 +293,52 @@ export default function MasterTripSettlement() {
       {/* 💰 SETTLEMENT BUILDER */}
       {activeTab === 'SETTLEMENT' && (
         <>
-          <div className="pt-anim-up" style={{ background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+          <div className="pt-anim-up" style={{ background: 'rgba(47, 227, 155,0.05)', border: '1px solid rgba(47, 227, 155,0.25)', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
               <div>
-                <label style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>🚛 VEHICLE</label>
-                <select value={vehicleFilter} onChange={(e) => { setVehicleFilter(e.target.value); resetSelection(); }} style={{ ...inputStyle, borderColor: '#10b981' }}>
+                <label style={{ color: '#2fe39b', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>🚛 VEHICLE</label>
+                <select value={vehicleFilter} onChange={(e) => { setVehicleFilter(e.target.value); resetSelection(); }} style={{ ...inputStyle, borderColor: '#2fe39b' }}>
                   <option value="">-- All / Choose Vehicle --</option>
                   {vehicleOptions.map((v: any) => <option key={v} value={v}>{v}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>👨‍✈️ DRIVER</label>
-                <select value={driverFilter} onChange={(e) => { setDriverFilter(e.target.value); resetSelection(); }} style={{ ...inputStyle, borderColor: '#38bdf8' }}>
+                <label style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>👨‍✈️ DRIVER</label>
+                <select value={driverFilter} onChange={(e) => { setDriverFilter(e.target.value); resetSelection(); }} style={{ ...inputStyle, borderColor: '#22d3ee' }}>
                   <option value="">-- All / Choose Driver --</option>
                   {driverOptions.map((d: any) => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>📅 FROM DATE</label>
+                <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>📅 FROM DATE</label>
                 <input type="date" value={fromDate} onChange={(e) => { setFromDate(e.target.value); resetSelection(); }} style={inputStyle} />
               </div>
               <div>
-                <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>📅 TO DATE</label>
+                <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>📅 TO DATE</label>
                 <input type="date" value={toDate} onChange={(e) => { setToDate(e.target.value); resetSelection(); }} style={inputStyle} />
               </div>
             </div>
             {openCarryForwards.length > 0 && (
-              <div style={{ marginTop: '12px', background: 'rgba(245,158,11,0.1)', border: '1px dashed #f59e0b', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#f59e0b' }}>
+              <div style={{ marginTop: '12px', background: 'rgba(255, 178, 36,0.1)', border: '1px dashed #ffb224', borderRadius: '10px', padding: '10px 14px', fontSize: '13px', color: '#ffb224' }}>
                 🔁 Opening balance (carry-forward): <b>{inr(cfNet)}</b> from {openCarryForwards.map((c) => c.settlement_no).join(', ')} — auto-adjusted into this settlement.
               </div>
             )}
           </div>
 
           {!filterReady ? (
-            <div style={{ color: '#64748b', padding: '50px', textAlign: 'center', background: 'rgba(30,41,59,0.3)', borderRadius: '16px', border: '1px dashed #334155' }}>
+            <div style={{ color: '#5d7196', padding: '50px', textAlign: 'center', background: 'rgba(24, 36, 74,0.3)', borderRadius: '16px', border: '1px dashed #27395f' }}>
               👆 Choose a vehicle or driver — every <b>unsettled trip</b> for them appears here.
             </div>
           ) : loading ? (
-            <div style={{ color: '#38bdf8', textAlign: 'center', padding: '40px' }}>Loading trips from PostgreSQL…</div>
+            <div style={{ color: '#22d3ee', textAlign: 'center', padding: '40px' }}>Loading trips from PostgreSQL…</div>
           ) : (
             <>
-              <div className="pt-anim-up" style={{ background: '#1e293b', borderRadius: '16px', border: '1px solid #334155', overflowX: 'auto', marginBottom: '20px' }}>
+              <div className="pt-anim-up" style={{ background: '#18244a', borderRadius: '16px', border: '1px solid #27395f', overflowX: 'auto', marginBottom: '20px' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
-                  <thead style={{ background: '#0f172a', color: '#38bdf8', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <thead style={{ background: '#121c38', color: '#22d3ee', fontSize: '11px', textTransform: 'uppercase' }}>
                     <tr>
                       <th style={{ padding: '14px', width: '40px' }}>
-                        <input type="checkbox" checked={unsettledTrips.length > 0 && selectedIds.size === unsettledTrips.length} onChange={toggleAll} style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }} />
+                        <input type="checkbox" checked={unsettledTrips.length > 0 && selectedIds.size === unsettledTrips.length} onChange={toggleAll} style={{ width: '18px', height: '18px', accentColor: '#2fe39b', cursor: 'pointer' }} />
                       </th>
                       <th style={{ padding: '14px' }}>Date &amp; Trip</th>
                       <th style={{ padding: '14px' }}>Challan / Route</th>
@@ -350,7 +350,7 @@ export default function MasterTripSettlement() {
                   </thead>
                   <tbody>
                     {unsettledTrips.length === 0 ? (
-                      <tr><td colSpan={7} style={{ padding: '35px', textAlign: 'center', color: '#64748b' }}>🎉 No unsettled trips for this filter.</td></tr>
+                      <tr><td colSpan={7} style={{ padding: '35px', textAlign: 'center', color: '#5d7196' }}>🎉 No unsettled trips for this filter.</td></tr>
                     ) : unsettledTrips.map((t) => {
                       const hsd = tripHsd(t);
                       const cash = tripCash(t);
@@ -358,69 +358,69 @@ export default function MasterTripSettlement() {
                       const d = detail[t.id];
                       return (
                         <React.Fragment key={t.id}>
-                          <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #334155', color: '#cbd5e1', background: selectedIds.has(t.id) ? 'rgba(16,185,129,0.06)' : 'transparent' }}>
+                          <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #27395f', color: '#c4d1ea', background: selectedIds.has(t.id) ? 'rgba(47, 227, 155,0.06)' : 'transparent' }}>
                             <td style={{ padding: '12px 14px' }}>
-                              <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleTrip(t.id)} style={{ width: '18px', height: '18px', accentColor: '#10b981', cursor: 'pointer' }} />
+                              <input type="checkbox" checked={selectedIds.has(t.id)} onChange={() => toggleTrip(t.id)} style={{ width: '18px', height: '18px', accentColor: '#2fe39b', cursor: 'pointer' }} />
                             </td>
                             <td style={{ padding: '12px 14px' }}>
-                              <b style={{ color: '#fff' }}>{t.loading_date || '—'}</b> · <span style={{ color: '#38bdf8' }}>{t.trip_code}</span><br />
-                              <small style={{ color: '#94a3b8' }}>📍 {t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</small><br />
+                              <b style={{ color: '#fff' }}>{t.loading_date || '—'}</b> · <span style={{ color: '#22d3ee' }}>{t.trip_code}</span><br />
+                              <small style={{ color: '#9aadd4' }}>📍 {t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</small><br />
                               <span className={`pt-pill ${t.status === 'COMPLETED' ? 'pt-pill--completed' : 'pt-pill--pending-unload'}`} style={{ marginTop: '4px' }}>{t.status}</span>
                             </td>
-                            <td style={{ padding: '12px 14px', color: '#f59e0b' }}>{t.customer_name ?? '—'}</td>
-                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#38bdf8', fontWeight: 'bold' }}>
+                            <td style={{ padding: '12px 14px', color: '#ffb224' }}>{t.customer_name ?? '—'}</td>
+                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#22d3ee', fontWeight: 'bold' }}>
                               {hsd.ltr > 0 && <small>{hsd.ltr} L<br /></small>}{inr(hsd.amt)}
                             </td>
-                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#f59e0b', fontWeight: 'bold' }}>{inr(cash)}</td>
-                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#10b981', fontWeight: 'bold' }}>{inr(tripAllowance(t))}</td>
+                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#ffb224', fontWeight: 'bold' }}>{inr(cash)}</td>
+                            <td style={{ padding: '12px 14px', textAlign: 'right', color: '#2fe39b', fontWeight: 'bold' }}>{inr(tripAllowance(t))}</td>
                             <td style={{ padding: '12px 14px' }}>
-                              <button onClick={() => expandTrip(t)} style={{ background: 'none', border: '1px solid #475569', color: '#94a3b8', borderRadius: '8px', padding: '4px 10px', cursor: 'pointer', fontSize: '11px' }}>
+                              <button onClick={() => expandTrip(t)} style={{ background: 'none', border: '1px solid #3d548a', color: '#9aadd4', borderRadius: '8px', padding: '4px 10px', cursor: 'pointer', fontSize: '11px' }}>
                                 {isOpen ? '▲' : '▼ Detail'}
                               </button>
                             </td>
                           </tr>
                           {isOpen && (
-                            <tr style={{ borderBottom: '1px solid #334155', background: 'rgba(15,23,42,0.6)' }}>
+                            <tr style={{ borderBottom: '1px solid #27395f', background: 'rgba(18, 28, 56,0.6)' }}>
                               <td />
                               <td colSpan={6} style={{ padding: '5px 14px 15px' }}>
-                                {!d ? <small style={{ color: '#38bdf8' }}>Loading detail…</small> : (
+                                {!d ? <small style={{ color: '#22d3ee' }}>Loading detail…</small> : (
                                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '15px' }}>
                                     <div>
-                                      <div style={{ fontSize: '11px', color: '#c084fc', fontWeight: 'bold', marginBottom: '6px' }}>🎯 FIXED EXPENSES (TRIP TARGET)</div>
+                                      <div style={{ fontSize: '11px', color: '#a78bfa', fontWeight: 'bold', marginBottom: '6px' }}>🎯 FIXED EXPENSES (TRIP TARGET)</div>
                                       {num(t.fixed_hsd) <= 0 && num(t.fixed_cash) <= 0
-                                        ? <small style={{ color: '#64748b' }}>No fixed target set on this trip or route.</small>
+                                        ? <small style={{ color: '#5d7196' }}>No fixed target set on this trip or route.</small>
                                         : <>
                                           {num(t.fixed_hsd) > 0 && (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0', borderBottom: '1px dotted #334155' }}>
-                                              <span style={{ color: '#94a3b8' }}>⛽ Fixed HSD</span>
-                                              <span>Target <b style={{ color: '#c084fc' }}>{num(t.fixed_hsd)} L</b> · Actual <b style={{ color: '#38bdf8' }}>{num(t.hsd_issued)} L</b> · Bal <b style={{ color: round2(num(t.fixed_hsd) - num(t.hsd_issued)) < 0 ? '#ef4444' : '#10b981' }}>{round2(num(t.fixed_hsd) - num(t.hsd_issued))} L</b></span>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0', borderBottom: '1px dotted #27395f' }}>
+                                              <span style={{ color: '#9aadd4' }}>⛽ Fixed HSD</span>
+                                              <span>Target <b style={{ color: '#a78bfa' }}>{num(t.fixed_hsd)} L</b> · Actual <b style={{ color: '#22d3ee' }}>{num(t.hsd_issued)} L</b> · Bal <b style={{ color: round2(num(t.fixed_hsd) - num(t.hsd_issued)) < 0 ? '#ff6b81' : '#2fe39b' }}>{round2(num(t.fixed_hsd) - num(t.hsd_issued))} L</b></span>
                                             </div>
                                           )}
                                           {num(t.fixed_cash) > 0 && (
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0', borderBottom: '1px dotted #334155' }}>
-                                              <span style={{ color: '#94a3b8' }}>💵 Fixed Cash (Bhatta)</span>
-                                              <span>Target <b style={{ color: '#c084fc' }}>{num(t.fixed_cash)} ₹</b> · Actual <b style={{ color: '#38bdf8' }}>{cash} ₹</b> · Bal <b style={{ color: round2(num(t.fixed_cash) - cash) < 0 ? '#ef4444' : '#10b981' }}>{round2(num(t.fixed_cash) - cash)} ₹</b></span>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '4px 0', borderBottom: '1px dotted #27395f' }}>
+                                              <span style={{ color: '#9aadd4' }}>💵 Fixed Cash (Bhatta)</span>
+                                              <span>Target <b style={{ color: '#a78bfa' }}>{num(t.fixed_cash)} ₹</b> · Actual <b style={{ color: '#22d3ee' }}>{cash} ₹</b> · Bal <b style={{ color: round2(num(t.fixed_cash) - cash) < 0 ? '#ff6b81' : '#2fe39b' }}>{round2(num(t.fixed_cash) - cash)} ₹</b></span>
                                             </div>
                                           )}
                                         </>}
                                     </div>
                                     <div>
-                                      <div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold', marginBottom: '6px' }}>⛽ DATE-WISE HSD ISSUED</div>
+                                      <div style={{ fontSize: '11px', color: '#22d3ee', fontWeight: 'bold', marginBottom: '6px' }}>⛽ DATE-WISE HSD ISSUED</div>
                                       {(d.fuel_entries ?? []).length === 0
-                                        ? <small style={{ color: '#64748b' }}>No fuel entries{hsd.amt > 0 ? ` (₹${hsd.amt} recorded on the trip)` : ''}.</small>
+                                        ? <small style={{ color: '#5d7196' }}>No fuel entries{hsd.amt > 0 ? ` (₹${hsd.amt} recorded on the trip)` : ''}.</small>
                                         : d.fuel_entries.map((f: any) => (
-                                          <div key={f.id} style={{ fontSize: '12px', color: '#cbd5e1', padding: '3px 0', borderBottom: '1px dotted #334155' }}>
-                                            {f.entry_date} · {f.vendor_name || f.memo_no || 'Pump'} — <b style={{ color: '#38bdf8' }}>{num(f.liters) ? `${f.liters} L / ` : ''}{inr(f.amount)}</b>
+                                          <div key={f.id} style={{ fontSize: '12px', color: '#c4d1ea', padding: '3px 0', borderBottom: '1px dotted #27395f' }}>
+                                            {f.entry_date} · {f.vendor_name || f.memo_no || 'Pump'} — <b style={{ color: '#22d3ee' }}>{num(f.liters) ? `${f.liters} L / ` : ''}{inr(f.amount)}</b>
                                           </div>
                                         ))}
                                     </div>
                                     <div>
-                                      <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '6px' }}>💵 TRIP CASH ADVANCES</div>
+                                      <div style={{ fontSize: '11px', color: '#ffb224', fontWeight: 'bold', marginBottom: '6px' }}>💵 TRIP CASH ADVANCES</div>
                                       {(d.driver_transactions ?? []).length === 0
-                                        ? <small style={{ color: '#64748b' }}>No khata rows{cash > 0 ? ` (trip roll-up ${inr(cash)})` : ''}.</small>
+                                        ? <small style={{ color: '#5d7196' }}>No khata rows{cash > 0 ? ` (trip roll-up ${inr(cash)})` : ''}.</small>
                                         : d.driver_transactions.map((x: any) => (
-                                          <div key={x.id} style={{ fontSize: '12px', color: '#cbd5e1', padding: '3px 0', borderBottom: '1px dotted #334155' }}>
-                                            {x.txn_date} · {x.remarks || x.txn_type} — <b style={{ color: x.txn_type === 'ADVANCE_GIVEN' || x.txn_type === 'PAYMENT_GIVEN' ? '#f59e0b' : '#10b981' }}>{inr(x.amount)}</b>
+                                          <div key={x.id} style={{ fontSize: '12px', color: '#c4d1ea', padding: '3px 0', borderBottom: '1px dotted #27395f' }}>
+                                            {x.txn_date} · {x.remarks || x.txn_type} — <b style={{ color: x.txn_type === 'ADVANCE_GIVEN' || x.txn_type === 'PAYMENT_GIVEN' ? '#ffb224' : '#2fe39b' }}>{inr(x.amount)}</b>
                                           </div>
                                         ))}
                                     </div>
@@ -438,14 +438,14 @@ export default function MasterTripSettlement() {
 
               {/* ➕ EXTRA EXPENSES + 🧮 SUMMARY */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-                <div className="pt-card" style={{ borderTop: '3px solid #c084fc' }}>
-                  <h4 style={{ color: '#c084fc', margin: '0 0 12px 0' }}>➕ Add Extra Expense (en-route / maintenance)</h4>
+                <div className="pt-card" style={{ borderTop: '3px solid #a78bfa' }}>
+                  <h4 style={{ color: '#a78bfa', margin: '0 0 12px 0' }}>➕ Add Extra Expense (en-route / maintenance)</h4>
                   {extraExpenses.map((x, i) => (
-                    <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px dotted #334155', fontSize: '13px' }}>
-                      <span style={{ color: '#cbd5e1' }}>{i + 1}. {x.name}</span>
+                    <div key={x.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px dotted #27395f', fontSize: '13px' }}>
+                      <span style={{ color: '#c4d1ea' }}>{i + 1}. {x.name}</span>
                       <span style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                        <b style={{ color: '#c084fc' }}>{inr(x.amount)}</b>
-                        <button onClick={() => setExtraExpenses((prev) => prev.filter((p) => p.id !== x.id))} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+                        <b style={{ color: '#a78bfa' }}>{inr(x.amount)}</b>
+                        <button onClick={() => setExtraExpenses((prev) => prev.filter((p) => p.id !== x.id))} style={{ background: 'none', border: 'none', color: '#ff6b81', cursor: 'pointer' }}>✕</button>
                       </span>
                     </div>
                   ))}
@@ -456,38 +456,38 @@ export default function MasterTripSettlement() {
                   </div>
                 </div>
 
-                <div className="pt-card" style={{ borderTop: '3px solid #10b981' }}>
-                  <h4 style={{ color: '#10b981', margin: '0 0 12px 0' }}>🧮 Settlement Summary ({selectedTrips.length} trips selected)</h4>
+                <div className="pt-card" style={{ borderTop: '3px solid #2fe39b' }}>
+                  <h4 style={{ color: '#2fe39b', margin: '0 0 12px 0' }}>🧮 Settlement Summary ({selectedTrips.length} trips selected)</h4>
                   {[
-                    ['(+) Trip Bhatta / Allowance', totAllowance, '#10b981'],
-                    ['(+) Extra Expenses', totExtra, '#c084fc'],
-                    ...(openCarryForwards.length ? [['(±) Opening Carry-Forward', cfNet, '#f59e0b']] : []),
-                    ['(−) Cash Advances Taken', -totCash, '#f59e0b'],
-                    [`(${includeHsd ? '−' : 'ℹ️'}) HSD Issued ${totHsdLtr ? `(${totHsdLtr} L)` : ''}`, includeHsd ? -totHsdAmt : totHsdAmt, '#38bdf8'],
-                    ['ℹ️ Freight (company side)', totFreight, '#64748b'],
+                    ['(+) Trip Bhatta / Allowance', totAllowance, '#2fe39b'],
+                    ['(+) Extra Expenses', totExtra, '#a78bfa'],
+                    ...(openCarryForwards.length ? [['(±) Opening Carry-Forward', cfNet, '#ffb224']] : []),
+                    ['(−) Cash Advances Taken', -totCash, '#ffb224'],
+                    [`(${includeHsd ? '−' : 'ℹ️'}) HSD Issued ${totHsdLtr ? `(${totHsdLtr} L)` : ''}`, includeHsd ? -totHsdAmt : totHsdAmt, '#22d3ee'],
+                    ['ℹ️ Freight (company side)', totFreight, '#5d7196'],
                   ].map(([lbl, val, col]: any, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dotted #334155', fontSize: '13px' }}>
-                      <span style={{ color: '#94a3b8' }}>{lbl}</span>
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dotted #27395f', fontSize: '13px' }}>
+                      <span style={{ color: '#9aadd4' }}>{lbl}</span>
                       <b style={{ color: col }}>{inr(Math.abs(num(val)))}{num(val) < 0 ? ' −' : ''}</b>
                     </div>
                   ))}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 0', fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={includeHsd} onChange={(e) => setIncludeHsd(e.target.checked)} style={{ accentColor: '#38bdf8' }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '10px 0', fontSize: '12px', color: '#9aadd4', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={includeHsd} onChange={(e) => setIncludeHsd(e.target.checked)} style={{ accentColor: '#22d3ee' }} />
                     Recover the HSD amount from the driver too (subtracted from Net)
                   </label>
-                  <div style={{ background: netBalance >= 0 ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)', border: `2px dashed ${netBalance >= 0 ? '#10b981' : '#ef4444'}`, borderRadius: '12px', padding: '15px', textAlign: 'center', margin: '10px 0' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: netBalance >= 0 ? '#10b981' : '#ef4444', textTransform: 'uppercase' }}>
+                  <div style={{ background: netBalance >= 0 ? 'rgba(47, 227, 155,0.12)' : 'rgba(255, 107, 129,0.12)', border: `2px dashed ${netBalance >= 0 ? '#2fe39b' : '#ff6b81'}`, borderRadius: '12px', padding: '15px', textAlign: 'center', margin: '10px 0' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 'bold', color: netBalance >= 0 ? '#2fe39b' : '#ff6b81', textTransform: 'uppercase' }}>
                       {netBalance >= 0 ? '💰 Net Payable to Driver' : '⚠️ Recover from Driver'}
                     </div>
-                    <div style={{ fontSize: '30px', fontWeight: '900', color: netBalance >= 0 ? '#10b981' : '#ef4444' }}>{inr(Math.abs(netBalance))}</div>
+                    <div style={{ fontSize: '30px', fontWeight: '900', color: netBalance >= 0 ? '#2fe39b' : '#ff6b81' }}>{inr(Math.abs(netBalance))}</div>
                   </div>
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     <button disabled={posting || !selectedTrips.length} onClick={() => submitSettlement('CARRY_FORWARD')}
-                      style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'rgba(245,158,11,0.15)', border: '1px solid #f59e0b', color: '#f59e0b', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', opacity: !selectedTrips.length ? 0.4 : 1 }}>
+                      style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'rgba(255, 178, 36,0.15)', border: '1px solid #ffb224', color: '#ffb224', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', opacity: !selectedTrips.length ? 0.4 : 1 }}>
                       🔁 Carry Forward Balance
                     </button>
                     <button disabled={posting || !selectedTrips.length} onClick={() => submitSettlement('POSTED')}
-                      style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', color: '#fff', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', boxShadow: '0 5px 18px rgba(16,185,129,0.35)', opacity: !selectedTrips.length ? 0.4 : 1 }}>
+                      style={{ flex: 1, minWidth: '150px', minHeight: '48px', background: 'linear-gradient(135deg, #2fe39b, #2fe39b)', border: 'none', color: '#fff', padding: '13px', borderRadius: '12px', fontWeight: '900', cursor: posting ? 'wait' : 'pointer', fontSize: '13px', boxShadow: '0 5px 18px rgba(47, 227, 155,0.35)', opacity: !selectedTrips.length ? 0.4 : 1 }}>
                       {posting ? '⏳ Posting…' : '📓 Post to Driver Ledger'}
                     </button>
                   </div>

@@ -247,23 +247,23 @@ export default function RateMaster() {
     return 'LIVE';
   };
 
-  const inputStyle = { width: '100%', padding: '12px 15px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '14px', boxSizing: 'border-box' };
-  const labelStyle = { color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' };
+  const inputStyle = { width: '100%', padding: '12px 15px', background: '#121c38', border: '1px solid #27395f', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '14px', boxSizing: 'border-box' };
+  const labelStyle = { color: '#22d3ee', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' };
   const selectedCalc = CALC_TYPES.find(c => c.key === formData.Calc_Type);
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif" }}>
 
       {/* HEADER */}
       <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-        <h1 style={{ color: '#38bdf8', fontSize: '32px', margin: '0 0 10px 0' }}>💹 Dynamic Rate Master</h1>
-        <p style={{ color: '#94a3b8', margin: 0 }}>Customer + Source ➔ Destination wise billing rules — auto-billing engine yahi se formula + rate uthata hai</p>
+        <h1 style={{ color: '#22d3ee', fontSize: '32px', margin: '0 0 10px 0' }}>💹 Dynamic Rate Master</h1>
+        <p style={{ color: '#9aadd4', margin: 0 }}>Customer + Source ➔ Destination wise billing rules — auto-billing engine yahi se formula + rate uthata hai</p>
       </div>
 
       {/* FORM CARD */}
-      <div style={{ background: 'rgba(30, 41, 59, 0.4)', backdropFilter: 'blur(12px)', border: editingId ? '2px solid #f59e0b' : '1px solid #1e293b', borderRadius: '15px', padding: '30px', marginBottom: '40px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+      <div style={{ background: 'rgba(24, 36, 74, 0.4)', backdropFilter: 'blur(12px)', border: editingId ? '2px solid #ffb224' : '1px solid #18244a', borderRadius: '15px', padding: '30px', marginBottom: '40px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
         {editingId && (
-          <div style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontWeight: 'bold', textAlign: 'center', border: '1px dashed #f59e0b' }}>
+          <div style={{ background: 'rgba(255, 178, 36, 0.1)', color: '#ffb224', padding: '10px', borderRadius: '8px', marginBottom: '20px', fontWeight: 'bold', textAlign: 'center', border: '1px dashed #ffb224' }}>
             ✏️ EDITING MODE: You are updating an existing rate rule.
           </div>
         )}
@@ -295,59 +295,59 @@ export default function RateMaster() {
           </div>
 
           {/* 💰 FORMULA + RATE */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px', padding: '20px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '10px', border: '1px dashed #10b981' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '20px', padding: '20px', background: 'rgba(47, 227, 155, 0.05)', borderRadius: '10px', border: '1px dashed #2fe39b' }}>
             <div>
-              <label style={{ ...labelStyle, color: '#10b981' }}>Calculation Type / Formula *</label>
-              <select style={{ ...inputStyle, borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={formData.Calc_Type}
+              <label style={{ ...labelStyle, color: '#2fe39b' }}>Calculation Type / Formula *</label>
+              <select style={{ ...inputStyle, borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={formData.Calc_Type}
                 onChange={e => setFormData({ ...formData, Calc_Type: e.target.value })}>
                 {CALC_TYPES.map(ct => <option key={ct.key} value={ct.key}>{ct.label} — {ct.formula}</option>)}
               </select>
-              <small style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginTop: '5px' }}>
-                Formula: <b style={{ color: '#10b981' }}>{selectedCalc?.formula}</b>
+              <small style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginTop: '5px' }}>
+                Formula: <b style={{ color: '#2fe39b' }}>{selectedCalc?.formula}</b>
               </small>
             </div>
             <div>
-              <label style={{ ...labelStyle, color: '#10b981' }}>Rate Value (₹) *</label>
+              <label style={{ ...labelStyle, color: '#2fe39b' }}>Rate Value (₹) *</label>
               <input type="number" step="any" placeholder={isRtkmType(formData.Calc_Type) ? 'e.g. 3.432495 (per tonne-km)' : formData.Calc_Type === 'FIXED_RATE' ? 'e.g. 25000 (flat per trip)' : 'e.g. 1500 (per KL/MT/Ton)'}
-                style={{ ...inputStyle, borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={formData.Rate_Value}
+                style={{ ...inputStyle, borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={formData.Rate_Value}
                 onChange={e => setFormData({ ...formData, Rate_Value: e.target.value })} required />
             </div>
             {isRtkmType(formData.Calc_Type) && (
               <div>
-                <label style={{ ...labelStyle, color: '#f59e0b' }}>RTKM Distance (km)</label>
-                <input type="number" step="any" placeholder="e.g. 1660" style={{ ...inputStyle, borderColor: '#f59e0b' }} value={formData.RTKM_Distance}
+                <label style={{ ...labelStyle, color: '#ffb224' }}>RTKM Distance (km)</label>
+                <input type="number" step="any" placeholder="e.g. 1660" style={{ ...inputStyle, borderColor: '#ffb224' }} value={formData.RTKM_Distance}
                   onChange={e => setFormData({ ...formData, RTKM_Distance: e.target.value })} />
-                <small style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginTop: '5px' }}>
-                  {suggestedRtkm > 0 ? <>📍 RTKM route master me is route ka distance: <b style={{ color: '#f59e0b' }}>{suggestedRtkm} km</b></> : 'Khali chhodne par billing RTKM route master se distance uthayegi.'}
+                <small style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginTop: '5px' }}>
+                  {suggestedRtkm > 0 ? <>📍 RTKM route master me is route ka distance: <b style={{ color: '#ffb224' }}>{suggestedRtkm} km</b></> : 'Khali chhodne par billing RTKM route master se distance uthayegi.'}
                 </small>
               </div>
             )}
           </div>
 
           {/* 🗓️ EFFECTIVE WINDOW (quarterly tender revisions) */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '30px', padding: '20px', background: 'rgba(192, 132, 252, 0.05)', borderRadius: '10px', border: '1px dashed #c084fc' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '30px', padding: '20px', background: 'rgba(167, 139, 250, 0.05)', borderRadius: '10px', border: '1px dashed #a78bfa' }}>
             <div>
-              <label style={{ ...labelStyle, color: '#c084fc' }}>Effective From *</label>
+              <label style={{ ...labelStyle, color: '#a78bfa' }}>Effective From *</label>
               <input type="date" style={{ ...inputStyle, colorScheme: 'dark' }} value={formData.Effective_From}
                 onChange={e => setFormData({ ...formData, Effective_From: e.target.value })} required />
             </div>
             <div>
-              <label style={{ ...labelStyle, color: '#c084fc' }}>Effective To (khaali = current/open)</label>
+              <label style={{ ...labelStyle, color: '#a78bfa' }}>Effective To (khaali = current/open)</label>
               <input type="date" style={{ ...inputStyle, colorScheme: 'dark' }} value={formData.Effective_To}
                 onChange={e => setFormData({ ...formData, Effective_To: e.target.value })} />
             </div>
-            <div style={{ alignSelf: 'end', color: '#94a3b8', fontSize: '11px', lineHeight: 1.5 }}>
+            <div style={{ alignSelf: 'end', color: '#9aadd4', fontSize: '11px', lineHeight: 1.5 }}>
               🗓️ Quarterly tender revision: naya rate aane par purane rule ka Effective To band karein aur naya rule add karein — trip ki LOADING DATE se sahi period ka rate auto-lagta hai.
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: '15px' }}>
             {editingId && (
-              <button type="button" onClick={resetForm} style={{ flex: 1, background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '15px', borderRadius: '8px', fontWeight: '900', fontSize: '16px', cursor: 'pointer' }}>
+              <button type="button" onClick={resetForm} style={{ flex: 1, background: 'transparent', color: '#ff6b81', border: '1px solid #ff6b81', padding: '15px', borderRadius: '8px', fontWeight: '900', fontSize: '16px', cursor: 'pointer' }}>
                 ❌ CANCEL EDIT
               </button>
             )}
-            <button type="submit" disabled={isSubmitting} style={{ flex: 2, background: editingId ? 'linear-gradient(135deg, #f59e0b, #d97706)' : 'linear-gradient(135deg, #10b981, #059669)', color: '#0f172a', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: '900', fontSize: '16px', cursor: 'pointer', boxShadow: '0 5px 15px rgba(16, 185, 129, 0.4)' }}>
+            <button type="submit" disabled={isSubmitting} style={{ flex: 2, background: editingId ? 'linear-gradient(135deg, #ffb224, #d97706)' : 'linear-gradient(135deg, #2fe39b, #2fe39b)', color: '#121c38', border: 'none', padding: '15px', borderRadius: '8px', fontWeight: '900', fontSize: '16px', cursor: 'pointer', boxShadow: '0 5px 15px rgba(47, 227, 155, 0.4)' }}>
               {isSubmitting ? '⏳ SAVING...' : (editingId ? '💾 UPDATE RATE RULE' : '💾 SAVE RATE RULE')}
             </button>
           </div>
@@ -355,68 +355,68 @@ export default function RateMaster() {
       </div>
 
       {/* SEARCH BAR */}
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#1e293b', padding: '15px', borderRadius: '10px', border: '1px solid #334155' }}>
+      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#18244a', padding: '15px', borderRadius: '10px', border: '1px solid #27395f' }}>
         <input type="text" placeholder="🔍 Search Customer, Source, Destination..." value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)} style={{ ...inputStyle, flex: 2, borderColor: '#38bdf8' }} />
-        <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} style={{ ...inputStyle, flex: 1, borderColor: '#f59e0b', color: '#f59e0b' }}>
+          onChange={e => setSearchQuery(e.target.value)} style={{ ...inputStyle, flex: 2, borderColor: '#22d3ee' }} />
+        <select value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} style={{ ...inputStyle, flex: 1, borderColor: '#ffb224', color: '#ffb224' }}>
           <option value="">🏢 All Customers</option>
           {[...new Set(rates.map(r => r.Customer).filter(Boolean))].sort().map((c, i) => <option key={i} value={c}>{c}</option>)}
         </select>
       </div>
 
       {/* DATA TABLE */}
-      <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '15px', overflowX: 'auto', padding: '20px' }}>
+      <div style={{ background: '#121c38', border: '1px solid #18244a', borderRadius: '15px', overflowX: 'auto', padding: '20px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap' }}>
-          <thead style={{ color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase', borderBottom: '2px solid #334155' }}>
+          <thead style={{ color: '#ffb224', fontSize: '11px', textTransform: 'uppercase', borderBottom: '2px solid #27395f' }}>
             <tr>
               <th style={{ padding: '15px 10px' }}>CUSTOMER</th>
-              <th style={{ padding: '15px 10px', color: '#10b981' }}>SOURCE</th>
+              <th style={{ padding: '15px 10px', color: '#2fe39b' }}>SOURCE</th>
               <th style={{ padding: '15px 10px' }}>DESTINATION</th>
-              <th style={{ padding: '15px 10px', color: '#10b981' }}>CALC TYPE / FORMULA</th>
-              <th style={{ padding: '15px 10px', color: '#10b981' }}>RATE ₹</th>
-              <th style={{ padding: '15px 10px', color: '#f59e0b' }}>RTKM</th>
-              <th style={{ padding: '15px 10px', color: '#c084fc' }}>EFFECTIVE PERIOD</th>
+              <th style={{ padding: '15px 10px', color: '#2fe39b' }}>CALC TYPE / FORMULA</th>
+              <th style={{ padding: '15px 10px', color: '#2fe39b' }}>RATE ₹</th>
+              <th style={{ padding: '15px 10px', color: '#ffb224' }}>RTKM</th>
+              <th style={{ padding: '15px 10px', color: '#a78bfa' }}>EFFECTIVE PERIOD</th>
               <th style={{ padding: '15px 10px', textAlign: 'center' }}>STATUS</th>
               <th style={{ padding: '15px 10px', textAlign: 'center' }}>ACTION</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#38bdf8' }}>Loading Data...</td></tr>
+              <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#22d3ee' }}>Loading Data...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#ef4444' }}>No rate rules found — pehla rule upar ke form se add karein!</td></tr>
+              <tr><td colSpan={9} style={{ padding: '30px', textAlign: 'center', color: '#ff6b81' }}>No rate rules found — pehla rule upar ke form se add karein!</td></tr>
             ) : (
               filtered.map(r => {
                 const isActive = r.Status !== 'Inactive';
                 const ct = CALC_TYPES.find(c => c.key === r.Calc_Type);
                 const ws = windowState(r);
-                const wsColor = ws === 'LIVE' ? '#10b981' : ws === 'UPCOMING' ? '#38bdf8' : '#64748b';
+                const wsColor = ws === 'LIVE' ? '#2fe39b' : ws === 'UPCOMING' ? '#22d3ee' : '#5d7196';
                 return (
-                  <tr key={r.id} style={{ borderBottom: '1px solid #1e293b', color: isActive ? '#cbd5e1' : '#64748b', fontSize: '13px', opacity: isActive ? 1 : 0.6 }}
+                  <tr key={r.id} style={{ borderBottom: '1px solid #18244a', color: isActive ? '#c4d1ea' : '#5d7196', fontSize: '13px', opacity: isActive ? 1 : 0.6 }}
                     onMouseOver={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
                     <td style={{ padding: '15px 10px' }}>{r.Customer}</td>
-                    <td style={{ padding: '15px 10px', color: isActive ? '#10b981' : '#64748b', fontWeight: 'bold' }}>{r.Source}</td>
+                    <td style={{ padding: '15px 10px', color: isActive ? '#2fe39b' : '#5d7196', fontWeight: 'bold' }}>{r.Source}</td>
                     <td style={{ padding: '15px 10px' }}>{r.Destination}</td>
                     <td style={{ padding: '15px 10px' }} title={ct?.formula}>
-                      <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 8px' }}>{ct?.label || r.Calc_Type}</span>
-                      <div style={{ fontSize: '10px', color: '#64748b', marginTop: '3px' }}>{ct?.formula}</div>
+                      <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', padding: '1px 8px' }}>{ct?.label || r.Calc_Type}</span>
+                      <div style={{ fontSize: '10px', color: '#5d7196', marginTop: '3px' }}>{ct?.formula}</div>
                     </td>
-                    <td style={{ padding: '15px 10px', color: isActive ? '#10b981' : '#64748b', fontWeight: 'bold' }}>₹{r.Rate_Value}</td>
-                    <td style={{ padding: '15px 10px', color: '#f59e0b' }}>{isRtkmType(r.Calc_Type) ? (r.RTKM_Distance > 0 ? `${r.RTKM_Distance} km` : <span style={{ color: '#64748b' }} title="Billing me RTKM route master se aayega">route master</span>) : '—'}</td>
+                    <td style={{ padding: '15px 10px', color: isActive ? '#2fe39b' : '#5d7196', fontWeight: 'bold' }}>₹{r.Rate_Value}</td>
+                    <td style={{ padding: '15px 10px', color: '#ffb224' }}>{isRtkmType(r.Calc_Type) ? (r.RTKM_Distance > 0 ? `${r.RTKM_Distance} km` : <span style={{ color: '#5d7196' }} title="Billing me RTKM route master se aayega">route master</span>) : '—'}</td>
                     <td style={{ padding: '15px 10px' }}>
-                      <span style={{ color: '#c084fc' }}>{r.Effective_From} → {r.Effective_To || 'open'}</span>
+                      <span style={{ color: '#a78bfa' }}>{r.Effective_From} → {r.Effective_To || 'open'}</span>
                       <span style={{ marginLeft: '8px', fontSize: '9px', fontWeight: 'bold', color: wsColor, border: `1px solid ${wsColor}`, borderRadius: '10px', padding: '1px 6px' }}>{ws}</span>
                     </td>
                     <td style={{ padding: '15px 10px', textAlign: 'center' }}>
                       <button onClick={() => handleToggleStatus(r.id, r.Status || 'Active')}
-                        style={{ background: isActive ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)', color: isActive ? '#10b981' : '#ef4444', border: `1px solid ${isActive ? '#10b981' : '#ef4444'}`, padding: '4px 10px', borderRadius: '20px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+                        style={{ background: isActive ? 'rgba(47, 227, 155, 0.1)' : 'rgba(255, 107, 129, 0.1)', color: isActive ? '#2fe39b' : '#ff6b81', border: `1px solid ${isActive ? '#2fe39b' : '#ff6b81'}`, padding: '4px 10px', borderRadius: '20px', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
                         {isActive ? '🟢 ACTIVE' : '🔴 INACTIVE'}
                       </button>
                     </td>
                     <td style={{ padding: '15px 10px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                        <button onClick={() => handleEdit(r)} style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }} title="Edit">✏️ Edit</button>
-                        <button onClick={() => handleDelete(r.id)} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }} title="Delete">🗑️ Delete</button>
+                        <button onClick={() => handleEdit(r)} style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid #22d3ee', color: '#22d3ee', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }} title="Edit">✏️ Edit</button>
+                        <button onClick={() => handleDelete(r.id)} style={{ background: 'rgba(255, 107, 129, 0.1)', border: '1px solid #ff6b81', color: '#ff6b81', padding: '6px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px' }} title="Delete">🗑️ Delete</button>
                       </div>
                     </td>
                   </tr>

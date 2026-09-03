@@ -49,7 +49,7 @@ function Toggle({ on, busy, onChange, title }) {
       style={{
         position: 'relative', width: 44, height: 24, borderRadius: 999, border: 'none',
         cursor: busy ? 'wait' : 'pointer', flexShrink: 0,
-        background: on ? '#10b981' : '#475569',
+        background: on ? '#10b981' : '#3d548a',
         opacity: busy ? 0.55 : 1, transition: 'background .18s',
       }}
     >

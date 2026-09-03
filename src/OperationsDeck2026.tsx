@@ -123,12 +123,27 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
   return (
     <div className="od-root">
       <style>{`
-        .od-root { --ground:#0b1220; --surface:#131c2e; --surface2:#0f1727; --line:#22304a; --line2:#33455f;
-          --ink:#e6edf7; --ink2:#a9b8ce; --ink3:#6b7c96; --accent:#ffb020; --accent-soft:#2a2013;
-          --good:#34d399; --good-soft:#10281f; --warn:#f5b445; --crit:#ff7777; --crit-soft:#2c1618;
-          --violet:#a78bfa; --violet-soft:#1f1a33; --sky:#38bdf8; --sky-soft:#0f2233;
+        /* 2026 "Indigo Deck" palette (owner-approved 3-Sep-2026 from
+           docs/mockups/theme-2026-indigo-deck.html). The deck was already
+           fully var-driven, so the whole screen retints from this block.
+           Values mirror src/design-system.css and the Tailwind slate
+           override in tailwind.config.cjs — change one, change all three. */
+        .od-root { --ground:#0a1024; --surface:#121c38; --surface2:#18244a; --line:#27395f; --line2:#3d548a;
+          --ink:#eef3ff; --ink2:#a9bade; --ink3:#7288b3; --accent:#ffb224; --accent-soft:#33270c;
+          --good:#2fe39b; --good-soft:#0c2e26; --warn:#ffc03d; --crit:#ff6b81; --crit-soft:#331926;
+          --violet:#a78bfa; --violet-soft:#241f45; --sky:#22d3ee; --sky-soft:#0e2740;
+          /* The room: navy with a cyan wash top-right and violet bottom-left.
+             A flat fill is exactly what made this deck read as "only black". */
+          --wash:radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,.10) 0%, transparent 60%),
+                 radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,.09) 0%, transparent 58%);
+          --sheen:linear-gradient(168deg, rgba(46,66,118,.42) 0%, rgba(18,28,56,0) 58%);
+          --tile:linear-gradient(160deg, rgba(46,66,118,.50) 0%, rgba(18,28,56,0) 62%);
+          --lift:0 2px 10px rgba(4,9,26,.45), inset 0 1px 0 rgba(255,255,255,.045);
+          --lift-hi:0 16px 38px rgba(4,9,26,.60), inset 0 1px 0 rgba(255,255,255,.07);
           --mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
-          background:var(--ground); color:var(--ink); min-height:100vh; padding:clamp(14px,2.5vw,28px);
+          background:var(--wash),linear-gradient(180deg,#0b1228 0%,var(--ground) 100%);
+          background-attachment:fixed;
+          color:var(--ink); min-height:100vh; padding:clamp(14px,2.5vw,28px);
           font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
         .od-root *{box-sizing:border-box;}
         .od-num{font-family:var(--mono);font-variant-numeric:tabular-nums;}
@@ -136,7 +151,7 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         .od-mast h1{font-size:20px;font-weight:750;letter-spacing:-.01em;margin:0;}
         .od-mast p{margin:2px 0 0;font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
         .od-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid transparent;}
-        .od-pill.ok{background:var(--good-soft);color:var(--good);border-color:color-mix(in oklab,var(--good) 30%,var(--line));}
+        .od-pill.ok{background:var(--good-soft);color:var(--good);border-color:color-mix(in oklab,var(--good) 34%,var(--line));box-shadow:0 0 20px rgba(47,227,155,.22);}
         .od-pill.bad{background:var(--crit-soft);color:var(--crit);border-color:color-mix(in oklab,var(--crit) 35%,var(--line));}
         .od-pill.link{background:var(--surface2);color:var(--ink2);border-color:var(--line);cursor:pointer;}
         .od-pill.link:hover{color:var(--ink);border-color:var(--line2);}
@@ -146,19 +161,20 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         .od-scope button:hover{color:var(--ink);}
         .od-dot{width:8px;height:8px;border-radius:50%;flex:none;}
         .od-strip{display:flex;flex-wrap:wrap;align-items:center;gap:9px 18px;border-radius:12px;padding:11px 16px;margin-bottom:16px;
-          background:var(--crit-soft);border:1px solid color-mix(in oklab,var(--crit) 35%,var(--line));}
+          background:var(--crit-soft);border:1px solid color-mix(in oklab,var(--crit) 40%,var(--line));
+          box-shadow:0 0 24px rgba(255,107,129,.16);}
         .od-strip .lk{font-weight:700;font-size:13px;color:var(--crit);}
         .od-strip .it{font-size:12.5px;color:var(--ink2);}
         .od-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;margin-bottom:14px;}
-        .od-kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 16px;position:relative;overflow:hidden;}
-        .od-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--violet);opacity:.9;}
-        .od-kpi.sky::before{background:var(--sky);} .od-kpi.gold::before{background:var(--accent);} .od-kpi.good::before{background:var(--good);}
+        .od-kpi{background:var(--tile),var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 16px;position:relative;overflow:hidden;box-shadow:var(--lift);}
+        .od-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--rail,var(--violet));box-shadow:0 0 18px var(--rail,var(--violet));}
+        .od-kpi.sky{--rail:var(--sky);} .od-kpi.gold{--rail:var(--accent);} .od-kpi.good{--rail:var(--good);}
         .od-kpi .l{font-size:11.5px;color:var(--ink3);font-weight:600;}
         .od-kpi .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:26px;font-weight:650;letter-spacing:-.02em;margin:6px 0 2px;}
         .od-kpi .v small{font-size:13px;color:var(--ink3);font-weight:500;}
         .od-kpi .s{font-size:11.5px;color:var(--ink3);}
         .od-kpi.click{cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s;}
-        .od-kpi.click:hover,.od-kpi.click:focus-visible{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 6px 18px rgba(0,0,0,.25);outline:none;}
+        .od-kpi.click:hover,.od-kpi.click:focus-visible{border-color:var(--line2);transform:translateY(-3px);box-shadow:var(--lift-hi);outline:none;}
         .od-kpi .go{position:absolute;right:12px;top:11px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);}
         .od-kpi.click:hover .go{color:var(--ink2);}
         .od-panel.flash{box-shadow:0 0 0 2px var(--violet),0 0 24px rgba(167,139,250,.35);transition:box-shadow .3s;}
@@ -166,14 +182,15 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         .od-desk{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-bottom:16px;}
         .od-desk .t{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3);font-weight:700;margin-right:6px;}
         .od-desk button{font:inherit;cursor:pointer;display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface2);color:var(--ink2);padding:7px 12px;border-radius:10px;font-size:12.5px;font-weight:600;transition:.15s;}
-        .od-desk button:hover{border-color:var(--line2);color:var(--ink);}
+        .od-desk button:hover{border-color:var(--line2);color:var(--ink);transform:translateY(-2px);}
         .od-desk button b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px;color:var(--ink);}
-        .od-desk button[data-hot="1"]{border-color:color-mix(in oklab,var(--accent) 45%,var(--line));background:var(--accent-soft);color:var(--ink);}
+        .od-desk button[data-hot="1"]{border-color:color-mix(in oklab,var(--accent) 48%,var(--line));background:var(--accent-soft);color:var(--ink);box-shadow:0 0 22px rgba(255,178,36,.24);}
         .od-desk button[data-hot="1"] b{color:var(--accent);}
         .od-desk button span.h{font-size:10.5px;color:var(--ink3);font-weight:500;}
         .od-desk .clear{font-size:12.5px;color:var(--good);font-weight:600;}
         .od-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin-bottom:16px;}
-        .od-panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+        .od-panel{background:var(--sheen),var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--lift);transition:border-color .2s ease,box-shadow .24s ease;}
+        .od-panel:hover{border-color:var(--line2);}
         .od-panel>header{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--line);}
         .od-panel>header h2{font-size:13.5px;font-weight:700;margin:0;letter-spacing:-.01em;}
         .od-panel>header .m{font-size:11px;color:var(--ink3);text-align:right;}
@@ -181,6 +198,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         table.od-tb{width:100%;border-collapse:collapse;font-size:12.5px;}
         table.od-tb th{text-align:left;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);font-weight:600;padding:7px 6px 7px 0;border-bottom:1px solid var(--line);}
         table.od-tb td{padding:8px 6px 8px 0;border-bottom:1px solid var(--line);color:var(--ink2);vertical-align:top;}
+        table.od-tb tbody tr{transition:background .14s ease;}
+        table.od-tb tbody tr:hover{background:var(--surface2);}
         table.od-tb tr:last-child td{border-bottom:0;}
         table.od-tb td.r,table.od-tb th.r{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;}
         table.od-tb td b{color:var(--ink);font-weight:650;}
@@ -191,7 +210,8 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
         .od-chip.n{background:var(--surface2);color:var(--ink3);border:1px solid var(--line);}
         .od-scroll{overflow-x:auto;} .od-empty{color:var(--ink3);font-size:12.5px;padding:14px 0;text-align:center;}
         .od-money{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:12px 16px 16px;}
-        .od-money .box{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;}
+        .od-money .box{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;transition:border-color .18s ease;}
+        .od-money .box:hover{border-color:var(--line2);}
         .od-money .box .l{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:700;}
         .od-money .box .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:20px;font-weight:650;margin-top:4px;}
         .od-money .box .s{font-size:11px;color:var(--ink3);margin-top:2px;}
@@ -287,7 +307,7 @@ export default function OperationsDeck2026({ currentUser, onOpenConsole }) {
           </button>
         ))}
         <button data-hot="1" onClick={() => setDeskOpen(true)} title="every staging queue, decisions in place"
-          style={{ marginLeft: 'auto', background: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#0f172a', border: 0, fontWeight: 900 }}>
+          style={{ marginLeft: 'auto', background: 'linear-gradient(135deg,#ffb224,#e08c00)', color: '#0a1024', border: 0, fontWeight: 900 }}>
           ⏳ Open desk{deskCounts.total > 0 ? ` (${deskCounts.total})` : ''}
         </button>
       </section>

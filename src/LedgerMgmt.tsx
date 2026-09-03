@@ -26,8 +26,8 @@ type Entry = {
 };
 
 const C = {
-  card: '#1e293b', line: '#334155', text: '#e2e8f0', dim: '#94a3b8', faint: '#64748b',
-  emerald: '#10b981', ruby: '#ef4444', amber: '#f59e0b', sky: '#38bdf8',
+  card: '#18244a', line: '#27395f', text: '#dde5f4', dim: '#9aadd4', faint: '#5d7196',
+  emerald: '#2fe39b', ruby: '#ff6b81', amber: '#ffb224', sky: '#22d3ee',
 };
 const n = (v: any) => Number(v ?? 0);
 const inr = (v: any) =>
@@ -174,7 +174,7 @@ export default function LedgerMgmt() {
           Entries that name no firm are excluded here — see the Financial
           Reports banner for how many that is. */}
       {company && (
-        <div style={{ background: 'rgba(245,158,11,0.08)', border: `1px solid ${C.amber}`, color: '#fcd34d',
+        <div style={{ background: 'rgba(255, 178, 36,0.08)', border: `1px solid ${C.amber}`, color: '#fcd34d',
                       padding: '11px 16px', borderRadius: 10, marginBottom: 16, fontSize: 12.5, lineHeight: 1.55 }}>
           <strong>{company} ka scope</strong> — “Balance” yahan is firm ka <strong>movement</strong> hai
           (ΣDr − ΣCr), opening balance shaamil nahi. Opening ledger master par poore group ke liye ek hi number
@@ -265,7 +265,7 @@ export default function LedgerMgmt() {
 
       {open && (
         <div onClick={() => setOpen(null)}
-             style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,.75)', display: 'flex',
+             style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,.75)', display: 'flex',
                       alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()}
                style={{ ...card, maxWidth: 900, width: '100%', maxHeight: '82vh', overflow: 'auto' }}>

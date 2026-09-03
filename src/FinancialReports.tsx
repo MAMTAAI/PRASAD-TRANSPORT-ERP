@@ -150,10 +150,10 @@ export default function FinancialReports() {
   const totalLiab = Number(bs?.total_liabilities_equity ?? 0);
 
   const pnlChartData = [
-    { name: 'Income', Value: totalIncome, fill: '#10b981' },
-    { name: 'Expenses', Value: totalExpense, fill: '#ef4444' },
+    { name: 'Income', Value: totalIncome, fill: '#2fe39b' },
+    { name: 'Expenses', Value: totalExpense, fill: '#ff6b81' },
   ];
-  const PIE = ['#8b5cf6', '#38bdf8', '#f59e0b', '#ec4899', '#10b981', '#f43f5e', '#c084fc'];
+  const PIE = ['#8b5cf6', '#22d3ee', '#ffb224', '#ec4899', '#2fe39b', '#f43f5e', '#a78bfa'];
   const bsPieData = assets.filter((a: any) => Number(a.amount) > 0)
     .map((a: any, i: number) => ({ name: a.group_head, value: Number(a.amount), color: PIE[i % PIE.length] }));
 
@@ -207,7 +207,7 @@ export default function FinancialReports() {
   };
 
   return (
-    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: 50, background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: 30 }}>
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: 50, background: 'radial-gradient(circle at top right, #121c38, #0a1024)', minHeight: '100vh', padding: 30 }}>
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -222,61 +222,61 @@ export default function FinancialReports() {
           .expand-icon { display: none !important; }
         }
         .modern-table { width: 100%; border-collapse: collapse; }
-        .modern-table th { background: rgba(0,0,0,0.3); color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 15px; border-bottom: 2px solid #334155; }
-        .modern-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #e2e8f0; font-size: 13px; }
-        .expandable-row { cursor: pointer; transition: all .3s ease; background: rgba(15,23,42,.4); }
-        .expandable-row:hover { background: rgba(56,189,248,.1); }
-        .metric-card { background: rgba(30,41,59,.5); border: 1px solid rgba(255,255,255,.05); border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
+        .modern-table th { background: rgba(0,0,0,0.3); color: #9aadd4; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 15px; border-bottom: 2px solid #27395f; }
+        .modern-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #dde5f4; font-size: 13px; }
+        .expandable-row { cursor: pointer; transition: all .3s ease; background: rgba(18, 28, 56,.4); }
+        .expandable-row:hover { background: rgba(34, 211, 238,.1); }
+        .metric-card { background: rgba(24, 36, 74,.5); border: 1px solid rgba(255,255,255,.05); border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
       `}</style>
 
       {/* HEADER */}
       <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, flexWrap: 'wrap', gap: 15 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 32, color: '#fff', fontWeight: 900, letterSpacing: '-0.5px' }}>📊 Financial Statements (CA Ready)</h2>
-          <p style={{ margin: '5px 0 0', color: '#94a3b8', fontSize: 14 }}>
+          <p style={{ margin: '5px 0 0', color: '#9aadd4', fontSize: 14 }}>
             Derived from the PostgreSQL general ledger — the P&L and the balance sheet read the same postings
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={load} style={btn('#1e293b', '#38bdf8', '1px solid #38bdf8')}>🔄 Refresh</button>
-          <button onClick={handlePrint} style={btn('#334155', '#fff')}>🖨️ Print</button>
-          <button onClick={handleDownloadExcel} style={btn('linear-gradient(135deg,#10b981,#059669)', '#fff')}>📥 CSV</button>
+          <button onClick={load} style={btn('#18244a', '#22d3ee', '1px solid #22d3ee')}>🔄 Refresh</button>
+          <button onClick={handlePrint} style={btn('#27395f', '#fff')}>🖨️ Print</button>
+          <button onClick={handleDownloadExcel} style={btn('linear-gradient(135deg,#2fe39b,#2fe39b)', '#fff')}>📥 CSV</button>
         </div>
       </div>
 
       {err && (
-        <div className="no-print" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '16px 20px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
+        <div className="no-print" style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '16px 20px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{FIN}/reports/*</code>. Check that the ERP API is running.</div>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>Reads <code>{FIN}/reports/*</code>. Check that the ERP API is running.</div>
         </div>
       )}
 
       {/* FILTERS */}
-      <div className="no-print" style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.05)', padding: 20, borderRadius: 15, marginBottom: 20, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <div className="no-print" style={{ background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.05)', padding: 20, borderRadius: 15, marginBottom: 20, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
         <div style={{ flex: '1 1 240px' }}>
-          <label style={lbl('#94a3b8')}>Operating Company</label>
-          <select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} style={inp('#334155')}>
+          <label style={lbl('#9aadd4')}>Operating Company</label>
+          <select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} style={inp('#27395f')}>
             <option value="ALL">-- Consolidated (all companies) --</option>
             {companies.map((c) => <option key={c.company_name} value={c.company_name}>{c.company_name}</option>)}
           </select>
         </div>
         <div style={{ flex: '1 1 160px' }}>
-          <label style={lbl('#94a3b8')}>Period From</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...inp('#334155'), colorScheme: 'dark' }} />
+          <label style={lbl('#9aadd4')}>Period From</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...inp('#27395f'), colorScheme: 'dark' }} />
         </div>
         <div style={{ flex: '1 1 160px' }}>
-          <label style={lbl('#94a3b8')}>Period To {activeTab === 'BS' && <span style={{ color: '#10b981' }}>(as on)</span>}</label>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inp('#334155'), colorScheme: 'dark' }} />
+          <label style={lbl('#9aadd4')}>Period To {activeTab === 'BS' && <span style={{ color: '#2fe39b' }}>(as on)</span>}</label>
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inp('#27395f'), colorScheme: 'dark' }} />
         </div>
-        <button onClick={() => { setFromDate(fyStart); setToDate(new Date().toISOString().slice(0, 10)); }} style={btn('#334155', '#cbd5e1')}>This FY</button>
+        <button onClick={() => { setFromDate(fyStart); setToDate(new Date().toISOString().slice(0, 10)); }} style={btn('#27395f', '#c4d1ea')}>This FY</button>
 
         {/* Only meaningful under a company filter: at group level nothing is
             excluded, because every entry belongs to the group whether or not it
             names a firm. */}
         {selectedCompany !== 'ALL' && (
           <div style={{ flex: '1 1 260px' }}>
-            <label style={lbl('#94a3b8')}>Entries with no company</label>
-            <select value={unassigned} onChange={(e) => setUnassigned(e.target.value as any)} style={inp('#334155')}>
+            <label style={lbl('#9aadd4')}>Entries with no company</label>
+            <select value={unassigned} onChange={(e) => setUnassigned(e.target.value as any)} style={inp('#27395f')}>
               <option value="exclude">Exclude — {selectedCompany} only</option>
               <option value="include">Include — this firm + unplaced (ties to group)</option>
               <option value="only">Only the unplaced — the worklist</option>
@@ -294,7 +294,7 @@ export default function FinancialReports() {
           any means available, so they are surfaced, never inferred. */}
       {coverage && Number(coverage.unassigned_entries) > 0 && (
         <div className="no-print" style={{
-          background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', color: '#fcd34d',
+          background: 'rgba(255, 178, 36,0.08)', border: '1px solid #ffb224', color: '#fcd34d',
           padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13, lineHeight: 1.55,
         }}>
           <strong>
@@ -317,8 +317,8 @@ export default function FinancialReports() {
       {/* HEALTH BANNER — the ledger reporting on itself */}
       {health && (
         <div className="no-print" style={{
-          background: health.ok ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.1)',
-          border: `1px solid ${health.ok ? '#10b981' : '#f59e0b'}`,
+          background: health.ok ? 'rgba(47, 227, 155,0.08)' : 'rgba(255, 178, 36,0.1)',
+          border: `1px solid ${health.ok ? '#2fe39b' : '#ffb224'}`,
           color: health.ok ? '#6ee7b7' : '#fcd34d',
           padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13,
         }}>
@@ -331,35 +331,35 @@ export default function FinancialReports() {
       {/* TABS */}
       <div className="no-print" style={{ display: 'flex', gap: 10, marginBottom: 25, flexWrap: 'wrap' }}>
         {[
-          { k: 'PNL', label: '📈 Profit & Loss', color: '#38bdf8' },
-          { k: 'BS', label: '⚖️ Balance Sheet', color: '#10b981' },
-          { k: 'TB', label: '📒 Trial Balance', color: '#c084fc' },
+          { k: 'PNL', label: '📈 Profit & Loss', color: '#22d3ee' },
+          { k: 'BS', label: '⚖️ Balance Sheet', color: '#2fe39b' },
+          { k: 'TB', label: '📒 Trial Balance', color: '#a78bfa' },
         ].map((t) => (
           <button key={t.k} onClick={() => setActiveTab(t.k)} style={{
             padding: '12px 25px',
-            background: activeTab === t.k ? `${t.color}26` : 'rgba(30,41,59,0.5)',
-            color: activeTab === t.k ? t.color : '#94a3b8',
-            border: `1px solid ${activeTab === t.k ? t.color : '#334155'}`,
+            background: activeTab === t.k ? `${t.color}26` : 'rgba(24, 36, 74,0.5)',
+            color: activeTab === t.k ? t.color : '#9aadd4',
+            border: `1px solid ${activeTab === t.k ? t.color : '#27395f'}`,
             fontWeight: 'bold', cursor: 'pointer', fontSize: 14, borderRadius: 8,
           }}>{t.label}</button>
         ))}
       </div>
 
-      {loading && <div style={{ color: '#38bdf8', fontWeight: 'bold', padding: 20 }}>Loading statements from PostgreSQL…</div>}
+      {loading && <div style={{ color: '#22d3ee', fontWeight: 'bold', padding: 20 }}>Loading statements from PostgreSQL…</div>}
 
       {!loading && !err && (
         <div className="printable-area">
           {/* REPORT HEADING */}
-          <div style={{ textAlign: 'center', marginBottom: 25, borderBottom: '2px solid #334155', paddingBottom: 15 }}>
+          <div style={{ textAlign: 'center', marginBottom: 25, borderBottom: '2px solid #27395f', paddingBottom: 15 }}>
             <h2 style={{ margin: 0, fontSize: 26, color: '#fff', fontWeight: 900, letterSpacing: 1 }}>
               {selectedCompany === 'ALL' ? 'CONSOLIDATED FINANCIAL REPORT' : selectedCompany.toUpperCase()}
             </h2>
-            <h3 style={{ margin: '15px 0 8px', color: activeTab === 'PNL' ? '#38bdf8' : activeTab === 'BS' ? '#10b981' : '#c084fc', fontSize: 20, letterSpacing: 1 }}>
+            <h3 style={{ margin: '15px 0 8px', color: activeTab === 'PNL' ? '#22d3ee' : activeTab === 'BS' ? '#2fe39b' : '#a78bfa', fontSize: 20, letterSpacing: 1 }}>
               {activeTab === 'PNL' ? 'STATEMENT OF PROFIT & LOSS (INCOME STATEMENT)'
                 : activeTab === 'BS' ? 'BALANCE SHEET (STATEMENT OF FINANCIAL POSITION)'
                 : 'TRIAL BALANCE'}
             </h3>
-            <p style={{ color: '#94a3b8', fontSize: 13, margin: 0 }}>
+            <p style={{ color: '#9aadd4', fontSize: 13, margin: 0 }}>
               {activeTab === 'BS' ? `As on ${dmy(toDate)}` : `Period: ${dmy(fromDate)} to ${dmy(toDate)}`}
             </p>
           </div>
@@ -368,15 +368,15 @@ export default function FinancialReports() {
           {activeTab === 'PNL' && (
             <>
               <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 15, marginBottom: 25 }}>
-                {metric('Total Income', totalIncome, '#10b981')}
-                {metric('Total Expenses', totalExpense, '#ef4444')}
-                {metric(netProfit >= 0 ? 'Net Profit' : 'Net Loss', Math.abs(netProfit), netProfit >= 0 ? '#38bdf8' : '#f43f5e')}
+                {metric('Total Income', totalIncome, '#2fe39b')}
+                {metric('Total Expenses', totalExpense, '#ff6b81')}
+                {metric(netProfit >= 0 ? 'Net Profit' : 'Net Loss', Math.abs(netProfit), netProfit >= 0 ? '#22d3ee' : '#f43f5e')}
                 <div className="metric-card">
-                  <div style={{ color: '#c084fc', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Net Margin</div>
+                  <div style={{ color: '#a78bfa', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Net Margin</div>
                   <div style={{ fontSize: 26, fontWeight: 900, color: '#fff', marginTop: 6 }}>
                     {pnl?.margin_pct == null ? '—' : `${pnl.margin_pct}%`}
                   </div>
-                  {pnl?.margin_pct == null && <div style={{ color: '#64748b', fontSize: 10, marginTop: 4 }}>no revenue in period</div>}
+                  {pnl?.margin_pct == null && <div style={{ color: '#5d7196', fontSize: 10, marginTop: 4 }}>no revenue in period</div>}
                 </div>
               </div>
 
@@ -392,30 +392,30 @@ export default function FinancialReports() {
                   </thead>
                   <tbody>
                     <tr className="expandable-row" onClick={() => { toggle('exp'); toggle('inc'); }}>
-                      <td style={{ fontWeight: 'bold', color: '#ef4444' }}>
+                      <td style={{ fontWeight: 'bold', color: '#ff6b81' }}>
                         <span className="expand-icon">{expanded.exp ? '▼' : '▶'}</span> Expenses by group
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{inr(totalExpense)}</td>
-                      <td style={{ fontWeight: 'bold', color: '#10b981' }}>
+                      <td style={{ fontWeight: 'bold', color: '#2fe39b' }}>
                         <span className="expand-icon">{expanded.inc ? '▼' : '▶'}</span> Income by group
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 'bold' }}>{inr(totalIncome)}</td>
                     </tr>
                     {(expanded.exp || expanded.inc) && Array.from({ length: Math.max(expenses.length, income.length) }).map((_, i) => (
                       <tr key={i}>
-                        <td style={{ paddingLeft: 40, color: '#94a3b8' }}>{expenses[i]?.group_head ?? ''}</td>
-                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{expenses[i] ? inr(expenses[i].amount) : ''}</td>
-                        <td style={{ paddingLeft: 40, color: '#94a3b8' }}>{income[i]?.group_head ?? ''}</td>
-                        <td style={{ textAlign: 'right', color: '#94a3b8' }}>{income[i] ? inr(income[i].amount) : ''}</td>
+                        <td style={{ paddingLeft: 40, color: '#9aadd4' }}>{expenses[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', color: '#9aadd4' }}>{expenses[i] ? inr(expenses[i].amount) : ''}</td>
+                        <td style={{ paddingLeft: 40, color: '#9aadd4' }}>{income[i]?.group_head ?? ''}</td>
+                        <td style={{ textAlign: 'right', color: '#9aadd4' }}>{income[i] ? inr(income[i].amount) : ''}</td>
                       </tr>
                     ))}
                     {expenses.length === 0 && income.length === 0 && (
-                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No postings in this period.</td></tr>
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#5d7196', padding: 24 }}>No postings in this period.</td></tr>
                     )}
-                    <tr style={{ background: 'rgba(56,189,248,0.08)', fontWeight: 'bold' }}>
-                      <td style={{ color: netProfit >= 0 ? '#10b981' : '#f43f5e' }}>{netProfit >= 0 ? 'Net Profit c/d' : 'Net Loss c/d'}</td>
+                    <tr style={{ background: 'rgba(34, 211, 238,0.08)', fontWeight: 'bold' }}>
+                      <td style={{ color: netProfit >= 0 ? '#2fe39b' : '#f43f5e' }}>{netProfit >= 0 ? 'Net Profit c/d' : 'Net Loss c/d'}</td>
                       <td style={{ textAlign: 'right' }}>{netProfit >= 0 ? inr(netProfit) : '—'}</td>
-                      <td style={{ color: '#94a3b8' }}>{netProfit < 0 ? 'Net Loss' : ''}</td>
+                      <td style={{ color: '#9aadd4' }}>{netProfit < 0 ? 'Net Loss' : ''}</td>
                       <td style={{ textAlign: 'right' }}>{netProfit < 0 ? inr(Math.abs(netProfit)) : ''}</td>
                     </tr>
                     <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900, fontSize: 15 }}>
@@ -431,10 +431,10 @@ export default function FinancialReports() {
               <div className="no-print" style={{ ...panel, marginTop: 25, height: 300 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={pnlChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" tickFormatter={(v) => `${(v / 100000).toFixed(1)}L`} />
-                    <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#27395f" />
+                    <XAxis dataKey="name" stroke="#9aadd4" />
+                    <YAxis stroke="#9aadd4" tickFormatter={(v) => `${(v / 100000).toFixed(1)}L`} />
+                    <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#121c38', border: '1px solid #27395f', borderRadius: 8 }} />
                     <Legend />
                     <Bar dataKey="Value" name="Amount (₹)" radius={[8, 8, 0, 0]}>
                       {pnlChartData.map((d, i) => <Cell key={i} fill={d.fill} />)}
@@ -449,7 +449,7 @@ export default function FinancialReports() {
           {activeTab === 'BS' && (
             <>
               {bs && !bs.balanced && (
-                <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: '14px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+                <div style={{ background: 'rgba(255, 178, 36,0.1)', border: '1px solid #ffb224', color: '#fcd34d', padding: '14px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
                   ⚠️ This sheet is out by ₹{inr(bs.difference)}.
                   {/* A COMPANY SLICE OF THIS LEDGER CANNOT FOOT, and saying
                       "check /finance/health/accounting — a real defect" about
@@ -483,7 +483,7 @@ export default function FinancialReports() {
                 </div>
               )}
               {bs?.balanced && (
-                <div className="no-print" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid #10b981', color: '#6ee7b7', padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+                <div className="no-print" style={{ background: 'rgba(47, 227, 155,0.08)', border: '1px solid #2fe39b', color: '#6ee7b7', padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
                   ✅ Balanced — assets equal liabilities and equity to the paisa
                   {selectedCompany !== 'ALL' ? ' for this company slice.' : '.'}
                 </div>
@@ -502,14 +502,14 @@ export default function FinancialReports() {
                   <tbody>
                     {Array.from({ length: Math.max(liabs.length, assets.length) }).map((_, i) => (
                       <tr key={i}>
-                        <td style={{ color: liabs[i]?.account_type === 'EQUITY' ? '#c084fc' : '#e2e8f0' }}>{liabs[i]?.group_head ?? ''}</td>
+                        <td style={{ color: liabs[i]?.account_type === 'EQUITY' ? '#a78bfa' : '#dde5f4' }}>{liabs[i]?.group_head ?? ''}</td>
                         <td style={{ textAlign: 'right', fontWeight: liabs[i] ? 'bold' : 'normal' }}>{liabs[i] ? inr(liabs[i].amount) : ''}</td>
                         <td>{assets[i]?.group_head ?? ''}</td>
                         <td style={{ textAlign: 'right', fontWeight: assets[i] ? 'bold' : 'normal' }}>{assets[i] ? inr(assets[i].amount) : ''}</td>
                       </tr>
                     ))}
                     {liabs.length === 0 && assets.length === 0 && (
-                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No balances as on this date.</td></tr>
+                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#5d7196', padding: 24 }}>No balances as on this date.</td></tr>
                     )}
                     <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900, fontSize: 15 }}>
                       <td>TOTAL</td>
@@ -528,7 +528,7 @@ export default function FinancialReports() {
                       <Pie data={bsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={110} label={(e: any) => e.name}>
                         {bsPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
                       </Pie>
-                      <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }} />
+                      <Tooltip formatter={(v: any) => `₹${inr(v)}`} contentStyle={{ background: '#121c38', border: '1px solid #27395f', borderRadius: 8 }} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -539,7 +539,7 @@ export default function FinancialReports() {
           {/* ── TRIAL BALANCE ── */}
           {activeTab === 'TB' && (
             <div className="glass-panel" style={panel}>
-              <p className="no-print" style={{ color: '#94a3b8', fontSize: 12.5, marginTop: 0 }}>
+              <p className="no-print" style={{ color: '#9aadd4', fontSize: 12.5, marginTop: 0 }}>
                 Two pairs of columns: everything posted, and the voucher era alone. The voucher-era pair must be equal —
                 it is enforced by a deferred database constraint on every voucher. The full pair can differ by the migrated
                 single-entry history, which is why both are shown rather than one blended figure.
@@ -559,24 +559,24 @@ export default function FinancialReports() {
                   {(tb?.rows ?? []).map((r: any) => (
                     <tr key={r.group_head}>
                       <td>{r.group_head}</td>
-                      <td style={{ color: '#64748b', fontSize: 11 }}>{r.account_type}</td>
+                      <td style={{ color: '#5d7196', fontSize: 11 }}>{r.account_type}</td>
                       <td style={{ textAlign: 'right' }}>{inr(r.dr)}</td>
                       <td style={{ textAlign: 'right' }}>{inr(r.cr)}</td>
-                      <td style={{ textAlign: 'right', color: '#94a3b8' }}>{inr(r.dr_voucher_era)}</td>
-                      <td style={{ textAlign: 'right', color: '#94a3b8' }}>{inr(r.cr_voucher_era)}</td>
+                      <td style={{ textAlign: 'right', color: '#9aadd4' }}>{inr(r.dr_voucher_era)}</td>
+                      <td style={{ textAlign: 'right', color: '#9aadd4' }}>{inr(r.cr_voucher_era)}</td>
                     </tr>
                   ))}
                   {(tb?.rows ?? []).length === 0 && (
-                    <tr><td colSpan={6} style={{ textAlign: 'center', color: '#64748b', padding: 24 }}>No postings in this period.</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: '#5d7196', padding: 24 }}>No postings in this period.</td></tr>
                   )}
                   <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900 }}>
                     <td colSpan={2}>TOTAL</td>
                     <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.dr)}</td>
                     <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.cr)}</td>
-                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#10b981' : '#f43f5e' }}>
+                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#2fe39b' : '#f43f5e' }}>
                       {inr(tb?.totals?.dr_voucher_era)}
                     </td>
-                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#10b981' : '#f43f5e' }}>
+                    <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#2fe39b' : '#f43f5e' }}>
                       {inr(tb?.totals?.cr_voucher_era)}
                     </td>
                   </tr>
@@ -585,7 +585,7 @@ export default function FinancialReports() {
             </div>
           )}
 
-          <p style={{ color: '#475569', fontSize: 11, textAlign: 'center', marginTop: 25 }}>
+          <p style={{ color: '#3d548a', fontSize: 11, textAlign: 'center', marginTop: 25 }}>
             Generated from the PostgreSQL general ledger on {new Date().toLocaleString('en-GB')} · Prasad Transport ERP
           </p>
         </div>
@@ -596,8 +596,8 @@ export default function FinancialReports() {
 
 const btn = (bg: string, color: string, border = 'none'): React.CSSProperties => ({ background: bg, color, border, padding: '10px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', fontSize: 13 });
 const lbl = (color: string): React.CSSProperties => ({ color, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', display: 'block', marginBottom: 6 });
-const inp = (border: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#0f172a', border: `1px solid ${border}`, color: '#fff', borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
-const panel: React.CSSProperties = { background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 15, padding: 20, overflowX: 'auto' };
+const inp = (border: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#121c38', border: `1px solid ${border}`, color: '#fff', borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
+const panel: React.CSSProperties = { background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 15, padding: 20, overflowX: 'auto' };
 
 function metric(label: string, value: number, color: string) {
   return (

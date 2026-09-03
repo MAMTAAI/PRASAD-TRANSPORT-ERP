@@ -18,12 +18,12 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
   const suspended = String(status).toUpperCase() === 'SUSPENDED';
 
   const tone = suspended
-    ? { ring: 'rgba(239,68,68,0.35)', glow: 'rgba(239,68,68,0.18)', fg: '#fca5a5', icon: '⛔' }
-    : { ring: 'rgba(245,158,11,0.35)', glow: 'rgba(245,158,11,0.18)', fg: '#fcd34d', icon: '🔒' };
+    ? { ring: 'rgba(255, 107, 129,0.35)', glow: 'rgba(255, 107, 129,0.18)', fg: '#fca5a5', icon: '⛔' }
+    : { ring: 'rgba(255, 178, 36,0.35)', glow: 'rgba(255, 178, 36,0.18)', fg: '#fcd34d', icon: '🔒' };
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 99999, background: '#020617',
+      position: 'fixed', inset: 0, zIndex: 99999, background: '#0a1024',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 20, fontFamily: "'Inter', system-ui, sans-serif",
       paddingBottom: 'calc(20px + env(safe-area-inset-bottom))',
@@ -35,21 +35,21 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
 
       <div style={{
         width: '100%', maxWidth: 420, textAlign: 'center',
-        background: 'rgba(15,23,42,0.9)', border: `1px solid ${tone.ring}`,
+        background: 'rgba(18, 28, 56,0.9)', border: `1px solid ${tone.ring}`,
         borderRadius: 22, padding: '38px 28px 30px',
         boxShadow: '0 24px 70px rgba(0,0,0,0.6)', animation: 'ahsIn .35s ease-out',
       }}>
         {/* brand */}
         <div style={{
           width: 68, height: 68, margin: '0 auto 20px', borderRadius: 20,
-          background: 'linear-gradient(135deg,#3b82f6,#38bdf8)',
+          background: 'linear-gradient(135deg,#3b82f6,#22d3ee)',
           display: 'grid', placeItems: 'center', fontSize: 32,
-          boxShadow: '0 10px 26px rgba(56,189,248,0.35)',
+          boxShadow: '0 10px 26px rgba(34, 211, 238,0.35)',
         }}>🚛</div>
 
         <p style={{
           margin: 0, fontSize: 10, fontWeight: 900, letterSpacing: '0.28em',
-          color: '#38bdf8', textTransform: 'uppercase',
+          color: '#22d3ee', textTransform: 'uppercase',
         }}>Prasad Transport</p>
 
         <div style={{
@@ -59,12 +59,12 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
         }}>{tone.icon}</div>
 
         <h1 style={{
-          margin: '0 0 12px', fontSize: 21, fontWeight: 900, color: '#f1f5f9', lineHeight: 1.3,
+          margin: '0 0 12px', fontSize: 21, fontWeight: 900, color: '#eef3fa', lineHeight: 1.3,
         }}>
           {suspended ? 'Account Suspended' : 'Account Under Verification'}
         </h1>
 
-        <p style={{ margin: '0 0 4px', fontSize: 13.5, color: '#94a3b8', lineHeight: 1.65 }}>
+        <p style={{ margin: '0 0 4px', fontSize: 13.5, color: '#9aadd4', lineHeight: 1.65 }}>
           {suspended
             ? 'Access to this account has been revoked.'
             : 'Your account has been created and is waiting for approval.'}
@@ -76,7 +76,7 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
         {user?.full_name && (
           <div style={{
             marginTop: 22, padding: '12px 14px', borderRadius: 12,
-            background: 'rgba(2,6,23,0.6)', border: '1px solid #1e293b', textAlign: 'left',
+            background: 'rgba(10, 16, 36,0.6)', border: '1px solid #18244a', textAlign: 'left',
           }}>
             <Line label="Name" value={user.full_name} />
             {user.email && <Line label="Login" value={user.email} />}
@@ -88,8 +88,8 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
           onClick={onLogout}
           style={{
             marginTop: 22, width: '100%', padding: '11px 14px', borderRadius: 11,
-            border: '1px solid #334155', background: 'rgba(255,255,255,0.04)',
-            color: '#cbd5e1', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
+            border: '1px solid #27395f', background: 'rgba(255,255,255,0.04)',
+            color: '#c4d1ea', fontWeight: 800, fontSize: 12.5, cursor: 'pointer',
           }}
         >
           SIGN IN WITH A DIFFERENT ACCOUNT
@@ -101,7 +101,7 @@ export default function AccountHoldScreen({ status = 'PENDING', user, onLogout }
 
 const Line = ({ label, value, tone }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0' }}>
-    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', color: '#64748b', textTransform: 'uppercase' }}>{label}</span>
-    <span style={{ fontSize: 11.5, fontWeight: 700, color: tone ?? '#e2e8f0', wordBreak: 'break-word', textAlign: 'right' }}>{value}</span>
+    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', color: '#5d7196', textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 11.5, fontWeight: 700, color: tone ?? '#dde5f4', wordBreak: 'break-word', textAlign: 'right' }}>{value}</span>
   </div>
 );

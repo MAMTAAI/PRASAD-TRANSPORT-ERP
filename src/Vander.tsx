@@ -221,27 +221,27 @@ export default function Vander() {
   const totalOutstanding = vendors.reduce((acc, curr) => acc + (parseFloat(curr.current_balance || '0') || 0), 0);
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; transition: all 0.3s; }
-        .glow-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 12px 25px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 14px;}
-        .glow-btn:hover { box-shadow: 0 4px 25px rgba(16, 185, 129, 0.7); transform: scale(1.02); }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 12px; outline: none; width: 100%; font-size: 13px; box-sizing: border-box;}
-        .modern-input:focus { border-color: #10b981; }
-        .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
-        .tab-btn.active { color: #10b981; border-bottom: 3px solid #10b981; background: rgba(16, 185, 129, 0.1); border-radius: 10px 10px 0 0; }
+        .glass-card { background: rgba(24, 36, 74, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; transition: all 0.3s; }
+        .glow-btn { background: linear-gradient(135deg, #2fe39b, #2fe39b); color: white; border: none; padding: 12px 25px; border-radius: 10px; font-weight: bold; cursor: pointer; transition: 0.3s; font-size: 14px;}
+        .glow-btn:hover { box-shadow: 0 4px 25px rgba(47, 227, 155, 0.7); transform: scale(1.02); }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 12px; outline: none; width: 100%; font-size: 13px; box-sizing: border-box;}
+        .modern-input:focus { border-color: #2fe39b; }
+        .tab-btn { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
+        .tab-btn.active { color: #2fe39b; border-bottom: 3px solid #2fe39b; background: rgba(47, 227, 155, 0.1); border-radius: 10px 10px 0 0; }
         .badge { padding: 4px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; }
       `}</style>
 
       {/* 🚀 Dashboard Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '30px' }}>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #10b981' }}>
-          <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '14px' }}>🏢 TOTAL REGISTERED VENDORS</h3>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #2fe39b' }}>
+          <h3 style={{ color: '#9aadd4', margin: '0 0 10px 0', fontSize: '14px' }}>🏢 TOTAL REGISTERED VENDORS</h3>
           <h1 style={{ color: '#fff', margin: 0, fontSize: '32px' }}>{vendors.length}</h1>
         </div>
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #ef4444' }}>
-          <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '14px' }}>💸 TOTAL MARKET OUTSTANDING (PAYABLE)</h3>
-          <h1 style={{ color: '#ef4444', margin: 0, fontSize: '32px' }}>₹{totalOutstanding.toFixed(2)}</h1>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #ff6b81' }}>
+          <h3 style={{ color: '#9aadd4', margin: '0 0 10px 0', fontSize: '14px' }}>💸 TOTAL MARKET OUTSTANDING (PAYABLE)</h3>
+          <h1 style={{ color: '#ff6b81', margin: 0, fontSize: '32px' }}>₹{totalOutstanding.toFixed(2)}</h1>
         </div>
       </div>
 
@@ -250,7 +250,7 @@ export default function Vander() {
           <button className={`tab-btn ${activeTab === 'MASTER' ? 'active' : ''}`} onClick={() => setActiveTab('MASTER')}>🏢 VENDOR MASTER LIST</button>
         </div>
         <div style={{ display: 'flex', gap: '15px' }}>
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: 'none' }} onClick={() => openTxnModal()}>💸 + Add Bill / Payment</button>
+          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #d97706)', boxShadow: 'none' }} onClick={() => openTxnModal()}>💸 + Add Bill / Payment</button>
           <button className="glow-btn" onClick={() => openVendorModal()}>🏢 + Add New Vendor</button>
         </div>
       </div>
@@ -258,29 +258,29 @@ export default function Vander() {
       <input className="modern-input" placeholder="🔍 Search Vendor by Name..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ marginBottom: '20px' }} />
 
       {/* 📋 Vendor Cards Grid */}
-      {loading ? <p style={{ color: '#10b981' }}>Loading Database...</p> : (
+      {loading ? <p style={{ color: '#2fe39b' }}>Loading Database...</p> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
           {filteredVendors.map(v => (
             <div key={v.id} className="glass-card" style={{ padding: '20px', position: 'relative' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
-                <span className="badge" style={{ background: 'rgba(56,189,248,0.2)', color: '#38bdf8' }}>{v.vendor_type}</span>
-                <span className="badge" style={{ background: parseFloat(v.current_balance) > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(16,185,129,0.2)', color: parseFloat(v.current_balance) > 0 ? '#ef4444' : '#10b981' }}>
+                <span className="badge" style={{ background: 'rgba(34, 211, 238,0.2)', color: '#22d3ee' }}>{v.vendor_type}</span>
+                <span className="badge" style={{ background: parseFloat(v.current_balance) > 0 ? 'rgba(255, 107, 129,0.2)' : 'rgba(47, 227, 155,0.2)', color: parseFloat(v.current_balance) > 0 ? '#ff6b81' : '#2fe39b' }}>
                   {parseFloat(v.current_balance) > 0 ? 'To Pay' : 'Clear'}
                 </span>
               </div>
               <h2 style={{ color: '#fff', margin: '0 0 5px 0' }}>{v.vendor_name}</h2>
-              <p style={{ color: '#94a3b8', fontSize: '12px', margin: '0 0 15px 0' }}>📱 {v.mobile_no} | 👤 {v.contact_person}</p>
+              <p style={{ color: '#9aadd4', fontSize: '12px', margin: '0 0 15px 0' }}>📱 {v.mobile_no} | 👤 {v.contact_person}</p>
               
               <div style={{ background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)', marginBottom: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#cbd5e1', marginBottom: '5px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#c4d1ea', marginBottom: '5px' }}>
                   <span>Bank A/c:</span> <b>{v.bank_account || 'N/A'}</b>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#cbd5e1', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#c4d1ea', marginBottom: '10px' }}>
                   <span>IFSC:</span> <b>{v.ifsc_code || 'N/A'}</b>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #334155', paddingTop: '10px' }}>
-                  <span style={{ fontSize: '13px', color: '#94a3b8' }}>Current Balance:</span>
-                  <span style={{ fontSize: '20px', fontWeight: 'bold', color: parseFloat(v.current_balance) > 0 ? '#ef4444' : '#10b981' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed #27395f', paddingTop: '10px' }}>
+                  <span style={{ fontSize: '13px', color: '#9aadd4' }}>Current Balance:</span>
+                  <span style={{ fontSize: '20px', fontWeight: 'bold', color: parseFloat(v.current_balance) > 0 ? '#ff6b81' : '#2fe39b' }}>
                     ₹{parseFloat(v.current_balance).toFixed(2)}
                   </span>
                 </div>
@@ -297,7 +297,7 @@ export default function Vander() {
               </button>
 
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => openVendorModal(v)} style={{ flex: 1, background: 'transparent', color: '#38bdf8', border: '1px solid #38bdf8', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Edit Master</button>
+                <button onClick={() => openVendorModal(v)} style={{ flex: 1, background: 'transparent', color: '#22d3ee', border: '1px solid #22d3ee', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>Edit Master</button>
                 <button onClick={() => openTxnModal(v)} style={{ flex: 1, background: '#10b981', color: '#fff', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Pay / Bill</button>
               </div>
             </div>
@@ -307,21 +307,21 @@ export default function Vander() {
 
       {/* 🏢 MODAL: VENDOR MASTER */}
       {isVendorModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '800px', border: '1px solid #10b981', background: '#0f172a', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '800px', border: '1px solid #2fe39b', background: '#121c38', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#10b981' }}>{editingId ? 'Edit Vendor Master' : 'Register New Vendor & Auto-Ledger'}</h2>
-              <button onClick={() => setIsVendorModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#2fe39b' }}>{editingId ? 'Edit Vendor Master' : 'Register New Vendor & Auto-Ledger'}</h2>
+              <button onClick={() => setIsVendorModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
               <div style={{ gridColumn: 'span 2' }}>
-                <label style={{ fontSize:'12px', color:'#94a3b8' }}>Vendor/Shop Name *</label>
+                <label style={{ fontSize:'12px', color:'#9aadd4' }}>Vendor/Shop Name *</label>
                 <input className="modern-input" value={formData.vendor_name} onChange={e=>setFormData({...formData, vendor_name: e.target.value})} />
               </div>
               
               <div>
-                <label style={{ fontSize:'12px', color:'#94a3b8' }}>Vendor Category</label>
+                <label style={{ fontSize:'12px', color:'#9aadd4' }}>Vendor Category</label>
                 <select className="modern-input" value={formData.vendor_type} onChange={e=>setFormData({...formData, vendor_type: e.target.value})}>
                   <option value="Fuel Pump">Fuel Pump (HSD)</option>
                   <option value="Mechanic Garage">Mechanic Garage</option>
@@ -331,21 +331,21 @@ export default function Vander() {
                 </select>
               </div>
 
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Contact Person</label><input className="modern-input" value={formData.contact_person} onChange={e=>setFormData({...formData, contact_person: e.target.value})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Mobile No (For WhatsApp) *</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>GST Number</label><input className="modern-input" value={formData.gst_no} onChange={e=>setFormData({...formData, gst_no: e.target.value})} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize:'12px', color:'#94a3b8' }}>Full Address</label><input className="modern-input" value={formData.address} onChange={e=>setFormData({...formData, address: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Contact Person</label><input className="modern-input" value={formData.contact_person} onChange={e=>setFormData({...formData, contact_person: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Mobile No (For WhatsApp) *</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>GST Number</label><input className="modern-input" value={formData.gst_no} onChange={e=>setFormData({...formData, gst_no: e.target.value})} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize:'12px', color:'#9aadd4' }}>Full Address</label><input className="modern-input" value={formData.address} onChange={e=>setFormData({...formData, address: e.target.value})} /></div>
               
               {/* Bank & Ledger Info */}
               <div style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '10px', marginTop: '10px' }}>
-                <h4 style={{ margin: '0 0 10px 0', color: '#38bdf8' }}>🏦 Financial Details & Ledger Setup</h4>
+                <h4 style={{ margin: '0 0 10px 0', color: '#22d3ee' }}>🏦 Financial Details & Ledger Setup</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Bank Account No</label><input className="modern-input" value={formData.bank_account} onChange={e=>setFormData({...formData, bank_account: e.target.value})} /></div>
-                  <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>IFSC Code</label><input className="modern-input" value={formData.ifsc_code} onChange={e=>setFormData({...formData, ifsc_code: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Bank Account No</label><input className="modern-input" value={formData.bank_account} onChange={e=>setFormData({...formData, bank_account: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>IFSC Code</label><input className="modern-input" value={formData.ifsc_code} onChange={e=>setFormData({...formData, ifsc_code: e.target.value})} /></div>
                   {!editingId && (
                     <div style={{ gridColumn: 'span 2' }}>
-                      <label style={{ fontSize:'12px', color:'#ef4444', fontWeight:'bold' }}>Opening Balance (Amount you owe them) ₹</label>
-                      <input type="number" className="modern-input" style={{ border: '1px solid #ef4444' }} value={formData.opening_balance} onChange={e=>setFormData({...formData, opening_balance: e.target.value})} />
+                      <label style={{ fontSize:'12px', color:'#ff6b81', fontWeight:'bold' }}>Opening Balance (Amount you owe them) ₹</label>
+                      <input type="number" className="modern-input" style={{ border: '1px solid #ff6b81' }} value={formData.opening_balance} onChange={e=>setFormData({...formData, opening_balance: e.target.value})} />
                     </div>
                   )}
                 </div>
@@ -359,16 +359,16 @@ export default function Vander() {
 
       {/* 💸 MODAL: TRANSACTION (BILL / PAYMENT) */}
       {isTxnModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '500px', border: '1px solid #f59e0b', background: '#0f172a' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.9)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '500px', border: '1px solid #ffb224', background: '#121c38' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0, color: '#f59e0b' }}>Ledger Entry</h2>
-              <button onClick={() => setIsTxnModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#ffb224' }}>Ledger Entry</h2>
+              <button onClick={() => setIsTxnModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               <div>
-                <label style={{ fontSize:'12px', color:'#94a3b8' }}>Select Vendor *</label>
+                <label style={{ fontSize:'12px', color:'#9aadd4' }}>Select Vendor *</label>
                 <select className="modern-input" value={txnData.vendor_id} onChange={e => {
                   const selVendor = vendors.find(v => v.id === e.target.value);
                   setTxnData({...txnData, vendor_id: e.target.value, vendor_name: selVendor?.vendor_name || ''});
@@ -379,24 +379,24 @@ export default function Vander() {
               </div>
 
               <div>
-                <label style={{ fontSize:'12px', color:'#94a3b8' }}>Transaction Type *</label>
-                <select className="modern-input" value={txnData.txn_type} onChange={e=>setTxnData({...txnData, txn_type: e.target.value})} style={{ color: txnData.txn_type === 'BILL_RECEIVED' ? '#ef4444' : '#10b981', fontWeight: 'bold' }}>
+                <label style={{ fontSize:'12px', color:'#9aadd4' }}>Transaction Type *</label>
+                <select className="modern-input" value={txnData.txn_type} onChange={e=>setTxnData({...txnData, txn_type: e.target.value})} style={{ color: txnData.txn_type === 'BILL_RECEIVED' ? '#ff6b81' : '#2fe39b', fontWeight: 'bold' }}>
                   <option value="PAYMENT_GIVEN">💸 Payment Given (Reduces Balance)</option>
                   <option value="BILL_RECEIVED">🧾 Bill / Invoice Received (Increases Balance)</option>
                 </select>
               </div>
 
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Date</label><input type="date" className="modern-input" value={txnData.txn_date} onChange={e=>setTxnData({...txnData, txn_date: e.target.value})} style={{ colorScheme: 'dark' }} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Date</label><input type="date" className="modern-input" value={txnData.txn_date} onChange={e=>setTxnData({...txnData, txn_date: e.target.value})} style={{ colorScheme: 'dark' }} /></div>
               
               <div>
-                <label style={{ fontSize:'12px', color: '#f59e0b', fontWeight: 'bold' }}>Amount (₹) *</label>
-                <input type="number" className="modern-input" style={{ border: '1px solid #f59e0b', fontSize: '18px', fontWeight: 'bold' }} value={txnData.amount} onChange={e=>setTxnData({...txnData, amount: e.target.value})} />
+                <label style={{ fontSize:'12px', color: '#ffb224', fontWeight: 'bold' }}>Amount (₹) *</label>
+                <input type="number" className="modern-input" style={{ border: '1px solid #ffb224', fontSize: '18px', fontWeight: 'bold' }} value={txnData.amount} onChange={e=>setTxnData({...txnData, amount: e.target.value})} />
               </div>
 
               {txnData.txn_type === 'PAYMENT_GIVEN' && (
                 <>
                   <div>
-                    <label style={{ fontSize:'12px', color:'#94a3b8' }}>Payment Mode</label>
+                    <label style={{ fontSize:'12px', color:'#9aadd4' }}>Payment Mode</label>
                     <select className="modern-input" value={txnData.payment_mode} onChange={e=>setTxnData({...txnData, payment_mode: e.target.value})}>
                       <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
                       <option value="UPI">UPI</option>
@@ -408,8 +408,8 @@ export default function Vander() {
                   {/* A payment moves real money out of a real account. The
                       account is the operator's choice and is never defaulted —
                       guessing it would post the entry against the wrong bank. */}
-                  <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: '10px', padding: '14px' }}>
-                    <label style={{ fontSize:'12px', color:'#f59e0b', fontWeight:'bold' }}>Paid from which account? *</label>
+                  <div style={{ background: 'rgba(255, 178, 36,0.06)', border: '1px solid rgba(255, 178, 36,0.35)', borderRadius: '10px', padding: '14px' }}>
+                    <label style={{ fontSize:'12px', color:'#ffb224', fontWeight:'bold' }}>Paid from which account? *</label>
                     <select className="modern-input" style={{ marginTop: '6px' }} disabled={!txnData.post_to_ledger}
                             value={txnData.account} onChange={e=>setTxnData({...txnData, account: e.target.value})}>
                       <option value="">-- Select the bank / cash account --</option>
@@ -419,11 +419,11 @@ export default function Vander() {
                         </option>
                       ))}
                     </select>
-                    <div style={{ marginTop: '10px', fontSize: '11px', color: '#94a3b8' }}>
-                      Posts <b style={{ color: '#f87171' }}>Dr Creditors: {txnData.vendor_name || 'vendor'}</b>
-                      {' / '}<b style={{ color: '#34d399' }}>Cr {txnData.account || 'the account you select'}</b>
+                    <div style={{ marginTop: '10px', fontSize: '11px', color: '#9aadd4' }}>
+                      Posts <b style={{ color: '#ff8b9c' }}>Dr Creditors: {txnData.vendor_name || 'vendor'}</b>
+                      {' / '}<b style={{ color: '#2fe39b' }}>Cr {txnData.account || 'the account you select'}</b>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '11px', color: '#94a3b8', cursor: 'pointer' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px', fontSize: '11px', color: '#9aadd4', cursor: 'pointer' }}>
                       <input type="checkbox" checked={!txnData.post_to_ledger}
                              onChange={e=>setTxnData({...txnData, post_to_ledger: !e.target.checked, account: e.target.checked ? '' : txnData.account})} />
                       Subsidiary only — record in the vendor khata without a ledger voucher
@@ -432,10 +432,10 @@ export default function Vander() {
                 </>
               )}
 
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Remarks / Bill No / Reference</label><input className="modern-input" value={txnData.remarks} onChange={e=>setTxnData({...txnData, remarks: e.target.value})} placeholder="e.g. Bill #104 or UTR No" /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Remarks / Bill No / Reference</label><input className="modern-input" value={txnData.remarks} onChange={e=>setTxnData({...txnData, remarks: e.target.value})} placeholder="e.g. Bill #104 or UTR No" /></div>
             </div>
             
-            <button className="glow-btn" disabled={savingTxn} style={{ width: '100%', marginTop: '25px', padding: '15px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', opacity: savingTxn ? 0.6 : 1, cursor: savingTxn ? 'wait' : 'pointer' }} onClick={handleSaveTxn}>
+            <button className="glow-btn" disabled={savingTxn} style={{ width: '100%', marginTop: '25px', padding: '15px', background: 'linear-gradient(135deg, #ffb224, #d97706)', opacity: savingTxn ? 0.6 : 1, cursor: savingTxn ? 'wait' : 'pointer' }} onClick={handleSaveTxn}>
               {savingTxn ? 'Posting…' : txnData.txn_type === 'BILL_RECEIVED' ? '🧾 Add to Bill Ledger' : '💸 Confirm Payment'}
             </button>
           </div>

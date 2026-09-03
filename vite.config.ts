@@ -43,8 +43,8 @@ export default defineConfig({
         short_name: 'Prasad ERP',
         description: 'Transport and logistics ERP — fleet operations, trip settlement, live tracking and the finance books.',
         // Matches the splash background so the status bar does not flash white.
-        theme_color: '#020617',
-        background_color: '#020617',
+        theme_color: '#0a1024',
+        background_color: '#0a1024',
         display: 'standalone',
         orientation: 'any',
         start_url: '/',

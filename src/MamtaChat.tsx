@@ -170,11 +170,11 @@ export default function MamtaChat() {
       {/* Header / index control */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
         <div>
-          <h2 style={{ margin: 0, color: '#c084fc' }}>🤖 MAMTA AI <span style={{ fontSize: '11px', color: '#10b981', border: '1px solid #10b981', borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }}>100% LOCAL</span></h2>
-          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-            Index: <b style={{ color: indexCount ? '#10b981' : '#f59e0b' }}>{indexCount} records</b>
-            {online === false && <span style={{ color: '#ef4444', marginLeft: '10px' }}>● Engine offline</span>}
-            {online === true && <span style={{ color: '#10b981', marginLeft: '10px' }}>● Engine online</span>}
+          <h2 style={{ margin: 0, color: '#a78bfa' }}>🤖 MAMTA AI <span style={{ fontSize: '11px', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', padding: '1px 8px', marginLeft: '6px' }}>100% LOCAL</span></h2>
+          <div style={{ fontSize: '12px', color: '#9aadd4', marginTop: '4px' }}>
+            Index: <b style={{ color: indexCount ? '#2fe39b' : '#ffb224' }}>{indexCount} records</b>
+            {online === false && <span style={{ color: '#ff6b81', marginLeft: '10px' }}>● Engine offline</span>}
+            {online === true && <span style={{ color: '#2fe39b', marginLeft: '10px' }}>● Engine online</span>}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -182,7 +182,7 @@ export default function MamtaChat() {
           <button onClick={toggleSpeaker} title={voiceName ? `Voice: ${voiceName}` : 'No local voice found'} className={`pt-btn ${speaker ? 'pt-btn--success' : 'pt-btn--ghost'}`} style={{ fontSize: '12px', padding: '6px 12px' }}>
             {speaker ? '🔊 Voice On' : '🔇 Voice Off'}
           </button>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#9aadd4', cursor: 'pointer' }}>
             <input type="checkbox" checked={agentMode} onChange={e => setAgentMode(e.target.checked)} />
             🧭 Agent mode
           </label>
@@ -193,12 +193,12 @@ export default function MamtaChat() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '10px', background: 'rgba(2,6,23,0.4)', borderRadius: '14px', border: '1px solid #1e293b' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '10px', background: 'rgba(10, 16, 36,0.4)', borderRadius: '14px', border: '1px solid #18244a' }}>
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: '12px' }}>
-            <div style={{ maxWidth: isMobile ? '92%' : '80%', padding: '12px 16px', borderRadius: '14px', background: m.role === 'user' ? 'linear-gradient(135deg,#3b82f6,#6366f1)' : 'rgba(30,41,59,0.7)', color: '#f1f5f9', border: m.role === 'user' ? 'none' : '1px solid #334155', whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '16px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+            <div style={{ maxWidth: isMobile ? '92%' : '80%', padding: '12px 16px', borderRadius: '14px', background: m.role === 'user' ? 'linear-gradient(135deg,#3b82f6,#7c8cff)' : 'rgba(24, 36, 74,0.7)', color: '#eef3fa', border: m.role === 'user' ? 'none' : '1px solid #27395f', whiteSpace: 'pre-wrap', lineHeight: 1.55, fontSize: '16px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
               {m.trace?.length > 0 && (
-                <div style={{ marginBottom: '8px', fontSize: '11px', color: '#c084fc', fontFamily: 'monospace' }}>
+                <div style={{ marginBottom: '8px', fontSize: '11px', color: '#a78bfa', fontFamily: 'monospace' }}>
                   {m.trace.map((t: string, k: number) => <div key={k}>{t}</div>)}
                 </div>
               )}
@@ -206,10 +206,10 @@ export default function MamtaChat() {
                 ? <AssistantText text={m.content} onTapSuggestion={(s) => !busy && send(s)} />
                 : (m.content || (m.streaming ? '▌' : ''))}
               {m.pendingWrite && (
-                <div style={{ marginTop: '10px', background: 'rgba(245,158,11,0.08)', border: '1px solid #f59e0b', borderRadius: '10px', padding: '12px' }}>
-                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#f59e0b', marginBottom: '8px' }}>✍️ {m.pendingWrite.agent} → {m.pendingWrite.tool}</div>
+                <div style={{ marginTop: '10px', background: 'rgba(255, 178, 36,0.08)', border: '1px solid #ffb224', borderRadius: '10px', padding: '12px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#ffb224', marginBottom: '8px' }}>✍️ {m.pendingWrite.agent} → {m.pendingWrite.tool}</div>
                   {Object.entries(m.pendingWrite.args).map(([k, v]) => (
-                    <div key={k} style={{ fontSize: '12px', color: '#cbd5e1' }}><span style={{ color: '#94a3b8' }}>{k}:</span> <b>{String(v)}</b></div>
+                    <div key={k} style={{ fontSize: '12px', color: '#c4d1ea' }}><span style={{ color: '#9aadd4' }}>{k}:</span> <b>{String(v)}</b></div>
                   ))}
                   <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                     <button onClick={() => confirmWrite(i)} className="pt-btn pt-btn--success" style={{ fontSize: '12px', padding: '6px 14px' }}>✅ Confirm & Save</button>
@@ -219,20 +219,20 @@ export default function MamtaChat() {
               )}
               {m.sources?.length > 0 && (
                 <details style={{ marginTop: '8px' }}>
-                  <summary style={{ fontSize: '11px', color: '#94a3b8', cursor: 'pointer' }}>📎 {m.sources.length} source records</summary>
+                  <summary style={{ fontSize: '11px', color: '#9aadd4', cursor: 'pointer' }}>📎 {m.sources.length} source records</summary>
                   {m.sources.map((s: any, j: number) => (
-                    <div key={j} style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>• {s.text.slice(0, 120)}</div>
+                    <div key={j} style={{ fontSize: '10px', color: '#5d7196', marginTop: '4px' }}>• {s.text.slice(0, 120)}</div>
                   ))}
                 </details>
               )}
               {m.role === 'assistant' && m.content && !m.streaming && !m.pendingWrite && (
                 <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                   {m.feedback ? (
-                    <span style={{ fontSize: '11px', color: m.feedback === 'up' ? '#10b981' : '#f59e0b' }}>{m.feedback === 'up' ? '👍 Yaad rakh liya' : '👎 Review ke liye logged'}</span>
+                    <span style={{ fontSize: '11px', color: m.feedback === 'up' ? '#2fe39b' : '#ffb224' }}>{m.feedback === 'up' ? '👍 Yaad rakh liya' : '👎 Review ke liye logged'}</span>
                   ) : (
                     <>
-                      <button onClick={() => giveFeedback(i, true)} title="Sahi — yaad rakho" style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👍</button>
-                      <button onClick={() => giveFeedback(i, false)} title="Galat — review" style={{ background: 'none', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👎</button>
+                      <button onClick={() => giveFeedback(i, true)} title="Sahi — yaad rakho" style={{ background: 'none', border: '1px solid #27395f', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👍</button>
+                      <button onClick={() => giveFeedback(i, false)} title="Galat — review" style={{ background: 'none', border: '1px solid #27395f', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', padding: '2px 8px' }}>👎</button>
                     </>
                   )}
                 </div>
@@ -258,7 +258,7 @@ export default function MamtaChat() {
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') send(input); }}
           placeholder={indexCount ? 'ERP data par sawaal poochhiye…' : 'Pehle Build Index dabaayein…'}
-          style={{ flex: 1, padding: '14px 16px', background: '#0f172a', border: '1px solid #334155', borderRadius: '12px', color: '#fff', outline: 'none', fontSize: '16px', minWidth: 0 }}
+          style={{ flex: 1, padding: '14px 16px', background: '#121c38', border: '1px solid #27395f', borderRadius: '12px', color: '#fff', outline: 'none', fontSize: '16px', minWidth: 0 }}
         />
         <button onClick={() => send(input)} disabled={busy || !input.trim()} className={`pt-btn pt-btn--primary ${busy ? 'is-loading' : ''}`}>
           {busy ? '' : '➤ Send'}

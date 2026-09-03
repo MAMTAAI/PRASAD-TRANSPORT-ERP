@@ -24,9 +24,9 @@ import ApprovalDrawer from './components/ApprovalDrawer';
 import { partnerDocDrawerProps } from './components/ApprovalDesk';
 
 const STATUS_META = {
-  PENDING: { label: 'Pending Approval', color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-  APPROVED: { label: 'Approved & Posted', color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-  REJECTED: { label: 'Rejected', color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+  PENDING: { label: 'Pending Approval', color: '#ffb224', bg: 'rgba(255, 178, 36,0.12)' },
+  APPROVED: { label: 'Approved & Posted', color: '#2fe39b', bg: 'rgba(47, 227, 155,0.12)' },
+  REJECTED: { label: 'Rejected', color: '#ff6b81', bg: 'rgba(255, 107, 129,0.12)' },
 };
 
 const emptyForm = {
@@ -116,21 +116,21 @@ function PartnerDocsQueue({ userName, onFiled }) {
   };
 
   return (
-    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.3)' }}>
+    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(255, 178, 36,0.05)', border: '1px solid rgba(255, 178, 36,0.3)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <b style={{ color: '#f59e0b', fontSize: '14px' }}>📱 App Uploads — Driver & Partner ({docs.length} pending)</b>
+        <b style={{ color: '#ffb224', fontSize: '14px' }}>📱 App Uploads — Driver & Partner ({docs.length} pending)</b>
         <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px' }} onClick={load}>↻ Refresh</button>
       </div>
       {docs.length === 0 ? (
-        <div style={{ color: '#64748b', fontSize: '13px' }}>Koi naya upload nahi. Driver/partner app se bheja har kagaz yahan aayega — approve hone par hi system mein lagega.</div>
+        <div style={{ color: '#5d7196', fontSize: '13px' }}>Koi naya upload nahi. Driver/partner app se bheja har kagaz yahan aayega — approve hone par hi system mein lagega.</div>
       ) : docs.map((d) => (
-        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(2,6,23,0.5)', border: '1px solid #1e293b', marginBottom: '8px', flexWrap: 'wrap' }}>
+        <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10, 16, 36,0.5)', border: '1px solid #18244a', marginBottom: '8px', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: '220px' }}>
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>
-              {DOC_LABEL[d.doc_type] ?? d.doc_type} · <span style={{ color: '#38bdf8' }}>{d.uploader_name}</span>
-              <span style={{ color: '#64748b', fontWeight: 'normal' }}> ({d.uploader_role.toLowerCase()})</span>
+              {DOC_LABEL[d.doc_type] ?? d.doc_type} · <span style={{ color: '#22d3ee' }}>{d.uploader_name}</span>
+              <span style={{ color: '#5d7196', fontWeight: 'normal' }}> ({d.uploader_role.toLowerCase()})</span>
             </div>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <div style={{ fontSize: '11px', color: '#9aadd4' }}>
               {new Date(d.created_at).toLocaleString('en-IN')}
               {d.trip_code ? ` · trip ${d.trip_code}` : ''}{d.bill_no ? ` · bill ${d.bill_no}` : ''}
               {d.remarks ? ` · ${d.remarks}` : ''}
@@ -147,7 +147,7 @@ function PartnerDocsQueue({ userName, onFiled }) {
                     onClick={() => viewPhoto(d)}>🔍 View</button>
             <button className="pt-btn pt-btn--success" style={{ minHeight: '36px', fontSize: '12px' }}
                     disabled={busy === d.id} onClick={() => decide(d, 'approve')}>✅ Approve</button>
-            <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ef4444', borderColor: '#ef444455' }}
+            <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ff6b81', borderColor: '#ef444455' }}
                     disabled={busy === d.id} onClick={() => decide(d, 'reject')}>✖ Reject</button>
           </div>
         </div>
@@ -216,35 +216,35 @@ function MakerCheckerQueue({ isAdmin }) {
   };
 
   return (
-    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(56,189,248,0.05)', border: '1px solid rgba(56,189,248,0.25)' }}>
+    <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(34, 211, 238,0.05)', border: '1px solid rgba(34, 211, 238,0.25)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <b style={{ color: '#38bdf8', fontSize: '14px' }}>
+        <b style={{ color: '#22d3ee', fontSize: '14px' }}>
           🛃 Maker-Checker Queue ({q.rows.length}{q.total?.amount ? ` · ₹${Number(q.total.amount).toLocaleString('en-IN')} pending` : ''})
         </b>
         <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px' }} onClick={load}>↻ Refresh</button>
       </div>
       {q.rows.length === 0 ? (
-        <div style={{ color: '#64748b', fontSize: '13px' }}>Koi submitted entry approval ka intezaar nahi kar rahi. Vendor bills, TDS, EMI, toll claims — sab clear.</div>
+        <div style={{ color: '#5d7196', fontSize: '13px' }}>Koi submitted entry approval ka intezaar nahi kar rahi. Vendor bills, TDS, EMI, toll claims — sab clear.</div>
       ) : q.rows.map((row) => (
-        <div key={`${row.source_table}-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(2,6,23,0.5)', border: '1px solid #1e293b', marginBottom: '8px', flexWrap: 'wrap' }}>
+        <div key={`${row.source_table}-${row.id}`} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(10, 16, 36,0.5)', border: '1px solid #18244a', marginBottom: '8px', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: '220px' }}>
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#fff' }}>{row.subject ?? row.source_table}</div>
-            <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+            <div style={{ fontSize: '11px', color: '#9aadd4' }}>
               {row.source_table} · submitted {row.submitted_at ? new Date(row.submitted_at).toLocaleString('en-IN') : '—'}
             </div>
           </div>
           {row.amount != null && (
-            <div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{Number(row.amount).toLocaleString('en-IN')}</div>
+            <div style={{ fontSize: '15px', fontWeight: 900, color: '#ffb224' }}>₹{Number(row.amount).toLocaleString('en-IN')}</div>
           )}
           {isAdmin ? (
             <div style={{ display: 'flex', gap: '8px' }}>
               <button className="pt-btn pt-btn--success" style={{ minHeight: '36px', fontSize: '12px' }}
                       disabled={busy === row.id} onClick={() => decide(row, 'approve')}>✅ Approve</button>
-              <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ef4444', borderColor: '#ef444455' }}
+              <button className="pt-btn" style={{ minHeight: '36px', fontSize: '12px', color: '#ff6b81', borderColor: '#ef444455' }}
                       disabled={busy === row.id} onClick={() => decide(row, 'reject')}>✖ Reject</button>
             </div>
           ) : (
-            <span style={{ fontSize: '11px', color: '#64748b' }}>admin approval required</span>
+            <span style={{ fontSize: '11px', color: '#5d7196' }}>admin approval required</span>
           )}
         </div>
       ))}
@@ -453,7 +453,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(22px, 5vw, 28px)', fontWeight: 900 }}>⏳ Pending Expenses <span className="pt-badge pt-badge--warning" style={{ verticalAlign: 'middle' }}>Admin Approval</span></h2>
-          <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>Unloading ke baad aaye bills (HSD pump / Toll / Vendor) — approval ke baad hi trip P&L aur ledger mein retro-post honge.</p>
+          <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>Unloading ke baad aaye bills (HSD pump / Toll / Vendor) — approval ke baad hi trip P&L aur ledger mein retro-post honge.</p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <label className="pt-btn pt-btn--ai" style={{ cursor: scanning ? 'wait' : 'pointer', minHeight: '48px' }}>
@@ -467,32 +467,32 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
       {/* ── KPI strip ── */}
       <div className="pt-stagger" style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '22px' }}>
         <div className="pt-kpi">
-          <div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Awaiting Approval</div>
+          <div className="pt-kpi__label" style={{ color: '#ffb224' }}>Awaiting Approval</div>
           <div className="pt-kpi__value">{rows.filter(r => r.status === 'PENDING').length}</div>
           <div className="pt-kpi__sub">bills queue mein</div>
         </div>
         <div className="pt-kpi">
-          <div className="pt-kpi__label" style={{ color: '#f59e0b' }}>Pending Value</div>
-          <div className="pt-kpi__value" style={{ color: '#f59e0b' }}>₹{pendingTotal.toLocaleString('en-IN')}</div>
+          <div className="pt-kpi__label" style={{ color: '#ffb224' }}>Pending Value</div>
+          <div className="pt-kpi__value" style={{ color: '#ffb224' }}>₹{pendingTotal.toLocaleString('en-IN')}</div>
           <div className="pt-kpi__sub">approval ke baad post hoga</div>
         </div>
         <div className="pt-kpi">
-          <div className="pt-kpi__label" style={{ color: '#10b981' }}>Posted (All Time)</div>
-          <div className="pt-kpi__value" style={{ color: '#10b981' }}>{approvedCount}</div>
+          <div className="pt-kpi__label" style={{ color: '#2fe39b' }}>Posted (All Time)</div>
+          <div className="pt-kpi__value" style={{ color: '#2fe39b' }}>{approvedCount}</div>
           <div className="pt-kpi__sub">journal + P&L updated</div>
         </div>
-        <div className="pt-kpi" style={{ borderColor: '#ef4444' }}>
-          <div className="pt-kpi__label" style={{ color: '#ef4444' }}>⛽ Fuel Slips — Bill Pending</div>
-          <div className="pt-kpi__value" style={{ color: '#ef4444' }}>{fuelPending.count}</div>
+        <div className="pt-kpi" style={{ borderColor: '#ff6b81' }}>
+          <div className="pt-kpi__label" style={{ color: '#ff6b81' }}>⛽ Fuel Slips — Bill Pending</div>
+          <div className="pt-kpi__value" style={{ color: '#ff6b81' }}>{fuelPending.count}</div>
           <div className="pt-kpi__sub">{fuelPending.liters.toLocaleString('en-IN')} L diesel — pump bill se reconcile baaki</div>
         </div>
       </div>
 
       {/* ⛽ FUEL PENDING GUIDANCE — yahi wo "missing expenses" hain jo P&L me nahi aa rahe */}
       {fuelPending.count > 0 && (
-        <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(239,68,68,0.06)', border: '1px dashed #ef4444', fontSize: '13px', color: '#fca5a5', lineHeight: 1.7 }}>
-          <b style={{ color: '#ef4444' }}>⛽ {fuelPending.count} fuel slips ({fuelPending.liters.toLocaleString('en-IN')} liters) ka PAISA abhi system me nahi hai</b> — memo se sirf LITERS record hote hain; ₹ value pump ke physical bill se aati hai.
-          <div style={{ marginTop: '8px', color: '#cbd5e1' }}>
+        <div className="pt-anim-up" style={{ marginBottom: '22px', padding: '16px 18px', borderRadius: '14px', background: 'rgba(255, 107, 129,0.06)', border: '1px dashed #ff6b81', fontSize: '13px', color: '#fca5a5', lineHeight: 1.7 }}>
+          <b style={{ color: '#ff6b81' }}>⛽ {fuelPending.count} fuel slips ({fuelPending.liters.toLocaleString('en-IN')} liters) ka PAISA abhi system me nahi hai</b> — memo se sirf LITERS record hote hain; ₹ value pump ke physical bill se aati hai.
+          <div style={{ marginTop: '8px', color: '#c4d1ea' }}>
             Kaise poora karein: <b>Fuel (HSD) Mgmt → BILL RECONCILIATION</b> tab → pump/vendor chunein → physical bill ka total bharein → Verify.
             Ab reconcile karte hi har slip ki value uski TRIP ke kharche me AUTO jud jaati hai (P&L complete). Ya <b>AI Bill Scanner → HSD/Pump Bill</b> se bill scan karein — wahi kaam automatic.
           </div>
@@ -510,38 +510,38 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
       <MakerCheckerQueue isAdmin={isAdmin} />
 
       {/* ── Entry form (📱 BottomSheet on phone, centered dialog on desktop) ── */}
-      <BottomSheet open={showForm} onClose={() => setShowForm(false)} title="📝 File Retro Expense" accent="#f59e0b" maxWidth={760}>
+      <BottomSheet open={showForm} onClose={() => setShowForm(false)} title="📝 File Retro Expense" accent="#ffb224" maxWidth={760}>
         <div className="pt-anim-fade">
-          {scanNote && <div className="pt-anim-pop" style={{ marginBottom: '15px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(56,189,248,0.08)', border: '1px dashed #38bdf8', color: '#7dd3fc', fontSize: '13px' }}>{scanNote}</div>}
+          {scanNote && <div className="pt-anim-pop" style={{ marginBottom: '15px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(34, 211, 238,0.08)', border: '1px dashed #22d3ee', color: '#7dd3fc', fontSize: '13px' }}>{scanNote}</div>}
 
           {/* 🔗 Trip picker (tap-first: search once, then everything is taps) */}
-          <div style={{ marginBottom: '18px', background: 'rgba(16,185,129,0.05)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '14px', padding: '15px' }}>
-            <label className="pt-label" style={{ color: '#10b981' }}>🔗 Link to Trip (search Vehicle / Trip ID / Driver — completed trips included)</label>
+          <div style={{ marginBottom: '18px', background: 'rgba(47, 227, 155,0.05)', border: '1px solid rgba(47, 227, 155,0.25)', borderRadius: '14px', padding: '15px' }}>
+            <label className="pt-label" style={{ color: '#2fe39b' }}>🔗 Link to Trip (search Vehicle / Trip ID / Driver — completed trips included)</label>
             {pickedTrip ? (
               <div className="pt-anim-pop" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div>
-                  <b style={{ color: '#10b981', fontSize: '15px' }}>{getField(pickedTrip, ['trip_id', 'Trip_ID']) || pickedTrip.id}</b>
+                  <b style={{ color: '#2fe39b', fontSize: '15px' }}>{getField(pickedTrip, ['trip_id', 'Trip_ID']) || pickedTrip.id}</b>
                   <span style={{ color: '#fff', marginLeft: '10px', fontWeight: 'bold' }}>{getField(pickedTrip, ['vehicle_no', 'Vehical_No', 'vehical_no'])}</span>
-                  <span style={{ color: '#94a3b8', marginLeft: '10px', fontSize: '12px' }}>
+                  <span style={{ color: '#9aadd4', marginLeft: '10px', fontSize: '12px' }}>
                     {getField(pickedTrip, ['loading_point', 'Loading_Point'])} ➔ {getField(pickedTrip, ['consignee_name', 'Consignee_Name'])} · Ld {toISODate(getField(pickedTrip, ['loading_date', 'Loading_Date', 'start_date'])) || '-'}
                   </span>
                   <span className={`pt-badge ${getField(pickedTrip, ['trip_status']) === 'COMPLETED' ? 'pt-badge--success' : 'pt-badge--info'}`} style={{ marginLeft: '10px' }}>
                     {getField(pickedTrip, ['trip_status', 'Trip_Status']) || 'ACTIVE'}
                   </span>
                 </div>
-                <button className="pt-btn pt-btn--ghost" style={{ borderColor: '#ef4444', color: '#ef4444', minHeight: '44px' }} onClick={() => { setPickedTrip(null); setTripSearch(''); }}>Change</button>
+                <button className="pt-btn pt-btn--ghost" style={{ borderColor: '#ff6b81', color: '#ff6b81', minHeight: '44px' }} onClick={() => { setPickedTrip(null); setTripSearch(''); }}>Change</button>
               </div>
             ) : (
               <>
                 <input className="pt-input" placeholder="Type vehicle no / trip id / driver…" value={tripSearch} onChange={e => setTripSearch(e.target.value)} onFocus={ensureTrips} />
                 {tripOptions.length > 0 && (
-                  <div className="pt-anim-up" style={{ marginTop: '8px', border: '1px solid #334155', borderRadius: '12px', overflow: 'hidden' }}>
+                  <div className="pt-anim-up" style={{ marginTop: '8px', border: '1px solid #27395f', borderRadius: '12px', overflow: 'hidden' }}>
                     {tripOptions.map(t => (
-                      <div key={t.id} onClick={() => setPickedTrip(t)} style={{ padding: '14px', minHeight: '48px', cursor: 'pointer', borderBottom: '1px solid #1e293b', fontSize: '13px', background: '#0f172a', transition: 'background .15s' }}
-                        onMouseOver={e => e.currentTarget.style.background = '#16233b'} onMouseOut={e => e.currentTarget.style.background = '#0f172a'}>
-                        <b style={{ color: '#38bdf8' }}>{getField(t, ['trip_id', 'Trip_ID']) || t.id}</b>
+                      <div key={t.id} onClick={() => setPickedTrip(t)} style={{ padding: '14px', minHeight: '48px', cursor: 'pointer', borderBottom: '1px solid #18244a', fontSize: '13px', background: '#121c38', transition: 'background .15s' }}
+                        onMouseOver={e => e.currentTarget.style.background = '#16233b'} onMouseOut={e => e.currentTarget.style.background = '#121c38'}>
+                        <b style={{ color: '#22d3ee' }}>{getField(t, ['trip_id', 'Trip_ID']) || t.id}</b>
                         <span style={{ color: '#fff', margin: '0 8px', fontWeight: 'bold' }}>{getField(t, ['vehicle_no', 'Vehical_No', 'vehical_no'])}</span>
-                        <span style={{ color: '#94a3b8' }}>{getField(t, ['loading_point', 'Loading_Point'])} ➔ {getField(t, ['consignee_name', 'Consignee_Name'])} · {getField(t, ['trip_status', 'Trip_Status']) || ''} · Ld {toISODate(getField(t, ['loading_date', 'Loading_Date', 'start_date'])) || '-'}</span>
+                        <span style={{ color: '#9aadd4' }}>{getField(t, ['loading_point', 'Loading_Point'])} ➔ {getField(t, ['consignee_name', 'Consignee_Name'])} · {getField(t, ['trip_status', 'Trip_Status']) || ''} · Ld {toISODate(getField(t, ['loading_date', 'Loading_Date', 'start_date'])) || '-'}</span>
                       </div>
                     ))}
                   </div>
@@ -565,27 +565,27 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
             <div><label className="pt-label">Vendor / Pump Name</label><input className="pt-input" value={form.vendor_name} onChange={e => setForm({ ...form, vendor_name: e.target.value })} placeholder="e.g. Sharma Filling Station" /></div>
             <div><label className="pt-label">Bill No</label><input className="pt-input" value={form.bill_no} onChange={e => setForm({ ...form, bill_no: e.target.value })} placeholder="Bill / memo no" /></div>
             <div><label className="pt-label">Bill Date</label><input type="date" className="pt-input" style={S.input} value={form.bill_date} onChange={e => setForm({ ...form, bill_date: e.target.value })} /></div>
-            <div><label className="pt-label" style={{ color: '#10b981' }}>Amount (₹) *</label><input type="number" inputMode="decimal" className="pt-input" style={{ borderColor: '#10b981', fontWeight: 'bold', fontSize: '18px' }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="0.00" /></div>
+            <div><label className="pt-label" style={{ color: '#2fe39b' }}>Amount (₹) *</label><input type="number" inputMode="decimal" className="pt-input" style={{ borderColor: '#2fe39b', fontWeight: 'bold', fontSize: '18px' }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="0.00" /></div>
             <div><label className="pt-label">GST (₹)</label><input type="number" inputMode="decimal" className="pt-input" value={form.gst_amount} onChange={e => setForm({ ...form, gst_amount: e.target.value })} placeholder="0.00" /></div>
           </div>
           <div style={{ marginTop: '15px' }}>
             <label className="pt-label">Description / Remarks</label>
             <input className="pt-input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="e.g. 150L HSD top-up at Jorhat" />
           </div>
-          <button disabled={saving} onClick={handleSubmit} style={{ width: '100%', marginTop: '20px', padding: '16px', minHeight: '52px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#0f172a', border: 'none', borderRadius: '12px', fontWeight: 900, fontSize: '15px', cursor: 'pointer', boxShadow: '0 6px 20px rgba(245,158,11,0.35)', transition: 'transform .15s ease' }}>
+          <button disabled={saving} onClick={handleSubmit} style={{ width: '100%', marginTop: '20px', padding: '16px', minHeight: '52px', background: 'linear-gradient(135deg, #ffb224, #d97706)', color: '#121c38', border: 'none', borderRadius: '12px', fontWeight: 900, fontSize: '15px', cursor: 'pointer', boxShadow: '0 6px 20px rgba(255, 178, 36,0.35)', transition: 'transform .15s ease' }}>
             {saving ? '⏳ Filing…' : '📥 FILE FOR ADMIN APPROVAL'}
           </button>
         </div>
       </BottomSheet>
 
       {/* ── Status tabs (animated underline) ── */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '20px', borderBottom: '1px solid #27395f', overflowX: 'auto' }}>
         {Object.entries(STATUS_META).map(([k, m]) => {
           const n = rows.filter(r => r.status === k).length;
           const activeMod = k === 'APPROVED' ? 'is-active--success' : k === 'REJECTED' ? 'is-active--danger' : 'is-active--warning';
           return (
             <button key={k} className={`pt-tab ${statusTab === k ? `is-active ${activeMod}` : ''}`} onClick={() => setStatusTab(k)}>
-              {m.label} {n > 0 && <span className="pt-tab__count" style={{ background: m.color, color: '#0f172a' }}>{n}</span>}
+              {m.label} {n > 0 && <span className="pt-tab__count" style={{ background: m.color, color: '#121c38' }}>{n}</span>}
             </button>
           );
         })}
@@ -593,7 +593,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
 
       {/* ── Queue: smart cards (staggered entrance, re-animates on tab switch) ── */}
       {filtered.length === 0 ? (
-        <div className="pt-anim-up" style={{ textAlign: 'center', padding: '50px', color: '#64748b', background: 'rgba(30,41,59,0.3)', borderRadius: '16px', border: '1px dashed #334155' }}>
+        <div className="pt-anim-up" style={{ textAlign: 'center', padding: '50px', color: '#5d7196', background: 'rgba(24, 36, 74,0.3)', borderRadius: '16px', border: '1px dashed #27395f' }}>
           {statusTab === 'PENDING' ? '🎉 Koi bill approval ke liye pending nahi hai.' : 'No records.'}
         </div>
       ) : (
@@ -609,39 +609,39 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                   <div style={{ fontWeight: 900, fontSize: '16px' }}>{meta.icon} {meta.label}</div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <button type="button" onClick={() => setView(r)} title="Open in the approval desk — bill, details, decision"
-                      style={{ background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '8px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>
+                      style={{ background: 'rgba(34, 211, 238,0.12)', color: '#22d3ee', border: '1px solid rgba(34, 211, 238,0.35)', borderRadius: '8px', padding: '4px 10px', fontSize: '11px', fontWeight: 800, cursor: 'pointer' }}>
                       🔍 View
                     </button>
                     <span className={`pt-badge ${badgeMod}`}>{sm.label}</span>
                   </div>
                 </div>
                 <div style={{ fontSize: '30px', fontWeight: 900, color: sm.color }}>₹{Number(r.amount || 0).toLocaleString('en-IN')}</div>
-                <div style={{ fontSize: '13px', color: '#cbd5e1', display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  {r.vendor_name && <div>🏪 {r.vendor_name} {r.bill_no && <span style={{ color: '#94a3b8' }}>· Bill {r.bill_no}</span>}</div>}
-                  <div style={{ color: '#94a3b8' }}>📅 {r.bill_date || '-'} · by {r.entered_by} {r.source === 'ai_scan' && <span className="pt-badge pt-badge--ai">🤖 AI</span>}
+                <div style={{ fontSize: '13px', color: '#c4d1ea', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  {r.vendor_name && <div>🏪 {r.vendor_name} {r.bill_no && <span style={{ color: '#9aadd4' }}>· Bill {r.bill_no}</span>}</div>}
+                  <div style={{ color: '#9aadd4' }}>📅 {r.bill_date || '-'} · by {r.entered_by} {r.source === 'ai_scan' && <span className="pt-badge pt-badge--ai">🤖 AI</span>}
                     {r.source === 'VENDOR_PORTAL' && <span className="pt-badge pt-badge--warning" style={{ marginLeft: '6px' }}>🏪 Vendor portal</span>}
                     {/* A bill a service vendor uploaded from its own portal carries its PDF/photo here (migration 130). */}
                     {r.file_key && (
                       <button type="button" onClick={() => setView(r)}
-                        style={{ marginLeft: '8px', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                        style={{ marginLeft: '8px', background: 'rgba(34, 211, 238,0.12)', color: '#22d3ee', border: '1px solid rgba(34, 211, 238,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
                         📎 View bill
                       </button>
                     )}
                   </div>
-                  {r.description && <div style={{ color: '#94a3b8', fontStyle: 'italic' }}>“{r.description}”</div>}
+                  {r.description && <div style={{ color: '#9aadd4', fontStyle: 'italic' }}>“{r.description}”</div>}
                 </div>
                 {r.trip_id ? (
-                  <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: '10px', padding: '10px 12px', fontSize: '12px' }}>
-                    🔗 <b style={{ color: '#38bdf8' }}>Trip {r.trip_id}</b> · {r.vehicle_no} {r.driver_name && `· ${r.driver_name}`}
+                  <div style={{ background: 'rgba(34, 211, 238,0.06)', border: '1px solid rgba(34, 211, 238,0.25)', borderRadius: '10px', padding: '10px 12px', fontSize: '12px' }}>
+                    🔗 <b style={{ color: '#22d3ee' }}>Trip {r.trip_id}</b> · {r.vehicle_no} {r.driver_name && `· ${r.driver_name}`}
                     {r.trip_status_at_entry === 'COMPLETED' && <span className="pt-badge pt-badge--warning" style={{ marginLeft: '6px' }}>Closed Trip · Retro</span>}
                     {r.match_confidence === 'AMBIGUOUS' && <span className="pt-badge pt-badge--warning" style={{ marginLeft: '6px' }}>⚠ Verify</span>}
                   </div>
                 ) : (
-                  <div style={{ fontSize: '12px', color: '#64748b' }}>Bina trip — general expense</div>
+                  <div style={{ fontSize: '12px', color: '#5d7196' }}>Bina trip — general expense</div>
                 )}
                 {r.status === 'PENDING' && isAdmin && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
-                    <span style={{ color: '#94a3b8', fontWeight: 700 }}>🏢 Company (books)</span>
+                    <span style={{ color: '#9aadd4', fontWeight: 700 }}>🏢 Company (books)</span>
                     <select
                       value={pickedCo[r.id] ?? r.company_id ?? ''}
                       onChange={(e) => setPickedCo((m) => ({ ...m, [r.id]: e.target.value }))}
@@ -652,7 +652,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                       // dropdown dark too, not just the closed box.
                       style={{
                         flex: 1, minWidth: '190px', minHeight: '38px', colorScheme: 'dark',
-                        background: '#020617', color: '#e2e8f0', border: '1px solid #334155',
+                        background: '#0a1024', color: '#dde5f4', border: '1px solid #27395f',
                         borderRadius: '9px', padding: '6px 10px', fontWeight: 700,
                       }}
                       data-company={r.id}
@@ -668,14 +668,14 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
                       <button className={`pt-btn pt-btn--success ${busyId === r.id ? 'is-loading' : ''}`} disabled={busyId === r.id} onClick={() => handleApprove(r)} style={{ flex: 2, minHeight: '48px', fontWeight: 900 }}>
                         {busyId === r.id ? 'Posting…' : '✅ Approve & Post'}
                       </button>
-                      <button className="pt-btn pt-btn--ghost" disabled={busyId === r.id} onClick={() => handleReject(r)} style={{ flex: 1, minHeight: '48px', borderColor: '#ef4444', color: '#ef4444' }}>Reject</button>
+                      <button className="pt-btn pt-btn--ghost" disabled={busyId === r.id} onClick={() => handleReject(r)} style={{ flex: 1, minHeight: '48px', borderColor: '#ff6b81', color: '#ff6b81' }}>Reject</button>
                     </div>
                   ) : (
-                    <div style={{ fontSize: '12px', color: '#f59e0b', textAlign: 'center', padding: '12px', background: 'rgba(245,158,11,0.08)', borderRadius: '10px' }}>🔒 Admin approval awaited</div>
+                    <div style={{ fontSize: '12px', color: '#ffb224', textAlign: 'center', padding: '12px', background: 'rgba(255, 178, 36,0.08)', borderRadius: '10px' }}>🔒 Admin approval awaited</div>
                   )
                 )}
-                {r.status === 'APPROVED' && <div style={{ fontSize: '11px', color: '#10b981' }}>✔ Posted by {r.approved_by} — journal + trip P&L updated</div>}
-                {r.status === 'REJECTED' && <div style={{ fontSize: '11px', color: '#ef4444' }}>✖ {r.rejection_reason || 'Rejected'} — by {r.approved_by}</div>}
+                {r.status === 'APPROVED' && <div style={{ fontSize: '11px', color: '#2fe39b' }}>✔ Posted by {r.approved_by} — journal + trip P&L updated</div>}
+                {r.status === 'REJECTED' && <div style={{ fontSize: '11px', color: '#ff6b81' }}>✖ {r.rejection_reason || 'Rejected'} — by {r.approved_by}</div>}
               </div>
             );
           })}
@@ -688,7 +688,7 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
         onClose={() => setView(null)}
         title={view ? `${(EXPENSE_TYPE_META[view.expense_type] || EXPENSE_TYPE_META.OTHER).icon} ${(EXPENSE_TYPE_META[view.expense_type] || EXPENSE_TYPE_META.OTHER).label} — ${view.vendor_name || 'no vendor named'}` : ''}
         subtitle={view ? `${view.trip_id ? `Trip ${view.trip_id} · ${view.vehicle_no ?? ''}` : 'General expense (no trip)'} · filed by ${view.entered_by ?? '—'} · ${view.source ?? 'manual'}` : ''}
-        accent={view?.status === 'APPROVED' ? '#10b981' : view?.status === 'REJECTED' ? '#ef4444' : '#f59e0b'}
+        accent={view?.status === 'APPROVED' ? '#2fe39b' : view?.status === 'REJECTED' ? '#ff6b81' : '#ffb224'}
         fileKey={view?.file_key ?? null}
         fileLabel={view?.source === 'VENDOR_PORTAL' ? 'Vendor bill' : view?.source === 'PARTNER_APP' ? 'App upload' : 'Bill'}
         amount={view ? Number(view.amount ?? 0) : null}

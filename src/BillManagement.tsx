@@ -487,7 +487,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
     }, {});
     let rowsHTML = '', sNo = 1, tGross = 0, tPen = 0, tCg = 0, tSg = 0;
     Object.keys(grouped).sort().forEach((veh) => {
-      rowsHTML += `<tr><td colspan="13" style="font-weight:bold;background:#f1f5f9;padding:6px;">${veh}</td></tr>`;
+      rowsHTML += `<tr><td colspan="13" style="font-weight:bold;background:#eef3fa;padding:6px;">${veh}</td></tr>`;
       let vG = 0, vP = 0, vCg = 0, vSg = 0;
       grouped[veh].forEach((t: any) => {
         const gross = Number(t.gross_freight) || 0;
@@ -543,7 +543,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
         <tr><td colspan="8" style="font-weight:bold;padding:6px;">Reverse Charge</td>
             <td colspan="5" style="text-align:right;font-weight:bold;">Bill No. &amp; Date:- ${b.bill_no} ${d(b.bill_date)}</td></tr>
         ${rowsHTML}
-        <tr style="font-weight:900;font-size:12px;background:#e2e8f0;">
+        <tr style="font-weight:900;font-size:12px;background:#dde5f4;">
           <td colspan="8" style="text-align:right;padding:8px;">Total for Bill:</td>
           <td style="text-align:right;">${inr(tGross)}</td><td style="text-align:right;">${inr(tPen)}</td>
           <td style="text-align:right;">0.00</td><td style="text-align:right;">${inr(tCg)}</td>
@@ -615,56 +615,56 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
     || String(t.lr_no ?? '').toLowerCase().includes(tripSearchTerm.toLowerCase()));
 
   return (
-    <div className="pt-anim-fade" style={{ padding: 'clamp(14px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
+    <div className="pt-anim-fade" style={{ padding: 'clamp(14px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
-        .glass-card { background: rgba(30,41,59,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; backdrop-filter: blur(10px); }
-        .glow-btn { background: linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; padding:12px 25px; border-radius:8px; font-weight:bold; cursor:pointer; transition:.3s; box-shadow:0 4px 15px rgba(16,185,129,.4); }
+        .glass-card { background: rgba(24, 36, 74,0.4); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; backdrop-filter: blur(10px); }
+        .glow-btn { background: linear-gradient(135deg,#2fe39b,#2fe39b); color:#fff; border:none; padding:12px 25px; border-radius:8px; font-weight:bold; cursor:pointer; transition:.3s; box-shadow:0 4px 15px rgba(47, 227, 155,.4); }
         .glow-btn:hover { transform: translateY(-2px); }
         .glow-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
-        .tab-btn { padding:12px 25px; background:transparent; color:#94a3b8; border:none; border-bottom:3px solid transparent; cursor:pointer; font-weight:bold; font-size:14px; }
-        .tab-btn.active { color:#38bdf8; border-bottom:3px solid #38bdf8; background:rgba(56,189,248,.1); border-radius:8px 8px 0 0; }
-        .modern-input { background:rgba(15,23,42,.6); border:1px solid rgba(51,65,85,.8); border-radius:8px; color:#fff; padding:12px; width:100%; box-sizing:border-box; outline:none; color-scheme:dark; }
-        .modern-input:focus { border-color:#38bdf8; }
-        table { width:100%; border-collapse:collapse; margin-top:10px; color:#cbd5e1; font-size:13px; }
-        th { background:rgba(0,0,0,.3); padding:12px; text-align:left; border-bottom:2px solid #334155; color:#38bdf8; text-transform:uppercase; font-size:11px; letter-spacing:1px; }
-        td { padding:12px; border-bottom:1px solid #334155; }
+        .tab-btn { padding:12px 25px; background:transparent; color:#9aadd4; border:none; border-bottom:3px solid transparent; cursor:pointer; font-weight:bold; font-size:14px; }
+        .tab-btn.active { color:#22d3ee; border-bottom:3px solid #22d3ee; background:rgba(34, 211, 238,.1); border-radius:8px 8px 0 0; }
+        .modern-input { background:rgba(18, 28, 56,.6); border:1px solid rgba(39, 57, 95,.8); border-radius:8px; color:#fff; padding:12px; width:100%; box-sizing:border-box; outline:none; color-scheme:dark; }
+        .modern-input:focus { border-color:#22d3ee; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; color:#c4d1ea; font-size:13px; }
+        th { background:rgba(0,0,0,.3); padding:12px; text-align:left; border-bottom:2px solid #27395f; color:#22d3ee; text-transform:uppercase; font-size:11px; letter-spacing:1px; }
+        td { padding:12px; border-bottom:1px solid #27395f; }
         tr:hover { background:rgba(255,255,255,.02); }
         .badge { padding:4px 10px; border-radius:12px; font-size:10px; font-weight:bold; letter-spacing:1px; }
       `}</style>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, color: '#f8fafc', fontSize: 32, fontWeight: 900, letterSpacing: '-0.5px' }}>Company Billing & Reconciliation</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Live PostgreSQL · money posted through TARA's double-entry ledger</p>
+          <h1 style={{ margin: 0, color: '#f6f8fd', fontSize: 32, fontWeight: 900, letterSpacing: '-0.5px' }}>Company Billing & Reconciliation</h1>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Live PostgreSQL · money posted through TARA's double-entry ledger</p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <label className="glow-btn" style={{ background: 'linear-gradient(135deg,#8b5cf6,#6d28d9)', boxShadow: 'none', display: 'inline-block' }}>
             {reconciling ? '⏳ Reading…' : '📄 Reconcile Company PDF'}
             <input type="file" accept="application/pdf,image/*" onChange={handleReconcileCompanyPdf} disabled={reconciling} style={{ display: 'none' }} />
           </label>
-          <button onClick={() => { loadUnbilled(); loadBills(); }} className="glow-btn" style={{ background: '#1e293b', color: '#38bdf8', boxShadow: 'none', border: '1px solid #38bdf8' }}>🔄 Refresh</button>
+          <button onClick={() => { loadUnbilled(); loadBills(); }} className="glow-btn" style={{ background: '#18244a', color: '#22d3ee', boxShadow: 'none', border: '1px solid #22d3ee' }}>🔄 Refresh</button>
         </div>
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '16px 20px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '16px 20px', borderRadius: 12, marginBottom: 20, fontSize: 14 }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{BILLING}</code>. Check that the ERP API is running.</div>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>Reads <code>{BILLING}</code>. Check that the ERP API is running.</div>
         </div>
       )}
 
       {/* DASHBOARD */}
       <div className="pt-stagger" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 20 }}>
         {[
-          { label: 'Pending billing', value: filteredUnbilledTrips.length, sub: 'completed, not billed', color: '#38bdf8' },
-          { label: 'Unpriced trips', value: unpricedCount, sub: 'need qty × rate', color: unpricedCount ? '#ef4444' : '#10b981' },
-          { label: 'Billable value', value: `₹${inr0(filteredUnbilledTrips.reduce((s, t) => s + t.calc_net, 0))}`, sub: 'net of TDS & shortage', color: '#10b981' },
-          { label: 'Outstanding on bills', value: `₹${inr0(billTotals?.outstanding ?? 0)}`, sub: `${bills.filter((b) => b.status !== 'SETTLED' && b.status !== 'CANCELLED').length} open`, color: '#f59e0b' },
+          { label: 'Pending billing', value: filteredUnbilledTrips.length, sub: 'completed, not billed', color: '#22d3ee' },
+          { label: 'Unpriced trips', value: unpricedCount, sub: 'need qty × rate', color: unpricedCount ? '#ff6b81' : '#2fe39b' },
+          { label: 'Billable value', value: `₹${inr0(filteredUnbilledTrips.reduce((s, t) => s + t.calc_net, 0))}`, sub: 'net of TDS & shortage', color: '#2fe39b' },
+          { label: 'Outstanding on bills', value: `₹${inr0(billTotals?.outstanding ?? 0)}`, sub: `${bills.filter((b) => b.status !== 'SETTLED' && b.status !== 'CANCELLED').length} open`, color: '#ffb224' },
         ].map((c) => (
           <div key={c.label} className="glass-card" style={{ padding: '16px 20px', minWidth: 190, flex: '1 1 190px' }}>
             <div style={{ color: c.color, fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 }}>{c.label}</div>
             <div style={{ color: '#fff', fontSize: 26, fontWeight: 900, marginTop: 4 }}>{c.value}</div>
-            <div style={{ color: '#64748b', fontSize: 11 }}>{c.sub}</div>
+            <div style={{ color: '#5d7196', fontSize: 11 }}>{c.sub}</div>
           </div>
         ))}
       </div>
@@ -672,28 +672,28 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       {/* FILTERS */}
       <div className="glass-card" style={{ padding: 18, marginBottom: 20, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 200px' }}>
-          <label style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Customer</label>
+          <label style={{ color: '#9aadd4', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Customer</label>
           <select className="modern-input" value={selectedCustomer} onChange={(e) => setSelectedCustomer(e.target.value)} style={{ marginTop: 5 }}>
             <option value="ALL">-- All customers --</option>
             {customersList.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div style={{ flex: '1 1 150px' }}>
-          <label style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>From</label>
+          <label style={{ color: '#9aadd4', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>From</label>
           <input type="date" className="modern-input" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ marginTop: 5 }} />
         </div>
         <div style={{ flex: '1 1 150px' }}>
-          <label style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>To</label>
+          <label style={{ color: '#9aadd4', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>To</label>
           <input type="date" className="modern-input" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ marginTop: 5 }} />
         </div>
         <div style={{ flex: '2 1 240px' }}>
-          <label style={{ color: '#f59e0b', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Search</label>
+          <label style={{ color: '#ffb224', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Search</label>
           <input className="modern-input" placeholder="🔍 Vehicle, trip, driver, bill no, location…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} style={{ marginTop: 5 }} />
         </div>
       </div>
 
       {/* TABS */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid #334155', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid #27395f', flexWrap: 'wrap' }}>
         <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>
           🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span className="badge" style={{ background: '#10b981', color: '#04241a', marginLeft: 6 }}>{filteredUnbilledTrips.length}</span>}
         </button>
@@ -706,36 +706,36 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       {activeTab === 'UNBILLED_TRIPS' && (
         <div className="glass-card" style={{ padding: 18, overflowX: 'auto' }}>
           {selectedTripsForBill.length > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.35)', borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
-              <div style={{ color: '#cbd5e1', fontSize: 13 }}>
-                <b style={{ color: '#10b981' }}>{selectedTripsForBill.length} trip(s)</b> selected · net ₹{inr(previewTotals.net)}
-                {previewCustomers.length > 1 && <span style={{ color: '#f87171' }}> · ⚠️ {previewCustomers.length} customers</span>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, flexWrap: 'wrap', background: 'rgba(47, 227, 155,0.08)', border: '1px solid rgba(47, 227, 155,0.35)', borderRadius: 10, padding: '12px 16px', marginBottom: 14 }}>
+              <div style={{ color: '#c4d1ea', fontSize: 13 }}>
+                <b style={{ color: '#2fe39b' }}>{selectedTripsForBill.length} trip(s)</b> selected · net ₹{inr(previewTotals.net)}
+                {previewCustomers.length > 1 && <span style={{ color: '#ff8b9c' }}> · ⚠️ {previewCustomers.length} customers</span>}
                 {previewLocations.length > 1 && <span style={{ color: '#fbbf24' }}> · ⚠️ {previewLocations.length} locations</span>}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setSelectedTripsForBill([])} className="glow-btn" style={{ background: '#334155', boxShadow: 'none' }}>Clear</button>
+                <button onClick={() => setSelectedTripsForBill([])} className="glow-btn" style={{ background: '#27395f', boxShadow: 'none' }}>Clear</button>
                 <button onClick={() => setShowPreview(true)} className="glow-btn" disabled={busy}>Preview & Raise Bill →</button>
               </div>
             </div>
           )}
 
           {loading ? (
-            <div style={{ color: '#38bdf8', fontWeight: 'bold', padding: 30, textAlign: 'center' }}>Loading billable trips from PostgreSQL…</div>
+            <div style={{ color: '#22d3ee', fontWeight: 'bold', padding: 30, textAlign: 'center' }}>Loading billable trips from PostgreSQL…</div>
           ) : isPhone ? (
             <div style={{ display: 'grid', gap: 10 }}>
-              {filteredUnbilledTrips.length === 0 && <div style={{ color: '#64748b', textAlign: 'center', padding: 24 }}>No billable trips.</div>}
+              {filteredUnbilledTrips.length === 0 && <div style={{ color: '#5d7196', textAlign: 'center', padding: 24 }}>No billable trips.</div>}
               {filteredUnbilledTrips.map((t) => (
                 <div key={t.id} onClick={() => setSelectedTripsForBill((p) => p.includes(t.id) ? p.filter((x) => x !== t.id) : [...p, t.id])}
-                  style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(16,185,129,0.12)' : 'rgba(15,23,42,0.6)', border: `1px solid ${selectedTripsForBill.includes(t.id) ? '#10b981' : '#334155'}`, borderRadius: 10, padding: 14 }}>
+                  style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(47, 227, 155,0.12)' : 'rgba(18, 28, 56,0.6)', border: `1px solid ${selectedTripsForBill.includes(t.id) ? '#2fe39b' : '#27395f'}`, borderRadius: 10, padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <b style={{ color: '#fff' }}>{t.vehicle_no}</b>
-                    <b style={{ color: t.calc_net > 0 ? '#10b981' : '#ef4444' }}>₹{inr(t.calc_net)}</b>
+                    <b style={{ color: t.calc_net > 0 ? '#2fe39b' : '#ff6b81' }}>₹{inr(t.calc_net)}</b>
                   </div>
-                  <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>{t.customer_name}</div>
-                  <div style={{ color: '#64748b', fontSize: 11 }}>{tripLocation(t)}</div>
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>
+                  <div style={{ color: '#9aadd4', fontSize: 12, marginTop: 4 }}>{t.customer_name}</div>
+                  <div style={{ color: '#5d7196', fontSize: 11 }}>{tripLocation(t)}</div>
+                  <div style={{ color: '#5d7196', fontSize: 11, marginTop: 4 }}>
                     Qty {t.calc_qty} × ₹{t.calc_rate} {t.calc_rtkm > 0 && `× ${t.calc_rtkm}km`}
-                    {t.calc_rate_source === 'none' && <span style={{ color: '#ef4444', fontWeight: 'bold' }}> · no rate</span>}
+                    {t.calc_rate_source === 'none' && <span style={{ color: '#ff6b81', fontWeight: 'bold' }}> · no rate</span>}
                   </div>
                 </div>
               ))}
@@ -745,7 +745,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
               <thead>
                 <tr>
                   <th style={{ width: 40, textAlign: 'center' }}>
-                    <input type="checkbox" title="Select all listed" style={{ transform: 'scale(1.3)', cursor: 'pointer', accentColor: '#10b981' }}
+                    <input type="checkbox" title="Select all listed" style={{ transform: 'scale(1.3)', cursor: 'pointer', accentColor: '#2fe39b' }}
                       checked={filteredUnbilledTrips.length > 0 && filteredUnbilledTrips.every((t) => selectedTripsForBill.includes(t.id))}
                       onChange={(e) => setSelectedTripsForBill(e.target.checked ? filteredUnbilledTrips.map((t) => t.id) : [])} />
                   </th>
@@ -755,85 +755,85 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                   <th>Qty × Rate</th>
                   <th style={{ textAlign: 'right' }}>Gross (₹)</th>
                   <th style={{ textAlign: 'right' }}>Short/Pen (₹)</th>
-                  <th style={{ textAlign: 'right', color: '#f59e0b' }}>TDS ({TDS_PCT}%)</th>
-                  <th style={{ textAlign: 'right', color: '#10b981' }}>Net Pay (₹)</th>
+                  <th style={{ textAlign: 'right', color: '#ffb224' }}>TDS ({TDS_PCT}%)</th>
+                  <th style={{ textAlign: 'right', color: '#2fe39b' }}>Net Pay (₹)</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredUnbilledTrips.length === 0 ? (
-                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>
+                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: '#5d7196' }}>
                     No billable trips. Complete the unloads first, or clear the filters.
                   </td></tr>
                 ) : Object.entries(groupedUnbilled).map(([cust, locMap]: any) => {
                   const custTrips: any[] = Object.values(locMap).flat();
                   return (
                     <React.Fragment key={cust}>
-                      <tr style={{ background: 'rgba(56,189,248,0.07)' }}>
+                      <tr style={{ background: 'rgba(34, 211, 238,0.07)' }}>
                         <td style={{ textAlign: 'center' }}>
-                          <input type="checkbox" title={`Select all ${cust} trips`} style={{ transform: 'scale(1.3)', cursor: 'pointer', accentColor: '#38bdf8' }}
+                          <input type="checkbox" title={`Select all ${cust} trips`} style={{ transform: 'scale(1.3)', cursor: 'pointer', accentColor: '#22d3ee' }}
                             checked={custTrips.every((t) => selectedTripsForBill.includes(t.id))}
                             onChange={(e) => setSelectedTripsForBill((prev) => e.target.checked
                               ? [...new Set([...prev, ...custTrips.map((t) => t.id)])]
                               : prev.filter((id) => !custTrips.some((t) => t.id === id)))} />
                         </td>
-                        <td colSpan={4} style={{ fontWeight: 900, color: '#38bdf8', fontSize: 13 }}>
-                          👤 {cust} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {custTrips.length} trip(s) · {Object.keys(locMap).length} location(s)</span>
+                        <td colSpan={4} style={{ fontWeight: 900, color: '#22d3ee', fontSize: 13 }}>
+                          👤 {cust} <span style={{ color: '#9aadd4', fontWeight: 'normal' }}>· {custTrips.length} trip(s) · {Object.keys(locMap).length} location(s)</span>
                         </td>
                         <td colSpan={3} />
-                        <td style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 900 }}>₹{inr0(custTrips.reduce((s, t) => s + t.calc_net, 0))}</td>
+                        <td style={{ textAlign: 'right', color: '#22d3ee', fontWeight: 900 }}>₹{inr0(custTrips.reduce((s, t) => s + t.calc_net, 0))}</td>
                       </tr>
                       {Object.entries(locMap).map(([loc, locTrips]: any) => (
                         <React.Fragment key={cust + loc}>
-                          <tr style={{ background: 'rgba(245,158,11,0.06)' }}>
+                          <tr style={{ background: 'rgba(255, 178, 36,0.06)' }}>
                             <td style={{ textAlign: 'center' }}>
-                              <input type="checkbox" title={`Select all ${loc} trips (one bill per location)`} style={{ transform: 'scale(1.2)', cursor: 'pointer', accentColor: '#f59e0b' }}
+                              <input type="checkbox" title={`Select all ${loc} trips (one bill per location)`} style={{ transform: 'scale(1.2)', cursor: 'pointer', accentColor: '#ffb224' }}
                                 checked={locTrips.every((t: any) => selectedTripsForBill.includes(t.id))}
                                 onChange={(e) => setSelectedTripsForBill((prev) => e.target.checked
                                   ? [...new Set([...prev, ...locTrips.map((t: any) => t.id)])]
                                   : prev.filter((id) => !locTrips.some((t: any) => t.id === id)))} />
                             </td>
-                            <td colSpan={4} style={{ fontWeight: 'bold', color: '#f59e0b', fontSize: 12, paddingLeft: 28 }}>
-                              🏭 {loc} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>· {locTrips.length} trip(s)</span>
+                            <td colSpan={4} style={{ fontWeight: 'bold', color: '#ffb224', fontSize: 12, paddingLeft: 28 }}>
+                              🏭 {loc} <span style={{ color: '#9aadd4', fontWeight: 'normal' }}>· {locTrips.length} trip(s)</span>
                             </td>
                             <td colSpan={3} />
-                            <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 'bold', fontSize: 12 }}>₹{inr0(locTrips.reduce((s: number, t: any) => s + t.calc_net, 0))}</td>
+                            <td style={{ textAlign: 'right', color: '#ffb224', fontWeight: 'bold', fontSize: 12 }}>₹{inr0(locTrips.reduce((s: number, t: any) => s + t.calc_net, 0))}</td>
                           </tr>
                           {locTrips.map((t: any) => {
                             const wait = daysSince(t.unloading_date);
                             return (
-                              <tr key={t.id} style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(16,185,129,0.1)' : 'transparent' }}>
+                              <tr key={t.id} style={{ background: selectedTripsForBill.includes(t.id) ? 'rgba(47, 227, 155,0.1)' : 'transparent' }}>
                                 <td style={{ textAlign: 'center' }}>
-                                  <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer', accentColor: '#10b981' }}
+                                  <input type="checkbox" style={{ transform: 'scale(1.5)', cursor: 'pointer', accentColor: '#2fe39b' }}
                                     checked={selectedTripsForBill.includes(t.id)}
                                     onChange={() => setSelectedTripsForBill((p) => p.includes(t.id) ? p.filter((x) => x !== t.id) : [...p, t.id])} />
                                 </td>
                                 <td>
-                                  <div style={{ fontSize: 11, color: '#94a3b8' }}>Ld: {t.loading_date || '-'}</div>
+                                  <div style={{ fontSize: 11, color: '#9aadd4' }}>Ld: {t.loading_date || '-'}</div>
                                   <div style={{ fontSize: 12, fontWeight: 'bold', color: '#fff' }}>Un: {t.unloading_date || '-'}</div>
-                                  {wait > 0 && <span style={{ fontSize: 9, fontWeight: 'bold', color: wait > 7 ? '#ef4444' : '#f59e0b', border: `1px solid ${wait > 7 ? '#ef4444' : '#f59e0b'}`, borderRadius: 8, padding: '1px 6px' }}>⏱ {wait}d waiting</span>}
+                                  {wait > 0 && <span style={{ fontSize: 9, fontWeight: 'bold', color: wait > 7 ? '#ff6b81' : '#ffb224', border: `1px solid ${wait > 7 ? '#ff6b81' : '#ffb224'}`, borderRadius: 8, padding: '1px 6px' }}>⏱ {wait}d waiting</span>}
                                 </td>
-                                <td style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold' }}>
-                                  {t.trip_code}<br /><span style={{ color: '#f59e0b' }}>{t.challan_no || ''}</span>
+                                <td style={{ color: '#9aadd4', fontSize: 11, fontWeight: 'bold' }}>
+                                  {t.trip_code}<br /><span style={{ color: '#ffb224' }}>{t.challan_no || ''}</span>
                                 </td>
                                 <td style={{ fontWeight: 900, color: '#fff', fontSize: 14 }}>
                                   {t.vehicle_no}<br />
-                                  <span style={{ fontSize: 10, color: '#94a3b8', fontWeight: 'normal' }}>{t.driver_name || ''}</span>
-                                  <div style={{ fontSize: 10, color: '#38bdf8', fontWeight: 'normal', maxWidth: 280, whiteSpace: 'normal' }}>
+                                  <span style={{ fontSize: 10, color: '#9aadd4', fontWeight: 'normal' }}>{t.driver_name || ''}</span>
+                                  <div style={{ fontSize: 10, color: '#22d3ee', fontWeight: 'normal', maxWidth: 280, whiteSpace: 'normal' }}>
                                     {t.calc_route_label}
-                                    {t.calc_rtkm > 0 && <b style={{ color: '#f59e0b' }}> · 📏 {t.calc_rtkm} km</b>}
-                                    {t.calc_bt !== 'PER_KL' && <b style={{ color: '#c084fc' }}> · ⚙ {BILLING_TYPES.find((b) => b.key === t.calc_bt)?.label}</b>}
+                                    {t.calc_rtkm > 0 && <b style={{ color: '#ffb224' }}> · 📏 {t.calc_rtkm} km</b>}
+                                    {t.calc_bt !== 'PER_KL' && <b style={{ color: '#a78bfa' }}> · ⚙ {BILLING_TYPES.find((b) => b.key === t.calc_bt)?.label}</b>}
                                   </div>
-                                  {t.calc_lane && <div style={{ fontSize: 9, color: '#64748b' }}>rate card: {t.calc_lane}</div>}
+                                  {t.calc_lane && <div style={{ fontSize: 9, color: '#5d7196' }}>rate card: {t.calc_lane}</div>}
                                 </td>
                                 <td style={{ fontSize: 12 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <input type="number" inputMode="decimal" value={t.calc_qty} title="Billed qty, from the challan"
                                       onChange={(e) => editTripQtyRate(t.id, 'qty', e.target.value)} onBlur={() => persistTripQtyRate(t)}
-                                      style={{ width: 70, background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_qty > 0 ? '#334155' : '#ef4444'}`, borderRadius: 6, color: '#fff', padding: 6, fontSize: 12 }} />
-                                    <span style={{ color: '#64748b' }}>×</span>
+                                      style={{ width: 70, background: 'rgba(18, 28, 56,0.7)', border: `1px solid ${t.calc_qty > 0 ? '#27395f' : '#ff6b81'}`, borderRadius: 6, color: '#fff', padding: 6, fontSize: 12 }} />
+                                    <span style={{ color: '#5d7196' }}>×</span>
                                     <input type="number" inputMode="decimal" value={t.calc_rate} title={`Freight rate (source: ${t.calc_rate_source})`}
                                       onChange={(e) => editTripQtyRate(t.id, 'rate', e.target.value)} onBlur={() => persistTripQtyRate(t)}
-                                      style={{ width: 82, background: 'rgba(15,23,42,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#334155' : '#ef4444'}`, borderRadius: 6, color: '#fff', padding: 6, fontSize: 12 }} />
+                                      style={{ width: 82, background: 'rgba(18, 28, 56,0.7)', border: `1px solid ${t.calc_rate > 0 ? '#27395f' : '#ff6b81'}`, borderRadius: 6, color: '#fff', padding: 6, fontSize: 12 }} />
                                     {t.calc_rate_options.length > 0 && (
                                       <select title="Rates seen on bills IOCL actually paid" value=""
                                         onChange={(e) => {
@@ -842,19 +842,19 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                                           setPriced((prev) => prev.map((x) => x.id === t.id ? recalc(x, { calc_rate: rate }) : x));
                                           persistTripQtyRate(recalc(t, { calc_rate: rate }));
                                         }}
-                                        style={{ width: 28, background: 'rgba(192,132,252,0.15)', border: '1px solid #c084fc', borderRadius: 6, color: '#c084fc', padding: '5px 2px', fontSize: 11, cursor: 'pointer' }}>
+                                        style={{ width: 28, background: 'rgba(167, 139, 250,0.15)', border: '1px solid #a78bfa', borderRadius: 6, color: '#a78bfa', padding: '5px 2px', fontSize: 11, cursor: 'pointer' }}>
                                         <option value="">▾</option>
                                         {t.calc_rate_options.map((rv: number, i: number) => <option key={i} value={rv}>₹{rv}</option>)}
                                       </select>
                                     )}
                                   </div>
-                                  {t.calc_rate_source === 'none' && <div style={{ color: '#ef4444', fontSize: 9, fontWeight: 'bold', marginTop: 3 }}>no rate known — enter it</div>}
-                                  {t.calc_rate_source === 'lane' && <div style={{ color: '#34d399', fontSize: 9, marginTop: 3 }}>from the derived rate card</div>}
+                                  {t.calc_rate_source === 'none' && <div style={{ color: '#ff6b81', fontSize: 9, fontWeight: 'bold', marginTop: 3 }}>no rate known — enter it</div>}
+                                  {t.calc_rate_source === 'lane' && <div style={{ color: '#2fe39b', fontSize: 9, marginTop: 3 }}>from the derived rate card</div>}
                                 </td>
-                                <td style={{ color: '#38bdf8', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_gross)}</td>
-                                <td style={{ color: '#ef4444', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_penalty)}</td>
-                                <td style={{ color: '#f59e0b', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_tds)}</td>
-                                <td style={{ color: '#10b981', fontWeight: 'bold', textAlign: 'right', fontSize: 15 }}>{inr(t.calc_net)}</td>
+                                <td style={{ color: '#22d3ee', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_gross)}</td>
+                                <td style={{ color: '#ff6b81', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_penalty)}</td>
+                                <td style={{ color: '#ffb224', fontWeight: 'bold', textAlign: 'right' }}>{inr(t.calc_tds)}</td>
+                                <td style={{ color: '#2fe39b', fontWeight: 'bold', textAlign: 'right', fontSize: 15 }}>{inr(t.calc_net)}</td>
                               </tr>
                             );
                           })}
@@ -867,7 +867,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             </table>
           )}
           {payload?.truncated && (
-            <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: 12, borderRadius: 8, marginTop: 14, fontSize: 13 }}>
+            <div style={{ background: 'rgba(255, 178, 36,0.1)', border: '1px solid #ffb224', color: '#fcd34d', padding: 12, borderRadius: 8, marginTop: 14, fontSize: 13 }}>
               Showing the first {payload.count} billable trips. Narrow the dates to see the rest.
             </div>
           )}
@@ -894,28 +894,28 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             </thead>
             <tbody>
               {filteredGeneratedBills.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', padding: 30, color: '#64748b' }}>No invoices yet. Raise one from the Pending Billing tab.</td></tr>
+                <tr><td colSpan={10} style={{ textAlign: 'center', padding: 30, color: '#5d7196' }}>No invoices yet. Raise one from the Pending Billing tab.</td></tr>
               ) : filteredGeneratedBills.map((b) => {
-                const sc = { SETTLED: '#10b981', PARTIALLY_PAID: '#f59e0b', PENDING_PAYMENT: '#38bdf8', CANCELLED: '#64748b' }[b.status] || '#94a3b8';
+                const sc = { SETTLED: '#2fe39b', PARTIALLY_PAID: '#ffb224', PENDING_PAYMENT: '#22d3ee', CANCELLED: '#5d7196' }[b.status] || '#9aadd4';
                 return (
                   <tr key={b.id}>
-                    <td style={{ fontWeight: 'bold', color: '#fff' }}>{b.bill_no}<br /><span style={{ color: '#64748b', fontSize: 11, fontWeight: 'normal' }}>{b.bill_date}</span></td>
-                    <td>{b.customer_name}<br /><span style={{ color: '#f59e0b', fontSize: 11 }}>{b.location || '-'}</span></td>
-                    <td style={{ fontSize: 11, color: '#94a3b8' }}>{b.period_from || '-'}<br />to {b.period_to || '-'}<br /><span style={{ color: '#64748b' }}>{b.trip_count} trip(s), {b.settled_trips} settled</span></td>
-                    <td style={{ textAlign: 'right', color: '#38bdf8', fontWeight: 'bold' }}>{inr(b.total_gross)}</td>
-                    <td style={{ textAlign: 'right', color: '#f59e0b' }}>{inr(b.total_tds)}</td>
+                    <td style={{ fontWeight: 'bold', color: '#fff' }}>{b.bill_no}<br /><span style={{ color: '#5d7196', fontSize: 11, fontWeight: 'normal' }}>{b.bill_date}</span></td>
+                    <td>{b.customer_name}<br /><span style={{ color: '#ffb224', fontSize: 11 }}>{b.location || '-'}</span></td>
+                    <td style={{ fontSize: 11, color: '#9aadd4' }}>{b.period_from || '-'}<br />to {b.period_to || '-'}<br /><span style={{ color: '#5d7196' }}>{b.trip_count} trip(s), {b.settled_trips} settled</span></td>
+                    <td style={{ textAlign: 'right', color: '#22d3ee', fontWeight: 'bold' }}>{inr(b.total_gross)}</td>
+                    <td style={{ textAlign: 'right', color: '#ffb224' }}>{inr(b.total_tds)}</td>
                     <td style={{ textAlign: 'right', color: '#fff', fontWeight: 'bold' }}>{inr(b.total_net)}</td>
-                    <td style={{ textAlign: 'right', color: '#10b981' }}>{inr(b.received_amount)}</td>
-                    <td style={{ textAlign: 'right', color: Number(b.outstanding) > 0 ? '#ef4444' : '#10b981', fontWeight: 'bold' }}>{inr(b.outstanding)}</td>
+                    <td style={{ textAlign: 'right', color: '#2fe39b' }}>{inr(b.received_amount)}</td>
+                    <td style={{ textAlign: 'right', color: Number(b.outstanding) > 0 ? '#ff6b81' : '#2fe39b', fontWeight: 'bold' }}>{inr(b.outstanding)}</td>
                     <td><span className="badge" style={{ background: `${sc}22`, color: sc, border: `1px solid ${sc}` }}>{b.status.replace(/_/g, ' ')}</span></td>
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
-                        <button onClick={() => handlePrintInvoice(b)} title="Print in the oil-company format" style={{ background: 'rgba(56,189,248,.12)', color: '#38bdf8', border: '1px solid #38bdf8', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>🖨️</button>
+                        <button onClick={() => handlePrintInvoice(b)} title="Print in the oil-company format" style={{ background: 'rgba(34, 211, 238,.12)', color: '#22d3ee', border: '1px solid #22d3ee', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>🖨️</button>
                         {b.status !== 'SETTLED' && b.status !== 'CANCELLED' && (
-                          <button onClick={() => openAdjustmentModal(b)} disabled={busy} title="Receive money" style={{ background: 'rgba(16,185,129,.12)', color: '#10b981', border: '1px solid #10b981', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 'bold' }}>💰 Settle</button>
+                          <button onClick={() => openAdjustmentModal(b)} disabled={busy} title="Receive money" style={{ background: 'rgba(47, 227, 155,.12)', color: '#2fe39b', border: '1px solid #2fe39b', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 'bold' }}>💰 Settle</button>
                         )}
                         {b.status !== 'CANCELLED' && (
-                          <button onClick={() => handleCancelBill(b)} disabled={busy} title="Cancel this invoice" style={{ background: 'rgba(239,68,68,.12)', color: '#ef4444', border: '1px solid #ef4444', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                          <button onClick={() => handleCancelBill(b)} disabled={busy} title="Cancel this invoice" style={{ background: 'rgba(255, 107, 129,.12)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>🗑️</button>
                         )}
                       </div>
                     </td>
@@ -925,12 +925,12 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             </tbody>
           </table>
           {billTotals && filteredGeneratedBills.length > 0 && (
-            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 16, padding: '14px 18px', background: 'rgba(15,23,42,0.6)', borderRadius: 10, border: '1px solid #334155', fontSize: 13 }}>
-              <span style={{ color: '#94a3b8' }}>All bills — gross <b style={{ color: '#38bdf8' }}>₹{inr(billTotals.gross)}</b></span>
-              <span style={{ color: '#94a3b8' }}>TDS <b style={{ color: '#f59e0b' }}>₹{inr(billTotals.tds)}</b></span>
-              <span style={{ color: '#94a3b8' }}>net <b style={{ color: '#fff' }}>₹{inr(billTotals.net)}</b></span>
-              <span style={{ color: '#94a3b8' }}>received <b style={{ color: '#10b981' }}>₹{inr(billTotals.received)}</b></span>
-              <span style={{ color: '#94a3b8' }}>outstanding <b style={{ color: '#ef4444' }}>₹{inr(billTotals.outstanding)}</b></span>
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 16, padding: '14px 18px', background: 'rgba(18, 28, 56,0.6)', borderRadius: 10, border: '1px solid #27395f', fontSize: 13 }}>
+              <span style={{ color: '#9aadd4' }}>All bills — gross <b style={{ color: '#22d3ee' }}>₹{inr(billTotals.gross)}</b></span>
+              <span style={{ color: '#9aadd4' }}>TDS <b style={{ color: '#ffb224' }}>₹{inr(billTotals.tds)}</b></span>
+              <span style={{ color: '#9aadd4' }}>net <b style={{ color: '#fff' }}>₹{inr(billTotals.net)}</b></span>
+              <span style={{ color: '#9aadd4' }}>received <b style={{ color: '#2fe39b' }}>₹{inr(billTotals.received)}</b></span>
+              <span style={{ color: '#9aadd4' }}>outstanding <b style={{ color: '#ff6b81' }}>₹{inr(billTotals.outstanding)}</b></span>
             </div>
           )}
         </div>
@@ -939,10 +939,10 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       {/* PREVIEW MODAL */}
       {showPreview && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: 960, background: '#0f172a', borderRadius: 18, border: '1px solid #10b981', padding: 26, maxHeight: '92vh', overflowY: 'auto' }}>
+          <div style={{ width: '100%', maxWidth: 960, background: '#121c38', borderRadius: 18, border: '1px solid #2fe39b', padding: 26, maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ color: '#10b981', margin: 0 }}>🧾 Confirm the bill</h3>
-              <button onClick={() => setShowPreview(false)} style={{ background: 'transparent', color: '#94a3b8', border: 'none', fontSize: 22, cursor: 'pointer' }}>✕</button>
+              <h3 style={{ color: '#2fe39b', margin: 0 }}>🧾 Confirm the bill</h3>
+              <button onClick={() => setShowPreview(false)} style={{ background: 'transparent', color: '#9aadd4', border: 'none', fontSize: 22, cursor: 'pointer' }}>✕</button>
             </div>
             {previewCustomers.length > 1 && (
               <div style={warn}>⚠️ {previewCustomers.length} customers selected ({previewCustomers.join(', ')}). One bill covers one customer — the server will refuse this.</div>
@@ -950,10 +950,10 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
             {previewLocations.length > 1 && (
               <div style={warn}>⚠️ {previewLocations.length} locations selected. Oil companies bill per plant, so this will not match their document.</div>
             )}
-            <div style={{ background: 'rgba(15,23,42,0.7)', border: '1px solid #334155', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+            <div style={{ background: 'rgba(18, 28, 56,0.7)', border: '1px solid #27395f', borderRadius: 10, padding: 16, marginBottom: 16 }}>
               <div style={{ color: '#fff', fontWeight: 900, fontSize: 18 }}>{previewCustomers[0] ?? '—'}</div>
-              <div style={{ color: '#f59e0b', fontSize: 13 }}>{previewLocations[0] ?? '—'}</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{selectedTripData.length} trip(s)</div>
+              <div style={{ color: '#ffb224', fontSize: 13 }}>{previewLocations[0] ?? '—'}</div>
+              <div style={{ color: '#5d7196', fontSize: 12, marginTop: 4 }}>{selectedTripData.length} trip(s)</div>
             </div>
             <table>
               <thead><tr><th>Trip</th><th>Vehicle</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Rate</th><th style={{ textAlign: 'right' }}>Gross</th><th style={{ textAlign: 'right' }}>Short</th><th style={{ textAlign: 'right' }}>TDS</th><th style={{ textAlign: 'right' }}>Net</th></tr></thead>
@@ -964,10 +964,10 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                     <td style={{ fontWeight: 'bold', color: '#fff' }}>{t.vehicle_no}</td>
                     <td style={{ textAlign: 'right' }}>{t.calc_qty}</td>
                     <td style={{ textAlign: 'right' }}>{t.calc_rate}</td>
-                    <td style={{ textAlign: 'right', color: '#38bdf8' }}>{inr(t.calc_gross)}</td>
-                    <td style={{ textAlign: 'right', color: '#ef4444' }}>{inr(t.calc_penalty)}</td>
-                    <td style={{ textAlign: 'right', color: '#f59e0b' }}>{inr(t.calc_tds)}</td>
-                    <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 'bold' }}>{inr(t.calc_net)}</td>
+                    <td style={{ textAlign: 'right', color: '#22d3ee' }}>{inr(t.calc_gross)}</td>
+                    <td style={{ textAlign: 'right', color: '#ff6b81' }}>{inr(t.calc_penalty)}</td>
+                    <td style={{ textAlign: 'right', color: '#ffb224' }}>{inr(t.calc_tds)}</td>
+                    <td style={{ textAlign: 'right', color: '#2fe39b', fontWeight: 'bold' }}>{inr(t.calc_net)}</td>
                   </tr>
                 ))}
                 <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900 }}>
@@ -975,15 +975,15 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                   <td style={{ textAlign: 'right' }}>{inr(previewTotals.gross)}</td>
                   <td style={{ textAlign: 'right' }}>{inr(previewTotals.pen)}</td>
                   <td style={{ textAlign: 'right' }}>{inr(previewTotals.tds)}</td>
-                  <td style={{ textAlign: 'right', color: '#10b981' }}>{inr(previewTotals.net)}</td>
+                  <td style={{ textAlign: 'right', color: '#2fe39b' }}>{inr(previewTotals.net)}</td>
                 </tr>
               </tbody>
             </table>
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 12 }}>
+            <div style={{ color: '#5d7196', fontSize: 12, marginTop: 12 }}>
               GST {GST_PCT}% (₹{inr(previewTotals.gross * GST_PCT / 100)}) is recorded as a reverse-charge memo only — the customer discharges it, so it is not part of the net receivable.
             </div>
             <div style={{ display: 'flex', gap: 12, marginTop: 18 }}>
-              <button onClick={() => setShowPreview(false)} className="glow-btn" style={{ background: '#334155', boxShadow: 'none', flex: 1 }}>Back</button>
+              <button onClick={() => setShowPreview(false)} className="glow-btn" style={{ background: '#27395f', boxShadow: 'none', flex: 1 }}>Back</button>
               <button onClick={handleGenerateInvoice} disabled={busy} className="glow-btn" style={{ flex: 2 }}>{busy ? 'Raising…' : '✅ Raise Invoice'}</button>
             </div>
           </div>
@@ -993,26 +993,26 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       {/* SETTLE MODAL */}
       {isAdjustModalOpen && selectedBill && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: 1000, background: '#0f172a', borderRadius: 18, border: '1px solid #10b981', padding: 26, maxHeight: '92vh', overflowY: 'auto' }}>
+          <div style={{ width: '100%', maxWidth: 1000, background: '#121c38', borderRadius: 18, border: '1px solid #2fe39b', padding: 26, maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div>
-                <h3 style={{ color: '#10b981', margin: 0 }}>💰 Receive payment — {selectedBill.bill_no}</h3>
-                <p style={{ color: '#64748b', fontSize: 12, margin: '4px 0 0' }}>
+                <h3 style={{ color: '#2fe39b', margin: 0 }}>💰 Receive payment — {selectedBill.bill_no}</h3>
+                <p style={{ color: '#5d7196', fontSize: 12, margin: '4px 0 0' }}>
                   Posts a RECEIPT through TARA: Dr bank + Dr TDS receivable / Cr {selectedBill.customer_name}
                 </p>
               </div>
-              <button onClick={() => setIsAdjustModalOpen(false)} style={{ background: 'transparent', color: '#94a3b8', border: 'none', fontSize: 22, cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setIsAdjustModalOpen(false)} style={{ background: 'transparent', color: '#9aadd4', border: 'none', fontSize: 22, cursor: 'pointer' }}>✕</button>
             </div>
 
             <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', margin: '14px 0', fontSize: 13 }}>
-              <span style={{ color: '#94a3b8' }}>Net expected <b style={{ color: '#fff' }}>₹{inr(selectedBill.total_net)}</b></span>
-              <span style={{ color: '#94a3b8' }}>Already received <b style={{ color: '#10b981' }}>₹{inr(selectedBill.received_amount)}</b></span>
-              <span style={{ color: '#94a3b8' }}>Outstanding <b style={{ color: '#ef4444' }}>₹{inr(selectedBill.outstanding)}</b></span>
+              <span style={{ color: '#9aadd4' }}>Net expected <b style={{ color: '#fff' }}>₹{inr(selectedBill.total_net)}</b></span>
+              <span style={{ color: '#9aadd4' }}>Already received <b style={{ color: '#2fe39b' }}>₹{inr(selectedBill.received_amount)}</b></span>
+              <span style={{ color: '#9aadd4' }}>Outstanding <b style={{ color: '#ff6b81' }}>₹{inr(selectedBill.outstanding)}</b></span>
             </div>
 
             <input className="modern-input" placeholder="🔍 Filter by vehicle / trip / LR" value={tripSearchTerm} onChange={(e) => setTripSearchTerm(e.target.value)} style={{ marginBottom: 12 }} />
 
-            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #334155', borderRadius: 10 }}>
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #27395f', borderRadius: 10 }}>
               <table>
                 <thead><tr>
                   <th style={{ width: 36 }} />
@@ -1032,29 +1032,29 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
                         <td style={{ textAlign: 'center' }}>
                           <input type="checkbox" disabled={done} checked={!!t.selected_for_payment}
                             onChange={(e) => handleTripSelection(idx, e.target.checked)}
-                            style={{ transform: 'scale(1.4)', cursor: done ? 'not-allowed' : 'pointer', accentColor: '#10b981' }} />
+                            style={{ transform: 'scale(1.4)', cursor: done ? 'not-allowed' : 'pointer', accentColor: '#2fe39b' }} />
                         </td>
                         <td>
                           <b style={{ color: '#fff' }}>{t.vehicle_no}</b>
-                          <div style={{ color: '#64748b', fontSize: 11 }}>{t.trip_code} · {t.driver_name || 'no driver'}</div>
+                          <div style={{ color: '#5d7196', fontSize: 11 }}>{t.trip_code} · {t.driver_name || 'no driver'}</div>
                         </td>
-                        <td style={{ textAlign: 'right', color: '#38bdf8' }}>{inr(t.net_payable)}</td>
+                        <td style={{ textAlign: 'right', color: '#22d3ee' }}>{inr(t.net_payable)}</td>
                         <td style={{ textAlign: 'right' }}>
                           <input type="number" disabled={done} value={t.extra_shortage_amt ?? 0}
                             onChange={(e) => handleTripShortageChange(idx, 'extra_shortage_amt', e.target.value)}
-                            style={{ width: 96, background: 'rgba(15,23,42,0.7)', border: '1px solid #ef4444', borderRadius: 6, color: '#fff', padding: 6, textAlign: 'right' }} />
+                            style={{ width: 96, background: 'rgba(18, 28, 56,0.7)', border: '1px solid #ff6b81', borderRadius: 6, color: '#fff', padding: 6, textAlign: 'right' }} />
                         </td>
                         <td>
                           <input type="checkbox" disabled={done || !(Number(t.extra_shortage_amt) > 0)} checked={t.recover_from_driver !== false}
                             onChange={(e) => handleTripShortageChange(idx, 'recover_from_driver', e.target.checked)}
-                            style={{ transform: 'scale(1.25)', accentColor: '#f59e0b' }} />
+                            style={{ transform: 'scale(1.25)', accentColor: '#ffb224' }} />
                           {Number(t.extra_shortage_amt) > 0 && t.recover_from_driver !== false && (
                             <div style={{ color: '#fbbf24', fontSize: 10 }}>Dr {t.driver_name || 'driver'} / Cr shortage</div>
                           )}
                         </td>
-                        <td style={{ textAlign: 'right', color: '#10b981', fontWeight: 'bold' }}>{inr(t.final_passed_amt)}</td>
+                        <td style={{ textAlign: 'right', color: '#2fe39b', fontWeight: 'bold' }}>{inr(t.final_passed_amt)}</td>
                         <td>
-                          <span className="badge" style={{ background: done ? '#10b98122' : '#38bdf822', color: done ? '#10b981' : '#38bdf8', border: `1px solid ${done ? '#10b981' : '#38bdf8'}` }}>
+                          <span className="badge" style={{ background: done ? '#10b98122' : '#38bdf822', color: done ? '#2fe39b' : '#22d3ee', border: `1px solid ${done ? '#2fe39b' : '#22d3ee'}` }}>
                             {done ? 'SETTLED' : 'PENDING'}
                           </span>
                         </td>
@@ -1067,34 +1067,34 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, marginTop: 16 }}>
               <div>
-                <label style={{ color: '#10b981', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Received (₹)</label>
+                <label style={{ color: '#2fe39b', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Received (₹)</label>
                 <input type="number" className="modern-input" value={adjustmentData.received_amount} onChange={(e) => setAdjustmentData({ ...adjustmentData, received_amount: e.target.value })} style={{ marginTop: 5 }} />
               </div>
               <div>
-                <label style={{ color: '#f59e0b', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>TDS deducted (₹)</label>
+                <label style={{ color: '#ffb224', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>TDS deducted (₹)</label>
                 <input type="number" className="modern-input" value={adjustmentData.tds_deducted} onChange={(e) => setAdjustmentData({ ...adjustmentData, tds_deducted: e.target.value })} style={{ marginTop: 5 }} />
               </div>
               <div>
-                <label style={{ color: '#38bdf8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Deposited into *</label>
+                <label style={{ color: '#22d3ee', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Deposited into *</label>
                 <select className="modern-input" value={adjustmentData.deposit_bank} onChange={(e) => setAdjustmentData({ ...adjustmentData, deposit_bank: e.target.value })} style={{ marginTop: 5 }}>
                   <option value="">-- Select --</option>
                   {accounts.map((a) => <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{inr(a.balance)}</option>)}
                 </select>
               </div>
               <div>
-                <label style={{ color: '#94a3b8', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Remarks / UTR</label>
+                <label style={{ color: '#9aadd4', fontSize: 11, fontWeight: 'bold', textTransform: 'uppercase' }}>Remarks / UTR</label>
                 <input className="modern-input" value={adjustmentData.remarks} onChange={(e) => setAdjustmentData({ ...adjustmentData, remarks: e.target.value })} style={{ marginTop: 5 }} />
               </div>
             </div>
 
-            <div style={{ color: '#64748b', fontSize: 12, marginTop: 12 }}>
-              Gross credited to the debtor = received + TDS = <b style={{ color: '#cbd5e1' }}>₹{inr((parseFloat(adjustmentData.received_amount) || 0) + (parseFloat(adjustmentData.tds_deducted) || 0))}</b>.
+            <div style={{ color: '#5d7196', fontSize: 12, marginTop: 12 }}>
+              Gross credited to the debtor = received + TDS = <b style={{ color: '#c4d1ea' }}>₹{inr((parseFloat(adjustmentData.received_amount) || 0) + (parseFloat(adjustmentData.tds_deducted) || 0))}</b>.
               The debtor is cleared for the full gross, because the TDS was paid on our behalf.
             </div>
 
             <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
-              <button onClick={() => setIsAdjustModalOpen(false)} className="glow-btn" style={{ background: '#334155', boxShadow: 'none', flex: 1 }}>Cancel</button>
-              <button onClick={() => submitSettlement(true)} disabled={busy} className="glow-btn" style={{ background: '#1e293b', color: '#c084fc', border: '1px solid #c084fc', boxShadow: 'none', flex: 1 }}>🧪 Dry run</button>
+              <button onClick={() => setIsAdjustModalOpen(false)} className="glow-btn" style={{ background: '#27395f', boxShadow: 'none', flex: 1 }}>Cancel</button>
+              <button onClick={() => submitSettlement(true)} disabled={busy} className="glow-btn" style={{ background: '#18244a', color: '#a78bfa', border: '1px solid #a78bfa', boxShadow: 'none', flex: 1 }}>🧪 Dry run</button>
               <button onClick={() => submitSettlement(false)} disabled={busy} className="glow-btn" style={{ flex: 2 }}>{busy ? 'Posting…' : '✅ Post Receipt'}</button>
             </div>
           </div>
@@ -1104,5 +1104,5 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
   );
 }
 
-const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(2,6,23,0.93)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, boxSizing: 'border-box' };
-const warn: React.CSSProperties = { background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: '12px 16px', borderRadius: 8, marginBottom: 12, fontSize: 13 };
+const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(10, 16, 36,0.93)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, boxSizing: 'border-box' };
+const warn: React.CSSProperties = { background: 'rgba(255, 178, 36,0.1)', border: '1px solid #ffb224', color: '#fcd34d', padding: '12px 16px', borderRadius: 8, marginBottom: 12, fontSize: 13 };

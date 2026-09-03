@@ -15,8 +15,8 @@ const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
 const C = {
-  bg: '#0f172a', line: '#334155', dim: '#94a3b8', text: '#e2e8f0',
-  emerald: '#10b981', ruby: '#f43f5e', sapphire: '#38bdf8', purple: '#c084fc', warn: '#f59e0b',
+  bg: '#121c38', line: '#27395f', dim: '#9aadd4', text: '#dde5f4',
+  emerald: '#2fe39b', ruby: '#f43f5e', sapphire: '#22d3ee', purple: '#a78bfa', warn: '#ffb224',
 };
 const TABS = [
   { key: 'RECEIPT', label: '↓ RECEIVE', color: C.emerald, hint: 'Money IN — customer payment, advance return' },
@@ -25,11 +25,11 @@ const TABS = [
 ] as const;
 
 const glass: React.CSSProperties = {
-  background: 'rgba(30,41,59,0.72)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+  background: 'rgba(24, 36, 74,0.72)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
   border: '1px solid rgba(148,163,184,0.25)', borderRadius: 20,
 };
 const inp: React.CSSProperties = {
-  width: '100%', padding: '11px 12px', background: 'rgba(15,23,42,0.85)', color: C.text,
+  width: '100%', padding: '11px 12px', background: 'rgba(18, 28, 56,0.85)', color: C.text,
   border: `1px solid ${C.line}`, borderRadius: 10, outline: 'none', fontSize: 13, boxSizing: 'border-box',
 };
 const kindColor: Record<string, string> = { CUSTOMER: C.emerald, VENDOR: C.warn, DRIVER: C.sapphire, ACCOUNT: C.purple };
@@ -168,7 +168,7 @@ export function VoucherModal2026({ onClose, onPosted }: { onClose: () => void; o
   const ready = Number(amount) > 0 && account && (tab === 'CONTRA' ? toAccount && toAccount !== account : !!party);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.75)', backdropFilter: 'blur(3px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.75)', backdropFilter: 'blur(3px)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}
       onClick={onClose}>
       <div style={{ ...glass, width: 'min(680px, 96vw)', maxHeight: '94vh', overflowY: 'auto', padding: 22, boxShadow: `0 0 60px ${theme.color}33` }}
         onClick={(e) => e.stopPropagation()}>
@@ -221,7 +221,7 @@ export function VoucherModal2026({ onClose, onPosted }: { onClose: () => void; o
 
         {/* auto-context panel */}
         {ctx && (
-          <div style={{ background: 'rgba(15,23,42,0.7)', border: `1px dashed ${theme.color}66`, borderRadius: 12, padding: '10px 12px', marginBottom: 12, fontSize: 12, color: C.text }}>
+          <div style={{ background: 'rgba(18, 28, 56,0.7)', border: `1px dashed ${theme.color}66`, borderRadius: 12, padding: '10px 12px', marginBottom: 12, fontSize: 12, color: C.text }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: theme.color, letterSpacing: 1, marginBottom: 4 }}>⚡ AUTO-CONTEXT</div>
             {ctx.kind === 'DRIVER' && (<>
               <div>Active trip: {ctx.active_trip ? `${ctx.active_trip.trip_code ?? '—'} · ${ctx.active_trip.vehicle_no} · ${ctx.active_trip.status}` : 'none'}</div>
@@ -291,7 +291,7 @@ export function VoucherModal2026({ onClose, onPosted }: { onClose: () => void; o
 
         {/* tax panel */}
         {tab === 'PAYMENT' && (
-          <div style={{ background: 'rgba(15,23,42,0.7)', border: `1px solid ${C.line}`, borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
+          <div style={{ background: 'rgba(18, 28, 56,0.7)', border: `1px solid ${C.line}`, borderRadius: 12, padding: '10px 12px', marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: C.purple, letterSpacing: 1, marginBottom: 6 }}>🧮 TDS / GST ENGINE (deterministic — no manual tax math)</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11.5, color: C.text, alignItems: 'center' }}>
               <select style={{ ...inp, width: 'auto', padding: '6px 8px' }} value={tdsSection} onChange={(e) => setTdsSection(e.target.value as any)}>
@@ -332,7 +332,7 @@ export function VoucherModal2026({ onClose, onPosted }: { onClose: () => void; o
         {verdict && (
           <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, fontSize: 12.5, fontWeight: 600,
             border: `1px solid ${verdict.kind === 'ok' ? C.emerald : C.ruby}`, color: verdict.kind === 'ok' ? C.emerald : C.ruby,
-            background: verdict.kind === 'ok' ? 'rgba(16,185,129,0.08)' : 'rgba(244,63,94,0.08)' }}>
+            background: verdict.kind === 'ok' ? 'rgba(47, 227, 155,0.08)' : 'rgba(244,63,94,0.08)' }}>
             {verdict.text}
           </div>
         )}
@@ -344,7 +344,7 @@ export function VoucherModal2026({ onClose, onPosted }: { onClose: () => void; o
           </button>
           <button disabled={!ready || busy} onClick={() => submit(false)}
             style={{ flex: 1, padding: '13px 0', fontSize: 14, fontWeight: 900, letterSpacing: 0.5, cursor: ready ? 'pointer' : 'not-allowed',
-              background: ready ? theme.color : C.line, color: '#0f172a', border: 'none', borderRadius: 12,
+              background: ready ? theme.color : C.line, color: '#121c38', border: 'none', borderRadius: 12,
               boxShadow: ready ? `0 0 22px ${theme.color}55` : 'none', transition: 'all .2s' }}>
             {busy ? '⏳ TARA VALIDATING…' : `POST ${tab} VOUCHER`}
           </button>
@@ -432,7 +432,7 @@ export default function FinanceHub2026() {
             ⇄ VERIFY TALLY MASTERS
           </button>
           <button onClick={() => setModal(true)}
-            style={{ padding: '12px 22px', fontSize: 13, fontWeight: 900, background: C.emerald, color: '#0f172a', border: 'none', borderRadius: 12, cursor: 'pointer', boxShadow: `0 0 20px ${C.emerald}44` }}>
+            style={{ padding: '12px 22px', fontSize: 13, fontWeight: 900, background: C.emerald, color: '#121c38', border: 'none', borderRadius: 12, cursor: 'pointer', boxShadow: `0 0 20px ${C.emerald}44` }}>
             ＋ NEW VOUCHER
           </button>
         </div>
@@ -471,7 +471,7 @@ export default function FinanceHub2026() {
 
       {/* statement drawer */}
       {drawer && (
-        <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 94vw)', ...glass, borderRadius: '20px 0 0 20px', zIndex: 250, padding: 18, overflowY: 'auto', boxShadow: '-20px 0 60px rgba(2,6,23,0.6)' }}>
+        <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(440px, 94vw)', ...glass, borderRadius: '20px 0 0 20px', zIndex: 250, padding: 18, overflowY: 'auto', boxShadow: '-20px 0 60px rgba(10, 16, 36,0.6)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ color: C.text, margin: 0, fontSize: 15 }}>{drawer.ledger}</h3>
             <button onClick={() => setDrawer(null)} style={{ background: 'transparent', color: C.dim, border: 'none', fontSize: 18, cursor: 'pointer' }}>✕</button>

@@ -87,7 +87,7 @@ export default function FinanceDashboard({ live, filter }) {
   //
   // Freight by consignee is the answer to "who is our revenue", and it is the
   // same figure the Owner Fleet Matrix and the RTKM panel bill on.
-  const PALETTE = ['#22d3ee', '#34d399', '#fbbf24', '#a78bfa', '#f472b6', '#fb7185', '#60a5fa', '#94a3b8'];
+  const PALETTE = ['#22d3ee', '#2fe39b', '#fbbf24', '#a78bfa', '#f472b6', '#fb7185', '#60a5fa', '#9aadd4'];
   const custLive = (hub?.revenue?.parties ?? []).map((p, i) => ({
     name: p.party, value: p.share_pct, freight: p.freight, trips: p.trips, color: PALETTE[i % PALETTE.length],
   }));
@@ -435,7 +435,7 @@ export default function FinanceDashboard({ live, filter }) {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyLive} margin={{ top: 8, right: 12, left: -14, bottom: 0 }}>
-                  <CartesianGrid stroke="rgba(51,65,85,0.25)" strokeDasharray="3 3" vertical={false} />
+                  <CartesianGrid stroke="rgba(39, 57, 95,0.25)" strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="month" tick={axisStyle} axisLine={false} tickLine={false} />
                   <YAxis tick={axisStyle} axisLine={false} tickLine={false}
                          tickFormatter={(v) => (Number(v) / 100000).toFixed(0)} />

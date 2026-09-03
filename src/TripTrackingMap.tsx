@@ -13,13 +13,13 @@ import { loadGoogleMaps } from './lib/maps';
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
 const C = {
-  bg: '#0f172a', card: 'rgba(30,41,59,0.72)', line: '#334155', dim: '#94a3b8',
-  text: '#e2e8f0', ok: '#10b981', warn: '#f59e0b', bad: '#ef4444', purple: '#c084fc', blue: '#38bdf8',
+  bg: '#121c38', card: 'rgba(24, 36, 74,0.72)', line: '#27395f', dim: '#9aadd4',
+  text: '#dde5f4', ok: '#2fe39b', warn: '#ffb224', bad: '#ff6b81', purple: '#a78bfa', blue: '#22d3ee',
 };
 const SOURCE_STYLE: Record<string, { color: string; label: string; icon: string }> = {
-  DRIVER_APP: { color: '#38bdf8', label: 'Driver App', icon: '📱' },
-  GPRS: { color: '#10b981', label: 'GPRS', icon: '📡' },
-  FASTAG: { color: '#f59e0b', label: 'FASTag', icon: '🛂' },
+  DRIVER_APP: { color: '#22d3ee', label: 'Driver App', icon: '📱' },
+  GPRS: { color: '#2fe39b', label: 'GPRS', icon: '📡' },
+  FASTAG: { color: '#ffb224', label: 'FASTag', icon: '🛂' },
 };
 
 export default function TripTrackingMap() {
@@ -86,10 +86,10 @@ export default function TripTrackingMap() {
         center: { lat: 26.2, lng: 92.9 },        // Assam fallback until bounds land
         zoom: 7,
         mapTypeControl: false, streetViewControl: false,
-        styles: [{ elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
-                 { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
-                 { featureType: 'water', stylers: [{ color: '#0f172a' }] },
-                 { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#334155' }] }],
+        styles: [{ elementType: 'geometry', stylers: [{ color: '#18244a' }] },
+                 { elementType: 'labels.text.fill', stylers: [{ color: '#9aadd4' }] },
+                 { featureType: 'water', stylers: [{ color: '#121c38' }] },
+                 { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#27395f' }] }],
       });
     }).catch((e) => setErr(e.message));
   }, []);
@@ -122,7 +122,7 @@ export default function TripTrackingMap() {
       overlays.current.push(new g.maps.Marker({
         map, position: pos, title: `${st.label} · ${new Date(s.recorded_at).toLocaleTimeString()}`,
         icon: { path: g.maps.SymbolPath.CIRCLE, scale: detail.best?.source === s.source ? 10 : 7,
-                fillColor: st.color, fillOpacity: 1, strokeColor: '#0f172a', strokeWeight: 2 },
+                fillColor: st.color, fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2 },
       }));
       extend(pos);
     }
@@ -137,7 +137,7 @@ export default function TripTrackingMap() {
         // Casing under the line: a single stroke over dark tiles reads as a
         // scratch. Two strokes read as a road.
         overlays.current.push(new g.maps.Polyline({
-          map, path, strokeColor: '#0b1220', strokeOpacity: 0.9, strokeWeight: 8, zIndex: 3,
+          map, path, strokeColor: '#0a1024', strokeOpacity: 0.9, strokeWeight: 8, zIndex: 3,
         }));
         overlays.current.push(new g.maps.Polyline({
           map, path, strokeColor: C.blue, strokeOpacity: 0.95, strokeWeight: 4, zIndex: 4,
@@ -153,13 +153,13 @@ export default function TripTrackingMap() {
       const pos = { lat: Number(pt.lat), lng: Number(pt.lng) };
       overlays.current.push(new g.maps.Marker({
         map, position: pos, title: pt.resolved ?? pt.label ?? text, zIndex: 10,
-        label: { text, color: '#0f172a', fontWeight: '900', fontSize: '11px' },
+        label: { text, color: '#121c38', fontWeight: '900', fontSize: '11px' },
         icon: { path: g.maps.SymbolPath.CIRCLE, scale: 11, fillColor: color,
-                fillOpacity: 1, strokeColor: '#0f172a', strokeWeight: 2 },
+                fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2 },
       }));
       extend(pos);
     };
-    pin(geo?.origin, 'A', '#34d399');
+    pin(geo?.origin, 'A', '#2fe39b');
     pin(geo?.destination, 'B', '#f472b6');
 
     // ── THE TRUCK ───────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ export default function TripTrackingMap() {
         title: `${geo.trip?.vehicle_no ?? 'Vehicle'} · ${geo.truck.source ?? 'gps'} · `
              + new Date(geo.truck.at).toLocaleString('en-IN'),
         icon: { path: 'M -7 -4 L 7 -4 L 9 0 L 7 4 L -7 4 Z', fillColor: '#22d3ee',
-                fillOpacity: 1, strokeColor: '#0f172a', strokeWeight: 2, scale: 1.7 },
+                fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2, scale: 1.7 },
       }));
       extend(pos);
     }
@@ -202,7 +202,7 @@ export default function TripTrackingMap() {
           {trips.map((t) => (
             <div key={t.id} onClick={() => setSelected(t.id)}
               style={{ padding: '9px 10px', borderRadius: 10, cursor: 'pointer', marginBottom: 4,
-                       background: selected === t.id ? 'rgba(192,132,252,0.14)' : 'transparent',
+                       background: selected === t.id ? 'rgba(167, 139, 250,0.14)' : 'transparent',
                        border: `1px solid ${selected === t.id ? C.purple : 'transparent'}` }}>
               <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>{t.vehicle_no} <span style={{ color: C.dim, fontWeight: 400 }}>· {t.trip_code ?? t.id.slice(0, 6)}</span></div>
               <div style={{ fontSize: 11, color: C.dim }}>{t.loading_point ?? '—'} → {t.destination ?? '—'}</div>
@@ -221,7 +221,7 @@ export default function TripTrackingMap() {
         <div style={{ flex: 1, minWidth: 320, position: 'relative' }}>
           <div ref={mapDiv} style={{ width: '100%', height: '78vh', borderRadius: 14, border: `1px solid ${C.line}` }} />
           {badge && badgeStyle && (
-            <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(15,23,42,0.9)', border: `1.5px solid ${badgeStyle.color}`,
+            <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(18, 28, 56,0.9)', border: `1.5px solid ${badgeStyle.color}`,
                           borderRadius: 12, padding: '8px 14px', color: badgeStyle.color, fontWeight: 800, fontSize: 12.5,
                           boxShadow: `0 0 18px ${badgeStyle.color}55` }}>
               {badgeStyle.icon} {badge}
@@ -229,7 +229,7 @@ export default function TripTrackingMap() {
             </div>
           )}
           {detail && !detail.best && (
-            <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(15,23,42,0.9)', border: `1px dashed ${C.dim}`, borderRadius: 12, padding: '8px 14px', color: C.dim, fontSize: 12 }}>
+            <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(18, 28, 56,0.9)', border: `1px dashed ${C.dim}`, borderRadius: 12, padding: '8px 14px', color: C.dim, fontSize: 12 }}>
               No telemetry yet — framing origin → destination
             </div>
           )}

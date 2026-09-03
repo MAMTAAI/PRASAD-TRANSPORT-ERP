@@ -42,10 +42,10 @@ const dmy = (d: any) => {
 // Severity is a colour AND a word. On a screen an operator scans in a hurry,
 // colour alone is a guess about their eyesight.
 const SEV: Record<string, { colour: string; bg: string }> = {
-  CRITICAL: { colour: '#fca5a5', bg: 'rgba(239,68,68,0.15)' },
+  CRITICAL: { colour: '#fca5a5', bg: 'rgba(255, 107, 129,0.15)' },
   HIGH:     { colour: '#fdba74', bg: 'rgba(249,115,22,0.15)' },
   MEDIUM:   { colour: '#fde047', bg: 'rgba(234,179,8,0.12)' },
-  LOW:      { colour: '#94a3b8', bg: 'rgba(148,163,184,0.12)' },
+  LOW:      { colour: '#9aadd4', bg: 'rgba(148,163,184,0.12)' },
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -60,11 +60,11 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 const card: React.CSSProperties = {
-  background: '#0f172a', border: '1px solid #334155', borderRadius: 12,
-  padding: 18, color: '#e2e8f0',
+  background: '#121c38', border: '1px solid #27395f', borderRadius: 12,
+  padding: 18, color: '#dde5f4',
 };
 const label: React.CSSProperties = {
-  color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', margin: 0,
+  color: '#9aadd4', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.05em', margin: 0,
 };
 
 const jsonFetch = async (url: string, opts?: RequestInit) => {
@@ -167,17 +167,17 @@ export default function ExceptionResolution() {
           <h1 className="gradient-text" style={{ margin: 0, fontSize: 32, fontWeight: 900 }}>
             Exception Resolution
           </h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>
             What the system found and would not decide on its own
           </p>
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <button className="glow-btn" onClick={scan} disabled={busy}
-            style={{ background: '#334155', border: '1px solid #475569' }}>
+            style={{ background: '#27395f', border: '1px solid #3d548a' }}>
             {busy ? '⏳ Working…' : '🔍 Run detectors'}
           </button>
           <button className="glow-btn" onClick={load} disabled={loading}
-            style={{ background: 'linear-gradient(135deg,#6366f1,#4f46e5)' }}>
+            style={{ background: 'linear-gradient(135deg,#7c8cff,#4f46e5)' }}>
             ↻ Refresh
           </button>
         </div>
@@ -187,42 +187,42 @@ export default function ExceptionResolution() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
         gap: 20, marginBottom: 20 }}>
         <div className="glass-card" style={{ padding: 20,
-          borderLeft: `5px solid ${rows.length ? '#ef4444' : '#10b981'}` }}>
+          borderLeft: `5px solid ${rows.length ? '#ff6b81' : '#2fe39b'}` }}>
           <h3 style={{ ...label, margin: '0 0 10px 0' }}>⚠️ Open exceptions</h3>
-          <h1 style={{ color: rows.length ? '#ef4444' : '#10b981', margin: 0, fontSize: 30 }}>
+          <h1 style={{ color: rows.length ? '#ff6b81' : '#2fe39b', margin: 0, fontSize: 30 }}>
             {totals?.open ?? rows.length}
           </h1>
-          <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 8 }}>
+          <div style={{ color: '#9aadd4', fontSize: 11, marginTop: 8 }}>
             {rows.length ? 'each one is a decision nobody has taken yet' : 'nothing waiting'}
           </div>
         </div>
-        <div className="glass-card" style={{ padding: 20, borderLeft: '5px solid #f59e0b' }}>
+        <div className="glass-card" style={{ padding: 20, borderLeft: '5px solid #ffb224' }}>
           <h3 style={{ ...label, margin: '0 0 10px 0' }}>💰 Money at risk</h3>
-          <h1 style={{ color: '#f59e0b', margin: 0, fontSize: 30 }}>
+          <h1 style={{ color: '#ffb224', margin: 0, fontSize: 30 }}>
             ₹{inr(totals?.amount_at_risk)}
           </h1>
-          <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 8 }}>
+          <div style={{ color: '#9aadd4', fontSize: 11, marginTop: 8 }}>
             what is wrong in rupees — this is what sorts the list
           </div>
         </div>
       </div>
 
       {flash && (
-        <div style={{ ...card, borderColor: '#10b981', marginBottom: 16, padding: 12 }}>
-          <span style={{ color: '#10b981', fontWeight: 700 }}>✅ {flash}</span>
+        <div style={{ ...card, borderColor: '#2fe39b', marginBottom: 16, padding: 12 }}>
+          <span style={{ color: '#2fe39b', fontWeight: 700 }}>✅ {flash}</span>
           <button onClick={() => setFlash(null)} style={{ float: 'right', background: 'transparent',
-            border: 'none', color: '#94a3b8', cursor: 'pointer' }}>✕</button>
+            border: 'none', color: '#9aadd4', cursor: 'pointer' }}>✕</button>
         </div>
       )}
       {error && !open && (
-        <div style={{ ...card, borderColor: '#ef4444', marginBottom: 16, padding: 12, color: '#fca5a5' }}>
+        <div style={{ ...card, borderColor: '#ff6b81', marginBottom: 16, padding: 12, color: '#fca5a5' }}>
           ⚠️ {error}
         </div>
       )}
 
       <div style={{ marginBottom: 14 }}>
         <select className="modern-input" value={kind} onChange={(e) => setKind(e.target.value)}
-          style={{ background: '#1e293b', maxWidth: 320 }}>
+          style={{ background: '#18244a', maxWidth: 320 }}>
           <option value="">All kinds</option>
           {kinds.map((k) => <option key={k} value={k}>{KIND_LABEL[k] ?? k}</option>)}
         </select>
@@ -230,7 +230,7 @@ export default function ExceptionResolution() {
 
       {loading && <p style={{ color: '#818cf8' }}>Loading…</p>}
       {!loading && !rows.length && (
-        <div className="glass-card" style={{ padding: 30, textAlign: 'center', color: '#94a3b8' }}>
+        <div className="glass-card" style={{ padding: 30, textAlign: 'center', color: '#9aadd4' }}>
           Nothing open. Run the detectors to check again.
         </div>
       )}
@@ -249,13 +249,13 @@ export default function ExceptionResolution() {
                       border: `1px solid ${sev.colour}`, fontSize: 11, fontWeight: 700 }}>
                       {e.severity}
                     </span>
-                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{KIND_LABEL[e.kind] ?? e.kind}</span>
-                    <span style={{ color: '#64748b', fontSize: 11 }}>
+                    <span style={{ color: '#9aadd4', fontSize: 12 }}>{KIND_LABEL[e.kind] ?? e.kind}</span>
+                    <span style={{ color: '#5d7196', fontSize: 11 }}>
                       · seen {e.seen_count}× · {e.age_days ?? 0}d old · {dmy(e.detected_at)}
                     </span>
                   </div>
-                  <h3 style={{ margin: '8px 0 6px', fontSize: 16, color: '#f1f5f9' }}>{e.title}</h3>
-                  <p style={{ margin: 0, fontSize: 12.5, color: '#cbd5e1', lineHeight: 1.6 }}>{e.detail}</p>
+                  <h3 style={{ margin: '8px 0 6px', fontSize: 16, color: '#eef3fa' }}>{e.title}</h3>
+                  <p style={{ margin: 0, fontSize: 12.5, color: '#c4d1ea', lineHeight: 1.6 }}>{e.detail}</p>
                 </div>
                 <div style={{ textAlign: 'right', minWidth: 180 }}>
                   <p style={label}>At risk</p>
@@ -283,17 +283,17 @@ export default function ExceptionResolution() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: 18 }}>{open.title}</h2>
-                <p style={{ margin: '6px 0 0', fontSize: 12.5, color: '#cbd5e1', lineHeight: 1.6 }}>
+                <p style={{ margin: '6px 0 0', fontSize: 12.5, color: '#c4d1ea', lineHeight: 1.6 }}>
                   {open.detail}
                 </p>
               </div>
               <button onClick={() => !busy && setOpen(null)} style={{ background: 'transparent',
-                border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer' }}>✕</button>
+                border: 'none', color: '#9aadd4', fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
 
             {open.kind === 'DUPLICATE_BILLING' && (
               <>
-                <div style={{ marginTop: 16, padding: 12, border: '1px solid #f59e0b',
+                <div style={{ marginTop: 16, padding: 12, border: '1px solid #ffb224',
                   borderRadius: 8, fontSize: 12.5, lineHeight: 1.6 }}>
                   <b>Check the physical LR before choosing.</b> These lines are the same
                   consignment. Where they name different drivers, the paper is the only thing
@@ -304,7 +304,7 @@ export default function ExceptionResolution() {
                 <p style={{ ...label, marginTop: 16 }}>Which line is the real one?</p>
                 <table className="lls-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                   <thead>
-                    <tr style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase' }}>
+                    <tr style={{ color: '#9aadd4', fontSize: 11, textTransform: 'uppercase' }}>
                       <th style={{ padding: 8, textAlign: 'left' }}>Keep</th>
                       <th style={{ padding: 8, textAlign: 'left' }}>Trip</th>
                       <th style={{ padding: 8, textAlign: 'left' }}>Driver</th>
@@ -320,13 +320,13 @@ export default function ExceptionResolution() {
                       return (
                         <tr key={l.bill_line_id}
                           onClick={() => setChoice(l)}
-                          style={{ cursor: 'pointer', borderBottom: '1px solid #334155',
+                          style={{ cursor: 'pointer', borderBottom: '1px solid #27395f',
                             background: picked ? 'rgba(20,184,166,0.15)' : undefined }}>
                           <td style={{ padding: 8 }}>
                             <input type="radio" readOnly checked={!!picked} />
                           </td>
                           <td style={{ padding: 8 }}>
-                            {l.trip_code || <span style={{ color: '#ef4444' }}>no trip linked</span>}
+                            {l.trip_code || <span style={{ color: '#ff6b81' }}>no trip linked</span>}
                           </td>
                           <td style={{ padding: 8, fontWeight: 700 }}>{l.driver_name || '—'}</td>
                           <td style={{ padding: 8 }}>{l.vehicle_no || '—'}</td>
@@ -345,7 +345,7 @@ export default function ExceptionResolution() {
                       onChange={(e) => setDeleteTrips(e.target.checked)} style={{ marginTop: 3 }} />
                     <span>
                       Also delete the duplicate trip rows.
-                      <span style={{ color: '#94a3b8' }}>
+                      <span style={{ color: '#9aadd4' }}>
                         {' '}A trip carrying fuel, tolls, a settlement or another bill is kept
                         regardless — the server checks each one and reports what it kept.
                       </span>
@@ -372,11 +372,11 @@ export default function ExceptionResolution() {
               <p style={label}>Note (required to dismiss, optional to resolve)</p>
               <input className="modern-input" value={note} onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. checked physical LR 193660536 — Sader Rahman drove it"
-                style={{ background: '#1e293b', width: '100%' }} />
+                style={{ background: '#18244a', width: '100%' }} />
             </div>
 
             {error && (
-              <div style={{ marginTop: 12, padding: 10, border: '1px solid #ef4444',
+              <div style={{ marginTop: 12, padding: 10, border: '1px solid #ff6b81',
                 borderRadius: 6, color: '#fca5a5', fontSize: 12.5 }}>
                 ⚠️ {error}
               </div>
@@ -384,22 +384,22 @@ export default function ExceptionResolution() {
 
             <div style={{ display: 'flex', gap: 12, marginTop: 18, flexWrap: 'wrap' }}>
               <button className="glow-btn" disabled={!choice || busy} onClick={submitResolve}
-                style={{ background: choice ? 'linear-gradient(135deg,#0f766e,#14b8a6)' : '#334155',
+                style={{ background: choice ? 'linear-gradient(135deg,#0f766e,#14b8a6)' : '#27395f',
                   opacity: choice ? 1 : 0.5, cursor: choice ? 'pointer' : 'not-allowed' }}>
                 {busy ? '⏳ Applying…' : '✅ Apply correction'}
               </button>
               <button className="glow-btn" disabled={busy} onClick={submitDismiss}
-                style={{ background: 'transparent', border: '1px solid #64748b', color: '#94a3b8' }}>
+                style={{ background: 'transparent', border: '1px solid #5d7196', color: '#9aadd4' }}>
                 Not a problem — dismiss
               </button>
               <button disabled={busy} onClick={() => setOpen(null)}
-                style={{ background: 'transparent', border: '1px solid #475569', color: '#94a3b8',
+                style={{ background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4',
                   padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }}>
                 Cancel
               </button>
             </div>
             {!choice && open.kind === 'DUPLICATE_BILLING' && (
-              <p style={{ color: '#64748b', fontSize: 11, marginTop: 10, marginBottom: 0 }}>
+              <p style={{ color: '#5d7196', fontSize: 11, marginTop: 10, marginBottom: 0 }}>
                 Pick a line first. There is no default — where the lines name different drivers,
                 only the physical LR settles it, and a default here would be the system guessing
                 under your login.

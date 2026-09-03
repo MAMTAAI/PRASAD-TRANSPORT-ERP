@@ -87,7 +87,7 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
   const heading = MODULE_TITLES[activeTab];
 
   return (
-    <div className="mc-shell min-h-full w-full bg-[#080c14] text-slate-200 rounded-2xl overflow-hidden ring-1 ring-slate-800/60"
+    <div className="mc-shell min-h-full w-full bg-deck-ground text-slate-200 rounded-2xl overflow-hidden ring-1 ring-slate-700/70"
       style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
 
       {/* Shared keyframes for the whole v5.0 module */}
@@ -110,11 +110,11 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
            scrollbar is the only thing on screen saying there is more
            conversation above. Narrow enough not to eat the bubble width,
            visible enough to be found. */
-        .mc-thin-scrollbar { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+        .mc-thin-scrollbar { scrollbar-width: thin; scrollbar-color: #3d548a transparent; }
         .mc-thin-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .mc-thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .mc-thin-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-        .mc-thin-scrollbar:hover::-webkit-scrollbar-thumb { background: #475569; }
+        .mc-thin-scrollbar::-webkit-scrollbar-thumb { background: #27395f; border-radius: 3px; }
+        .mc-thin-scrollbar:hover::-webkit-scrollbar-thumb { background: #3d548a; }
         @keyframes mcFadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .mc-fade-in { animation: mcFadeIn 0.35s ease-out; }
 
@@ -139,11 +139,13 @@ export default function MasterControlApp({ initialTab = 'ops' }) {
 
       {/* ambient glow backdrop */}
       <div className="relative">
-        <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-cyan-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute top-0 right-0 w-80 h-80 rounded-full bg-violet-500/10 blur-3xl" />
+        {/* Room lighting. At 10% of a mid cyan on #020617 these were invisible;
+            on navy they are what stops a full screen of panels reading flat. */}
+        <div className="pointer-events-none absolute -top-32 -left-32 w-96 h-96 rounded-full bg-live/20 blur-3xl" />
+        <div className="pointer-events-none absolute top-0 right-0 w-80 h-80 rounded-full bg-mamta/20 blur-3xl" />
 
         {/* ══════════════ TOP NAVIGATION ══════════════ */}
-        <header className="relative z-20 flex items-center gap-3 px-3 sm:px-5 py-3 border-b border-slate-800/70 bg-slate-950/60 backdrop-blur-md">
+        <header className="relative z-20 flex items-center gap-3 px-3 sm:px-5 py-3 border-b border-slate-700/70 bg-slate-900/70 backdrop-blur-md shadow-deck">
 
           {/* brand */}
           <div className="flex items-center gap-2.5 shrink-0">

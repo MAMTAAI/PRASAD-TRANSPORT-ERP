@@ -58,13 +58,13 @@ const HOLD_LABEL: Record<string, string> = {
   NEEDS_REVIEW: 'Needs a look',
 };
 const HOLD_TONE: Record<string, string> = {
-  WOULD_OVERWRITE: '#f87171', MULTIPLE_CANDIDATES: '#fbbf24',
-  NO_COLUMN: '#a78bfa', NO_DRIVER: '#fb923c', NEEDS_REVIEW: '#38bdf8',
+  WOULD_OVERWRITE: '#ff8b9c', MULTIPLE_CANDIDATES: '#fbbf24',
+  NO_COLUMN: '#a78bfa', NO_DRIVER: '#fb923c', NEEDS_REVIEW: '#22d3ee',
 };
 
 const box: React.CSSProperties = {
-  background: 'rgba(15,23,42,0.75)', border: '1px solid #1e293b',
-  borderRadius: 12, padding: '10px 12px', color: '#e2e8f0', fontSize: 13,
+  background: 'rgba(18, 28, 56,0.75)', border: '1px solid #18244a',
+  borderRadius: 12, padding: '10px 12px', color: '#dde5f4', fontSize: 13,
 };
 const btn = (bg: string): React.CSSProperties => ({
   background: bg, border: 'none', borderRadius: 8, color: '#fff',
@@ -174,10 +174,10 @@ export default function UnmappedDocumentQueue({
   if (!pending && !open) return null;
 
   return (
-    <div style={{ marginBottom: 22, background: 'rgba(56,189,248,0.06)', border: '1px solid #0ea5e9',
+    <div style={{ marginBottom: 22, background: 'rgba(34, 211, 238,0.06)', border: '1px solid #22d3ee',
                   borderRadius: 16, padding: 'clamp(12px, 2.5vw, 18px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: '#38bdf8' }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: '#22d3ee' }}>
           📥 Unmapped Documents
           <span style={{ marginLeft: 10, background: '#0ea5e9', color: '#001018', borderRadius: 999,
                          padding: '2px 10px', fontSize: 13 }}>{pending}</span>
@@ -194,15 +194,15 @@ export default function UnmappedDocumentQueue({
             <option key={h} value={h}>{HOLD_LABEL[h] ?? h} ({n as number})</option>
           ))}
         </select>
-        <button style={btn(open ? '#334155' : '#0ea5e9')} onClick={() => setOpen((o) => !o)}>
+        <button style={btn(open ? '#27395f' : '#22d3ee')} onClick={() => setOpen((o) => !o)}>
           {open ? 'Hide' : 'Review'}
         </button>
       </div>
 
-      <div style={{ marginTop: 8, color: '#94a3b8', fontSize: 12.5 }}>
+      <div style={{ marginTop: 8, color: '#9aadd4', fontSize: 12.5 }}>
         Nothing here has been filed. Each row shows what the parser read; you decide where it goes.
       </div>
-      {msg && <div style={{ marginTop: 8, ...box, borderColor: '#0ea5e9' }}>{msg}</div>}
+      {msg && <div style={{ marginTop: 8, ...box, borderColor: '#22d3ee' }}>{msg}</div>}
 
       {open && (
         <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 560, overflowY: 'auto' }}>
@@ -210,7 +210,7 @@ export default function UnmappedDocumentQueue({
             <div style={{ ...box, borderColor: '#fbbf24', display: 'flex', gap: 10, alignItems: 'center' }}>
               <span>Showing only the competing copies of <b>{group.type}</b> for <b>{group.driver}</b> — approve one, dismiss the rest.</span>
               <div style={{ flex: 1 }} />
-              <button style={btn('#475569')} onClick={() => setGroup(null)}>Show everything again</button>
+              <button style={btn('#3d548a')} onClick={() => setGroup(null)}>Show everything again</button>
             </div>
           )}
           {items.length === 0 && <div style={box}>Nothing pending in this filter.</div>}
@@ -222,19 +222,19 @@ export default function UnmappedDocumentQueue({
             return (
               <div key={it.id} style={{ ...box, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                  <span style={{ color: HOLD_TONE[it.hold_reason] ?? '#94a3b8', fontWeight: 700, fontSize: 11.5,
+                  <span style={{ color: HOLD_TONE[it.hold_reason] ?? '#9aadd4', fontWeight: 700, fontSize: 11.5,
                                  textTransform: 'uppercase', letterSpacing: '.06em' }}>
                     {HOLD_LABEL[it.hold_reason] ?? it.hold_reason}
                   </span>
                   <a href={`${API}/unmapped/${it.id}/file`} target="_blank" rel="noreferrer"
-                     style={{ color: '#e2e8f0', fontWeight: 600 }}>{fileName}</a>
+                     style={{ color: '#dde5f4', fontWeight: 600 }}>{fileName}</a>
                   {it.scanned_at && <span style={{ color: '#4ade80', fontSize: 11 }}>✓ scanned</span>}
                 </div>
-                <div style={{ color: '#64748b', fontSize: 11.5 }}>{it.source_path}</div>
-                {it.hold_detail && <div style={{ color: '#e2e8f0', fontSize: 12.5 }}>{it.hold_detail}</div>}
+                <div style={{ color: '#5d7196', fontSize: 11.5 }}>{it.source_path}</div>
+                {it.hold_detail && <div style={{ color: '#dde5f4', fontSize: 12.5 }}>{it.hold_detail}</div>}
                 {it.occupies_slot && (
                   <div style={{ fontSize: 12 }}>
-                    <span style={{ color: '#94a3b8' }}>already on file: </span>
+                    <span style={{ color: '#9aadd4' }}>already on file: </span>
                     <a href={`${API_BASE}/api/v1/files/${encodeURIComponent(String(it.occupies_slot))}`}
                        target="_blank" rel="noreferrer" style={{ color: '#fbbf24' }}>
                       open the existing one to compare
@@ -243,7 +243,7 @@ export default function UnmappedDocumentQueue({
                 )}
                 {/* How it arrived, under why it is stuck — the second line gives
                     the first one context without competing with it. */}
-                <div style={{ color: '#64748b', fontSize: 11.5 }}>
+                <div style={{ color: '#5d7196', fontSize: 11.5 }}>
                   {REASON_LABEL[it.reason] ?? it.reason}
                   {it.reason_detail ? ` · ${it.reason_detail}` : ''}
                 </div>
@@ -298,7 +298,7 @@ export default function UnmappedDocumentQueue({
                   <button disabled={busy === it.id} style={btn('#16a34a')} onClick={() => assign(it)}>
                     {it.occupies_slot ? 'Compare & Approve' : 'Manual Update'}
                   </button>
-                  <button disabled={busy === it.id} style={btn('#475569')} onClick={() => dismiss(it)}>Dismiss</button>
+                  <button disabled={busy === it.id} style={btn('#3d548a')} onClick={() => dismiss(it)}>Dismiss</button>
                 </div>
               </div>
             );

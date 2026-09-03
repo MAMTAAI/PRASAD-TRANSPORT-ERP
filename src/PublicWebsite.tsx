@@ -134,7 +134,7 @@ export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => v
       </nav>
 
       {/* 🌟 2. HERO SECTION WITH DYNAMIC SLIDING BACKGROUND */}
-      <div className="relative pt-20 pb-16 md:pt-32 md:pb-24 flex items-center min-h-[100vh] bg-[#020617] overflow-hidden">
+      <div className="relative pt-20 pb-16 md:pt-32 md:pb-24 flex items-center min-h-[100vh] bg-[#0a1024] overflow-hidden">
         <div className="absolute inset-0 z-0">
           {siteData.bgImages.map((img, index) => (
             <div 
@@ -143,7 +143,7 @@ export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => v
               style={{ backgroundImage: `url(${img})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
             ></div>
           ))}
-          <div className="absolute inset-0 bg-gradient-to-r from-[#020617]/95 via-[#020617]/80 to-transparent"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0a1024]/95 via-[#0a1024]/80 to-transparent"></div>
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
@@ -323,7 +323,7 @@ export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => v
       </div>
 
       {/* 🚛 5. OUR FLEET (DYNAMIC) */}
-      <div id="fleet" className="py-24 bg-[#020617] relative overflow-hidden text-white border-t-4 border-orange-500">
+      <div id="fleet" className="py-24 bg-[#0a1024] relative overflow-hidden text-white border-t-4 border-orange-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center mb-20">
             <h2 className="text-sm font-bold text-orange-500 tracking-widest uppercase mb-2">{siteData.fleetBadge}</h2>
@@ -421,7 +421,7 @@ export default function PublicWebsite({ onLoginClick }: { onLoginClick?: () => v
       </div>
 
       {/* 🏁 7. FOOTER (DYNAMIC) */}
-      <footer className="bg-[#020617] py-12 text-center border-t border-slate-800 pb-28 md:pb-12">
+      <footer className="bg-[#0a1024] py-12 text-center border-t border-slate-800 pb-28 md:pb-12">
         <div className="max-w-7xl mx-auto px-4">
           <h2 className="text-3xl font-black tracking-tighter text-white m-0 leading-none flex items-baseline justify-center">
             PRASAD<span className="text-orange-500 text-4xl leading-none ml-0.5 animate-pulse">.</span>

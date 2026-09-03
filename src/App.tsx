@@ -86,7 +86,7 @@ const DriverPortal = lazy(() => import('./DriverPortal'));
 
 // Branded loading state while a module chunk downloads
 const ModuleLoader = () => (
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#38bdf8', fontWeight: 900, fontSize: '18px' }}>
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#22d3ee', fontWeight: 900, fontSize: '18px' }}>
     ⏳ Loading module…
   </div>
 );
@@ -445,25 +445,25 @@ function AppShell() {
   // ==========================================
   if (showSplash || authLoading) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: '#020617', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ position: 'fixed', inset: 0, background: '#0a1024', zIndex: 99999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <style>{`
           @keyframes pulseLogo {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.7); }
-            70% { transform: scale(1.1); box-shadow: 0 0 0 20px rgba(56, 189, 248, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7); }
+            70% { transform: scale(1.1); box-shadow: 0 0 0 20px rgba(34, 211, 238, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
           }
           @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
           @keyframes loadBar { 0% { width: 0%; } 100% { width: 100%; } }
         `}</style>
         
-        <div style={{ width: '120px', height: '120px', background: 'linear-gradient(135deg, #3b82f6, #38bdf8)', borderRadius: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '55px', animation: 'pulseLogo 2s infinite', marginBottom: '25px', boxShadow: '0 10px 30px rgba(56, 189, 248, 0.4)' }}>
+        <div style={{ width: '120px', height: '120px', background: 'linear-gradient(135deg, #3b82f6, #22d3ee)', borderRadius: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '55px', animation: 'pulseLogo 2s infinite', marginBottom: '25px', boxShadow: '0 10px 30px rgba(34, 211, 238, 0.4)' }}>
           🚛
         </div>
         
         <h1 style={{ color: 'white', fontSize: '32px', fontWeight: '900', margin: '0 0 10px 0', letterSpacing: '1px', animation: 'slideUp 0.5s ease-out forwards', textAlign: 'center' }}>
           PRASAD TRANSPORT
         </h1>
-        <p style={{ color: '#38bdf8', fontSize: '13px', fontWeight: 'bold', letterSpacing: '4px', textTransform: 'uppercase', animation: 'slideUp 0.5s ease-out 0.2s forwards', opacity: 0 }}>
+        <p style={{ color: '#22d3ee', fontSize: '13px', fontWeight: 'bold', letterSpacing: '4px', textTransform: 'uppercase', animation: 'slideUp 0.5s ease-out 0.2s forwards', opacity: 0 }}>
           Premium ERP Edition
         </p>
         
@@ -535,7 +535,7 @@ function AppShell() {
   if (isGatewayMode && !user) {
     return (
       <Suspense fallback={<ModuleLoader />}>
-        <div style={{ position: 'fixed', inset: 0, overflowY: 'auto', background: '#080c14' }}><MobileSuiteApp /></div>
+        <div style={{ position: 'fixed', inset: 0, overflowY: 'auto', background: '#0a1024' }}><MobileSuiteApp /></div>
       </Suspense>
     );
   }
@@ -558,8 +558,8 @@ function AppShell() {
       return (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '80vh', textAlign: 'center', animation: 'fadeIn 0.5s' }}>
           <div style={{ fontSize: '80px', marginBottom: '20px' }}>🔒</div>
-          <h2 style={{ color: '#ef4444', margin: '0 0 10px 0', fontSize: '32px', fontWeight: '900' }}>ACCESS RESTRICTED</h2>
-          <p style={{ color: '#94a3b8' }}>You do not have permission to view this module. Contact Admin.</p>
+          <h2 style={{ color: '#ff6b81', margin: '0 0 10px 0', fontSize: '32px', fontWeight: '900' }}>ACCESS RESTRICTED</h2>
+          <p style={{ color: '#9aadd4' }}>You do not have permission to view this module. Contact Admin.</p>
         </div>
       );
     }
@@ -575,8 +575,8 @@ function AppShell() {
       // 📱 1-App/5-Role Super App (Ola/Uber-style live fleet) — full-screen like the portals
       case 'SUPER_APP':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#080c14', overflowY: 'auto' }}>
-            <button onClick={() => handleComponentChange('MASTER_CONTROL_V5')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(30,41,59,0.9)', color: '#94a3b8', border: '1px solid #334155', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+            <button onClick={() => handleComponentChange('MASTER_CONTROL_V5')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(24, 36, 74,0.9)', color: '#9aadd4', border: '1px solid #27395f', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
             <MobileSuiteApp />
           </div>
         );
@@ -677,7 +677,7 @@ function AppShell() {
   // a third party. ProfileMenu draws initials locally instead.
 
   return (
-    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', overflow: 'hidden', background: '#020617', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', overflow: 'hidden', background: 'radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,0.10) 0%, transparent 60%), radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,0.09) 0%, transparent 58%), linear-gradient(180deg, #0b1228 0%, #0a1024 100%)', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
         .fade-content { transition: opacity 0.2s ease-in-out; opacity: ${isTransitioning ? 0 : 1}; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -704,13 +704,13 @@ function AppShell() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', width: isMobile ? '100%' : 'calc(100% - 260px)' }}>
         
         {/* 📱 HEADER NAVBAR (SMART UI) */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', padding: isMobile ? '10px 15px' : '15px 20px', background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)', borderBottom: '1px solid #1e293b', position: 'relative', zIndex: 100 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', padding: isMobile ? '10px 15px' : '15px 20px', background: 'rgba(18, 28, 56, 0.88)', backdropFilter: 'blur(14px)', borderBottom: '1px solid #18244a', position: 'relative', zIndex: 100 }}>
           
           {isMobile ? (
             // 📱 MOBILE TOP BAR (Clean & Native App Look)
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                <button onClick={() => setMobileMenuOpen(true)} style={{ background: 'transparent', border: 'none', color: '#38bdf8', fontSize: '26px', cursor: 'pointer', padding: 0 }}>☰</button>
+                <button onClick={() => setMobileMenuOpen(true)} style={{ background: 'transparent', border: 'none', color: '#22d3ee', fontSize: '26px', cursor: 'pointer', padding: 0 }}>☰</button>
                 <span style={{ color: '#fff', fontSize: '16px', fontWeight: '900', letterSpacing: '1px' }}>PRASAD TRANSPORT</span>
               </div>
               {/* Same menu as desktop. The bare 🚪 that used to live here was a
@@ -727,7 +727,7 @@ function AppShell() {
                     Company/Branch/Owner scope carries straight across. */}
                 <GlobalHeaderNav activeModule={activeModule} onChange={handleModuleChange} allowed={visibleModules} />
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '10px', paddingLeft: '15px', borderLeft: '1px solid #334155' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '10px', paddingLeft: '15px', borderLeft: '1px solid #27395f' }}>
                   {visibleModules.includes('CRM') && (
                   <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WHATSAPP'); }} title="WhatsApp Master Dashboard" style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #128C7E, #25D366)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
                     <span style={{color:'white', fontWeight:'bold', fontSize:'12px'}}>CRM PANEL</span>
@@ -735,7 +735,7 @@ function AppShell() {
                   )}
                   
                   {isAdmin(user) && (
-                    <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WEB_SETTINGS'); }} style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #38bdf8, #818cf8)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
+                    <button onClick={() => { handleModuleChange('CRM'); handleComponentChange('WEB_SETTINGS'); }} style={{ display: 'flex', padding: '8px 12px', background: 'linear-gradient(135deg, #22d3ee, #818cf8)', borderRadius: '8px', border: 'none', cursor: 'pointer', gap: '8px', alignItems: 'center' }}>
                       <span style={{color:'white', fontWeight:'bold', fontSize:'12px'}}>🌐 EDIT WEBSITE</span>
                     </button>
                   )}
@@ -749,7 +749,7 @@ function AppShell() {
                   laptop. */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'flex-end', flexShrink: 0 }}>
                 <PortalSwitcher onOpen={handleComponentChange} activeComponent={activeComponent} />
-                <div style={{ width: 1, height: 26, background: '#334155', flexShrink: 0 }} />
+                <div style={{ width: 1, height: 26, background: '#27395f', flexShrink: 0 }} />
                 <ProfileMenu user={user} onLogout={handleLogout} />
               </div>
             </>
@@ -757,7 +757,7 @@ function AppShell() {
         </div>
 
         {/* 📝 MAIN CONTENT */}
-        <div className="fade-content" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '25px', paddingBottom: isMobile ? '80px' : '25px', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
+        <div className="fade-content" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '25px', paddingBottom: isMobile ? '80px' : '25px', background: 'radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,0.10) 0%, transparent 60%), radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,0.09) 0%, transparent 58%), linear-gradient(180deg, #0b1228 0%, #0a1024 100%)', backgroundAttachment: 'fixed' }}>
             <Suspense fallback={<ModuleLoader />}>{renderActiveComponent()}</Suspense>
             {/* Driver Control Dashboard (owner, 2026-09-03): mounted ONCE for the
                 whole ERP, so a driver's name on any screen — Command Center,
@@ -767,25 +767,25 @@ function AppShell() {
 
         {/* 📱 NATIVE APP BOTTOM NAVIGATION BAR (ONLY VISIBLE ON MOBILE) */}
         {isMobile && (
-          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '65px', background: '#0f172a', borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 50, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -4px 15px rgba(0,0,0,0.5)' }}>
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '65px', background: '#121c38', borderTop: '1px solid #18244a', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 50, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -4px 15px rgba(0,0,0,0.5)' }}>
             
             {visibleModules.includes('OPERATION') && (
-            <button onClick={() => handleModuleChange('OPERATION')} style={{ background: 'none', border: 'none', color: activeModule === 'OPERATION' ? '#38bdf8' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
-              <span style={{ fontSize: activeModule === 'OPERATION' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'OPERATION' ? 'drop-shadow(0 0 5px rgba(56,189,248,0.5))' : 'none' }}>🚛</span>
+            <button onClick={() => handleModuleChange('OPERATION')} style={{ background: 'none', border: 'none', color: activeModule === 'OPERATION' ? '#22d3ee' : '#5d7196', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
+              <span style={{ fontSize: activeModule === 'OPERATION' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'OPERATION' ? 'drop-shadow(0 0 5px rgba(34, 211, 238,0.5))' : 'none' }}>🚛</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'OPERATION' ? '900' : 'normal' }}>Ops</span>
             </button>
             )}
 
             {visibleModules.includes('ACCOUNTS') && (
-            <button onClick={() => handleModuleChange('ACCOUNTS')} style={{ background: 'none', border: 'none', color: activeModule === 'ACCOUNTS' ? '#10b981' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
-              <span style={{ fontSize: activeModule === 'ACCOUNTS' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'ACCOUNTS' ? 'drop-shadow(0 0 5px rgba(16,185,129,0.5))' : 'none' }}>💰</span>
+            <button onClick={() => handleModuleChange('ACCOUNTS')} style={{ background: 'none', border: 'none', color: activeModule === 'ACCOUNTS' ? '#2fe39b' : '#5d7196', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
+              <span style={{ fontSize: activeModule === 'ACCOUNTS' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'ACCOUNTS' ? 'drop-shadow(0 0 5px rgba(47, 227, 155,0.5))' : 'none' }}>💰</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'ACCOUNTS' ? '900' : 'normal' }}>Accounts</span>
             </button>
             )}
 
             {visibleModules.includes('CRM') && (
-            <button onClick={() => handleModuleChange('CRM')} style={{ background: 'none', border: 'none', color: activeModule === 'CRM' ? '#f59e0b' : '#64748b', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
-              <span style={{ fontSize: activeModule === 'CRM' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'CRM' ? 'drop-shadow(0 0 5px rgba(245,158,11,0.5))' : 'none' }}>🤝</span>
+            <button onClick={() => handleModuleChange('CRM')} style={{ background: 'none', border: 'none', color: activeModule === 'CRM' ? '#ffb224' : '#5d7196', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', flex: 1 }}>
+              <span style={{ fontSize: activeModule === 'CRM' ? '24px' : '20px', transition: '0.2s', filter: activeModule === 'CRM' ? 'drop-shadow(0 0 5px rgba(255, 178, 36,0.5))' : 'none' }}>🤝</span>
               <span style={{ fontSize: '10px', fontWeight: activeModule === 'CRM' ? '900' : 'normal' }}>CRM</span>
             </button>
             )}

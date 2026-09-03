@@ -205,19 +205,36 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
   };
 
   return (
-    <div style={{ width: isMobile ? '260px' : (isExpanded ? '260px' : '80px'), background: '#0f172a', borderRight: '1px solid #1e293b', height: '100vh', display: 'flex', flexDirection: 'column', position: isMobile ? 'fixed' : 'relative', left: isMobile ? (isOpen ? '0' : '-100%') : '0', zIndex: 1000, transition: 'all 0.3s ease' }}>
+    <div style={{ width: isMobile ? '260px' : (isExpanded ? '260px' : '80px'), background: 'linear-gradient(185deg, #16224a 0%, #101a34 55%, #0c1329 100%)', borderRight: '1px solid #27395f', boxShadow: '1px 0 0 rgba(255,255,255,0.03), 8px 0 32px rgba(4,9,26,0.45)', height: '100vh', display: 'flex', flexDirection: 'column', position: isMobile ? 'fixed' : 'relative', left: isMobile ? (isOpen ? '0' : '-100%') : '0', zIndex: 1000, transition: 'all 0.3s ease' }}>
       <style>{`
         .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .menu-item { border-radius: 8px; margin: 2px 10px; transition: 0.2s; cursor: pointer; display: flex; align-items: center; gap: 15px; color: #cbd5e1; padding: 12px 15px; }
-        .menu-item:hover { background: rgba(56, 189, 248, 0.1); transform: translateX(5px); color: #fff; }
-        .active-item { background: rgba(56, 189, 248, 0.2) !important; color: #38bdf8 !important; border-left: 4px solid #38bdf8 !important; }
-        .highlight-item { background: rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; color: #fcd34d; }
-        .highlight-item:hover { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
-        .active-highlight { background: rgba(245, 158, 11, 0.3) !important; border-left: 4px solid #f59e0b !important; color: #f59e0b !important; }
+        /* 2026 "Indigo Deck": the rail sits on a navy gradient, so a row needs
+           a lit edge and a glow to read as selected rather than just filled.
+           translateX on hover is kept — it is the only affordance an icon-only
+           collapsed rail has. */
+        .menu-item { position: relative; border-radius: 10px; margin: 2px 10px; cursor: pointer;
+          display: flex; align-items: center; gap: 15px; color: #c4d1ea; padding: 12px 15px;
+          border: 1px solid transparent;
+          transition: background .18s ease, color .18s ease, border-color .18s ease, transform .18s ease, box-shadow .22s ease; }
+        .menu-item:hover { background: rgba(34, 211, 238, 0.10); border-color: rgba(34, 211, 238, 0.22); transform: translateX(4px); color: #fff; }
+        .active-item { background: rgba(34, 211, 238, 0.16) !important; color: #22d3ee !important;
+          border-color: rgba(34, 211, 238, 0.42) !important;
+          box-shadow: inset 3px 0 0 #22d3ee, 0 0 22px rgba(34, 211, 238, 0.26) !important; }
+        .highlight-item { background: rgba(255, 178, 36, 0.10); border-color: rgba(255, 178, 36, 0.30); box-shadow: inset 3px 0 0 #ffb224; color: #fcd34d; }
+        .highlight-item:hover { background: rgba(255, 178, 36, 0.18); border-color: rgba(255, 178, 36, 0.45); color: #ffb224; }
+        .active-highlight { background: rgba(255, 178, 36, 0.22) !important; color: #ffb224 !important;
+          border-color: rgba(255, 178, 36, 0.50) !important;
+          box-shadow: inset 3px 0 0 #ffb224, 0 0 22px rgba(255, 178, 36, 0.26) !important; }
+        /* The count badge is a call to action, so it glows like every other
+           "waiting on a person" surface in the theme. */
+        .menu-badge { margin-left: auto; background: rgba(255, 107, 129, 0.18); color: #ff6b81;
+          border: 1px solid rgba(255, 107, 129, 0.45); box-shadow: 0 0 14px rgba(255, 107, 129, 0.30);
+          padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 800;
+          font-variant-numeric: tabular-nums; }
       `}</style>
       
-      <div style={{ padding: '20px', background: '#020617', textAlign: 'center', borderBottom: '1px solid #1e293b' }}>
-        <h2 style={{ margin: 0, color: '#38bdf8', fontSize: isExpanded || isMobile ? '22px' : '14px', fontWeight: '900' }}>
+      <div style={{ padding: '20px', background: 'linear-gradient(180deg, rgba(34,211,238,0.10), rgba(34,211,238,0))', textAlign: 'center', borderBottom: '1px solid #27395f' }}>
+        <h2 style={{ margin: 0, color: '#22d3ee', textShadow: '0 0 20px rgba(34,211,238,0.45)', letterSpacing: '0.02em', fontSize: isExpanded || isMobile ? '22px' : '14px', fontWeight: '900' }}>
           {isExpanded || isMobile ? 'PRASAD ERP' : 'ERP'}
         </h2>
       </div>
@@ -228,7 +245,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
           // 🔥 RENDER MASTER ADMIN HEADING
           if (item.isDivider) {
              return (isExpanded || isMobile) && (
-               <div key={item.id} style={{ fontSize: '10px', color: '#38bdf8', fontWeight: 'bold', margin: '25px 15px 10px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid #1e293b', paddingBottom: '5px' }}>
+               <div key={item.id} style={{ fontSize: '10px', color: '#7288b3', fontWeight: 800, margin: '25px 15px 10px', textTransform: 'uppercase', letterSpacing: '0.16em', borderBottom: '1px solid #27395f', paddingBottom: '6px' }}>
                  {item.icon} {item.label}
                </div>
              );
@@ -245,7 +262,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
               {(isExpanded || isMobile) && (
                 <span style={{ fontSize: '14px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
                   {item.label}
-                  {badgeFor(item.id) > 0 && <span style={{ marginLeft: 'auto', background: '#ef4444', color: 'white', padding: '2px 6px', borderRadius: '10px', fontSize: '10px', fontWeight: 'bold' }}>{badgeFor(item.id)}</span>}
+                  {badgeFor(item.id) > 0 && <span className="menu-badge">{badgeFor(item.id)}</span>}
                 </span>
               )}
             </div>
@@ -254,7 +271,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       </div>
 
       {!isMobile && (
-        <div onClick={() => setIsExpanded(!isExpanded)} style={{ padding: '15px', textAlign: 'center', cursor: 'pointer', borderTop: '1px solid #1e293b', color: '#94a3b8', fontSize: '12px' }}>
+        <div onClick={() => setIsExpanded(!isExpanded)} style={{ padding: '15px', textAlign: 'center', cursor: 'pointer', borderTop: '1px solid #18244a', color: '#9aadd4', fontSize: '12px' }}>
           {isExpanded ? '◀ COLLAPSE' : '▶'}
         </div>
       )}

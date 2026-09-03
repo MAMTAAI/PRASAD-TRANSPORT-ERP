@@ -275,36 +275,36 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
     setBusy(false);
   };
 
-  const input = { width: '100%', padding: '12px', minHeight: '46px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
-  const modalWrap = { position: 'fixed' as const, inset: 0, background: 'rgba(2,6,23,0.85)', backdropFilter: 'blur(6px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '15px' };
-  const modalBox = { background: '#0f172a', border: '1px solid #f59e0b', width: '100%', maxWidth: '440px', padding: '25px', borderRadius: '16px' };
+  const input = { width: '100%', padding: '12px', minHeight: '46px', background: '#121c38', border: '1px solid #3d548a', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
+  const modalWrap = { position: 'fixed' as const, inset: 0, background: 'rgba(10, 16, 36,0.85)', backdropFilter: 'blur(6px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '15px' };
+  const modalBox = { background: '#121c38', border: '1px solid #ffb224', width: '100%', maxWidth: '440px', padding: '25px', borderRadius: '16px' };
 
   return (
     <div>
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
           ⚠️ {err}
         </div>
       )}
 
       {/* 📋 FORM */}
-      <div style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-        <h3 style={{ margin: '0 0 5px 0', color: '#f59e0b', fontSize: '17px' }}>📋 New Loading Advice (Pre-Trip)</h3>
-        <p style={{ margin: '0 0 18px 0', color: '#94a3b8', fontSize: '12px' }}>
+      <div style={{ background: 'rgba(255, 178, 36,0.05)', border: '1px solid rgba(255, 178, 36,0.4)', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+        <h3 style={{ margin: '0 0 5px 0', color: '#ffb224', fontSize: '17px' }}>📋 New Loading Advice (Pre-Trip)</h3>
+        <p style={{ margin: '0 0 18px 0', color: '#9aadd4', fontSize: '12px' }}>
           Register the oil company's Safety Checklist-cum-Loading Advise as it arrives — the LR/Trip code is reserved and advance HSD/cash is issued against it.
-          <b style={{ color: '#10b981' }}> Optional</b> — Direct Entry still works without an advice.
+          <b style={{ color: '#2fe39b' }}> Optional</b> — Direct Entry still works without an advice.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '12px' }}>
-          <div><label style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Advise No *</label>
-            <input style={{ ...input, borderColor: '#f59e0b' }} value={f.advice_no} onChange={(e) => setF({ ...f, advice_no: e.target.value })} placeholder="e.g. 7B03…LA0033" /></div>
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Advise Date</label>
+          <div><label style={{ fontSize: '11px', color: '#ffb224', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Advise No *</label>
+            <input style={{ ...input, borderColor: '#ffb224' }} value={f.advice_no} onChange={(e) => setF({ ...f, advice_no: e.target.value })} placeholder="e.g. 7B03…LA0033" /></div>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', display: 'block', marginBottom: '4px' }}>Advise Date</label>
             <input type="date" style={input} value={f.advice_date} onChange={(e) => setF({ ...f, advice_date: e.target.value })} /></div>
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Valid Till</label>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', display: 'block', marginBottom: '4px' }}>Valid Till</label>
             <input type="date" style={input} value={f.advice_valid_till} onChange={(e) => setF({ ...f, advice_valid_till: e.target.value })} /></div>
-          <div><label style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Vehicle (TT) No *</label>
-            <input list="la-vehicle-list" style={{ ...input, borderColor: '#38bdf8' }} value={f.vehicle_no} onChange={(e) => handleVehicleChange(e.target.value)} placeholder="AS 26C 5108" />
+          <div><label style={{ fontSize: '11px', color: '#22d3ee', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Vehicle (TT) No *</label>
+            <input list="la-vehicle-list" style={{ ...input, borderColor: '#22d3ee' }} value={f.vehicle_no} onChange={(e) => handleVehicleChange(e.target.value)} placeholder="AS 26C 5108" />
             <datalist id="la-vehicle-list">{masters.vehicles.map((v: any) => <option key={v.id} value={v.vehicle_no} />)}</datalist></div>
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Driver</label>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', display: 'block', marginBottom: '4px' }}>Driver</label>
             <select style={input} value={f.driver_name} onChange={(e) => {
               const d = masters.drivers.find((x: any) => x.name === e.target.value);
               setF({ ...f, driver_name: e.target.value, driver_id: d?.id ?? '', driver_mobile: d?.mobile ?? f.driver_mobile });
@@ -312,28 +312,28 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
               <option value="">-- Select Driver --</option>
               {masters.drivers.map((d: any) => <option key={d.id} value={d.name}>{d.name}</option>)}
             </select></div>
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Target Route / Terminal</label>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', display: 'block', marginBottom: '4px' }}>Target Route / Terminal</label>
             <select style={input} value={f.consignee_name} onChange={(e) => handleRouteSelect(e.target.value)}>
               <option value="">-- Route from RTKM Master --</option>
               {masters.routes.map((r: any) => (
                 <option key={r.id} value={r.Consignee_Name}>{r.Depot_Link} ➔ {r.Consignee_Name}</option>
               ))}
             </select></div>
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>Operating Company</label>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', display: 'block', marginBottom: '4px' }}>Operating Company</label>
             <input style={input} value={f.operating_company} onChange={(e) => setF({ ...f, operating_company: e.target.value })} placeholder="PRASAD / GAUTAM / JAISWAL…" /></div>
-          <div style={{ alignSelf: 'end', fontSize: '11px', color: '#94a3b8', paddingBottom: '8px' }}>
-            {(f.fixed_hsd || f.fixed_cash) && <>🎯 Route targets: <b style={{ color: '#38bdf8' }}>{f.fixed_hsd || 0} L</b> · <b style={{ color: '#10b981' }}>₹{f.fixed_cash || 0}</b></>}
+          <div style={{ alignSelf: 'end', fontSize: '11px', color: '#9aadd4', paddingBottom: '8px' }}>
+            {(f.fixed_hsd || f.fixed_cash) && <>🎯 Route targets: <b style={{ color: '#22d3ee' }}>{f.fixed_hsd || 0} L</b> · <b style={{ color: '#2fe39b' }}>₹{f.fixed_cash || 0}</b></>}
           </div>
         </div>
-        <button onClick={handleSave} disabled={saving} style={{ marginTop: '16px', padding: '13px 30px', minHeight: '48px', background: saving ? '#64748b' : 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '900', cursor: 'pointer', fontSize: '15px', width: '100%', maxWidth: '400px' }}>
+        <button onClick={handleSave} disabled={saving} style={{ marginTop: '16px', padding: '13px 30px', minHeight: '48px', background: saving ? '#5d7196' : 'linear-gradient(135deg, #ffb224, #d97706)', color: '#fff', border: 'none', borderRadius: '8px', fontWeight: '900', cursor: 'pointer', fontSize: '15px', width: '100%', maxWidth: '400px' }}>
           {saving ? '⌛ Saving…' : '📋 Register Advice & Reserve LR No'}
         </button>
       </div>
 
       {/* 📄 OPEN ADVICE LIST */}
-      <div style={{ background: '#1e293b', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155' }}>
+      <div style={{ background: '#18244a', borderRadius: '12px', overflowX: 'auto', border: '1px solid #27395f' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap', fontSize: '13px' }}>
-          <thead style={{ background: '#0f172a', color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase' }}>
+          <thead style={{ background: '#121c38', color: '#ffb224', fontSize: '11px', textTransform: 'uppercase' }}>
             <tr>
               <th style={{ padding: '13px' }}>Advise No / LR</th>
               <th style={{ padding: '13px' }}>Vehicle / Driver</th>
@@ -345,31 +345,31 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
           </thead>
           <tbody>
             {adviceTrips.length === 0 ? (
-              <tr><td colSpan={6} style={{ padding: '28px', textAlign: 'center', color: '#64748b' }}>
+              <tr><td colSpan={6} style={{ padding: '28px', textAlign: 'center', color: '#5d7196' }}>
                 No open loading advice. (Direct Entry is always available — an advice is optional.)
               </td></tr>
             ) : adviceTrips.map((t) => {
               const daysLeft = t.advice_valid_till ? Math.ceil((+new Date(t.advice_valid_till) - Date.now()) / 86400000) : null;
               return (
-                <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1' }}>
+                <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea' }}>
                   <td style={{ padding: '11px 13px' }}>
-                    <b style={{ color: '#f59e0b' }}>{t.advice_no || '—'}</b><br />
-                    <small style={{ color: '#38bdf8' }}>LR: {t.trip_code}</small><br />
-                    <small style={{ color: '#94a3b8' }}>{t.advice_date ?? ''}</small>
+                    <b style={{ color: '#ffb224' }}>{t.advice_no || '—'}</b><br />
+                    <small style={{ color: '#22d3ee' }}>LR: {t.trip_code}</small><br />
+                    <small style={{ color: '#9aadd4' }}>{t.advice_date ?? ''}</small>
                   </td>
                   <td style={{ padding: '11px 13px' }}>
                     <b style={{ color: '#fff' }}>{t.vehicle_no}</b><br />
-                    <small style={{ color: '#94a3b8' }}>{t.driver_name || '—'}</small>
+                    <small style={{ color: '#9aadd4' }}>{t.driver_name || '—'}</small>
                   </td>
                   <td style={{ padding: '11px 13px', fontSize: '12px' }}>{t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</td>
                   <td style={{ padding: '11px 13px' }}>
-                    {daysLeft === null ? <span style={{ color: '#64748b' }}>—</span>
-                      : daysLeft < 0 ? <span style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444', border: '1px solid #ef4444', padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' }}>⛔ EXPIRED</span>
-                      : <span style={{ color: daysLeft <= 3 ? '#f59e0b' : '#10b981', fontWeight: 'bold', fontSize: '12px' }}>{daysLeft}d left</span>}
+                    {daysLeft === null ? <span style={{ color: '#5d7196' }}>—</span>
+                      : daysLeft < 0 ? <span style={{ background: 'rgba(255, 107, 129,0.15)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '3px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' }}>⛔ EXPIRED</span>
+                      : <span style={{ color: daysLeft <= 3 ? '#ffb224' : '#2fe39b', fontWeight: 'bold', fontSize: '12px' }}>{daysLeft}d left</span>}
                   </td>
                   <td style={{ padding: '11px 13px', textAlign: 'right' }}>
-                    <b style={{ color: '#f59e0b' }}>₹{inr(advances(t))}</b><br />
-                    <small style={{ color: '#38bdf8' }}>{num(t.hsd_issued)} L HSD</small>
+                    <b style={{ color: '#ffb224' }}>₹{inr(advances(t))}</b><br />
+                    <small style={{ color: '#22d3ee' }}>{num(t.hsd_issued)} L HSD</small>
                   </td>
                   <td style={{ padding: '11px 13px', textAlign: 'center' }}>
                     <button onClick={() => { setPayFor(t); setPay({ amount: '', mode: 'Office Cash', date: today(), remarks: '' }); }}
@@ -377,7 +377,7 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
                     <button onClick={() => { setFuelFor(t); setFuel({ vendor_id: '', fuel_type: 'FIXED', qty: '', rate: '', cash_advance: '', date: today() }); }}
                       style={{ background: '#f59e0b', color: '#fff', border: 'none', padding: '9px 13px', minHeight: '40px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginRight: '5px', fontSize: '12px' }}>⛽ Fuel</button>
                     <button onClick={() => handleCancel(t)}
-                      style={{ background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', padding: '9px 12px', minHeight: '40px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✕</button>
+                      style={{ background: 'transparent', color: '#ff6b81', border: '1px solid #ff6b81', padding: '9px 12px', minHeight: '40px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>✕</button>
                   </td>
                 </tr>
               );
@@ -385,7 +385,7 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
           </tbody>
         </table>
       </div>
-      <p style={{ color: '#64748b', fontSize: '12px', marginTop: '10px' }}>
+      <p style={{ color: '#5d7196', fontSize: '12px', marginTop: '10px' }}>
         💡 Selecting this vehicle in the Direct Entry tab attaches the open advice automatically — every advance carries over with the trip.
       </p>
 
@@ -394,7 +394,7 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
         <div style={modalWrap} onClick={() => setPayFor(null)}>
           <div style={{ ...modalBox, borderColor: '#8b5cf6' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 5px 0', color: '#8b5cf6' }}>💸 Advance Cash — {payFor.vehicle_no}</h3>
-            <p style={{ margin: '0 0 15px 0', color: '#94a3b8', fontSize: '12px' }}>Advice #{payFor.advice_no} · LR {payFor.trip_code} · {payFor.driver_name || 'no driver'}</p>
+            <p style={{ margin: '0 0 15px 0', color: '#9aadd4', fontSize: '12px' }}>Advice #{payFor.advice_no} · LR {payFor.trip_code} · {payFor.driver_name || 'no driver'}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <select style={{ ...input, borderColor: '#8b5cf6' }} value={pay.mode} onChange={(e) => setPay({ ...pay, mode: e.target.value })}>
                 <option value="Office Cash">🏢 Office Cash</option>
@@ -404,8 +404,8 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
               <input type="number" inputMode="decimal" style={input} placeholder="Amount (₹)" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} />
               <input style={input} placeholder="Remarks / Ref No." value={pay.remarks} onChange={(e) => setPay({ ...pay, remarks: e.target.value })} />
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => setPayFor(null)} style={{ flex: 1, minHeight: '48px', background: '#334155', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                <button onClick={handlePay} disabled={busy} style={{ flex: 1, minHeight: '48px', background: busy ? '#64748b' : '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>{busy ? '⌛…' : 'Confirm Advance'}</button>
+                <button onClick={() => setPayFor(null)} style={{ flex: 1, minHeight: '48px', background: '#27395f', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                <button onClick={handlePay} disabled={busy} style={{ flex: 1, minHeight: '48px', background: busy ? '#5d7196' : '#8b5cf6', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>{busy ? '⌛…' : 'Confirm Advance'}</button>
               </div>
             </div>
           </div>
@@ -416,10 +416,10 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
       {fuelFor && (
         <div style={modalWrap} onClick={() => setFuelFor(null)}>
           <div style={modalBox} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 5px 0', color: '#f59e0b' }}>⛽ Advance HSD / Pump Cash — {fuelFor.vehicle_no}</h3>
-            <p style={{ margin: '0 0 15px 0', color: '#94a3b8', fontSize: '12px' }}>Advice #{fuelFor.advice_no} · LR {fuelFor.trip_code}</p>
+            <h3 style={{ margin: '0 0 5px 0', color: '#ffb224' }}>⛽ Advance HSD / Pump Cash — {fuelFor.vehicle_no}</h3>
+            <p style={{ margin: '0 0 15px 0', color: '#9aadd4', fontSize: '12px' }}>Advice #{fuelFor.advice_no} · LR {fuelFor.trip_code}</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <select style={{ ...input, borderColor: '#f59e0b' }} value={fuel.vendor_id} onChange={(e) => setFuel({ ...fuel, vendor_id: e.target.value })}>
+              <select style={{ ...input, borderColor: '#ffb224' }} value={fuel.vendor_id} onChange={(e) => setFuel({ ...fuel, vendor_id: e.target.value })}>
                 <option value="">-- Petrol Pump --</option>
                 {vendorList.map((v: any) => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}
               </select>
@@ -433,11 +433,11 @@ export default function LoadingAdvice({ onChanged }: { onChanged?: () => void })
                 <input type="number" inputMode="decimal" style={{ ...input, flex: 1 }} placeholder="Liters" value={fuel.qty} onChange={(e) => setFuel({ ...fuel, qty: e.target.value })} />
                 <input type="number" inputMode="decimal" style={{ ...input, flex: 1 }} placeholder="Rate ₹/L" value={fuel.rate} onChange={(e) => setFuel({ ...fuel, rate: e.target.value })} />
               </div>
-              <div style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold' }}>Diesel Value: ₹{inr(round2(num(fuel.qty) * num(fuel.rate)))}</div>
+              <div style={{ fontSize: '13px', color: '#ffb224', fontWeight: 'bold' }}>Diesel Value: ₹{inr(round2(num(fuel.qty) * num(fuel.rate)))}</div>
               <input type="number" inputMode="decimal" style={input} placeholder="Cash to Driver via Pump (₹, optional)" value={fuel.cash_advance} onChange={(e) => setFuel({ ...fuel, cash_advance: e.target.value })} />
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={() => setFuelFor(null)} style={{ flex: 1, minHeight: '48px', background: '#334155', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                <button onClick={handleFuel} disabled={busy} style={{ flex: 1, minHeight: '48px', background: busy ? '#64748b' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>{busy ? '⌛…' : '🚀 Save & WA Slip'}</button>
+                <button onClick={() => setFuelFor(null)} style={{ flex: 1, minHeight: '48px', background: '#27395f', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                <button onClick={handleFuel} disabled={busy} style={{ flex: 1, minHeight: '48px', background: busy ? '#5d7196' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>{busy ? '⌛…' : '🚀 Save & WA Slip'}</button>
               </div>
             </div>
           </div>

@@ -9,9 +9,9 @@ const API = API_BASE;
 
 // ── palette (matches AiSettings / MAMTA AI PRO dark scheme) ────────────────
 const C = {
-  bg: '#0f172a', card: 'rgba(30,41,59,0.55)', line: '#334155', dim: '#94a3b8',
-  text: '#e2e8f0', ok: '#10b981', warn: '#f59e0b', bad: '#ef4444',
-  purple: '#c084fc', blue: '#38bdf8',
+  bg: '#121c38', card: 'rgba(24, 36, 74,0.55)', line: '#27395f', dim: '#9aadd4',
+  text: '#dde5f4', ok: '#2fe39b', warn: '#ffb224', bad: '#ff6b81',
+  purple: '#a78bfa', blue: '#22d3ee',
 };
 
 const AGENT_ICONS: Record<string, string> = {
@@ -30,7 +30,7 @@ function Bar({ label, pct, color }: { label: string; pct: number; color: string 
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: C.dim }}>
         <span>{label}</span><span>{pct}%</span>
       </div>
-      <div style={{ height: 5, background: '#1e293b', borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ height: 5, background: '#18244a', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 4, transition: 'width .6s' }} />
       </div>
     </div>
@@ -87,7 +87,7 @@ function AgentCard({ a, onAction }: { a: any; onAction: (kind: string, agent: an
         {a.missing_tables?.length > 0 && <Badge text={`AWAITS ${a.missing_tables.length} TABLE(S)`} color={C.warn} />}
       </div>
 
-      <div style={{ fontSize: 10, color: C.text, background: '#0b1220', border: `1px solid ${C.line}`, borderRadius: 8, padding: '6px 8px', marginBottom: 6 }}>
+      <div style={{ fontSize: 10, color: C.text, background: '#0a1024', border: `1px solid ${C.line}`, borderRadius: 8, padding: '6px 8px', marginBottom: 6 }}>
         <div><span style={{ color: C.dim }}>LIVE:</span> {a.live_action ?? '—'}</div>
         <div><span style={{ color: C.dim }}>HOMEWORK:</span> {a.homework ?? '—'}</div>
         <div>
@@ -157,7 +157,7 @@ function SmartScanner() {
         onDrop={onDrop}
         onClick={() => inputRef.current?.click()}
         style={{ border: `2px dashed ${drag ? C.purple : C.line}`, borderRadius: 12, padding: 30, textAlign: 'center',
-                 cursor: 'pointer', background: drag ? 'rgba(192,132,252,0.08)' : '#0b1220', transition: 'all .2s' }}>
+                 cursor: 'pointer', background: drag ? 'rgba(167, 139, 250,0.08)' : '#0a1024', transition: 'all .2s' }}>
         <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" hidden
                onChange={(e) => e.target.files?.[0] && scan(e.target.files[0])} />
         <div style={{ fontSize: 28 }}>{busy ? '🔎' : '📄'}</div>
@@ -176,7 +176,7 @@ function SmartScanner() {
               </div>
             )}
             {result && (
-              <div style={{ background: '#0b1220', border: `1px solid ${C.line}`, borderRadius: 10, padding: 12, fontSize: 12, color: C.text }}>
+              <div style={{ background: '#0a1024', border: `1px solid ${C.line}`, borderRadius: 10, padding: 12, fontSize: 12, color: C.text }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
                   <Badge text={result.doc_type ?? 'UNKNOWN'} color={C.blue} />
                   <Badge text={`CONFIDENCE ${confPct}%`} color={confColor} />
@@ -282,7 +282,7 @@ export default function AgentFleetCommand() {
       </div>
 
       {err && (
-        <div style={{ marginTop: 14, padding: '12px 16px', background: 'rgba(245,158,11,0.08)', border: `1px dashed ${C.warn}`, borderRadius: 10, fontSize: 12, color: C.warn }}>
+        <div style={{ marginTop: 14, padding: '12px 16px', background: 'rgba(255, 178, 36,0.08)', border: `1px dashed ${C.warn}`, borderRadius: 10, fontSize: 12, color: C.warn }}>
           ⚠️ {err}
         </div>
       )}

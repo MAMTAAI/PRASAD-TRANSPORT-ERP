@@ -287,35 +287,35 @@ export default function BillScanner() {
 
   // ── Styles ──────────────────────────────────────────────────────────────
   const S = {
-    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" },
-    card: { background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
-    input: { background: 'rgba(15,23,42,0.7)', border: '1px solid #334155', borderRadius: '8px', color: 'white', padding: '10px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '42px' },
-    btn: (bg, dis) => ({ background: dis ? '#475569' : bg, color: 'white', border: 'none', borderRadius: '8px', padding: '14px 22px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px', fontSize: '15px' }),
+    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif" },
+    card: { background: 'rgba(24, 36, 74,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
+    input: { background: 'rgba(18, 28, 56,0.7)', border: '1px solid #27395f', borderRadius: '8px', color: 'white', padding: '10px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '42px' },
+    btn: (bg, dis) => ({ background: dis ? '#3d548a' : bg, color: 'white', border: 'none', borderRadius: '8px', padding: '14px 22px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px', fontSize: '15px' }),
     chip: (c) => ({ background: c + '22', color: c, border: `1px solid ${c}`, borderRadius: '999px', padding: '3px 10px', fontSize: '11px', fontWeight: 'bold', whiteSpace: 'nowrap' }),
   };
   const matchChip = (m) => !m ? null
-    : m.status === 'MATCHED' ? <span style={S.chip('#10b981')}>✔ Matched</span>
-    : m.status === 'AMBIGUOUS' ? <span style={S.chip('#f59e0b')}>? Choose</span>
-    : <span style={S.chip('#ef4444')}>✖ No match</span>;
+    : m.status === 'MATCHED' ? <span style={S.chip('#2fe39b')}>✔ Matched</span>
+    : m.status === 'AMBIGUOUS' ? <span style={S.chip('#ffb224')}>? Choose</span>
+    : <span style={S.chip('#ff6b81')}>✖ No match</span>;
 
-  const reviewStyle = (r, f) => r._review.includes(f) ? { borderColor: '#f59e0b', background: 'rgba(245,158,11,0.08)' } : {};
+  const reviewStyle = (r, f) => r._review.includes(f) ? { borderColor: '#ffb224', background: 'rgba(255, 178, 36,0.08)' } : {};
 
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <div style={S.page}>
-      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>🤖 AI Bill Scanner</h1>
-      <p style={{ color: '#94a3b8', margin: '0 0 14px 0', fontSize: '13px' }}>Mamta AI — freight invoice ya HSD pump bill scan karke seedha Trips + Ledger me file karein.</p>
+      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#22d3ee' }}>🤖 AI Bill Scanner</h1>
+      <p style={{ color: '#9aadd4', margin: '0 0 14px 0', fontSize: '13px' }}>Mamta AI — freight invoice ya HSD pump bill scan karke seedha Trips + Ledger me file karein.</p>
 
       {/* 🔀 AI ENGINE SELECTION — Local (Ollama, free) vs Cloud (Claude Haiku) */}
-      <div style={{ ...S.card, padding: '14px 18px', border: aiEngine === 'cloud' ? '1px solid #c084fc' : '1px solid #10b981', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <label style={{ fontSize: '12px', fontWeight: 'bold', color: aiEngine === 'cloud' ? '#c084fc' : '#10b981', whiteSpace: 'nowrap' }}>
+      <div style={{ ...S.card, padding: '14px 18px', border: aiEngine === 'cloud' ? '1px solid #a78bfa' : '1px solid #2fe39b', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ fontSize: '12px', fontWeight: 'bold', color: aiEngine === 'cloud' ? '#a78bfa' : '#2fe39b', whiteSpace: 'nowrap' }}>
           🧠 AI Engine Selection
         </label>
         <select value={aiEngine} onChange={e => switchEngine(e.target.value)}
-          style={{ ...S.input, width: isMobile ? '100%' : '340px', borderColor: aiEngine === 'cloud' ? '#c084fc' : '#10b981', fontWeight: 'bold' }}>
+          style={{ ...S.input, width: isMobile ? '100%' : '340px', borderColor: aiEngine === 'cloud' ? '#a78bfa' : '#2fe39b', fontWeight: 'bold' }}>
           {AI_ENGINES.map(e => <option key={e.key} value={e.key}>{e.label}</option>)}
         </select>
-        <span style={{ fontSize: '11px', color: '#64748b' }}>
+        <span style={{ fontSize: '11px', color: '#5d7196' }}>
           {aiEngine === 'cloud'
             ? '☁️ Scans Anthropic API (Claude Haiku) par jayenge — mobile/remote se bhi chalta hai, per-scan cost lagti hai. API key sirf bridge server par rehti hai.'
             : '💻 Scans isi computer par Ollama + Gemma se honge — bilkul free, data machine se bahar nahi jata.'}
@@ -326,7 +326,7 @@ export default function BillScanner() {
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
         {[['FREIGHT', '🧾 Freight Invoice'], ['HSD', '⛽ HSD / Pump Bill'], ['BPCL', '🛢️ BPCL AP210']].map(([k, label]) => (
           <button key={k} onClick={() => { setKind(k); setBill(null); setBpcl(null); setRows([]); setMatches([]); }}
-            style={{ ...S.btn(kind === k ? '#2563eb' : '#1e293b', false), flex: isMobile ? 1 : 'none', border: kind === k ? '1px solid #38bdf8' : '1px solid #334155' }}>
+            style={{ ...S.btn(kind === k ? '#2563eb' : '#18244a', false), flex: isMobile ? 1 : 'none', border: kind === k ? '1px solid #22d3ee' : '1px solid #27395f' }}>
             {label}
           </button>
         ))}
@@ -337,41 +337,41 @@ export default function BillScanner() {
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
-        style={{ ...S.card, border: dragOver ? '2px dashed #38bdf8' : '2px dashed #475569', textAlign: 'center', background: dragOver ? 'rgba(56,189,248,0.08)' : 'rgba(30,41,59,0.3)' }}
+        style={{ ...S.card, border: dragOver ? '2px dashed #22d3ee' : '2px dashed #3d548a', textAlign: 'center', background: dragOver ? 'rgba(34, 211, 238,0.08)' : 'rgba(24, 36, 74,0.3)' }}
       >
         <div style={{ fontSize: '40px', marginBottom: '8px' }}>📄</div>
         {isMobile ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button style={S.btn('#059669', false)} onClick={() => cameraRef.current?.click()}>📸 Photo Kheencho (Camera)</button>
+            <button style={S.btn('#2fe39b', false)} onClick={() => cameraRef.current?.click()}>📸 Photo Kheencho (Camera)</button>
             <button style={S.btn('#2563eb', false)} onClick={() => galleryRef.current?.click()}>🖼️ Gallery / PDF Upload</button>
           </div>
         ) : (
           <>
-            <p style={{ color: '#cbd5e1', margin: '0 0 12px 0' }}>Bill PDF ya photos yahan <b>drag & drop</b> karein — ya</p>
+            <p style={{ color: '#c4d1ea', margin: '0 0 12px 0' }}>Bill PDF ya photos yahan <b>drag & drop</b> karein — ya</p>
             <button style={S.btn('#2563eb', false)} onClick={() => galleryRef.current?.click()}>📁 Browse Files (PDF / Image)</button>
           </>
         )}
         <input ref={cameraRef} type="file" accept="image/*" capture="environment" hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
         <input ref={galleryRef} type="file" accept="image/*,.pdf" multiple hidden onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
-        <p style={{ color: '#64748b', fontSize: '11px', marginTop: '12px' }}>Multi-page bill? Har page ki photo add karte jaayein — sab ek saath scan honge.</p>
+        <p style={{ color: '#5d7196', fontSize: '11px', marginTop: '12px' }}>Multi-page bill? Har page ki photo add karte jaayein — sab ek saath scan honge.</p>
       </div>
 
       {/* Selected files */}
       {files.length > 0 && (
         <div style={S.card}>
-          <b style={{ color: '#38bdf8', fontSize: '13px' }}>📎 {files.length} file(s) ready</b>
+          <b style={{ color: '#22d3ee', fontSize: '13px' }}>📎 {files.length} file(s) ready</b>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '10px 0' }}>
             {files.map((f, i) => (
-              <span key={i} style={{ background: '#1e293b', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span key={i} style={{ background: '#18244a', borderRadius: '8px', padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {/pdf/i.test(f.type) ? '📄' : '🖼️'} {f.name.length > 24 ? f.name.slice(0, 22) + '…' : f.name}
-                <button onClick={() => removeFile(i)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '14px', padding: '2px' }}>✕</button>
+                <button onClick={() => removeFile(i)} style={{ background: 'none', border: 'none', color: '#ff6b81', cursor: 'pointer', fontSize: '14px', padding: '2px' }}>✕</button>
               </span>
             ))}
           </div>
-          <button style={{ ...S.btn('#f59e0b', scanning), width: isMobile ? '100%' : 'auto' }} disabled={scanning} onClick={runScan}>
+          <button style={{ ...S.btn('#ffb224', scanning), width: isMobile ? '100%' : 'auto' }} disabled={scanning} onClick={runScan}>
             {scanning ? '⌛ Mamta AI padh rahi hai…' : '🔍 Scan with Mamta AI'}
           </button>
-          {progress && <p style={{ color: '#38bdf8', fontSize: '13px', marginTop: '10px' }}>{progress}</p>}
+          {progress && <p style={{ color: '#22d3ee', fontSize: '13px', marginTop: '10px' }}>{progress}</p>}
         </div>
       )}
 
@@ -380,16 +380,16 @@ export default function BillScanner() {
         <div style={{ ...S.card, border: '1px solid #eab308' }}>
           <b style={{ color: '#eab308' }}>🛢️ BPCL AP210 — {bpcl.clearing_doc || '?'} ({bpcl.period})</b>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))', gap: '10px', marginTop: '12px' }}>
-            {[['Gross Freight', bpcl.gross_amount, '#10b981'], ['TDS Recovery', bpcl.tds_recovery, '#f59e0b'], ['Loss Recovery', round2(Math.max(0, bpcl.loss_recovery - bpcl.fleet_card_debit)), '#ef4444'], ['💳 FLEET CARD DEBIT → Wallet', bpcl.fleet_card_debit, '#38bdf8'], ['Net Payable (Bank)', bpcl.net_payable, '#c084fc']].map(([label, v, c]) => (
+            {[['Gross Freight', bpcl.gross_amount, '#2fe39b'], ['TDS Recovery', bpcl.tds_recovery, '#ffb224'], ['Loss Recovery', round2(Math.max(0, bpcl.loss_recovery - bpcl.fleet_card_debit)), '#ff6b81'], ['💳 FLEET CARD DEBIT → Wallet', bpcl.fleet_card_debit, '#22d3ee'], ['Net Payable (Bank)', bpcl.net_payable, '#a78bfa']].map(([label, v, c]) => (
               <div key={label} style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${c}55`, borderRadius: '10px', padding: '10px', textAlign: 'center' }}>
                 <div style={{ fontSize: '10px', color: c, fontWeight: 'bold' }}>{label}</div>
                 <b style={{ fontSize: '15px' }}>{fmtINR(v)}</b>
               </div>
             ))}
           </div>
-          {bpcl.checks.map((c, i) => <p key={i} style={{ fontSize: '12px', color: c.ok ? '#10b981' : '#ef4444', margin: '8px 0 0 0' }}>{c.ok ? '✔' : '✖'} {c.label}: {c.detail}</p>)}
-          {bpcl.warnings.map((w, i) => <p key={i} style={{ fontSize: '12px', color: '#f59e0b', margin: '6px 0 0 0' }}>⚠️ {w}</p>)}
-          {bpcl.lossRows.length > 0 && <p style={{ fontSize: '11px', color: '#94a3b8', margin: '8px 0 0 0' }}>Loss-recovery rows: {bpcl.lossRows.map(l => `${l.vehicle_no || '?'} ${fmtINR(l.amount)}`).join(' · ')}</p>}
+          {bpcl.checks.map((c, i) => <p key={i} style={{ fontSize: '12px', color: c.ok ? '#2fe39b' : '#ff6b81', margin: '8px 0 0 0' }}>{c.ok ? '✔' : '✖'} {c.label}: {c.detail}</p>)}
+          {bpcl.warnings.map((w, i) => <p key={i} style={{ fontSize: '12px', color: '#ffb224', margin: '6px 0 0 0' }}>⚠️ {w}</p>)}
+          {bpcl.lossRows.length > 0 && <p style={{ fontSize: '11px', color: '#9aadd4', margin: '8px 0 0 0' }}>Loss-recovery rows: {bpcl.lossRows.map(l => `${l.vehicle_no || '?'} ${fmtINR(l.amount)}`).join(' · ')}</p>}
         </div>
       )}
 
@@ -398,41 +398,41 @@ export default function BillScanner() {
           {bill && <div style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
               <div>
-                <b style={{ color: '#10b981' }}>📋 {bill.header.party_name || 'Party ?'} — Bill {bill.header.bill_no || '?'}</b>
-                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>
+                <b style={{ color: '#2fe39b' }}>📋 {bill.header.party_name || 'Party ?'} — Bill {bill.header.bill_no || '?'}</b>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#9aadd4' }}>
                   {bill.pages} page(s) · {rows.length} rows · Row total <b style={{ color: 'white' }}>{fmtINR(bill.rowSum)}</b>
-                  {bill.header.total_amount > 0 && <> · Bill total <b style={{ color: bill.totalMatches ? '#10b981' : '#ef4444' }}>{fmtINR(bill.header.total_amount)}</b></>}
+                  {bill.header.total_amount > 0 && <> · Bill total <b style={{ color: bill.totalMatches ? '#2fe39b' : '#ff6b81' }}>{fmtINR(bill.header.total_amount)}</b></>}
                 </p>
               </div>
               {bill.totalMatches
-                ? <span style={S.chip('#10b981')}>✔ Totals tally</span>
-                : <span style={S.chip('#ef4444')}>⚠ Totals differ</span>}
+                ? <span style={S.chip('#2fe39b')}>✔ Totals tally</span>
+                : <span style={S.chip('#ff6b81')}>⚠ Totals differ</span>}
             </div>
-            {bill.warnings.map((w, i) => <p key={i} style={{ color: '#f59e0b', fontSize: '12px', margin: '8px 0 0 0' }}>⚠️ {w}</p>)}
+            {bill.warnings.map((w, i) => <p key={i} style={{ color: '#ffb224', fontSize: '12px', margin: '8px 0 0 0' }}>⚠️ {w}</p>)}
           </div>}
 
           {/* Rows: cards on mobile, table on desktop */}
           <div style={S.card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-              <b style={{ color: '#38bdf8' }}>Extracted rows — verify & file</b>
-              <button style={{ ...S.btn('#334155', false), padding: '8px 14px', minHeight: '38px', fontSize: '13px' }} onClick={() => runMatch(rows)}>🔁 Re-match</button>
+              <b style={{ color: '#22d3ee' }}>Extracted rows — verify & file</b>
+              <button style={{ ...S.btn('#27395f', false), padding: '8px 14px', minHeight: '38px', fontSize: '13px' }} onClick={() => runMatch(rows)}>🔁 Re-match</button>
             </div>
 
             {isMobile ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {rows.map((r, i) => (
-                  <div key={i} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid #334155', borderRadius: '12px', padding: '12px' }}>
+                  <div key={i} style={{ background: 'rgba(18, 28, 56,0.6)', border: '1px solid #27395f', borderRadius: '12px', padding: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
                         <input type="checkbox" style={{ width: '20px', height: '20px' }} checked={!!selected[i]} onChange={e => setSelected(p => ({ ...p, [i]: e.target.checked }))} />
-                        Row {i + 1} <span style={{ color: '#64748b', fontWeight: 'normal', fontSize: '11px' }}>p{r.page}</span>
+                        Row {i + 1} <span style={{ color: '#5d7196', fontWeight: 'normal', fontSize: '11px' }}>p{r.page}</span>
                       </label>
                       {matchChip(matches[i])}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       {[['vehicle_no', 'Vehicle'], ['date', 'Date'], ['qty', `Qty ${r.qty_unit || ''}`], ['shortage', 'Shortage'], ['rate', 'Rate ₹'], ...(kind !== 'HSD' ? [['rtd', 'RTD km']] : []), ['gross_amount', 'Gross ₹'], ['gst', 'GST ₹']].map(([f, label]) => (
                         <div key={f}>
-                          <label style={{ fontSize: '10px', color: r._review.includes(f) ? '#f59e0b' : '#64748b' }}>{label}{r._review.includes(f) ? ' ⚠' : ''}</label>
+                          <label style={{ fontSize: '10px', color: r._review.includes(f) ? '#ffb224' : '#5d7196' }}>{label}{r._review.includes(f) ? ' ⚠' : ''}</label>
                           <input style={{ ...S.input, padding: '8px', ...reviewStyle(r, f) }} inputMode={f === 'vehicle_no' ? 'text' : 'decimal'} value={r[f]} onChange={e => editRow(i, f, e.target.value)} />
                         </div>
                       ))}
@@ -449,12 +449,12 @@ export default function BillScanner() {
             ) : (
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '900px' }}>
-                  <thead><tr style={{ color: '#38bdf8', textAlign: 'left' }}>
-                    {['✓', 'Vehicle', 'Date', 'Qty', 'Shortage', 'Rate ₹', ...(kind !== 'HSD' ? ['RTD km'] : []), 'Gross ₹', 'GST ₹', 'Match'].map(h => <th key={h} style={{ padding: '8px', borderBottom: '2px solid #334155' }}>{h}</th>)}
+                  <thead><tr style={{ color: '#22d3ee', textAlign: 'left' }}>
+                    {['✓', 'Vehicle', 'Date', 'Qty', 'Shortage', 'Rate ₹', ...(kind !== 'HSD' ? ['RTD km'] : []), 'Gross ₹', 'GST ₹', 'Match'].map(h => <th key={h} style={{ padding: '8px', borderBottom: '2px solid #27395f' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                      <tr key={i} style={{ borderBottom: '1px solid #18244a' }}>
                         <td style={{ padding: '6px' }}><input type="checkbox" style={{ width: '18px', height: '18px' }} checked={!!selected[i]} onChange={e => setSelected(p => ({ ...p, [i]: e.target.checked }))} /></td>
                         {['vehicle_no', 'date', 'qty', 'shortage', 'rate', ...(kind !== 'HSD' ? ['rtd'] : []), 'gross_amount', 'gst'].map(f => (
                           <td key={f} style={{ padding: '6px' }}>
@@ -480,10 +480,10 @@ export default function BillScanner() {
             )}
 
             <div style={{ marginTop: '16px', display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button style={{ ...S.btn('#10b981', filing), flex: isMobile ? 1 : 'none' }} disabled={filing} onClick={fileSelected}>
+              <button style={{ ...S.btn('#2fe39b', filing), flex: isMobile ? 1 : 'none' }} disabled={filing} onClick={fileSelected}>
                 {filing ? '⌛ Filing…' : `✅ File ${Object.values(selected).filter(Boolean).length} row(s) → ${kind === 'HSD' ? 'Fuel + Ledger' : 'Trips + Ledger'}`}
               </button>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Sirf matched + ticked rows file hoti hain. Journal posting idempotent hai — dobara file karne par duplicate nahi banta.</span>
+              <span style={{ fontSize: '11px', color: '#5d7196' }}>Sirf matched + ticked rows file hoti hain. Journal posting idempotent hai — dobara file karne par duplicate nahi banta.</span>
             </div>
           </div>
         </>
@@ -491,12 +491,12 @@ export default function BillScanner() {
 
       {/* Filing summary */}
       {filedSummary && (
-        <div style={{ ...S.card, border: '1px solid #10b981' }}>
-          <h3 style={{ color: '#10b981', margin: '0 0 8px 0' }}>✅ Filed — Bill {filedSummary.billRef}</h3>
-          <p style={{ margin: 0, fontSize: '14px', color: '#cbd5e1' }}>
+        <div style={{ ...S.card, border: '1px solid #2fe39b' }}>
+          <h3 style={{ color: '#2fe39b', margin: '0 0 8px 0' }}>✅ Filed — Bill {filedSummary.billRef}</h3>
+          <p style={{ margin: 0, fontSize: '14px', color: '#c4d1ea' }}>
             {filedSummary.ok}/{filedSummary.total} rows updated in {kind === 'FREIGHT' ? 'TRIPS' : 'FUEL_ENTRIES'} · {filedSummary.journalOk} journal entries posted.
           </p>
-          {filedSummary.errors.map((e, i) => <p key={i} style={{ color: '#ef4444', fontSize: '12px', margin: '6px 0 0 0' }}>⚠️ {e}</p>)}
+          {filedSummary.errors.map((e, i) => <p key={i} style={{ color: '#ff6b81', fontSize: '12px', margin: '6px 0 0 0' }}>⚠️ {e}</p>)}
         </div>
       )}
     </div>

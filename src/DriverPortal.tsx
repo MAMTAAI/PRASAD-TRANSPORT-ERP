@@ -363,13 +363,13 @@ export default function DriverPortal({ onBack, preview = false, session = null }
   );
 
   // ── screens ───────────────────────────────────────────────────────────────
-  if (loadingSession) return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500">…</div>;
+  if (loadingSession) return <div className="grid min-h-screen place-items-center bg-[#f6f8fd] text-slate-500">…</div>;
 
   // Staff preview landing (demo data) or a driver with no session: the real
   // door is Gate 2 (/app). This landing only exists for the preview.
   if (!driver) {
     return (
-      <div className="relative grid min-h-screen place-items-center bg-[#020617] p-6 text-center font-sans text-white">
+      <div className="relative grid min-h-screen place-items-center bg-[#0a1024] p-6 text-center font-sans text-white">
         {onBack && <button onClick={onBack} className="absolute left-5 top-5 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[12px] font-bold text-slate-400">← Back</button>}
         <div className="w-full max-w-sm">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-[26px] bg-gradient-to-br from-emerald-500 to-teal-600 text-4xl shadow-[0_20px_40px_rgba(16,185,129,0.35)]">🚛</div>

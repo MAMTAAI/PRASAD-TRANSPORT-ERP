@@ -47,23 +47,23 @@ const HOME = { lat: 26.35, lng: 91.15 };
 
 // Dark tiles so the map sits inside the v5.0 shell instead of glowing white.
 const DARK_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#0b1220' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0b1220' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
-  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
+  { elementType: 'geometry', stylers: [{ color: '#0a1024' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a1024' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#5d7196' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#18244a' }] },
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#475569' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#18244a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#27395f' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#3d548a' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050b16' }] },
 ];
 
 const truckIcon = (heading = 0) => ({
   path: 'M -6,-3 L 4,-3 L 7,0 L 4,3 L -6,3 Z',
-  fillColor: '#38bdf8',
+  fillColor: '#22d3ee',
   fillOpacity: 1,
-  strokeColor: '#0b1220',
+  strokeColor: '#0a1024',
   strokeWeight: 1.5,
   scale: 1.6,
   rotation: heading,
@@ -230,7 +230,7 @@ export default function LiveFleetMap() {
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: 'cooperative',
-          backgroundColor: '#0b1220',
+          backgroundColor: '#0a1024',
         });
         // Live congestion on the corridors the fleet runs.
         new g.maps.TrafficLayer().setMap(mapRef.current);
@@ -278,11 +278,11 @@ export default function LiveFleetMap() {
         // On touch, Maps synthesises the click, so the first tap still pins.
         if (!infoRef.current) infoRef.current = new g.maps.InfoWindow();
         const content = () =>
-          `<div style="font-family:Inter,sans-serif;color:#0b1220;font-size:12px;line-height:1.5">
+          `<div style="font-family:Inter,sans-serif;color:#0a1024;font-size:12px;line-height:1.5">
              <b>${t.vehicle_no ?? '—'}</b> · ${t.trip_code ?? ''}<br/>
              ${t.driver_name ?? 'driver not set'}<br/>
              ${t.loading_point ?? '?'} → ${t.destination ?? '?'}<br/>
-             <span style="color:#475569">fix: ${t.source ?? 'unknown'} · ${
+             <span style="color:#3d548a">fix: ${t.source ?? 'unknown'} · ${
                t.recorded_at ? new Date(t.recorded_at).toLocaleString('en-IN') : '—'}</span>
            </div>`;
         const show = () => {
@@ -363,7 +363,7 @@ export default function LiveFleetMap() {
         if (!path?.length) continue;
         lines.set(t.id, new g.maps.Polyline({
           map, path,
-          strokeColor: '#38bdf8', strokeOpacity: 0.35, strokeWeight: 3, zIndex: 5,
+          strokeColor: '#22d3ee', strokeOpacity: 0.35, strokeWeight: 3, zIndex: 5,
         }));
       }
       for (const [id, line] of lines) {
@@ -420,7 +420,7 @@ export default function LiveFleetMap() {
       const pts = [];
       const mk = (pos, color, title) => new g.maps.Marker({
         map: mapRef.current, position: pos, title,
-        icon: { path: 0, fillColor: color, fillOpacity: 1, strokeColor: '#0b1220', strokeWeight: 2, scale: 7 },
+        icon: { path: 0, fillColor: color, fillOpacity: 1, strokeColor: '#0a1024', strokeWeight: 2, scale: 7 },
         zIndex: 40,
       });
 
@@ -429,7 +429,7 @@ export default function LiveFleetMap() {
           map: mapRef.current, path, strokeColor: '#22d3ee', strokeOpacity: 0.75, strokeWeight: 4,
         });
         focusRef.current.marks.push(mk(path[0], '#22d3ee', `Loading: ${trip.loading_point}`));
-        focusRef.current.marks.push(mk(path[path.length - 1], '#f59e0b', `Unloading: ${trip.destination}`));
+        focusRef.current.marks.push(mk(path[path.length - 1], '#ffb224', `Unloading: ${trip.destination}`));
         pts.push(...path);
       }
 
@@ -438,7 +438,7 @@ export default function LiveFleetMap() {
       // the refinery", which is a statement nobody has the data to make.
       if (trip.lat != null && trip.lng != null) {
         const at = { lat: Number(trip.lat), lng: Number(trip.lng) };
-        focusRef.current.marks.push(mk(at, '#34d399', `${trip.vehicle_no} — ${trip.source ?? 'fix'}`));
+        focusRef.current.marks.push(mk(at, '#2fe39b', `${trip.vehicle_no} — ${trip.source ?? 'fix'}`));
         pts.push(at);
       }
 
@@ -483,7 +483,7 @@ export default function LiveFleetMap() {
             map: mapRef.current,
             position: { lat: Number(t.lat), lng: Number(t.lng) },
             title: `FASTag: ${t.plaza_name ?? 'toll'}${t.txn_datetime ? ` · ${new Date(t.txn_datetime).toLocaleString('en-IN')}` : ''}`,
-            icon: { path: 0, fillColor: '#a78bfa', fillOpacity: 0.9, strokeColor: '#0b1220', strokeWeight: 1.5, scale: 4.5 },
+            icon: { path: 0, fillColor: '#a78bfa', fillOpacity: 0.9, strokeColor: '#0a1024', strokeWeight: 1.5, scale: 4.5 },
             zIndex: 20,
           }));
         });
@@ -555,7 +555,7 @@ export default function LiveFleetMap() {
           means the panel is the same size whatever the fleet is doing. */}
       <div className="h-[460px] flex gap-2 px-3 pb-3">
 
-        <div className="w-1/4 min-w-[190px] max-w-[300px] flex flex-col rounded-xl border border-slate-800/70 bg-[#0b1220]/60 overflow-hidden">
+        <div className="w-1/4 min-w-[190px] max-w-[300px] flex flex-col rounded-xl border border-slate-800/70 bg-[#0a1024]/60 overflow-hidden">
           <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-slate-800/70 shrink-0">
             <Search size={11} className="shrink-0 text-slate-500" />
             <input value={q} onChange={(e) => setQ(e.target.value)}
@@ -662,10 +662,10 @@ export default function LiveFleetMap() {
         </div>
 
         <div className="relative flex-1 min-w-0">
-          <div ref={boxRef} className="absolute inset-0 rounded-xl overflow-hidden border border-slate-800/70 bg-[#0b1220]" />
+          <div ref={boxRef} className="absolute inset-0 rounded-xl overflow-hidden border border-slate-800/70 bg-[#0a1024]" />
 
           {status !== 'ready' && (
-            <div className="absolute inset-0 grid place-items-center rounded-xl border border-slate-800/70 bg-[#0b1220]">
+            <div className="absolute inset-0 grid place-items-center rounded-xl border border-slate-800/70 bg-[#0a1024]">
               <div className="text-center px-6">
                 {status === 'loading' && <p className="text-[11px] text-slate-500">Loading Google Maps…</p>}
                 {status === 'nokey' && (

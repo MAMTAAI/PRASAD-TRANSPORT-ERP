@@ -544,19 +544,19 @@ export default function VehicleDocs() {
   });
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
+    <div style={{ padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)' }}>
       <style>{`
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 10px; color: white; padding: 12px 16px; outline: none; width: 100%; box-sizing: border-box; font-size: 14px;}
-        .modern-input:focus { border-color: #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.9); }
-        .vehicle-card { background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.05); padding: 25px; border-radius: 15px; cursor: pointer; transition: 0.3s; }
-        .vehicle-card:hover { background: rgba(56, 189, 248, 0.1); transform: translateY(-5px); border-color: #38bdf8; box-shadow: 0 10px 20px rgba(56,189,248,0.1); }
-        .upload-area { border: 2px dashed #475569; padding: 25px; border-radius: 15px; text-align: center; background: rgba(255,255,255,0.02); transition: 0.3s; }
-        .upload-area:hover { border-color: #38bdf8; background: rgba(56,189,248,0.05); }
-        .portal-btn { background: #1e293b; border: 1px solid #334155; color: #38bdf8; padding: 10px; border-radius: 8px; cursor: pointer; text-decoration: none; display: block; text-align: center; margin-bottom: 10px; font-size: 12px; font-weight: bold; }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 10px; color: white; padding: 12px 16px; outline: none; width: 100%; box-sizing: border-box; font-size: 14px;}
+        .modern-input:focus { border-color: #22d3ee; box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); background: rgba(18, 28, 56, 0.9); }
+        .vehicle-card { background: rgba(24, 36, 74, 0.5); border: 1px solid rgba(255,255,255,0.05); padding: 25px; border-radius: 15px; cursor: pointer; transition: 0.3s; }
+        .vehicle-card:hover { background: rgba(34, 211, 238, 0.1); transform: translateY(-5px); border-color: #22d3ee; box-shadow: 0 10px 20px rgba(34, 211, 238,0.1); }
+        .upload-area { border: 2px dashed #3d548a; padding: 25px; border-radius: 15px; text-align: center; background: rgba(255,255,255,0.02); transition: 0.3s; }
+        .upload-area:hover { border-color: #22d3ee; background: rgba(34, 211, 238,0.05); }
+        .portal-btn { background: #18244a; border: 1px solid #27395f; color: #22d3ee; padding: 10px; border-radius: 8px; cursor: pointer; text-decoration: none; display: block; text-align: center; margin-bottom: 10px; font-size: 12px; font-weight: bold; }
         .portal-btn:hover { background: #38bdf8; color: #000; }
         .action-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px 15px; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s; display: flex; align-items: center; gap: 8px; text-decoration: none;}
         .action-btn:hover { background: rgba(255,255,255,0.2); transform: scale(1.05); }
-        .docs-filters { display: flex; gap: 15px; margin-bottom: 30px; background: rgba(30, 41, 59, 0.4); padding: 20px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); }
+        .docs-filters { display: flex; gap: 15px; margin-bottom: 30px; background: rgba(24, 36, 74, 0.4); padding: 20px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); }
         .camera-btn { background: #059669; color: white; border: none; border-radius: 10px; padding: 12px 18px; font-weight: bold; cursor: pointer; min-height: 44px; }
 
         /* 📱 MOBILE: the 3-column vault becomes a stacked, full-screen sheet */
@@ -564,7 +564,7 @@ export default function VehicleDocs() {
           .docs-filters { flex-direction: column; gap: 10px; padding: 12px; }
           .vault-overlay { align-items: stretch !important; }
           .vault-shell { flex-direction: column; width: 100% !important; max-width: 100% !important; height: 100dvh !important; border-radius: 0 !important; }
-          .vault-side { width: 100% !important; max-height: 30dvh; border-right: none !important; border-bottom: 1px solid #334155; padding: 15px !important; }
+          .vault-side { width: 100% !important; max-height: 30dvh; border-right: none !important; border-bottom: 1px solid #27395f; padding: 15px !important; }
           .vault-side h3 { font-size: 20px !important; }
           .vault-main { padding: 18px !important; padding-bottom: 30px !important; }
           .vault-main h2 { font-size: 20px !important; }
@@ -582,7 +582,7 @@ export default function VehicleDocs() {
         const expired = alerts.alerts.filter((a: any) => a.status === 'EXPIRED');
         const soon = alerts.alerts.filter((a: any) => a.status === 'EXPIRING');
         return (
-          <div style={{ marginBottom: '22px', background: 'rgba(239,68,68,0.07)', border: '1px solid #ef4444',
+          <div style={{ marginBottom: '22px', background: 'rgba(255, 107, 129,0.07)', border: '1px solid #ff6b81',
                         borderRadius: '15px', padding: '18px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '14px' }}>
               <span style={{ fontSize: '18px', fontWeight: 900, color: '#fff' }}>⚠️ Compliance &amp; Expiry Alerts</span>
@@ -592,12 +592,12 @@ export default function VehicleDocs() {
               <span style={{ background: '#f59e0b', color: '#111', borderRadius: '20px', padding: '3px 12px', fontSize: '12px', fontWeight: 'bold' }}>
                 {soon.length} within {alerts.alert_window_days} days
               </span>
-              <span style={{ color: '#94a3b8', fontSize: '11px' }}>as at {alerts.as_of}</span>
+              <span style={{ color: '#9aadd4', fontSize: '11px' }}>as at {alerts.as_of}</span>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                 <thead>
-                  <tr style={{ color: '#94a3b8', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase' }}>
+                  <tr style={{ color: '#9aadd4', textAlign: 'left', fontSize: '11px', textTransform: 'uppercase' }}>
                     <th style={{ padding: '6px 10px' }}>Vehicle / Driver</th>
                     <th style={{ padding: '6px 10px' }}>Document</th>
                     <th style={{ padding: '6px 10px' }}>Expiry Date</th>
@@ -612,14 +612,14 @@ export default function VehicleDocs() {
                       <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                         <td style={{ padding: '8px 10px', color: '#fff', fontWeight: 'bold' }}>
                           {a.subject}
-                          <span style={{ color: '#64748b', fontSize: '10px', marginLeft: '8px' }}>
+                          <span style={{ color: '#5d7196', fontSize: '10px', marginLeft: '8px' }}>
                             {a.subject_kind === 'DRIVER' ? 'driver' : 'vehicle'}
                           </span>
                         </td>
-                        <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{String(a.doc_type).replace(/_/g, ' ')}</td>
-                        <td style={{ padding: '8px 10px', color: '#cbd5e1' }}>{a.expires_on}</td>
+                        <td style={{ padding: '8px 10px', color: '#c4d1ea' }}>{String(a.doc_type).replace(/_/g, ' ')}</td>
+                        <td style={{ padding: '8px 10px', color: '#c4d1ea' }}>{a.expires_on}</td>
                         <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 900,
-                                     color: red ? '#ef4444' : '#f59e0b' }}>
+                                     color: red ? '#ff6b81' : '#ffb224' }}>
                           {a.days_left < 0 ? `${Math.abs(a.days_left)} overdue` : a.days_left}
                         </td>
                         <td style={{ padding: '8px 10px' }}>
@@ -660,7 +660,7 @@ export default function VehicleDocs() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(24px, 5vw, 38px)', color: '#fff', fontWeight: '900', letterSpacing: '-1px' }}>📂 Fleet Document Vault</h2>
-          <p style={{ color: '#94a3b8', fontSize: '15px' }}>Upload, Track Expiry, and Auto-sync to P&L Expenses.</p>
+          <p style={{ color: '#9aadd4', fontSize: '15px' }}>Upload, Track Expiry, and Auto-sync to P&L Expenses.</p>
         </div>
       </div>
 
@@ -675,13 +675,13 @@ export default function VehicleDocs() {
         </select>
         <select className="modern-input" style={{ flex: 1 }} value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)}>
           <option value="">👤 All Owners</option>
-          <option value="Own" style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ Only Own Assets</option>
+          <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only Own Assets</option>
           {uniqueOwners.map((owner: any, i: number) => <option key={i} value={owner}>🤝 {owner}</option>)}
         </select>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '50px', color: '#38bdf8', fontSize: '20px', fontWeight: 'bold' }}>Loading Database...</div>
+        <div style={{ textAlign: 'center', padding: '50px', color: '#22d3ee', fontSize: '20px', fontWeight: 'bold' }}>Loading Database...</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: 'clamp(14px, 2.5vw, 25px)' }}>
           {filteredVehicles.map((v) => {
@@ -694,17 +694,17 @@ export default function VehicleDocs() {
             // 49 lorries. It was never a stale count; it was the wrong source.
             // doc_count now arrives with the row, like trip_count next to it.
             const updatedDocs = Number(v.doc_count ?? (v.documents ? Object.keys(v.documents).length : 0)) || 0;
-            const statusColor = updatedDocs >= 10 ? '#10b981' : updatedDocs > 0 ? '#f59e0b' : '#ef4444';
+            const statusColor = updatedDocs >= 10 ? '#2fe39b' : updatedDocs > 0 ? '#ffb224' : '#ff6b81';
 
             return (
               <div key={v.id} className="vehicle-card" onClick={() => loadVehicleDocs(v)}>
                 <div style={{ fontSize: '35px', marginBottom: '15px' }}>📁</div>
                 <h3 style={{ margin: '0 0 5px 0', color: '#fff', fontSize: '24px', fontWeight: '900' }}>{plateOf(v) || 'Unknown Plate'}</h3>
-                <p style={{ margin: '0', color: v.own_attach === 'Own' ? '#10b981' : '#f59e0b', fontSize: '13px', fontWeight: 'bold' }}>
+                <p style={{ margin: '0', color: v.own_attach === 'Own' ? '#2fe39b' : '#ffb224', fontSize: '13px', fontWeight: 'bold' }}>
                   {v.own_attach} Asset {v.owner_name && `• ${v.owner_name}`}
                 </p>
                 <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '15px' }}>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Compliance Status</span>
+                  <span style={{ fontSize: '12px', color: '#9aadd4' }}>Compliance Status</span>
                   <span style={{ background: statusColor + '20', color: statusColor, padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
                     {updatedDocs} Docs Updated
                   </span>
@@ -716,27 +716,27 @@ export default function VehicleDocs() {
       )}
 
       {selectedVehicle && (
-        <div className="vault-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(2, 6, 23, 0.95)', backdropFilter: 'blur(10px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="vault-shell" style={{ width: '95%', maxWidth: '1400px', height: '90vh', background: '#0f172a', borderRadius: '20px', border: '1px solid #38bdf8', display: 'flex', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
+        <div className="vault-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36, 0.95)', backdropFilter: 'blur(10px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="vault-shell" style={{ width: '95%', maxWidth: '1400px', height: '90vh', background: '#121c38', borderRadius: '20px', border: '1px solid #22d3ee', display: 'flex', overflow: 'hidden', boxShadow: '0 20px 50px rgba(0,0,0,0.8)' }}>
 
-            <div className="vault-side" style={{ width: '350px', background: '#1e293b', padding: '30px 20px', borderRight: '1px solid #334155', overflowY: 'auto' }}>
-              <h3 style={{ color: '#38bdf8', margin: '0 0 5px 0', fontSize: '26px', fontWeight: '900' }}>{plateOf(selectedVehicle)}</h3>
-              <p style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '30px' }}>Master Document Vault</p>
+            <div className="vault-side" style={{ width: '350px', background: '#18244a', padding: '30px 20px', borderRight: '1px solid #27395f', overflowY: 'auto' }}>
+              <h3 style={{ color: '#22d3ee', margin: '0 0 5px 0', fontSize: '26px', fontWeight: '900' }}>{plateOf(selectedVehicle)}</h3>
+              <p style={{ color: '#9aadd4', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '30px' }}>Master Document Vault</p>
               
               {docTypes.map((tab) => {
                 const docData = selectedVehicle.documents && selectedVehicle.documents[tab.id];
                 const isUpdated = !!docData;
 
-                let dateColor = '#94a3b8';
+                let dateColor = '#9aadd4';
                 let daysLeft = null;
                 if(isUpdated && docData.next_due_date) {
                    // toISODate handles legacy DD-MM-YYYY strings that new Date() misparses
                    const expDate = new Date(toISODate(docData.next_due_date) || docData.next_due_date);
                    const today = new Date();
                    daysLeft = Math.round((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24));
-                   if (expDate < today) dateColor = '#ef4444';
-                   else if ((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24) < 15) dateColor = '#f59e0b';
-                   else dateColor = '#10b981';
+                   if (expDate < today) dateColor = '#ff6b81';
+                   else if ((expDate.getTime() - today.getTime()) / (1000 * 3600 * 24) < 15) dateColor = '#ffb224';
+                   else dateColor = '#2fe39b';
                 }
 
                 // THE TICK USED TO MEAN "A ROW EXISTS", which is not what a
@@ -751,11 +751,11 @@ export default function VehicleDocs() {
                 // renewal, attach the scan, or type the date in.
                 const hasFile = !!getVal(docData, ['document_url', 'document_file', 'file_url'], '');
                 const badge = !isUpdated ? null
-                  : daysLeft === null ? { icon: '📅', tone: '#64748b', bg: 'rgba(100,116,139,0.18)', title: 'date darj nahi hai' }
-                  : daysLeft < 0 ? { icon: '⚠️', tone: '#ef4444', bg: 'rgba(239,68,68,0.18)', title: `${Math.abs(daysLeft)} din pehle expire ho gaya` }
-                  : !hasFile ? { icon: '📎', tone: '#f59e0b', bg: 'rgba(245,158,11,0.18)', title: 'date hai par file nahi lagi' }
-                  : daysLeft <= 10 ? { icon: '⏳', tone: '#f59e0b', bg: 'rgba(245,158,11,0.18)', title: `${daysLeft} din baaki` }
-                  : { icon: '✅', tone: '#10b981', bg: 'rgba(16,185,129,0.2)', title: 'valid, file lagi hui hai' };
+                  : daysLeft === null ? { icon: '📅', tone: '#5d7196', bg: 'rgba(100,116,139,0.18)', title: 'date darj nahi hai' }
+                  : daysLeft < 0 ? { icon: '⚠️', tone: '#ff6b81', bg: 'rgba(255, 107, 129,0.18)', title: `${Math.abs(daysLeft)} din pehle expire ho gaya` }
+                  : !hasFile ? { icon: '📎', tone: '#ffb224', bg: 'rgba(255, 178, 36,0.18)', title: 'date hai par file nahi lagi' }
+                  : daysLeft <= 10 ? { icon: '⏳', tone: '#ffb224', bg: 'rgba(255, 178, 36,0.18)', title: `${daysLeft} din baaki` }
+                  : { icon: '✅', tone: '#2fe39b', bg: 'rgba(47, 227, 155,0.2)', title: 'valid, file lagi hui hai' };
 
                 return (
                   <div 
@@ -763,9 +763,9 @@ export default function VehicleDocs() {
                     onClick={() => handleTabChange(tab)}
                     style={{ 
                       padding: '12px 15px', marginBottom: '10px', cursor: 'pointer', borderRadius: '12px', display: 'flex', flexDirection: 'column',
-                      background: activeTab.id === tab.id ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                      borderLeft: activeTab.id === tab.id ? '4px solid #38bdf8' : '4px solid transparent',
-                      color: activeTab.id === tab.id ? '#fff' : '#cbd5e1',
+                      background: activeTab.id === tab.id ? 'rgba(34, 211, 238, 0.15)' : 'transparent',
+                      borderLeft: activeTab.id === tab.id ? '4px solid #22d3ee' : '4px solid transparent',
+                      color: activeTab.id === tab.id ? '#fff' : '#c4d1ea',
                       transition: '0.2s'
                     }}
                   >
@@ -787,26 +787,26 @@ export default function VehicleDocs() {
                 )
               })}
 
-              <div style={{ marginTop: '20px', borderTop: '1px dashed #475569', paddingTop: '20px' }}>
+              <div style={{ marginTop: '20px', borderTop: '1px dashed #3d548a', paddingTop: '20px' }}>
                  <input 
                    type="text" 
                    value={newDocName} 
                    onChange={(e) => setNewDocName(e.target.value)} 
                    placeholder="e.g. Police Verification..." 
-                   style={{ width: '100%', padding: '10px', background: '#0f172a', border: '1px solid #38bdf8', color: '#fff', borderRadius: '6px', fontSize: '12px', marginBottom: '10px', outline: 'none' }}
+                   style={{ width: '100%', padding: '10px', background: '#121c38', border: '1px solid #22d3ee', color: '#fff', borderRadius: '6px', fontSize: '12px', marginBottom: '10px', outline: 'none' }}
                  />
-                 <button onClick={handleAddCustomDoc} style={{ width: '100%', background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px dashed #38bdf8', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
+                 <button onClick={handleAddCustomDoc} style={{ width: '100%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', border: '1px dashed #22d3ee', padding: '10px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
                    ➕ Add New Document
                  </button>
               </div>
             </div>
 
             <div className="vault-main" style={{ flex: 1, padding: '40px', overflowY: 'auto', position: 'relative' }}>
-              <button onClick={() => setSelectedVehicle(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444', padding: '8px 15px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>Close ✕</button>
+              <button onClick={() => setSelectedVehicle(null)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'rgba(255, 107, 129, 0.1)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '8px 15px', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold' }}>Close ✕</button>
 
-              <div className="vault-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px', borderBottom: '1px solid #334155', paddingBottom: '20px' }}>
+              <div className="vault-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px', borderBottom: '1px solid #27395f', paddingBottom: '20px' }}>
                 <div>
-                  <h2 style={{ color: 'white', margin: 0, fontSize: '28px' }}>{activeTab.name.replace(/[0-9.]/g, '').trim()} <span style={{color: '#38bdf8'}}>Details</span></h2>
+                  <h2 style={{ color: 'white', margin: 0, fontSize: '28px' }}>{activeTab.name.replace(/[0-9.]/g, '').trim()} <span style={{color: '#22d3ee'}}>Details</span></h2>
                 </div>
                 
                 <button
@@ -814,8 +814,8 @@ export default function VehicleDocs() {
                   disabled={aiScanning || !scannedAIData}
                   title={scannedAIData ? 'Re-apply scanned values to the form' : 'Upload a document below — scan runs automatically'}
                   style={{
-                    background: scannedAIData ? 'linear-gradient(135deg, #10b981, #059669)' : '#334155',
-                    color: scannedAIData ? 'white' : '#94a3b8',
+                    background: scannedAIData ? 'linear-gradient(135deg, #2fe39b, #2fe39b)' : '#27395f',
+                    color: scannedAIData ? 'white' : '#9aadd4',
                     border: 'none', padding: '12px 25px', borderRadius: '30px', fontWeight: 'bold', cursor: scannedAIData ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: '8px', minHeight: '44px'
                   }}
                 >
@@ -825,27 +825,27 @@ export default function VehicleDocs() {
 
               <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Application / Policy No</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Application / Policy No</label>
                   <input className="modern-input" name="application_no" value={formData.application_no || ''} onChange={handleInputChange} placeholder="e.g. APP-12345" />
                 </div>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Receipt / Challan No</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Receipt / Challan No</label>
                   <input className="modern-input" name="receipt_no" value={formData.receipt_no || ''} onChange={handleInputChange} placeholder="e.g. REC-9908" />
                 </div>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Issue Date (Valid From)</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Issue Date (Valid From)</label>
                   <input type="date" className="modern-input" name="inspected_on" value={formData.inspected_on || ''} onChange={handleInputChange} style={{colorScheme:'dark'}} />
                 </div>
                 <div>
-                  <label style={{ color: '#f59e0b', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Next Expiry Date *</label>
-                  <input type="date" className="modern-input" name="next_due_date" value={formData.next_due_date || ''} onChange={handleInputChange} style={{colorScheme:'dark', border: '1px solid #f59e0b', background: 'rgba(245,158,11,0.05)'}} />
+                  <label style={{ color: '#ffb224', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Next Expiry Date *</label>
+                  <input type="date" className="modern-input" name="next_due_date" value={formData.next_due_date || ''} onChange={handleInputChange} style={{colorScheme:'dark', border: '1px solid #ffb224', background: 'rgba(255, 178, 36,0.05)'}} />
                 </div>
                 <div>
-                  <label style={{ color: '#ef4444', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Total Fees Paid (₹)</label>
-                  <input type="number" className="modern-input" name="amount" value={formData.amount || ''} onChange={handleInputChange} placeholder="Posts to the ledger" style={{border: '1px solid #ef4444', background: 'rgba(239,68,68,0.05)', fontWeight: 'bold'}} />
+                  <label style={{ color: '#ff6b81', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Total Fees Paid (₹)</label>
+                  <input type="number" className="modern-input" name="amount" value={formData.amount || ''} onChange={handleInputChange} placeholder="Posts to the ledger" style={{border: '1px solid #ff6b81', background: 'rgba(255, 107, 129,0.05)', fontWeight: 'bold'}} />
                 </div>
                 <div>
-                  <label style={{ color: '#94a3b8', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Payment Mode</label>
+                  <label style={{ color: '#9aadd4', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Payment Mode</label>
                   <select className="modern-input" name="payment_mode" value={formData.payment_mode || ''} onChange={handleInputChange}>
                     <option value="">-- Select Mode --</option>
                     <option value="Online Transfer">Online Transfer</option>
@@ -862,12 +862,12 @@ export default function VehicleDocs() {
                   accept (ledger_entries is append-only with a deferred Dr = Cr
                   constraint per voucher). */}
               {feeIsNew && (
-                <div style={{ marginTop: '25px', background: 'rgba(239,68,68,0.06)', border: '1px solid #ef4444', borderRadius: '14px', padding: '18px' }}>
-                  <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                <div style={{ marginTop: '25px', background: 'rgba(255, 107, 129,0.06)', border: '1px solid #ff6b81', borderRadius: '14px', padding: '18px' }}>
+                  <label style={{ color: '#ff6b81', fontSize: '12px', fontWeight: 900, textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
                     💳 Paid From — Bank / Cash Account *
                   </label>
                   <select className="modern-input" value={payAccount} onChange={(e) => setPayAccount(e.target.value)}
-                    style={{ border: `1px solid ${payAccount ? '#10b981' : '#ef4444'}`, fontWeight: 'bold' }}>
+                    style={{ border: `1px solid ${payAccount ? '#2fe39b' : '#ff6b81'}`, fontWeight: 'bold' }}>
                     <option value="">-- Select the account this fee was paid from --</option>
                     {accounts.map((a: any) => (
                       <option key={a.ledger_name} value={a.ledger_name}>
@@ -875,10 +875,10 @@ export default function VehicleDocs() {
                       </option>
                     ))}
                   </select>
-                  <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '10px', lineHeight: 1.6 }}>
+                  <div style={{ color: '#9aadd4', fontSize: '12px', marginTop: '10px', lineHeight: 1.6 }}>
                     On save this posts a payment voucher:
-                    {' '}<b style={{ color: '#f87171' }}>Dr Vehicle Compliance &amp; Docs</b>
-                    {' '}/ <b style={{ color: '#34d399' }}>Cr {payAccount || 'the account you select'}</b>
+                    {' '}<b style={{ color: '#ff8b9c' }}>Dr Vehicle Compliance &amp; Docs</b>
+                    {' '}/ <b style={{ color: '#2fe39b' }}>Cr {payAccount || 'the account you select'}</b>
                     {' '}for ₹{Number(formData.amount || 0).toLocaleString('en-IN')}.
                     {formData._voucher_id && (
                       <div style={{ color: '#fbbf24', marginTop: 6 }}>
@@ -890,25 +890,25 @@ export default function VehicleDocs() {
               )}
 
               <div className="upload-area" style={{ marginTop: '35px' }}>
-                <label style={{ color: '#38bdf8', fontSize: '16px', fontWeight: 'bold', display: 'block', marginBottom: '15px' }}>📎 Upload Original PDF/IMG (saved to secure Storage + Mamta AI scan)</label>
+                <label style={{ color: '#22d3ee', fontSize: '16px', fontWeight: 'bold', display: 'block', marginBottom: '15px' }}>📎 Upload Original PDF/IMG (saved to secure Storage + Mamta AI scan)</label>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '15px', flexWrap: 'wrap' }}>
                   <button className="camera-btn" onClick={() => document.getElementById('vd-camera-input')?.click()}>📸 Photo Kheencho</button>
                   <input id="vd-camera-input" type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
-                  <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} style={{ color: '#94a3b8', background: '#1e293b', padding: '10px', borderRadius: '10px', maxWidth: '100%' }} />
-                  {uploadingDoc && <span style={{ color: '#f59e0b', fontWeight: 'bold' }}>⏳ Uploading + Mamta AI scan…</span>}
+                  <input type="file" accept="image/*,.pdf" onChange={handleFileUpload} style={{ color: '#9aadd4', background: '#18244a', padding: '10px', borderRadius: '10px', maxWidth: '100%' }} />
+                  {uploadingDoc && <span style={{ color: '#ffb224', fontWeight: 'bold' }}>⏳ Uploading + Mamta AI scan…</span>}
                 </div>
                 
                 {/* 🌟 FILE PREVIEW BUTTONS */}
                 {formData.document_file && !uploadingDoc && (
-                  <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(16,185,129,0.1)', border: '1px dashed #10b981', borderRadius: '10px', display: 'inline-block' }}>
-                     <p style={{ margin: '0 0 10px 0', color: '#10b981', fontWeight: 'bold', fontSize: '13px' }}>✅ File Available</p>
+                  <div style={{ marginTop: '20px', padding: '15px', background: 'rgba(47, 227, 155,0.1)', border: '1px dashed #2fe39b', borderRadius: '10px', display: 'inline-block' }}>
+                     <p style={{ margin: '0 0 10px 0', color: '#2fe39b', fontWeight: 'bold', fontSize: '13px' }}>✅ File Available</p>
                      <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', justifyContent: 'center' }}>
                        {/* A stored PDF is served from the token-guarded file
                            route, so a plain <a href> lands on a 401 and paints a
                            blank tab. openDocument fetches it WITH the bearer and
                            opens the bytes; Drive/Firebase links still open direct. */}
-                       <button type="button" onClick={() => openDocument(formData.document_file)} className="action-btn" style={{ borderColor: '#38bdf8', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)' }}>👁️ View Document</button>
-                       <button type="button" onClick={() => openDocument(formData.document_file, { download: true })} className="action-btn" style={{ borderColor: '#f59e0b', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.1)' }}>⬇️ Download PDF</button>
+                       <button type="button" onClick={() => openDocument(formData.document_file)} className="action-btn" style={{ borderColor: '#22d3ee', color: '#22d3ee', background: 'rgba(34, 211, 238, 0.1)' }}>👁️ View Document</button>
+                       <button type="button" onClick={() => openDocument(formData.document_file, { download: true })} className="action-btn" style={{ borderColor: '#ffb224', color: '#ffb224', background: 'rgba(255, 178, 36, 0.1)' }}>⬇️ Download PDF</button>
                        <button onClick={() => emailDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#a78bfa', color: '#a78bfa', background: 'rgba(167, 139, 250, 0.1)' }}>✉️ Share via Email</button>
                        <button onClick={() => shareDocument(activeTab.name, formData.document_file, formData.next_due_date)} className="action-btn" style={{ borderColor: '#22c55e', color: '#22c55e', background: 'rgba(34, 197, 94, 0.1)' }}>💬 Share via WhatsApp</button>
                      </div>
@@ -916,18 +916,18 @@ export default function VehicleDocs() {
                 )}
               </div>
 
-              <button onClick={handleSave} disabled={saving} style={{ width: '100%', marginTop: '35px', padding: '18px', background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '18px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 10px 20px rgba(59,130,246,0.4)', transition: '0.3s' }}>
+              <button onClick={handleSave} disabled={saving} style={{ width: '100%', marginTop: '35px', padding: '18px', background: 'linear-gradient(135deg, #3b82f6, #7c8cff)', color: 'white', border: 'none', borderRadius: '12px', fontSize: '18px', fontWeight: '900', cursor: 'pointer', boxShadow: '0 10px 20px rgba(59,130,246,0.4)', transition: '0.3s' }}>
                 {saving ? '⏳ Syncing with Server...' : '💾 SAVE DOCUMENT & UPDATE EXPENSE LEDGER'}
               </button>
 
             </div>
 
-            <div className="vault-help" style={{ width: '250px', background: '#020617', padding: '25px', borderLeft: '1px solid #1e293b' }}>
+            <div className="vault-help" style={{ width: '250px', background: '#0a1024', padding: '25px', borderLeft: '1px solid #18244a' }}>
                <h4 style={{color:'#fff', marginBottom:'20px'}}>🌐 Helper Portals</h4>
                {portals.map((p, i) => (
                   <a key={i} href={p.url} target="_blank" rel="noreferrer" className="portal-btn">{p.name} ↗</a>
                ))}
-               <button onClick={() => setSelectedVehicle(null)} style={{width:'100%', marginTop:'60px', padding:'12px', background:'#ef444422', color:'#ef4444', border:'1px solid #ef4444', borderRadius:'8px', cursor:'pointer', fontWeight: 'bold'}}>Close Vault</button>
+               <button onClick={() => setSelectedVehicle(null)} style={{width:'100%', marginTop:'60px', padding:'12px', background:'#ef444422', color:'#ff6b81', border:'1px solid #ff6b81', borderRadius:'8px', cursor:'pointer', fontWeight: 'bold'}}>Close Vault</button>
             </div>
 
           </div>

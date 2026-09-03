@@ -451,7 +451,7 @@ function LinkPicker({ message, onClose, onPick }) {
 
   return (
     <div className="fixed inset-0 z-[9600] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0a0f1a] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-[#0a1024] p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center gap-2">
           <Link2 size={16} className="text-cyan-400" />
           <p className="text-[15px] font-black text-white">Message ko record se jodo</p>

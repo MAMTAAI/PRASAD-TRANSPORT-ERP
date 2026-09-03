@@ -23,15 +23,15 @@ import { loadGoogleMaps } from './maps';
 // glance, and POI pins, transit lines and business labels are noise competing
 // with the one thing that matters.
 const DARK = [
-  { elementType: 'geometry', stylers: [{ color: '#0b1220' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#0b1220' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#64748b' }] },
-  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
+  { elementType: 'geometry', stylers: [{ color: '#0a1024' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a1024' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#5d7196' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#18244a' }] },
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e293b' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#475569' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#18244a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#27395f' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#3d548a' }] },
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050b16' }] },
 ];
 
@@ -44,7 +44,7 @@ const dot = (fill, ring) => ({
 const truckIcon = (heading = 0) => ({
   path: 'M -6 -4 L 6 -4 L 8 0 L 6 4 L -6 4 Z',
   fillColor: '#22d3ee', fillOpacity: 1,
-  strokeColor: '#0b1220', strokeWeight: 1.5,
+  strokeColor: '#0a1024', strokeWeight: 1.5,
   rotation: heading, scale: 1.6, anchor: { x: 0, y: 0 },
 });
 
@@ -78,7 +78,7 @@ export default function RouteMap({
           disableDefaultUI: true,
           zoomControl: true,
           gestureHandling: 'greedy',   // a phone map inside a scrolling page
-          backgroundColor: light ? '#e8efe3' : '#0b1220',
+          backgroundColor: light ? '#e8efe3' : '#0a1024',
         });
         setState('ready'); onStatus?.('ready');
       })
@@ -119,7 +119,7 @@ export default function RouteMap({
       }
     };
 
-    put('origin', origin, dot('#34d399', '#064e3b'), origin?.label ?? 'Loading point');
+    put('origin', origin, dot('#2fe39b', '#064e3b'), origin?.label ?? 'Loading point');
     put('dest', destination, dot('#f472b6', '#500724'), destination?.label ?? 'Unloading point');
     put('truck', truck, truckIcon(truck?.heading ?? 0), truck?.label ?? 'Vehicle');
 
@@ -128,7 +128,7 @@ export default function RouteMap({
       if (path?.length) {
         if (line.current) line.current.setPath(path);
         else line.current = new g.maps.Polyline({
-          map: map.current, path, strokeColor: '#38bdf8', strokeOpacity: 0.55, strokeWeight: 4, zIndex: 5,
+          map: map.current, path, strokeColor: '#22d3ee', strokeOpacity: 0.55, strokeWeight: 4, zIndex: 5,
         });
       }
     } else if (line.current) { line.current.setMap(null); line.current = null; }
@@ -145,7 +145,7 @@ export default function RouteMap({
   }, [state, origin, destination, truck, polyline]);
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0b1220] ${className}`}
+    <div className={`relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0a1024] ${className}`}
          style={{ height }}>
       <div ref={box} className="absolute inset-0" />
 
@@ -178,7 +178,7 @@ export default function RouteMap({
         // Said out loud, because an origin and a destination with nothing
         // between them looks like a truck that has not moved.
         <div className="pointer-events-none absolute inset-x-3 bottom-3 rounded-xl border border-amber-400/25
-                        bg-[#0b1220]/90 px-3 py-2 backdrop-blur-sm">
+                        bg-[#0a1024]/90 px-3 py-2 backdrop-blur-sm">
           <p className="text-[10.5px] leading-snug text-amber-200/80">
             No GPS fix for this vehicle yet — the lane is drawn, the truck is not placed.
           </p>

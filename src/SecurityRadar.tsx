@@ -83,10 +83,10 @@ async function radarPost(path: string, body: unknown): Promise<void> {
 }
 
 const SEV_COLOR: Record<string, string> = {
-  critical: '#ef4444',
+  critical: '#ff6b81',
   high: '#f97316',
   med: '#fbbf24',
-  low: '#64748b',
+  low: '#5d7196',
 };
 
 const fmtTime = (iso: string): string => {
@@ -202,23 +202,23 @@ export const SecurityRadar: React.FC = () => {
       <div className="sr-tiles">
         <div className="sr-tile">
           <div className="sr-tile-lbl">THREATS TODAY</div>
-          <div className="sr-tile-val" style={{ color: (c?.threatsToday || 0) > 0 ? '#ef4444' : '#10b981' }}>
+          <div className="sr-tile-val" style={{ color: (c?.threatsToday || 0) > 0 ? '#ff6b81' : '#2fe39b' }}>
             {c?.threatsToday ?? (loading ? '…' : 0)}
           </div>
         </div>
         <div className="sr-tile">
           <div className="sr-tile-lbl">BUGS TODAY</div>
-          <div className="sr-tile-val" style={{ color: (c?.bugsToday || 0) > 0 ? '#fbbf24' : '#10b981' }}>
+          <div className="sr-tile-val" style={{ color: (c?.bugsToday || 0) > 0 ? '#fbbf24' : '#2fe39b' }}>
             {c?.bugsToday ?? (loading ? '…' : 0)}
           </div>
         </div>
         <div className="sr-tile">
           <div className="sr-tile-lbl">CRITICAL / HIGH</div>
-          <div className="sr-tile-val" style={{ color: critHigh > 0 ? '#f97316' : '#10b981' }}>{critHigh}</div>
+          <div className="sr-tile-val" style={{ color: critHigh > 0 ? '#f97316' : '#2fe39b' }}>{critHigh}</div>
         </div>
         <div className="sr-tile">
           <div className="sr-tile-lbl">{arm === 'ARMED' ? 'IPs BANNED' : 'IPs WOULD-BAN'}</div>
-          <div className="sr-tile-val" style={{ color: arm === 'ARMED' ? '#ef4444' : '#22d3ee' }}>
+          <div className="sr-tile-val" style={{ color: arm === 'ARMED' ? '#ff6b81' : '#22d3ee' }}>
             {arm === 'ARMED' ? (c?.bannedIps ?? 0) : (c?.wouldBan ?? 0)}
           </div>
         </div>
@@ -247,7 +247,7 @@ export const SecurityRadar: React.FC = () => {
             return (
               <div key={e.id} className={`sr-row ${e.acked ? 'sr-row-ack' : ''}`}>
                 <div className="sr-row-main" onClick={() => setExpanded(open ? null : e.id)}>
-                  <span className="sr-sev" style={{ background: SEV_COLOR[e.severity] || '#64748b' }} />
+                  <span className="sr-sev" style={{ background: SEV_COLOR[e.severity] || '#5d7196' }} />
                   <span className={`sr-badge ${isBug ? 'sr-badge-bug' : 'sr-badge-threat'}`}>
                     {isBug ? 'BUG' : 'THREAT'}
                   </span>
@@ -292,35 +292,35 @@ const CSS = `
 .sr-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px;flex-wrap:wrap;}
 .sr-title{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:.02em;}
 .sr-shield{font-size:16px;}
-.sr-soc{color:#64748b;font-weight:600;}
+.sr-soc{color:#5d7196;font-weight:600;}
 .sr-arm{font-size:10px;font-weight:700;letter-spacing:.08em;padding:2px 8px;border-radius:6px;border:1px solid;}
 .sr-arm-observe{color:#22d3ee;border-color:#164e63;background:#0b2b33;}
-.sr-arm-armed{color:#ef4444;border-color:#7f1d1d;background:#2b0b0b;}
-.sr-live{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#10b981;letter-spacing:.06em;margin-left:2px;}
-.sr-dot{width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 6px #10b981;animation:srpulse 1.6s infinite;}
+.sr-arm-armed{color:#ff6b81;border-color:#7f1d1d;background:#2b0b0b;}
+.sr-live{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#2fe39b;letter-spacing:.06em;margin-left:2px;}
+.sr-dot{width:7px;height:7px;border-radius:50%;background:#10b981;box-shadow:0 0 6px #2fe39b;animation:srpulse 1.6s infinite;}
 @keyframes srpulse{0%,100%{opacity:1}50%{opacity:.35}}
 .sr-head-r{display:flex;align-items:center;gap:10px;}
-.sr-upd{font-size:11px;color:#64748b;}
-.sr-refresh{background:#161b22;border:1px solid #2a2e39;color:#94a3b8;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;}
+.sr-upd{font-size:11px;color:#5d7196;}
+.sr-refresh{background:#161b22;border:1px solid #2a2e39;color:#9aadd4;border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer;}
 .sr-refresh:hover{border-color:#3b82f6;color:#e6edf3;}
 .sr-kill{background:#2b0b0b;border:1px solid #7f1d1d;color:#fca5a5;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.03em;}
-.sr-kill:hover{background:#3b0f0f;border-color:#ef4444;color:#fff;}
+.sr-kill:hover{background:#3b0f0f;border-color:#ff6b81;color:#fff;}
 .sr-kill:disabled{opacity:.5;cursor:wait;}
-.sr-kill-on{background:#10b981;border-color:#059669;color:#04120c;}
+.sr-kill-on{background:#10b981;border-color:#2fe39b;color:#04120c;}
 .sr-kill-on:hover{background:#34d399;color:#04120c;}
-.sr-kill-banner{background:#2b0b0b;border:1px solid #ef4444;color:#fecaca;border-radius:8px;padding:9px 12px;margin:8px 0;font-size:12px;font-weight:600;animation:srpulse 2s infinite;}
-.sr-note{font-size:11px;color:#8b949e;background:#0b1220;border:1px solid #1e2333;border-radius:8px;padding:7px 10px;margin:10px 0;}
+.sr-kill-banner{background:#2b0b0b;border:1px solid #ff6b81;color:#fecaca;border-radius:8px;padding:9px 12px;margin:8px 0;font-size:12px;font-weight:600;animation:srpulse 2s infinite;}
+.sr-note{font-size:11px;color:#8b949e;background:#0a1024;border:1px solid #1e2333;border-radius:8px;padding:7px 10px;margin:10px 0;}
 .sr-note b{color:#c9d1d9;}
 .sr-err{font-size:12px;color:#fca5a5;background:#2b0f0f;border:1px solid #7f1d1d;border-radius:8px;padding:8px 10px;margin-bottom:10px;}
 .sr-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
-.sr-tile{background:#0b1220;border:1px solid #1e2333;border-radius:10px;padding:12px 14px;}
-.sr-tile-lbl{font-size:9px;letter-spacing:.1em;color:#64748b;font-weight:700;margin-bottom:6px;}
+.sr-tile{background:#0a1024;border:1px solid #1e2333;border-radius:10px;padding:12px 14px;}
+.sr-tile-lbl{font-size:9px;letter-spacing:.1em;color:#5d7196;font-weight:700;margin-bottom:6px;}
 .sr-tile-val{font-size:26px;font-weight:800;line-height:1;}
 .sr-filter{display:flex;gap:6px;margin-bottom:8px;}
-.sr-fbtn{background:#0b1220;border:1px solid #1e2333;color:#8b949e;border-radius:7px;padding:4px 12px;font-size:11px;cursor:pointer;}
+.sr-fbtn{background:#0a1024;border:1px solid #1e2333;color:#8b949e;border-radius:7px;padding:4px 12px;font-size:11px;cursor:pointer;}
 .sr-fbtn-on{border-color:#3b82f6;color:#e6edf3;background:#0d1b2e;}
 .sr-feed{max-height:340px;overflow-y:auto;border:1px solid #161b22;border-radius:10px;background:#080b12;}
-.sr-empty{padding:26px;text-align:center;color:#64748b;font-size:13px;}
+.sr-empty{padding:26px;text-align:center;color:#5d7196;font-size:13px;}
 .sr-row{border-bottom:1px solid #131722;}
 .sr-row:last-child{border-bottom:none;}
 .sr-row-ack{opacity:.5;}
@@ -328,22 +328,22 @@ const CSS = `
 .sr-row-main:hover{background:#0d1420;}
 .sr-sev{width:9px;height:9px;border-radius:50%;}
 .sr-badge{font-size:9px;font-weight:800;letter-spacing:.05em;padding:2px 6px;border-radius:5px;text-align:center;}
-.sr-badge-threat{background:#2b0b0b;color:#ef4444;border:1px solid #7f1d1d;}
+.sr-badge-threat{background:#2b0b0b;color:#ff6b81;border:1px solid #7f1d1d;}
 .sr-badge-bug{background:#2b2408;color:#fbbf24;border:1px solid #78560a;}
 .sr-cat{color:#c9d1d9;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sr-src{font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;text-align:center;}
 .sr-src-jaiswal{background:#0b2b33;color:#22d3ee;}
-.sr-src-prasad{background:#2a1533;color:#c084fc;}
-.sr-loc{color:#94a3b8;font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sr-src-prasad{background:#2a1533;color:#a78bfa;}
+.sr-loc{color:#9aadd4;font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sr-msg{color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.sr-time{color:#64748b;font-size:10px;text-align:right;font-family:ui-monospace,monospace;}
+.sr-time{color:#5d7196;font-size:10px;text-align:right;font-family:ui-monospace,monospace;}
 .sr-detail{padding:8px 14px 12px 34px;background:#0a0f18;font-size:12px;display:flex;flex-direction:column;gap:5px;}
 .sr-drow{display:grid;grid-template-columns:80px 1fr;gap:10px;}
-.sr-drow b{color:#64748b;font-weight:600;font-size:11px;}
+.sr-drow b{color:#5d7196;font-weight:600;font-size:11px;}
 .sr-drow span{color:#c9d1d9;}
 .sr-fix{color:#7ee787 !important;font-style:italic;}
-.sr-ackbtn{align-self:flex-start;margin-top:4px;background:#161b22;border:1px solid #2a2e39;color:#94a3b8;border-radius:6px;padding:3px 12px;font-size:11px;cursor:pointer;}
-.sr-ackbtn:hover{border-color:#10b981;color:#7ee787;}
+.sr-ackbtn{align-self:flex-start;margin-top:4px;background:#161b22;border:1px solid #2a2e39;color:#9aadd4;border-radius:6px;padding:3px 12px;font-size:11px;cursor:pointer;}
+.sr-ackbtn:hover{border-color:#2fe39b;color:#7ee787;}
 @media(max-width:900px){
   .sr-tiles{grid-template-columns:repeat(2,1fr);}
   .sr-row-main{grid-template-columns:10px 54px 1fr 46px;grid-template-areas:'sev badge cat time';}

@@ -22,13 +22,13 @@ import ChangePasswordCard from './ChangePasswordCard';
 
 const ROLE_TONE = {
   SUPER_ADMIN: { bg: 'rgba(168,85,247,0.16)', fg: '#d8b4fe', ring: 'rgba(168,85,247,0.5)' },
-  ADMIN:       { bg: 'rgba(56,189,248,0.16)', fg: '#7dd3fc', ring: 'rgba(56,189,248,0.5)' },
-  ACCOUNTS:    { bg: 'rgba(16,185,129,0.16)', fg: '#6ee7b7', ring: 'rgba(16,185,129,0.5)' },
-  DISPATCH:    { bg: 'rgba(245,158,11,0.16)', fg: '#fcd34d', ring: 'rgba(245,158,11,0.5)' },
+  ADMIN:       { bg: 'rgba(34, 211, 238,0.16)', fg: '#7dd3fc', ring: 'rgba(34, 211, 238,0.5)' },
+  ACCOUNTS:    { bg: 'rgba(47, 227, 155,0.16)', fg: '#6ee7b7', ring: 'rgba(47, 227, 155,0.5)' },
+  DISPATCH:    { bg: 'rgba(255, 178, 36,0.16)', fg: '#fcd34d', ring: 'rgba(255, 178, 36,0.5)' },
   CUSTOMER:    { bg: 'rgba(236,72,153,0.16)', fg: '#f9a8d4', ring: 'rgba(236,72,153,0.5)' },
   VENDOR:      { bg: 'rgba(249,115,22,0.16)', fg: '#fdba74', ring: 'rgba(249,115,22,0.5)' },
   DRIVER:      { bg: 'rgba(59,130,246,0.16)', fg: '#93c5fd', ring: 'rgba(59,130,246,0.5)' },
-  VIEWER:      { bg: 'rgba(148,163,184,0.16)', fg: '#cbd5e1', ring: 'rgba(148,163,184,0.5)' },
+  VIEWER:      { bg: 'rgba(148,163,184,0.16)', fg: '#c4d1ea', ring: 'rgba(148,163,184,0.5)' },
 };
 const toneFor = (role) => ROLE_TONE[String(role || '').toUpperCase()] ?? ROLE_TONE.VIEWER;
 
@@ -49,14 +49,14 @@ function initials(name) {
 // longer, but now as the exception instead of the rule.
 const Row = ({ label, value, mono }) => (
   <div style={{ padding: '6px 0' }}>
-    <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700, marginBottom: 3 }}>
+    <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#5d7196', fontWeight: 700, marginBottom: 3 }}>
       {label}
     </div>
     <div style={{
-      fontSize: 12.5, color: '#e2e8f0', fontWeight: 600, overflowWrap: 'anywhere', lineHeight: 1.35,
+      fontSize: 12.5, color: '#dde5f4', fontWeight: 600, overflowWrap: 'anywhere', lineHeight: 1.35,
       fontFamily: mono ? "ui-monospace, 'Cascadia Mono', Menlo, monospace" : 'inherit',
     }}>
-      {value ?? <span style={{ color: '#475569', fontWeight: 500 }}>not set</span>}
+      {value ?? <span style={{ color: '#3d548a', fontWeight: 500 }}>not set</span>}
     </div>
   </div>
 );
@@ -124,7 +124,7 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
         className="pm-avatar"
         style={{
           width: compact ? 34 : 38, height: compact ? 34 : 38, borderRadius: '50%',
-          background: `linear-gradient(135deg, ${tone.fg}, #38bdf8)`,
+          background: `linear-gradient(135deg, ${tone.fg}, #22d3ee)`,
           color: '#04121f', fontWeight: 900, fontSize: compact ? 12 : 13, letterSpacing: '0.02em',
           border: 'none', cursor: 'pointer', display: 'grid', placeItems: 'center',
           boxShadow: open ? `0 0 0 3px ${tone.ring}` : '0 2px 8px rgba(0,0,0,0.45)',
@@ -142,21 +142,21 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
             // A short laptop viewport must not leave LOG OUT below the fold
             // with no way to scroll to it.
             maxHeight: 'calc(100vh - 88px)', overflowY: 'auto',
-            background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
+            background: '#121c38', border: '1px solid #18244a', borderRadius: 14,
             // Material elevation: a tight contact shadow plus a wide ambient one.
             boxShadow: '0 1px 3px rgba(0,0,0,0.6), 0 10px 34px rgba(0,0,0,0.55)',
             zIndex: 1200, overflow: 'hidden', animation: 'pmIn .14s ease-out',
           }}
         >
           {/* identity */}
-          <div style={{ padding: '15px 16px 13px', borderBottom: '1px solid #1e293b', display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ padding: '15px 16px 13px', borderBottom: '1px solid #18244a', display: 'flex', gap: 12, alignItems: 'center' }}>
             <div style={{
               width: 42, height: 42, borderRadius: '50%', flexShrink: 0,
-              background: `linear-gradient(135deg, ${tone.fg}, #38bdf8)`,
+              background: `linear-gradient(135deg, ${tone.fg}, #22d3ee)`,
               color: '#04121f', fontWeight: 900, fontSize: 14, display: 'grid', placeItems: 'center',
             }}>{initials(name)}</div>
             <div style={{ minWidth: 0 }}>
-              <div style={{ color: '#f1f5f9', fontSize: 13.5, fontWeight: 800, lineHeight: 1.25, wordBreak: 'break-word' }}>{name}</div>
+              <div style={{ color: '#eef3fa', fontSize: 13.5, fontWeight: 800, lineHeight: 1.25, wordBreak: 'break-word' }}>{name}</div>
               <span style={{
                 display: 'inline-block', marginTop: 5, padding: '2px 8px', borderRadius: 999,
                 background: tone.bg, color: tone.fg, fontSize: 9.5, fontWeight: 900, letterSpacing: '0.09em',
@@ -177,14 +177,14 @@ export default function ProfileMenu({ user, onLogout, compact = false }) {
 
           {/* 🔑 Self-service password change (2026-08-31 mandate) — OTP to the
               registered mobile, then the person picks the password themselves. */}
-          <div style={{ borderTop: '1px solid #1e293b', padding: '10px 16px 12px' }}>
+          <div style={{ borderTop: '1px solid #18244a', padding: '10px 16px 12px' }}>
             <button
               type="button"
               onClick={() => setPwOpen((v) => !v)}
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
-                color: '#94a3b8', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
+                color: '#9aadd4', fontSize: 11, fontWeight: 800, letterSpacing: '0.08em',
                 textTransform: 'uppercase',
               }}
             >

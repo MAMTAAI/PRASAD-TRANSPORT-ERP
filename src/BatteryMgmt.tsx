@@ -82,9 +82,9 @@ const BATTERY_POSITIONS = [
 
 const getWarrantyStatus = (purchaseDate: any, warrantyMonths: any) => {
   const months = parseInt(warrantyMonths);
-  if (!purchaseDate || !months) return { active: false, label: '⚪ N/A', color: '#94a3b8', monthsLeft: 0, expiryStr: '-' };
+  if (!purchaseDate || !months) return { active: false, label: '⚪ N/A', color: '#9aadd4', monthsLeft: 0, expiryStr: '-' };
   const start = new Date(purchaseDate);
-  if (isNaN(start.getTime())) return { active: false, label: '⚪ N/A', color: '#94a3b8', monthsLeft: 0, expiryStr: '-' };
+  if (isNaN(start.getTime())) return { active: false, label: '⚪ N/A', color: '#9aadd4', monthsLeft: 0, expiryStr: '-' };
 
   const expiry = new Date(start.getTime());
   expiry.setMonth(expiry.getMonth() + months);
@@ -92,14 +92,14 @@ const getWarrantyStatus = (purchaseDate: any, warrantyMonths: any) => {
   const msLeft = expiry.getTime() - now.getTime();
   const expiryStr = expiry.toISOString().split('T')[0];
 
-  if (msLeft <= 0) return { active: false, label: '🔴 Expired', color: '#ef4444', monthsLeft: 0, expiryStr };
+  if (msLeft <= 0) return { active: false, label: '🔴 Expired', color: '#ff6b81', monthsLeft: 0, expiryStr };
 
   const dayMs = 1000 * 60 * 60 * 24;
   const daysLeft = Math.ceil(msLeft / dayMs);
   const monthsLeft = Math.floor(daysLeft / 30.44);
   const text = monthsLeft >= 1 ? `${monthsLeft} Month${monthsLeft > 1 ? 's' : ''} left` : `${daysLeft} Day${daysLeft > 1 ? 's' : ''} left`;
   // Amber warning window when <2 months of warranty remain.
-  const color = monthsLeft < 2 ? '#f59e0b' : '#10b981';
+  const color = monthsLeft < 2 ? '#ffb224' : '#2fe39b';
   const icon = monthsLeft < 2 ? '🟡' : '🟢';
   return { active: true, label: `${icon} Active - ${text}`, color, monthsLeft, daysLeft, expiryStr };
 };
@@ -606,40 +606,40 @@ Empty string / 0 if absent.`;
   });
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif" }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
-        .glow-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); display: flex; align-items: center; gap: 8px;}
-        .glow-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16, 185, 129, 0.6); }
-        .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
-        .tab-btn.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 8px 8px 0 0; }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 12px; width: 100%; box-sizing: border-box; outline: none; transition: 0.3s;}
-        .modern-input:focus { border-color: #38bdf8; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; color: #cbd5e1; font-size: 13px; }
-        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #334155; color: #38bdf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
-        td { padding: 12px 15px; border-bottom: 1px solid #334155; }
+        .glass-card { background: rgba(24, 36, 74, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
+        .glow-btn { background: linear-gradient(135deg, #2fe39b, #2fe39b); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(47, 227, 155, 0.4); display: flex; align-items: center; gap: 8px;}
+        .glow-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(47, 227, 155, 0.6); }
+        .tab-btn { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s; }
+        .tab-btn.active { color: #22d3ee; border-bottom: 3px solid #22d3ee; background: rgba(34, 211, 238, 0.1); border-radius: 8px 8px 0 0; }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 12px; width: 100%; box-sizing: border-box; outline: none; transition: 0.3s;}
+        .modern-input:focus { border-color: #22d3ee; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; color: #c4d1ea; font-size: 13px; }
+        th { background: rgba(0,0,0,0.3); padding: 15px; text-align: left; border-bottom: 2px solid #27395f; color: #22d3ee; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
+        td { padding: 12px 15px; border-bottom: 1px solid #27395f; }
         tr:hover { background: rgba(255,255,255,0.02); }
         .badge { padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: bold; letter-spacing: 1px;}
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .grid-input { background: transparent; border: 1px solid #334155; color: #fff; padding: 8px; width: 100%; border-radius: 4px; box-sizing: border-box; font-size: 12px; }
-        .grid-input:focus { border-color: #c084fc; outline: none; background: rgba(0,0,0,0.5); }
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .grid-input { background: transparent; border: 1px solid #27395f; color: #fff; padding: 8px; width: 100%; border-radius: 4px; box-sizing: border-box; font-size: 12px; }
+        .grid-input:focus { border-color: #a78bfa; outline: none; background: rgba(0,0,0,0.5); }
         .pos-chip { padding: 14px 10px; border-radius: 10px; cursor: pointer; transition: 0.3s; text-align: center; font-weight: bold; font-size: 13px; }
-        .pos-chip.empty { background: rgba(16, 185, 129, 0.08); border: 2px dashed #10b981; color: #10b981; }
-        .pos-chip.empty:hover { background: rgba(16, 185, 129, 0.25); box-shadow: 0 0 15px rgba(16,185,129,0.4); }
-        .pos-chip.occupied { background: rgba(239, 68, 68, 0.08); border: 2px solid #ef4444; color: #ef4444; cursor: not-allowed; }
-        .pos-chip.selected { background: rgba(56, 189, 248, 0.2); border: 2px solid #38bdf8; color: #38bdf8; box-shadow: 0 0 20px rgba(56,189,248,0.5); }
+        .pos-chip.empty { background: rgba(47, 227, 155, 0.08); border: 2px dashed #2fe39b; color: #2fe39b; }
+        .pos-chip.empty:hover { background: rgba(47, 227, 155, 0.25); box-shadow: 0 0 15px rgba(47, 227, 155,0.4); }
+        .pos-chip.occupied { background: rgba(255, 107, 129, 0.08); border: 2px solid #ff6b81; color: #ff6b81; cursor: not-allowed; }
+        .pos-chip.selected { background: rgba(34, 211, 238, 0.2); border: 2px solid #22d3ee; color: #22d3ee; box-shadow: 0 0 20px rgba(34, 211, 238,0.5); }
       `}</style>
 
       {/* 🚀 Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '32px', fontWeight: '900', letterSpacing: '-0.5px' }}>Battery & Asset Inventory</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Procurement, Fitment & Warranty Tracking</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Procurement, Fitment & Warranty Tracking</p>
         </div>
         <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-          <button className="glow-btn" style={{ background: '#334155', border: '1px solid #475569' }} onClick={handlePrintPDF}>🖨️ Print PDF</button>
-          <button className="glow-btn" style={{ background: '#1e293b', border: '1px solid #38bdf8', color: '#38bdf8' }} onClick={handleExportCSV}>📥 Export Excel</button>
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={() => setIsFitmentModalOpen(true)}>
+          <button className="glow-btn" style={{ background: '#27395f', border: '1px solid #3d548a' }} onClick={handlePrintPDF}>🖨️ Print PDF</button>
+          <button className="glow-btn" style={{ background: '#18244a', border: '1px solid #22d3ee', color: '#22d3ee' }} onClick={handleExportCSV}>📥 Export Excel</button>
+          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #d97706)' }} onClick={() => setIsFitmentModalOpen(true)}>
             <span style={{ fontSize: '16px' }}>🔋</span> Fit Battery to Vehicle
           </button>
           <button className="glow-btn" onClick={() => setIsPurchaseModalOpen(true)}>
@@ -648,7 +648,7 @@ Empty string / 0 if absent.`;
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #27395f', overflowX: 'auto' }}>
         <button className={`tab-btn ${activeTab === 'FITMENTS' ? 'active' : ''}`} onClick={() => setActiveTab('FITMENTS')}>🔋 LIVE VEHICLE FITMENTS</button>
         <button className={`tab-btn ${activeTab === 'INVENTORY' ? 'active' : ''}`} onClick={() => setActiveTab('INVENTORY')}>📦 BATTERY INVENTORY (STOCK)</button>
         <button className={`tab-btn ${activeTab === 'WARRANTY' ? 'active' : ''}`} onClick={() => setActiveTab('WARRANTY')}>🛡️ WARRANTY CLAIMS & SCRAP</button>
@@ -657,14 +657,14 @@ Empty string / 0 if absent.`;
 
       {/* 🔋 TAB 1: LIVE FITMENTS */}
       {activeTab === 'FITMENTS' && (
-        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #f59e0b' }}>
-          <h3 style={{ color: '#f59e0b', marginTop: 0, marginBottom: '15px' }}>Batteries Currently Running on Vehicles</h3>
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Data...</p> : (
+        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #ffb224' }}>
+          <h3 style={{ color: '#ffb224', marginTop: 0, marginBottom: '15px' }}>Batteries Currently Running on Vehicles</h3>
+          {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Loading Data...</p> : (
             <div>
-               {Object.keys(groupedFitments).length === 0 ? <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>No active fitments.</div> :
+               {Object.keys(groupedFitments).length === 0 ? <div style={{ textAlign: 'center', padding: '30px', color: '#9aadd4' }}>No active fitments.</div> :
                  Object.keys(groupedFitments).map((vNo, idx) => (
-                   <div key={idx} style={{ marginBottom: '30px', background: 'rgba(0,0,0,0.2)', border: '1px solid #334155', borderRadius: '12px', overflow: 'hidden' }}>
-                      <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: '15px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                   <div key={idx} style={{ marginBottom: '30px', background: 'rgba(0,0,0,0.2)', border: '1px solid #27395f', borderRadius: '12px', overflow: 'hidden' }}>
+                      <div style={{ background: 'rgba(255, 178, 36, 0.1)', padding: '15px 20px', borderBottom: '1px solid #27395f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                          <h3 style={{ margin: 0, color: '#fff', fontSize: '18px' }}>🚚 {vNo}</h3>
                          <span className="badge" style={{ background: '#f59e0b', color: '#fff' }}>{groupedFitments[vNo].length} Batteries Fitted</span>
                       </div>
@@ -672,7 +672,7 @@ Empty string / 0 if absent.`;
                         <thead>
                           <tr>
                             <th>Position</th>
-                            <th style={{ color: '#10b981' }}>Battery Serial No</th>
+                            <th style={{ color: '#2fe39b' }}>Battery Serial No</th>
                             <th>Make & AH</th>
                             <th>Fitment Date</th>
                             <th>Fitting KM</th>
@@ -685,14 +685,14 @@ Empty string / 0 if absent.`;
                              const w = getWarrantyStatus(f.purchase_date, f.warranty_months);
                              return (
                              <tr key={i}>
-                               <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{f.position}</td>
-                               <td style={{ color: '#10b981', fontWeight: '900', fontSize: '15px' }}>{f.battery_serial}</td>
-                               <td style={{ color: '#cbd5e1' }}>{f.make} {f.capacity_ah ? `${f.capacity_ah}AH` : ''}</td>
+                               <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>{f.position}</td>
+                               <td style={{ color: '#2fe39b', fontWeight: '900', fontSize: '15px' }}>{f.battery_serial}</td>
+                               <td style={{ color: '#c4d1ea' }}>{f.make} {f.capacity_ah ? `${f.capacity_ah}AH` : ''}</td>
                                <td>{f.fitment_date}</td>
-                               <td style={{ color: '#f59e0b', fontWeight: 'bold' }}>{parseFloat(f.fitting_km||0).toLocaleString('en-IN')} KM</td>
+                               <td style={{ color: '#ffb224', fontWeight: 'bold' }}>{parseFloat(f.fitting_km||0).toLocaleString('en-IN')} KM</td>
                                <td><span style={{ color: w.color, fontWeight: 'bold', fontSize: '12px' }}>{w.label}</span></td>
                                <td style={{ textAlign: 'center' }}>
-                                 <button onClick={() => { setSelectedFitment(f); setIsRemoveModalOpen(true); }} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px', transition: '0.3s' }}>
+                                 <button onClick={() => { setSelectedFitment(f); setIsRemoveModalOpen(true); }} style={{ background: 'rgba(255, 107, 129, 0.1)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '4px 10px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '10px', transition: '0.3s' }}>
                                    ✂️ Remove
                                  </button>
                                </td>
@@ -710,13 +710,13 @@ Empty string / 0 if absent.`;
 
       {/* 📦 TAB 2: BATTERY INVENTORY */}
       {activeTab === 'INVENTORY' && (
-        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #38bdf8' }}>
+        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #22d3ee' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ color: '#38bdf8', margin: 0 }}>All Batteries Master Database</h3>
-            <span style={{ background: 'rgba(56,189,248,0.1)', padding: '5px 12px', borderRadius: '20px', color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>Available Stock: {availableBatteries.length}</span>
+            <h3 style={{ color: '#22d3ee', margin: 0 }}>All Batteries Master Database</h3>
+            <span style={{ background: 'rgba(34, 211, 238,0.1)', padding: '5px 12px', borderRadius: '20px', color: '#22d3ee', fontSize: '12px', fontWeight: 'bold' }}>Available Stock: {availableBatteries.length}</span>
           </div>
 
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Inventory...</p> : (
+          {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Loading Inventory...</p> : (
             <table>
               <thead>
                 <tr>
@@ -736,26 +736,26 @@ Empty string / 0 if absent.`;
                   return (
                   <tr key={i}>
                     <td style={{ fontWeight: '900', color: '#fff', fontSize: '15px' }}>{b.serial_no}</td>
-                    <td style={{ color: '#cbd5e1' }}>{b.make} <span style={{ color: '#c084fc', fontWeight: 'bold' }}>{b.capacity_ah ? `${b.capacity_ah}AH` : ''}</span></td>
-                    <td style={{ fontWeight: 'bold', color: '#38bdf8' }}>₹{parseFloat(b.cost || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                    <td style={{ color: '#c4d1ea' }}>{b.make} <span style={{ color: '#a78bfa', fontWeight: 'bold' }}>{b.capacity_ah ? `${b.capacity_ah}AH` : ''}</span></td>
+                    <td style={{ fontWeight: 'bold', color: '#22d3ee' }}>₹{parseFloat(b.cost || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                     <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                           <span style={{ color: '#c084fc', fontSize: '11px', fontWeight: 'bold' }}>{b.invoice_no || '-'}</span>
-                           {b.invoice_file_url && <a href={b.invoice_file_url} target="_blank" rel="noreferrer" style={{ color: '#10b981', fontSize: '14px', textDecoration: 'none' }} title="View Invoice">👁️</a>}
+                           <span style={{ color: '#a78bfa', fontSize: '11px', fontWeight: 'bold' }}>{b.invoice_no || '-'}</span>
+                           {b.invoice_file_url && <a href={b.invoice_file_url} target="_blank" rel="noreferrer" style={{ color: '#2fe39b', fontSize: '14px', textDecoration: 'none' }} title="View Invoice">👁️</a>}
                         </div>
-                        <small style={{ color: '#94a3b8' }}>{b.vendor || '-'}</small>
+                        <small style={{ color: '#9aadd4' }}>{b.vendor || '-'}</small>
                     </td>
                     <td><span style={{ color: w.color, fontWeight: 'bold', fontSize: '12px' }}>{w.label}</span></td>
                     <td>
                       <span className="badge" style={{
-                        background: b.status === 'IN STOCK' ? 'rgba(16,185,129,0.2)' : b.status === 'FITTED' ? 'rgba(56,189,248,0.2)' : b.status === 'SCRAP' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
-                        color: b.status === 'IN STOCK' ? '#10b981' : b.status === 'FITTED' ? '#38bdf8' : b.status === 'SCRAP' ? '#ef4444' : '#f59e0b'
+                        background: b.status === 'IN STOCK' ? 'rgba(47, 227, 155,0.2)' : b.status === 'FITTED' ? 'rgba(34, 211, 238,0.2)' : b.status === 'SCRAP' ? 'rgba(255, 107, 129,0.2)' : 'rgba(255, 178, 36,0.2)',
+                        color: b.status === 'IN STOCK' ? '#2fe39b' : b.status === 'FITTED' ? '#22d3ee' : b.status === 'SCRAP' ? '#ff6b81' : '#ffb224'
                       }}>{b.status}</span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '5px', justifyContent: 'center' }}>
-                        <button onClick={() => { setEditData({...b}); setIsEditModalOpen(true); }} style={{ background: 'rgba(56, 189, 248, 0.1)', color: '#38bdf8', border: '1px solid #38bdf8', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
-                        <button onClick={() => handleDelete(b.id, b.serial_no)} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', visibility: b.status === 'FITTED' ? 'hidden' : 'visible' }}>🗑️ Delete</button>
+                        <button onClick={() => { setEditData({...b}); setIsEditModalOpen(true); }} style={{ background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', border: '1px solid #22d3ee', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
+                        <button onClick={() => handleDelete(b.id, b.serial_no)} style={{ background: 'rgba(255, 107, 129, 0.1)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', visibility: b.status === 'FITTED' ? 'hidden' : 'visible' }}>🗑️ Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -768,24 +768,24 @@ Empty string / 0 if absent.`;
 
       {/* 🛡️ TAB 3: WARRANTY CLAIMS & SCRAP */}
       {activeTab === 'WARRANTY' && (
-        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #10b981' }}>
+        <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #2fe39b' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ color: '#10b981', margin: 0 }}>Warranty Claims & Scrapped Batteries</h3>
+            <h3 style={{ color: '#2fe39b', margin: 0 }}>Warranty Claims & Scrapped Batteries</h3>
             <div style={{ display: 'flex', gap: '15px' }}>
-                <span style={{ background: 'rgba(16,185,129,0.1)', padding: '5px 12px', borderRadius: '20px', color: '#10b981', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>Pending Claims: {pendingClaims.length}</span>
-                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #c084fc, #9333ea)', padding: '8px 15px', fontSize: '12px' }} onClick={() => setIsDispatchClaimModalOpen(true)}>
+                <span style={{ background: 'rgba(47, 227, 155,0.1)', padding: '5px 12px', borderRadius: '20px', color: '#2fe39b', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>Pending Claims: {pendingClaims.length}</span>
+                <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #a78bfa, #9333ea)', padding: '8px 15px', fontSize: '12px' }} onClick={() => setIsDispatchClaimModalOpen(true)}>
                     📤 Send Battery to Warranty Claim
                 </button>
             </div>
           </div>
 
-          {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', padding: '20px' }}>Loading Data...</p> : (
+          {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Loading Data...</p> : (
             <table>
               <thead>
                 <tr>
                   <th>Serial No</th>
                   <th>Make & AH</th>
-                  <th style={{ color: '#10b981' }}>Total KM Run</th>
+                  <th style={{ color: '#2fe39b' }}>Total KM Run</th>
                   <th>Claim / Company Details</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'center' }}>Action</th>
@@ -796,26 +796,26 @@ Empty string / 0 if absent.`;
                   claimBatteries.map((b, i) => (
                   <tr key={i}>
                     <td style={{ fontWeight: '900', color: '#fff', fontSize: '15px' }}>{b.serial_no}</td>
-                    <td style={{ color: '#cbd5e1' }}>{b.make} {b.capacity_ah ? `${b.capacity_ah}AH` : ''}</td>
-                    <td style={{ color: '#10b981', fontWeight: '900', fontSize: '14px' }}>{parseFloat(b.total_km_run || 0).toLocaleString('en-IN')} KM</td>
+                    <td style={{ color: '#c4d1ea' }}>{b.make} {b.capacity_ah ? `${b.capacity_ah}AH` : ''}</td>
+                    <td style={{ color: '#2fe39b', fontWeight: '900', fontSize: '14px' }}>{parseFloat(b.total_km_run || 0).toLocaleString('en-IN')} KM</td>
                     <td>
-                        <span style={{ color: '#c084fc', fontWeight: 'bold' }}>{b.claim_company || (b.status === 'SCRAP' ? (b.scrap_reason || 'Scrapped') : '-')}</span><br/>
-                        <span style={{ color: '#94a3b8', fontSize: '11px' }}>{b.status === 'WARRANTY CLAIM' ? `Ref: ${b.claim_ref || '-'} | Sent: ${b.claim_date || '-'}` : `Scrapped: ${b.scrapped_on || '-'}`}</span>
+                        <span style={{ color: '#a78bfa', fontWeight: 'bold' }}>{b.claim_company || (b.status === 'SCRAP' ? (b.scrap_reason || 'Scrapped') : '-')}</span><br/>
+                        <span style={{ color: '#9aadd4', fontSize: '11px' }}>{b.status === 'WARRANTY CLAIM' ? `Ref: ${b.claim_ref || '-'} | Sent: ${b.claim_date || '-'}` : `Scrapped: ${b.scrapped_on || '-'}`}</span>
                     </td>
                     <td>
                       <span className="badge" style={{
-                        background: b.status === 'SCRAP' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)',
-                        color: b.status === 'SCRAP' ? '#ef4444' : '#f59e0b',
-                        border: `1px solid ${b.status === 'SCRAP' ? '#ef4444' : '#f59e0b'}`
+                        background: b.status === 'SCRAP' ? 'rgba(255, 107, 129,0.2)' : 'rgba(255, 178, 36,0.2)',
+                        color: b.status === 'SCRAP' ? '#ff6b81' : '#ffb224',
+                        border: `1px solid ${b.status === 'SCRAP' ? '#ff6b81' : '#ffb224'}`
                       }}>{b.status}</span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {b.status === 'WARRANTY CLAIM' ? (
-                        <button onClick={() => { setSelectedClaimBattery(b); setIsReceiveClaimModalOpen(true); }} style={{ background: 'linear-gradient(135deg, #10b981, #059669)', color: 'white', border: 'none', padding: '6px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px', transition: '0.3s' }}>
+                        <button onClick={() => { setSelectedClaimBattery(b); setIsReceiveClaimModalOpen(true); }} style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)', color: 'white', border: 'none', padding: '6px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px', transition: '0.3s' }}>
                           📥 Receive & Close Claim
                         </button>
                       ) : (
-                        <button onClick={() => handleDelete(b.id, b.serial_no)} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid #ef4444', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}>🗑️ Delete</button>
+                        <button onClick={() => handleDelete(b.id, b.serial_no)} style={{ background: 'rgba(255, 107, 129, 0.1)', color: '#ff6b81', border: '1px solid #ff6b81', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '11px' }}>🗑️ Delete</button>
                       )}
                     </td>
                   </tr>
@@ -830,13 +830,13 @@ Empty string / 0 if absent.`;
       {activeTab === 'HISTORY' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto', borderTop: '4px solid #8b5cf6' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h3 style={{ color: '#c084fc', margin: 0 }}>Battery Removal & Lifecycle History</h3>
+            <h3 style={{ color: '#a78bfa', margin: 0 }}>Battery Removal & Lifecycle History</h3>
             <input
               className="modern-input"
               placeholder="🔍 Search Battery Serial No or Vehicle No..."
               value={historySearch}
               onChange={e => setHistorySearch(e.target.value)}
-              style={{ width: '300px', borderColor: '#c084fc' }}
+              style={{ width: '300px', borderColor: '#a78bfa' }}
             />
           </div>
           <table>
@@ -847,7 +847,7 @@ Empty string / 0 if absent.`;
                 <th>Serial No</th>
                 <th>Position</th>
                 <th>Fit KM ➔ Rem KM</th>
-                <th style={{ color: '#10b981' }}>KM Run</th>
+                <th style={{ color: '#2fe39b' }}>KM Run</th>
                 <th>Reason</th>
               </tr>
             </thead>
@@ -859,16 +859,16 @@ Empty string / 0 if absent.`;
                 <tr key={i}>
                   <td>{f.removal_date}</td>
                   <td style={{ fontWeight: 'bold', color: '#fff' }}>{f.vehicle_no}</td>
-                  <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{f.battery_serial}</td>
-                  <td style={{ color: '#cbd5e1' }}>{f.position}</td>
-                  <td style={{ fontSize: '11px', color: '#94a3b8' }}>{parseFloat(f.fitting_km||0).toLocaleString('en-IN')} ➔ {parseFloat(f.removal_km||0).toLocaleString('en-IN')}</td>
+                  <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>{f.battery_serial}</td>
+                  <td style={{ color: '#c4d1ea' }}>{f.position}</td>
+                  <td style={{ fontSize: '11px', color: '#9aadd4' }}>{parseFloat(f.fitting_km||0).toLocaleString('en-IN')} ➔ {parseFloat(f.removal_km||0).toLocaleString('en-IN')}</td>
                   <td>
-                    <span style={{ color: '#f59e0b', fontWeight: '900', fontSize: '15px' }}>
+                    <span style={{ color: '#ffb224', fontWeight: '900', fontSize: '15px' }}>
                        {yieldKm.toLocaleString('en-IN')} KM
                     </span>
                   </td>
                   <td>
-                    <span className="badge" style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: '1px solid #ef4444' }}>
+                    <span className="badge" style={{ background: 'rgba(255, 107, 129,0.1)', color: '#ff6b81', border: '1px solid #ff6b81' }}>
                       {f.removal_reason}
                     </span>
                   </td>
@@ -881,40 +881,40 @@ Empty string / 0 if absent.`;
 
       {/* ✏️ MODAL 0: EDIT BATTERY DATA */}
       {isEditModalOpen && editData && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '520px', border: '1px solid #38bdf8', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '520px', border: '1px solid #22d3ee', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#38bdf8' }}>✏️ Edit Battery Profile</h2>
-              <button onClick={() => setIsEditModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#22d3ee' }}>✏️ Edit Battery Profile</h2>
+              <button onClick={() => setIsEditModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Battery Serial No (Unchangeable)</label>
-                <input className="modern-input" value={editData.serial_no} disabled style={{background: 'rgba(0,0,0,0.3)', color: '#64748b'}}/>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Battery Serial No (Unchangeable)</label>
+                <input className="modern-input" value={editData.serial_no} disabled style={{background: 'rgba(0,0,0,0.3)', color: '#5d7196'}}/>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Make / Brand</label>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Make / Brand</label>
                   <input className="modern-input" value={editData.make} onChange={e=>setEditData({...editData, make: e.target.value.toUpperCase()})} />
                 </div>
-                <div><label style={{ fontSize:'12px', color:'#c084fc', fontWeight:'bold' }}>Capacity (AH)</label>
+                <div><label style={{ fontSize:'12px', color:'#a78bfa', fontWeight:'bold' }}>Capacity (AH)</label>
                   <input className="modern-input" value={editData.capacity_ah} onChange={e=>setEditData({...editData, capacity_ah: e.target.value})} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Purchase Date</label>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Purchase Date</label>
                   <input type="date" className="modern-input" value={editData.purchase_date || ''} onChange={e=>setEditData({...editData, purchase_date: e.target.value})} style={{colorScheme:'dark'}}/>
                 </div>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Warranty (Months)</label>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Warranty (Months)</label>
                   <select className="modern-input" value={editData.warranty_months} onChange={e=>setEditData({...editData, warranty_months: e.target.value})}>
                     <option value="12">12 Months</option><option value="18">18 Months</option><option value="24">24 Months</option><option value="36">36 Months</option><option value="48">48 Months</option>
                   </select>
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>Total Cost (₹)</label>
-                  <input type="number" className="modern-input" style={{ borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={editData.cost} onChange={e=>setEditData({...editData, cost: e.target.value})} />
+                <div><label style={{ fontSize:'12px', color:'#2fe39b', fontWeight:'bold' }}>Total Cost (₹)</label>
+                  <input type="number" className="modern-input" style={{ borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={editData.cost} onChange={e=>setEditData({...editData, cost: e.target.value})} />
                 </div>
-                <div><label style={{ fontSize:'12px', color:'#ef4444', fontWeight:'bold' }}>Current Status</label>
-                  <select className="modern-input" style={{ borderColor: '#ef4444', color: '#ef4444', fontWeight: 'bold' }} value={editData.status} onChange={e=>setEditData({...editData, status: e.target.value})} disabled={editData.status === 'FITTED'}>
+                <div><label style={{ fontSize:'12px', color:'#ff6b81', fontWeight:'bold' }}>Current Status</label>
+                  <select className="modern-input" style={{ borderColor: '#ff6b81', color: '#ff6b81', fontWeight: 'bold' }} value={editData.status} onChange={e=>setEditData({...editData, status: e.target.value})} disabled={editData.status === 'FITTED'}>
                     <option value="IN STOCK">IN STOCK (Available)</option>
                     <option value="SCRAP">SCRAP / DEAD (Deactive)</option>
                     <option value="FITTED" disabled>FITTED (On Vehicle)</option>
@@ -932,35 +932,35 @@ Empty string / 0 if absent.`;
 
       {/* 🧾 MODAL 1: ADVANCED PURCHASE INVOICE & SMART TABLE */}
       {isPurchaseModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '1150px', border: '1px solid #10b981', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)', maxHeight: '95vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '1150px', border: '1px solid #2fe39b', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)', maxHeight: '95vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#10b981' }}>🧾 Register Battery Purchase Invoice</h2>
-              <button onClick={() => setIsPurchaseModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#2fe39b' }}>🧾 Register Battery Purchase Invoice</h2>
+              <button onClick={() => setIsPurchaseModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #38bdf8', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #22d3ee', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                <div>
-                 <label style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '14px', display: 'block' }}>🤖 Upload Original Bill & Scan (Auto-Fill)</label>
-                 <p style={{ color: '#94a3b8', fontSize: '11px', marginTop: '5px', marginBottom: 0 }}>Select PDF/Image of the invoice. AI (local DeepSeek) will extract details.</p>
+                 <label style={{ color: '#22d3ee', fontWeight: 'bold', fontSize: '14px', display: 'block' }}>🤖 Upload Original Bill & Scan (Auto-Fill)</label>
+                 <p style={{ color: '#9aadd4', fontSize: '11px', marginTop: '5px', marginBottom: 0 }}>Select PDF/Image of the invoice. AI (local DeepSeek) will extract details.</p>
                </div>
                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                 <input type="file" accept="image/*,.pdf" onChange={(e) => setInvoiceFile(e.target.files ? e.target.files[0] : null)} style={{ color: 'white', fontSize: '12px', background: '#1e293b', padding: '8px', borderRadius: '8px' }} />
-                 <button onClick={handleScanInvoice} disabled={!invoiceFile || scanning || uploadingDoc} style={{ padding: '10px 20px', background: invoiceFile ? '#3b82f6' : '#334155', color: 'white', border: 'none', borderRadius: '8px', cursor: invoiceFile ? 'pointer' : 'not-allowed', fontWeight: 'bold', transition: '0.3s' }}>
+                 <input type="file" accept="image/*,.pdf" onChange={(e) => setInvoiceFile(e.target.files ? e.target.files[0] : null)} style={{ color: 'white', fontSize: '12px', background: '#18244a', padding: '8px', borderRadius: '8px' }} />
+                 <button onClick={handleScanInvoice} disabled={!invoiceFile || scanning || uploadingDoc} style={{ padding: '10px 20px', background: invoiceFile ? '#3b82f6' : '#27395f', color: 'white', border: 'none', borderRadius: '8px', cursor: invoiceFile ? 'pointer' : 'not-allowed', fontWeight: 'bold', transition: '0.3s' }}>
                     {scanning || uploadingDoc ? '🚀 SCANNING...' : '🔍 SCAN & AUTO-FILL'}
                  </button>
                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '15px', marginBottom: '20px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Invoice Number *</label><input className="modern-input" placeholder="e.g. INV-2026-001" value={purchaseData.invoice_no} onChange={e=>setPurchaseData({...purchaseData, invoice_no: e.target.value.toUpperCase()})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Purchase Date *</label><input type="date" className="modern-input" value={purchaseData.invoice_date} onChange={e=>setPurchaseData({...purchaseData, invoice_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Invoice Number *</label><input className="modern-input" placeholder="e.g. INV-2026-001" value={purchaseData.invoice_no} onChange={e=>setPurchaseData({...purchaseData, invoice_no: e.target.value.toUpperCase()})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Purchase Date *</label><input type="date" className="modern-input" value={purchaseData.invoice_date} onChange={e=>setPurchaseData({...purchaseData, invoice_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>Select Vendor (Ledger) *</label>
-                  <span onClick={() => setIsVendorModalOpen(true)} style={{ fontSize:'11px', color:'#10b981', cursor: 'pointer', fontWeight: 'bold' }}>+ New Vendor</span>
+                  <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight:'bold' }}>Select Vendor (Ledger) *</label>
+                  <span onClick={() => setIsVendorModalOpen(true)} style={{ fontSize:'11px', color:'#2fe39b', cursor: 'pointer', fontWeight: 'bold' }}>+ New Vendor</span>
                 </div>
-                <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={purchaseData.vendor_name} onChange={e=>setPurchaseData({...purchaseData, vendor_name: e.target.value})}>
+                <select className="modern-input" style={{ borderColor: '#22d3ee' }} value={purchaseData.vendor_name} onChange={e=>setPurchaseData({...purchaseData, vendor_name: e.target.value})}>
                    <option value="">-- Choose Vendor --</option>
                    <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                    {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
@@ -973,27 +973,27 @@ Empty string / 0 if absent.`;
                 which left pay_account permanently undefined — so every cash invoice
                 posted no ledger entry at all, and said nothing about it. */}
             {purchaseData.vendor_name === 'CASH PURCHASE' && (
-              <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
-                <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash purchase kis account se hui? (ledger posting ke liye) *</label>
+              <div style={{ background: 'rgba(255, 178, 36,0.06)', border: '1px solid rgba(255, 178, 36,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                <label style={{ fontSize: '13px', color: '#ffb224', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash purchase kis account se hui? (ledger posting ke liye) *</label>
                 <select className="modern-input" value={purchaseData.pay_account} onChange={e => setPurchaseData({ ...purchaseData, pay_account: e.target.value })}>
                   <option value="">— Account chunein —</option>
                   {accounts.map((a: any) => (
                     <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
                   ))}
                 </select>
-                <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                <div style={{ marginTop: '8px', fontSize: '11px', color: '#9aadd4' }}>
                   {purchaseData.pay_account
-                    ? <>Posts <b style={{ color: '#f87171' }}>Dr Battery Stock</b> / <b style={{ color: '#34d399' }}>Cr {purchaseData.pay_account}</b></>
+                    ? <>Posts <b style={{ color: '#ff8b9c' }}>Dr Battery Stock</b> / <b style={{ color: '#2fe39b' }}>Cr {purchaseData.pay_account}</b></>
                     : 'Account chune bina ledger me entry nahi hogi.'}
                 </div>
               </div>
             )}
 
             <div style={{ marginTop: '20px' }}>
-               <label style={{ fontSize:'14px', color:'#c084fc', fontWeight:'bold', display:'block', marginBottom:'10px' }}>🔋 Add Batteries to Invoice (Line Items)</label>
-               <div style={{ overflowX: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid #334155', borderRadius: '8px' }}>
+               <label style={{ fontSize:'14px', color:'#a78bfa', fontWeight:'bold', display:'block', marginBottom:'10px' }}>🔋 Add Batteries to Invoice (Line Items)</label>
+               <div style={{ overflowX: 'auto', background: 'rgba(0,0,0,0.2)', border: '1px solid #27395f', borderRadius: '8px' }}>
                  <table style={{ margin: 0, minWidth: '950px' }}>
-                   <thead style={{ background: '#1e293b' }}>
+                   <thead style={{ background: '#18244a' }}>
                      <tr>
                        <th style={{ width: '40px', textAlign: 'center' }}>SL</th>
                        <th style={{ width: '110px' }}>Make</th>
@@ -1001,35 +1001,35 @@ Empty string / 0 if absent.`;
                        <th style={{ width: '90px' }}>Capacity (AH)</th>
                        <th style={{ width: '110px' }}>Warranty</th>
                        <th style={{ width: '70px' }}>GST %</th>
-                       <th style={{ width: '95px', color: '#f59e0b' }}>GST Amount</th>
-                       <th style={{ width: '110px', color: '#10b981' }}>Inv Amount (₹)</th>
+                       <th style={{ width: '95px', color: '#ffb224' }}>GST Amount</th>
+                       <th style={{ width: '110px', color: '#2fe39b' }}>Inv Amount (₹)</th>
                        <th style={{ width: '70px', textAlign: 'center' }}>Action</th>
                      </tr>
                    </thead>
                    <tbody>
                      {batteryList.map((b, idx) => (
-                       <tr key={idx} style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
-                         <td style={{ textAlign: 'center', color: '#94a3b8' }}>{idx + 1}</td>
+                       <tr key={idx} style={{ background: 'rgba(47, 227, 155, 0.05)' }}>
+                         <td style={{ textAlign: 'center', color: '#9aadd4' }}>{idx + 1}</td>
                          <td style={{ fontWeight: 'bold' }}>{b.make}</td>
-                         <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{b.serial_no}</td>
-                         <td><span className="badge" style={{ background: '#334155' }}>{b.capacity_ah}AH</span></td>
+                         <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>{b.serial_no}</td>
+                         <td><span className="badge" style={{ background: '#27395f' }}>{b.capacity_ah}AH</span></td>
                          <td>{b.warranty_months} Mo</td>
                          <td>{b.gst_percent}%</td>
-                         <td style={{ color: '#f59e0b' }}>₹{b.gst_amount}</td>
-                         <td style={{ color: '#10b981', fontWeight: 'bold' }}>₹{parseFloat(b.inv_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                         <td style={{ color: '#ffb224' }}>₹{b.gst_amount}</td>
+                         <td style={{ color: '#2fe39b', fontWeight: 'bold' }}>₹{parseFloat(b.inv_amount).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                          <td style={{ textAlign: 'center' }}>
-                           <button onClick={() => handleRemoveBatteryFromGrid(idx)} style={{ background: 'transparent', border: 'none', color: '#ef4444', fontSize: '14px', cursor: 'pointer' }}>✕</button>
+                           <button onClick={() => handleRemoveBatteryFromGrid(idx)} style={{ background: 'transparent', border: 'none', color: '#ff6b81', fontSize: '14px', cursor: 'pointer' }}>✕</button>
                          </td>
                        </tr>
                      ))}
 
-                     <tr style={{ background: 'rgba(192, 132, 252, 0.05)', borderTop: '1px solid #c084fc' }}>
-                       <td style={{ textAlign: 'center', color: '#c084fc', fontWeight: 'bold' }}>+</td>
+                     <tr style={{ background: 'rgba(167, 139, 250, 0.05)', borderTop: '1px solid #a78bfa' }}>
+                       <td style={{ textAlign: 'center', color: '#a78bfa', fontWeight: 'bold' }}>+</td>
                        <td><input className="grid-input" placeholder="e.g. EXIDE" value={currentBattery.make} onChange={e=>setCurrentBattery({...currentBattery, make: e.target.value.toUpperCase()})} /></td>
                        <td>
                           <input
                              className="grid-input"
-                             style={{ borderColor: '#c084fc', color: '#c084fc', fontWeight: 'bold' }}
+                             style={{ borderColor: '#a78bfa', color: '#a78bfa', fontWeight: 'bold' }}
                              placeholder="Serial No..."
                              value={currentBattery.serial_no}
                              onChange={e=>setCurrentBattery({...currentBattery, serial_no: e.target.value.toUpperCase()})}
@@ -1051,14 +1051,14 @@ Empty string / 0 if absent.`;
                             <option value="28">28%</option><option value="18">18%</option><option value="0">0%</option>
                           </select>
                        </td>
-                       <td style={{ color: '#f59e0b', fontSize: '13px', fontWeight: 'bold' }}>
+                       <td style={{ color: '#ffb224', fontSize: '13px', fontWeight: 'bold' }}>
                           ₹{(parseFloat(currentBattery.inv_amount || '0') - (parseFloat(currentBattery.inv_amount || '0') / (1 + (parseFloat(currentBattery.gst_percent)/100)))).toFixed(2)}
                        </td>
                        <td>
                           <input
                             type="number"
                             className="grid-input"
-                            style={{ borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }}
+                            style={{ borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }}
                             placeholder="Total ₹"
                             value={currentBattery.inv_amount}
                             onChange={e=>setCurrentBattery({...currentBattery, inv_amount: e.target.value})}
@@ -1073,11 +1073,11 @@ Empty string / 0 if absent.`;
                  </table>
                </div>
 
-               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '15px', padding: '15px', background: 'rgba(16, 185, 129, 0.1)', borderRadius: '8px', border: '1px dashed #10b981' }}>
-                  <div style={{ color: '#94a3b8', fontSize: '13px' }}>Total Batteries Added: <b style={{color: '#fff', fontSize: '16px'}}>{batteryList.length}</b></div>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '15px', padding: '15px', background: 'rgba(47, 227, 155, 0.1)', borderRadius: '8px', border: '1px dashed #2fe39b' }}>
+                  <div style={{ color: '#9aadd4', fontSize: '13px' }}>Total Batteries Added: <b style={{color: '#fff', fontSize: '16px'}}>{batteryList.length}</b></div>
                   <div style={{ textAlign: 'right' }}>
-                    <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Grand Invoice Total</span>
-                    <h2 style={{ margin: 0, color: '#10b981', fontSize: '24px' }}>
+                    <span style={{ color: '#9aadd4', fontSize: '11px', textTransform: 'uppercase' }}>Grand Invoice Total</span>
+                    <h2 style={{ margin: 0, color: '#2fe39b', fontSize: '24px' }}>
                       ₹{batteryList.reduce((sum, b) => sum + parseFloat(b.inv_amount), 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}
                     </h2>
                   </div>
@@ -1093,42 +1093,42 @@ Empty string / 0 if absent.`;
 
       {/* 📤 MODAL 1C: DISPATCH TO WARRANTY CLAIM */}
       {isDispatchClaimModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '650px', border: '1px solid #c084fc', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '650px', border: '1px solid #a78bfa', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#c084fc' }}>📤 Send Batteries to Warranty Claim</h2>
-              <button onClick={() => setIsDispatchClaimModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#a78bfa' }}>📤 Send Batteries to Warranty Claim</h2>
+              <button onClick={() => setIsDispatchClaimModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
               <div style={{ gridColumn: 'span 2' }}>
-                <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>Claim Company / Dealer *</label>
-                <input className="modern-input" style={{ borderColor: '#38bdf8' }} placeholder="e.g. EXIDE Service Centre" value={dispatchData.claim_company} onChange={e=>setDispatchData({...dispatchData, claim_company: e.target.value.toUpperCase()})} />
+                <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight:'bold' }}>Claim Company / Dealer *</label>
+                <input className="modern-input" style={{ borderColor: '#22d3ee' }} placeholder="e.g. EXIDE Service Centre" value={dispatchData.claim_company} onChange={e=>setDispatchData({...dispatchData, claim_company: e.target.value.toUpperCase()})} />
               </div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Sent Date</label><input type="date" className="modern-input" value={dispatchData.dispatch_date} onChange={e=>setDispatchData({...dispatchData, dispatch_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Claim Ref / Docket No *</label><input className="modern-input" placeholder="e.g. CLM-001" value={dispatchData.claim_ref} onChange={e=>setDispatchData({...dispatchData, claim_ref: e.target.value.toUpperCase()})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Sent Date</label><input type="date" className="modern-input" value={dispatchData.dispatch_date} onChange={e=>setDispatchData({...dispatchData, dispatch_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Claim Ref / Docket No *</label><input className="modern-input" placeholder="e.g. CLM-001" value={dispatchData.claim_ref} onChange={e=>setDispatchData({...dispatchData, claim_ref: e.target.value.toUpperCase()})} /></div>
             </div>
 
-            <div style={{ background: 'rgba(192, 132, 252, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #c084fc' }}>
-               <label style={{ fontSize:'12px', color:'#c084fc', fontWeight:'bold' }}>Enter Batteries for Claim (from Stock) *</label>
+            <div style={{ background: 'rgba(167, 139, 250, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #a78bfa' }}>
+               <label style={{ fontSize:'12px', color:'#a78bfa', fontWeight:'bold' }}>Enter Batteries for Claim (from Stock) *</label>
                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
                   <input
                      className="modern-input"
-                     style={{ borderColor: '#c084fc', textTransform: 'uppercase', fontWeight: 'bold' }}
+                     style={{ borderColor: '#a78bfa', textTransform: 'uppercase', fontWeight: 'bold' }}
                      placeholder="Type Serial No. and press Enter or Add..."
                      value={currentDispatchSerial}
                      onChange={e => setCurrentDispatchSerial(e.target.value)}
                      onKeyDown={e => { if(e.key === 'Enter') { e.preventDefault(); handleAddDispatchSerial(); } }}
                   />
-                  <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #c084fc, #9333ea)', whiteSpace: 'nowrap' }} onClick={(e) => { e.preventDefault(); handleAddDispatchSerial(); }}>➕ Add</button>
+                  <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #a78bfa, #9333ea)', whiteSpace: 'nowrap' }} onClick={(e) => { e.preventDefault(); handleAddDispatchSerial(); }}>➕ Add</button>
                </div>
 
                {dispatchSerialList.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '8px', border: '1px solid #334155' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '8px', border: '1px solid #27395f' }}>
                      {dispatchSerialList.map((serial, idx) => (
-                        <div key={idx} style={{ background: 'rgba(192, 132, 252, 0.2)', border: '1px solid #c084fc', color: '#fff', padding: '6px 15px', borderRadius: '20px', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 'bold' }}>
+                        <div key={idx} style={{ background: 'rgba(167, 139, 250, 0.2)', border: '1px solid #a78bfa', color: '#fff', padding: '6px 15px', borderRadius: '20px', display: 'inline-flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 'bold' }}>
                            {serial}
-                           <span onClick={() => setDispatchSerialList(dispatchSerialList.filter(s => s !== serial))} style={{ color: '#ef4444', cursor: 'pointer', fontSize: '16px' }} title="Remove">✕</span>
+                           <span onClick={() => setDispatchSerialList(dispatchSerialList.filter(s => s !== serial))} style={{ color: '#ff6b81', cursor: 'pointer', fontSize: '16px' }} title="Remove">✕</span>
                         </div>
                      ))}
                   </div>
@@ -1144,22 +1144,22 @@ Empty string / 0 if absent.`;
 
       {/* 📥 MODAL 1B: RECEIVE / CLOSE WARRANTY CLAIM */}
       {isReceiveClaimModalOpen && selectedClaimBattery && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '600px', border: '1px solid #10b981', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '600px', border: '1px solid #2fe39b', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#10b981' }}>📥 Resolve Warranty Claim</h2>
-              <button onClick={() => setIsReceiveClaimModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#2fe39b' }}>📥 Resolve Warranty Claim</h2>
+              <button onClick={() => setIsReceiveClaimModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #38bdf8' }}>
-              <p style={{ margin: '0 0 8px 0', color: '#94a3b8', fontSize: '13px' }}>Claim Battery: <b style={{color:'#fff'}}>{selectedClaimBattery.serial_no}</b> ({selectedClaimBattery.make} {selectedClaimBattery.capacity_ah}AH)</p>
-              <p style={{ margin: 0, color: '#10b981', fontSize: '12px' }}>Sent to: {selectedClaimBattery.claim_company || '-'} | Ref: {selectedClaimBattery.claim_ref || '-'}</p>
+            <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #22d3ee' }}>
+              <p style={{ margin: '0 0 8px 0', color: '#9aadd4', fontSize: '13px' }}>Claim Battery: <b style={{color:'#fff'}}>{selectedClaimBattery.serial_no}</b> ({selectedClaimBattery.make} {selectedClaimBattery.capacity_ah}AH)</p>
+              <p style={{ margin: 0, color: '#2fe39b', fontSize: '12px' }}>Sent to: {selectedClaimBattery.claim_company || '-'} | Ref: {selectedClaimBattery.claim_ref || '-'}</p>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
               <div>
-                <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>Claim Outcome *</label>
-                <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={claimData.outcome} onChange={e=>setClaimData({...claimData, outcome: e.target.value})}>
+                <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight:'bold' }}>Claim Outcome *</label>
+                <select className="modern-input" style={{ borderColor: '#22d3ee' }} value={claimData.outcome} onChange={e=>setClaimData({...claimData, outcome: e.target.value})}>
                    <option value="REPAIRED">🔧 Repaired / Same Battery Returned → Back to Stock</option>
                    <option value="REPLACED">🔄 Replaced with New Battery → New Serial to Stock</option>
                    <option value="REJECTED">❌ Claim Rejected → Scrap (Cost to P&L)</option>
@@ -1167,16 +1167,16 @@ Empty string / 0 if absent.`;
               </div>
 
               {claimData.outcome === 'REPLACED' && (
-                <div style={{ padding: '15px', background: 'rgba(16,185,129,0.05)', border: '1px dashed #10b981', borderRadius: '8px' }}>
-                  <label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>New Replacement Battery Serial No *</label>
-                  <input className="modern-input" style={{ borderColor: '#10b981', textTransform: 'uppercase', fontWeight: 'bold' }} placeholder="Serial No of the new battery..." value={claimData.replacement_serial} onChange={e=>setClaimData({...claimData, replacement_serial: e.target.value.toUpperCase()})} />
-                  <small style={{ color: '#94a3b8', fontSize: '10px' }}>💡 Free replacement — added to stock @ ₹0 with same warranty terms ({selectedClaimBattery.warranty_months} months).</small>
+                <div style={{ padding: '15px', background: 'rgba(47, 227, 155,0.05)', border: '1px dashed #2fe39b', borderRadius: '8px' }}>
+                  <label style={{ fontSize:'12px', color:'#2fe39b', fontWeight:'bold' }}>New Replacement Battery Serial No *</label>
+                  <input className="modern-input" style={{ borderColor: '#2fe39b', textTransform: 'uppercase', fontWeight: 'bold' }} placeholder="Serial No of the new battery..." value={claimData.replacement_serial} onChange={e=>setClaimData({...claimData, replacement_serial: e.target.value.toUpperCase()})} />
+                  <small style={{ color: '#9aadd4', fontSize: '10px' }}>💡 Free replacement — added to stock @ ₹0 with same warranty terms ({selectedClaimBattery.warranty_months} months).</small>
                 </div>
               )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Resolution Date</label><input type="date" className="modern-input" value={claimData.resolution_date} onChange={e=>setClaimData({...claimData, resolution_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Remarks</label><input className="modern-input" placeholder="Optional notes" value={claimData.remarks} onChange={e=>setClaimData({...claimData, remarks: e.target.value})} /></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Resolution Date</label><input type="date" className="modern-input" value={claimData.resolution_date} onChange={e=>setClaimData({...claimData, resolution_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Remarks</label><input className="modern-input" placeholder="Optional notes" value={claimData.remarks} onChange={e=>setClaimData({...claimData, remarks: e.target.value})} /></div>
               </div>
             </div>
 
@@ -1189,22 +1189,22 @@ Empty string / 0 if absent.`;
 
       {/* 🏢 MODAL 1A: QUICK ADD VENDOR */}
       {isVendorModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1200, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '500px', border: '1px solid #10b981', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1200, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '500px', border: '1px solid #2fe39b', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#10b981' }}>🏢 Quick Register Vendor</h2>
-              <button onClick={() => setIsVendorModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#2fe39b' }}>🏢 Quick Register Vendor</h2>
+              <button onClick={() => setIsVendorModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Vendor / Shop Name *</label><input className="modern-input" value={newVendorData.vendor_name} onChange={e=>setNewVendorData({...newVendorData, vendor_name: e.target.value.toUpperCase()})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Vendor / Shop Name *</label><input className="modern-input" value={newVendorData.vendor_name} onChange={e=>setNewVendorData({...newVendorData, vendor_name: e.target.value.toUpperCase()})} /></div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Contact Person</label><input className="modern-input" value={newVendorData.contact_person} onChange={e=>setNewVendorData({...newVendorData, contact_person: e.target.value})} /></div>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Mobile No</label><input className="modern-input" value={newVendorData.mobile_no} onChange={e=>setNewVendorData({...newVendorData, mobile_no: e.target.value})} /></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Contact Person</label><input className="modern-input" value={newVendorData.contact_person} onChange={e=>setNewVendorData({...newVendorData, contact_person: e.target.value})} /></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Mobile No</label><input className="modern-input" value={newVendorData.mobile_no} onChange={e=>setNewVendorData({...newVendorData, mobile_no: e.target.value})} /></div>
               </div>
 
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>GST Number</label><input className="modern-input" value={newVendorData.gst_number} onChange={e=>setNewVendorData({...newVendorData, gst_number: e.target.value.toUpperCase()})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#ef4444', fontWeight:'bold' }}>Opening Balance (Amount you owe) ₹</label><input type="number" className="modern-input" style={{ borderColor: '#ef4444', color: '#ef4444' }} value={newVendorData.opening_balance} onChange={e=>setNewVendorData({...newVendorData, opening_balance: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>GST Number</label><input className="modern-input" value={newVendorData.gst_number} onChange={e=>setNewVendorData({...newVendorData, gst_number: e.target.value.toUpperCase()})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#ff6b81', fontWeight:'bold' }}>Opening Balance (Amount you owe) ₹</label><input type="number" className="modern-input" style={{ borderColor: '#ff6b81', color: '#ff6b81' }} value={newVendorData.opening_balance} onChange={e=>setNewVendorData({...newVendorData, opening_balance: e.target.value})} /></div>
             </div>
             <button className="glow-btn" style={{ width: '100%', marginTop: '30px', padding: '15px', justifyContent: 'center', fontSize: '15px' }} onClick={handleSaveVendor}>✅ Save Vendor & Setup Ledger</button>
           </div>
@@ -1213,20 +1213,20 @@ Empty string / 0 if absent.`;
 
       {/* 🔋 MODAL 2: FIT BATTERY TO VEHICLE */}
       {isFitmentModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '700px', border: '1px solid #f59e0b', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '700px', border: '1px solid #ffb224', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#f59e0b' }}>🔋 Vehicle Battery Fitment</h2>
-              <button onClick={() => { setIsFitmentModalOpen(false); setCurrentVehicleFitments([]); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#ffb224' }}>🔋 Vehicle Battery Fitment</h2>
+              <button onClick={() => { setIsFitmentModalOpen(false); setCurrentVehicleFitments([]); }} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '15px' }}>
 
               <div>
-                <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>1. Search & Select Vehicle *</label>
+                <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight:'bold' }}>1. Search & Select Vehicle *</label>
                 <input
                   className="modern-input"
-                  style={{ border: '1px solid #38bdf8', fontSize: '16px', fontWeight: 'bold' }}
+                  style={{ border: '1px solid #22d3ee', fontSize: '16px', fontWeight: 'bold' }}
                   list="vehicle-battery-fitment-list"
                   placeholder="Type Vehicle No (e.g. 5107)..."
                   value={fitmentData.vehicle_no}
@@ -1242,7 +1242,7 @@ Empty string / 0 if absent.`;
 
               {fitmentData.vehicle_no && (
                 <div>
-                  <label style={{ fontSize:'12px', color:'#f59e0b', fontWeight:'bold', display: 'block', marginBottom: '8px' }}>2. Select Battery Position * (Green = free, Red = occupied)</label>
+                  <label style={{ fontSize:'12px', color:'#ffb224', fontWeight:'bold', display: 'block', marginBottom: '8px' }}>2. Select Battery Position * (Green = free, Red = occupied)</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                     {BATTERY_POSITIONS.map(pos => {
                         const fitted = currentVehicleFitments.find(f => f.position === pos.label);
@@ -1262,7 +1262,7 @@ Empty string / 0 if absent.`;
                     })}
                   </div>
                   {fitmentData.position && (
-                       <p style={{ color: '#10b981', fontSize: '13px', fontWeight: 'bold', margin: '12px 0 0 0', background: 'rgba(16,185,129,0.1)', padding: '10px', borderRadius: '8px' }}>
+                       <p style={{ color: '#2fe39b', fontSize: '13px', fontWeight: 'bold', margin: '12px 0 0 0', background: 'rgba(47, 227, 155,0.1)', padding: '10px', borderRadius: '8px' }}>
                            ✅ Selected Target Position: {fitmentData.position}
                        </p>
                   )}
@@ -1270,10 +1270,10 @@ Empty string / 0 if absent.`;
               )}
 
               <div>
-                <label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>3. Enter / Select Battery Serial No *</label>
+                <label style={{ fontSize:'12px', color:'#2fe39b', fontWeight:'bold' }}>3. Enter / Select Battery Serial No *</label>
                 <input
                   className="modern-input"
-                  style={{ border: '1px solid #10b981' }}
+                  style={{ border: '1px solid #2fe39b' }}
                   list="battery-stock-list"
                   placeholder="Type New or Select from Stock..."
                   value={fitmentData.battery_serial}
@@ -1282,28 +1282,28 @@ Empty string / 0 if absent.`;
                 <datalist id="battery-stock-list">
                   {availableBatteries.map(b => <option key={b.id} value={b.serial_no}>{b.serial_no} ({b.make} {b.capacity_ah}AH)</option>)}
                 </datalist>
-                <small style={{color: '#94a3b8', fontSize: '10px', marginTop: '5px', display: 'block'}}>
+                <small style={{color: '#9aadd4', fontSize: '10px', marginTop: '5px', display: 'block'}}>
                    💡 Naya number type karne par niche Purchase Cost & Vendor bharna hoga — bina cost ke battery add nahi hoga (P&L accuracy).
                 </small>
               </div>
 
               {/* 🆕 NEW BATTERY => MANDATORY PROCUREMENT */}
               {isNewBatterySerial && (
-                <div style={{ padding: '18px', background: 'rgba(16,185,129,0.05)', border: '1px dashed #10b981', borderRadius: '10px' }}>
-                  <p style={{ margin: '0 0 12px 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold' }}>
+                <div style={{ padding: '18px', background: 'rgba(47, 227, 155,0.05)', border: '1px dashed #2fe39b', borderRadius: '10px' }}>
+                  <p style={{ margin: '0 0 12px 0', color: '#2fe39b', fontSize: '13px', fontWeight: 'bold' }}>
                     🆕 NEW BATTERY DETECTED: <span style={{color:'#fff'}}>{cleanFitSerial}</span> stock me nahi hai — procurement details bharein (P&L ke liye mandatory)
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
-                      <label style={{ fontSize:'12px', color:'#10b981', fontWeight:'bold' }}>Purchase Cost (Total ₹) *</label>
-                      <input type="number" className="modern-input" style={{ border: '1px solid #10b981', color: '#10b981', fontWeight: 'bold' }} placeholder="e.g. 12500" value={newBatteryProc.cost} onChange={e => setNewBatteryProc({ ...newBatteryProc, cost: e.target.value })} />
+                      <label style={{ fontSize:'12px', color:'#2fe39b', fontWeight:'bold' }}>Purchase Cost (Total ₹) *</label>
+                      <input type="number" className="modern-input" style={{ border: '1px solid #2fe39b', color: '#2fe39b', fontWeight: 'bold' }} placeholder="e.g. 12500" value={newBatteryProc.cost} onChange={e => setNewBatteryProc({ ...newBatteryProc, cost: e.target.value })} />
                     </div>
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight:'bold' }}>Vendor / Ledger *</label>
-                        <span onClick={() => setIsVendorModalOpen(true)} style={{ fontSize:'11px', color:'#10b981', cursor: 'pointer', fontWeight: 'bold' }}>+ New Vendor</span>
+                        <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight:'bold' }}>Vendor / Ledger *</label>
+                        <span onClick={() => setIsVendorModalOpen(true)} style={{ fontSize:'11px', color:'#2fe39b', cursor: 'pointer', fontWeight: 'bold' }}>+ New Vendor</span>
                       </div>
-                      <select className="modern-input" style={{ borderColor: '#38bdf8' }} value={newBatteryProc.vendor_name} onChange={e => setNewBatteryProc({ ...newBatteryProc, vendor_name: e.target.value })}>
+                      <select className="modern-input" style={{ borderColor: '#22d3ee' }} value={newBatteryProc.vendor_name} onChange={e => setNewBatteryProc({ ...newBatteryProc, vendor_name: e.target.value })}>
                         <option value="">-- Choose Vendor * --</option>
                         <option value="CASH PURCHASE">💵 CASH PURCHASE (account chunein)</option>
                         {vendors.map(v => <option key={v.id} value={v.vendor_name}>{v.vendor_name}</option>)}
@@ -1315,48 +1315,48 @@ Empty string / 0 if absent.`;
                           which left pay_account permanently undefined — so every cash invoice
                           posted no ledger entry at all, and said nothing about it. */}
                       {newBatteryProc.vendor_name === 'CASH PURCHASE' && (
-                        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
-                          <label style={{ fontSize: '13px', color: '#f59e0b', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash se kis account se li? (ledger posting ke liye) *</label>
+                        <div style={{ background: 'rgba(255, 178, 36,0.06)', border: '1px solid rgba(255, 178, 36,0.35)', padding: '15px', borderRadius: '12px', marginBottom: '20px' }}>
+                          <label style={{ fontSize: '13px', color: '#ffb224', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>🏦 Cash se kis account se li? (ledger posting ke liye) *</label>
                           <select className="modern-input" value={newBatteryProc.pay_account} onChange={e => setNewBatteryProc({ ...newBatteryProc, pay_account: e.target.value })}>
                             <option value="">— Account chunein —</option>
                             {accounts.map((a: any) => (
                               <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{Number(a.balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</option>
                             ))}
                           </select>
-                          <div style={{ marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                          <div style={{ marginTop: '8px', fontSize: '11px', color: '#9aadd4' }}>
                             {newBatteryProc.pay_account
-                              ? <>Posts <b style={{ color: '#f87171' }}>Dr Battery Stock</b> / <b style={{ color: '#34d399' }}>Cr {newBatteryProc.pay_account}</b></>
+                              ? <>Posts <b style={{ color: '#ff8b9c' }}>Dr Battery Stock</b> / <b style={{ color: '#2fe39b' }}>Cr {newBatteryProc.pay_account}</b></>
                               : 'Account chune bina ledger me entry nahi hogi.'}
                           </div>
                         </div>
                       )}
                     </div>
                     <div>
-                      <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Make / Brand</label>
+                      <label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Make / Brand</label>
                       <input className="modern-input" placeholder="e.g. EXIDE" value={newBatteryProc.make} onChange={e => setNewBatteryProc({ ...newBatteryProc, make: e.target.value.toUpperCase() })} />
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                       <div>
-                        <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Capacity (AH)</label>
+                        <label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Capacity (AH)</label>
                         <select className="modern-input" value={newBatteryProc.capacity_ah} onChange={e => setNewBatteryProc({ ...newBatteryProc, capacity_ah: e.target.value })}>
                           <option value="80">80 AH</option><option value="100">100 AH</option><option value="120">120 AH</option><option value="130">130 AH</option><option value="150">150 AH</option><option value="180">180 AH</option><option value="200">200 AH</option>
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>GST %</label>
+                        <label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>GST %</label>
                         <select className="modern-input" value={newBatteryProc.gst_percent} onChange={e => setNewBatteryProc({ ...newBatteryProc, gst_percent: e.target.value })}>
                           <option value="28">28%</option><option value="18">18%</option><option value="0">0%</option>
                         </select>
                       </div>
                     </div>
                     <div>
-                      <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Warranty (Months)</label>
+                      <label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Warranty (Months)</label>
                       <select className="modern-input" value={newBatteryProc.warranty_months} onChange={e => setNewBatteryProc({ ...newBatteryProc, warranty_months: e.target.value })}>
                         <option value="12">12 Months</option><option value="18">18 Months</option><option value="24">24 Months</option><option value="36">36 Months</option><option value="48">48 Months</option>
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Purchase Date</label>
+                      <label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Purchase Date</label>
                       <input type="date" className="modern-input" value={newBatteryProc.purchase_date} onChange={e => setNewBatteryProc({ ...newBatteryProc, purchase_date: e.target.value })} style={{colorScheme:'dark'}}/>
                     </div>
                   </div>
@@ -1364,15 +1364,15 @@ Empty string / 0 if absent.`;
               )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Fitment Date</label><input type="date" className="modern-input" value={fitmentData.fitment_date} onChange={e=>setFitmentData({...fitmentData, fitment_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Fitment Date</label><input type="date" className="modern-input" value={fitmentData.fitment_date} onChange={e=>setFitmentData({...fitmentData, fitment_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
                 <div>
-                    <label style={{ fontSize:'12px', color:'#f59e0b', fontWeight:'bold' }}>Current Odometer (Fitting KM) *</label>
-                    <input type="number" className="modern-input" style={{ border: '1px solid #f59e0b', color: '#f59e0b', fontWeight: 'bold' }} value={fitmentData.fitting_km} onChange={e=>setFitmentData({...fitmentData, fitting_km: e.target.value})} placeholder="e.g. 125000" />
+                    <label style={{ fontSize:'12px', color:'#ffb224', fontWeight:'bold' }}>Current Odometer (Fitting KM) *</label>
+                    <input type="number" className="modern-input" style={{ border: '1px solid #ffb224', color: '#ffb224', fontWeight: 'bold' }} value={fitmentData.fitting_km} onChange={e=>setFitmentData({...fitmentData, fitting_km: e.target.value})} placeholder="e.g. 125000" />
                 </div>
               </div>
 
             </div>
-            <button className="glow-btn" style={{ width: '100%', marginTop: '30px', padding: '15px', background: 'linear-gradient(135deg, #f59e0b, #d97706)', justifyContent: 'center', fontSize: '15px' }} onClick={handleFitBattery} disabled={loading}>
+            <button className="glow-btn" style={{ width: '100%', marginTop: '30px', padding: '15px', background: 'linear-gradient(135deg, #ffb224, #d97706)', justifyContent: 'center', fontSize: '15px' }} onClick={handleFitBattery} disabled={loading}>
               {loading ? '⏳ Fitting...' : '🔧 Confirm Fitment'}
             </button>
           </div>
@@ -1381,25 +1381,25 @@ Empty string / 0 if absent.`;
 
       {/* ✂️ MODAL 3: REMOVE BATTERY & CALCULATE KM */}
       {isRemoveModalOpen && selectedFitment && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '520px', border: '1px solid #ef4444', background: '#0f172a', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '520px', border: '1px solid #ff6b81', background: '#121c38', boxShadow: '0 30px 60px rgba(0,0,0,0.8)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#ef4444' }}>✂️ Remove Battery</h2>
-              <button onClick={() => setIsRemoveModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '28px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#ff6b81' }}>✂️ Remove Battery</h2>
+              <button onClick={() => setIsRemoveModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
 
-            <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #38bdf8' }}>
-              <p style={{ margin: '0 0 8px 0', color: '#94a3b8', fontSize: '13px' }}>Removing Battery <b style={{color:'#fff'}}>{selectedFitment.battery_serial}</b> from <b style={{color:'#fff'}}>{selectedFitment.vehicle_no}</b> <span style={{color:'#f59e0b'}}>({selectedFitment.position})</span></p>
-              <p style={{ margin: 0, color: '#10b981', fontSize: '14px', fontWeight: 'bold' }}>Fitted at: {parseFloat(selectedFitment.fitting_km||0).toLocaleString('en-IN')} KM</p>
+            <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px dashed #22d3ee' }}>
+              <p style={{ margin: '0 0 8px 0', color: '#9aadd4', fontSize: '13px' }}>Removing Battery <b style={{color:'#fff'}}>{selectedFitment.battery_serial}</b> from <b style={{color:'#fff'}}>{selectedFitment.vehicle_no}</b> <span style={{color:'#ffb224'}}>({selectedFitment.position})</span></p>
+              <p style={{ margin: 0, color: '#2fe39b', fontSize: '14px', fontWeight: 'bold' }}>Fitted at: {parseFloat(selectedFitment.fitting_km||0).toLocaleString('en-IN')} KM</p>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#ef4444', fontWeight:'bold' }}>Current Vehicle Meter KM (Removal KM) *</label>
-                <input type="number" className="modern-input" style={{ border: '1px solid #ef4444', fontSize: '20px', fontWeight: '900', color: '#ef4444' }} value={removeData.removal_km} onChange={e=>setRemoveData({...removeData, removal_km: e.target.value})} placeholder="e.g. 165000" />
+              <div><label style={{ fontSize:'12px', color:'#ff6b81', fontWeight:'bold' }}>Current Vehicle Meter KM (Removal KM) *</label>
+                <input type="number" className="modern-input" style={{ border: '1px solid #ff6b81', fontSize: '20px', fontWeight: '900', color: '#ff6b81' }} value={removeData.removal_km} onChange={e=>setRemoveData({...removeData, removal_km: e.target.value})} placeholder="e.g. 165000" />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '15px' }}>
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Reason for Removal</label>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Reason for Removal</label>
                   <select className="modern-input" value={removeData.removal_reason} onChange={e=>setRemoveData({...removeData, removal_reason: e.target.value})}>
                     <option value="WARRANTY CLAIM">🛡️ Sent for Warranty Claim</option>
                     <option value="MAINTENANCE">🔧 Maintenance (Back to Stock)</option>
@@ -1407,11 +1407,11 @@ Empty string / 0 if absent.`;
                   </select>
                 </div>
 
-                <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight:'bold' }}>Removal Date</label><input type="date" className="modern-input" value={removeData.removal_date} onChange={e=>setRemoveData({...removeData, removal_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight:'bold' }}>Removal Date</label><input type="date" className="modern-input" value={removeData.removal_date} onChange={e=>setRemoveData({...removeData, removal_date: e.target.value})} style={{colorScheme:'dark'}}/></div>
               </div>
             </div>
 
-            <button className="glow-btn" style={{ width: '100%', marginTop: '30px', padding: '15px', background: 'linear-gradient(135deg, #ef4444, #b91c1c)', justifyContent: 'center', fontSize: '15px' }} onClick={handleRemoveBattery} disabled={loading}>
+            <button className="glow-btn" style={{ width: '100%', marginTop: '30px', padding: '15px', background: 'linear-gradient(135deg, #ff6b81, #b91c1c)', justifyContent: 'center', fontSize: '15px' }} onClick={handleRemoveBattery} disabled={loading}>
               {loading ? '⏳ Removing...' : '✂️ Confirm Removal & Update Status'}
             </button>
           </div>

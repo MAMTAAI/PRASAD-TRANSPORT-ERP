@@ -27,7 +27,7 @@ const PORTALS = [
   // to the Load Bazaar; a SERVICE VENDOR (pump, tyre shop, spares) sends
   // expense bills to the own fleet. Two portals, previewed separately.
   { id: 'PARTNER_PORTAL_PREVIEW',        label: 'Fleet Partner Portal', hint: 'Market trucks, bids, settlements', icon: '🚚', tint: '#f97316' },
-  { id: 'SERVICE_VENDOR_PORTAL_PREVIEW', label: 'Service Vendor Portal', hint: 'Pumps, tyres, spares — bill uploads', icon: '🏪', tint: '#f59e0b' },
+  { id: 'SERVICE_VENDOR_PORTAL_PREVIEW', label: 'Service Vendor Portal', hint: 'Pumps, tyres, spares — bill uploads', icon: '🏪', tint: '#ffb224' },
   { id: 'DRIVER_PORTAL_PREVIEW',   label: 'Driver App',      hint: 'Duty screen preview',  icon: '👨‍✈️', tint: '#3b82f6' },
 ];
 
@@ -51,7 +51,7 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
     <div ref={wrapRef} style={{ position: 'relative', flexShrink: 0 }}>
       <style>{`
         @keyframes psIn { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: none; } }
-        .ps-item:hover { background: rgba(56,189,248,0.09) !important; }
+        .ps-item:hover { background: rgba(34, 211, 238,0.09) !important; }
       `}</style>
 
       <button
@@ -61,9 +61,9 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
         title="Preview a partner-facing portal"
         style={{
           display: 'flex', alignItems: 'center', gap: 8, padding: '9px 13px', borderRadius: 10,
-          background: activePortal ? 'rgba(56,189,248,0.14)' : '#1e293b',
-          color: activePortal ? '#7dd3fc' : '#94a3b8',
-          border: `1px solid ${activePortal ? 'rgba(56,189,248,0.4)' : 'transparent'}`,
+          background: activePortal ? 'rgba(34, 211, 238,0.14)' : '#18244a',
+          color: activePortal ? '#7dd3fc' : '#9aadd4',
+          border: `1px solid ${activePortal ? 'rgba(34, 211, 238,0.4)' : 'transparent'}`,
           fontWeight: 800, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap',
         }}
       >
@@ -77,12 +77,12 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
           role="menu"
           style={{
             position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 232,
-            background: '#0f172a', border: '1px solid #1e293b', borderRadius: 14,
+            background: '#121c38', border: '1px solid #18244a', borderRadius: 14,
             boxShadow: '0 1px 3px rgba(0,0,0,0.6), 0 10px 34px rgba(0,0,0,0.55)',
             zIndex: 1200, overflow: 'hidden', animation: 'psIn .14s ease-out', padding: 6,
           }}
         >
-          <div style={{ padding: '8px 10px 6px', fontSize: 9.5, fontWeight: 900, letterSpacing: '0.09em', color: '#64748b' }}>
+          <div style={{ padding: '8px 10px 6px', fontSize: 9.5, fontWeight: 900, letterSpacing: '0.09em', color: '#5d7196' }}>
             PREVIEW PORTAL
           </div>
           {PORTALS.map((p) => (
@@ -93,7 +93,7 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
               style={{
                 display: 'flex', alignItems: 'center', gap: 11, width: '100%', textAlign: 'left',
                 padding: '9px 10px', borderRadius: 9, border: 'none', cursor: 'pointer',
-                background: (p.home ? !inPortal : activeComponent === p.id) ? 'rgba(56,189,248,0.12)' : 'transparent',
+                background: (p.home ? !inPortal : activeComponent === p.id) ? 'rgba(34, 211, 238,0.12)' : 'transparent',
                 transition: 'background .12s',
               }}
             >
@@ -102,12 +102,12 @@ export default function PortalSwitcher({ onOpen, activeComponent }) {
                 background: `${p.tint}22`, fontSize: 14, flexShrink: 0,
               }}>{p.icon}</span>
               <span style={{ minWidth: 0 }}>
-                <span style={{ display: 'block', color: '#e2e8f0', fontSize: 12.5, fontWeight: 700 }}>{p.label}</span>
-                <span style={{ display: 'block', color: '#64748b', fontSize: 10.5 }}>{p.hint}</span>
+                <span style={{ display: 'block', color: '#dde5f4', fontSize: 12.5, fontWeight: 700 }}>{p.label}</span>
+                <span style={{ display: 'block', color: '#5d7196', fontSize: 10.5 }}>{p.hint}</span>
               </span>
             </button>
           )).flatMap((el, i) => (i === 0
-            ? [el, <div key="ps-sep" style={{ height: 1, background: '#1e293b', margin: '6px 8px' }} />]
+            ? [el, <div key="ps-sep" style={{ height: 1, background: '#18244a', margin: '6px 8px' }} />]
             : [el]))}
         </div>
       )}

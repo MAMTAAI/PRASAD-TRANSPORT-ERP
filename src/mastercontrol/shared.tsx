@@ -1,7 +1,7 @@
 // @ts-nocheck
 // ============================================================================
 // PRASAD MASTER CONTROL ERP v5.0 — Shared UI Kit
-// Glassmorphism design system: dark ground #080c14, frosted slate panels,
+// Glassmorphism design system: dark ground #0a1024, frosted slate panels,
 // neon cyan/emerald/amber accents. Every primitive here is responsive-first.
 // ============================================================================
 import React, {
@@ -16,7 +16,7 @@ import { MoreHorizontal } from 'lucide-react';
 export function GlassPanel({ children, className = '', glow = '' }) {
   return (
     <div
-      className={`relative rounded-2xl bg-slate-900/40 backdrop-blur-md border border-slate-700/50 shadow-[0_8px_32px_rgba(0,0,0,0.35)] ${glow} ${className}`}
+      className={`relative rounded-2xl bg-deck-card bg-slate-900/55 backdrop-blur-md border border-slate-700/70 shadow-deck transition-colors duration-200 hover:border-slate-600/80 ${glow} ${className}`}
     >
       {children}
     </div>
@@ -107,11 +107,14 @@ export function Drillable({ metric, expected = null, children, className = '' })
 
 export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan', onDrill = null }) {
   const accents = {
-    cyan:    { text: 'text-cyan-300',    ring: 'border-cyan-500/30',    glowCls: 'shadow-[0_0_25px_rgba(34,211,238,0.12)]',  bar: 'from-cyan-500 to-cyan-300' },
-    emerald: { text: 'text-emerald-300', ring: 'border-emerald-500/30', glowCls: 'shadow-[0_0_25px_rgba(52,211,153,0.12)]',  bar: 'from-emerald-500 to-emerald-300' },
-    amber:   { text: 'text-amber-300',   ring: 'border-amber-500/30',   glowCls: 'shadow-[0_0_25px_rgba(251,191,36,0.12)]',  bar: 'from-amber-500 to-amber-300' },
-    red:     { text: 'text-red-300',     ring: 'border-red-500/30',     glowCls: 'shadow-[0_0_25px_rgba(248,113,113,0.12)]', bar: 'from-red-500 to-red-300' },
-    violet:  { text: 'text-violet-300',  ring: 'border-violet-500/30',  glowCls: 'shadow-[0_0_25px_rgba(167,139,250,0.12)]', bar: 'from-violet-500 to-violet-300' },
+    // Glow at 0.12 opacity was invisible against #020617; on navy it is the
+    // thing that makes a tile read as live, so each accent now carries its
+    // own named glow from tailwind.config.cjs.
+    cyan:    { text: 'text-cyan-300',    ring: 'border-live/40',    glowCls: 'shadow-glow-live',    bar: 'from-live to-cyan-300' },
+    emerald: { text: 'text-emerald-300', ring: 'border-active/40',  glowCls: 'shadow-glow-active',  bar: 'from-active to-emerald-300' },
+    amber:   { text: 'text-amber-300',   ring: 'border-pending/40', glowCls: 'shadow-glow-pending', bar: 'from-pending to-amber-300' },
+    red:     { text: 'text-red-300',     ring: 'border-blocked/40', glowCls: 'shadow-glow-blocked', bar: 'from-blocked to-red-300' },
+    violet:  { text: 'text-violet-300',  ring: 'border-mamta/40',   glowCls: 'shadow-glow-mamta',   bar: 'from-mamta to-violet-300' },
   };
   const a = accents[accent] || accents.cyan;
   const Tag = onDrill ? 'button' : 'div';
@@ -125,9 +128,9 @@ export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan', onDril
             'aria-label': `Show the rows behind ${label}`,
           }
         : {})}
-      className={`relative overflow-hidden rounded-2xl bg-slate-900/40 backdrop-blur-md border ${a.ring} ${a.glowCls} p-4
+      className={`relative overflow-hidden rounded-2xl bg-deck-tile bg-slate-900/55 backdrop-blur-md border ${a.ring} ${a.glowCls} p-4
         ${onDrill
-          ? 'w-full cursor-pointer text-left transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-900/70 hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70'
+          ? 'w-full cursor-pointer text-left transition-all duration-150 hover:-translate-y-1 hover:shadow-deck-hi hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-live/70'
           : ''}`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -142,7 +145,7 @@ export function KpiCard({ icon: Icon, label, value, sub, accent = 'cyan', onDril
           </span>
         )}
       </div>
-      <div className={`absolute bottom-0 left-0 right-0 h-[3px] bg-gradient-to-r ${a.bar} opacity-70`} />
+      <div className={`absolute bottom-0 left-0 right-0 h-[4px] bg-gradient-to-r ${a.bar}`} />
       {onDrill && (
         <span className="pointer-events-none absolute right-2 bottom-2 text-[9px] font-bold uppercase
                          tracking-wider text-slate-500 opacity-0 transition-opacity group-hover:opacity-100">
@@ -224,16 +227,16 @@ export function Avatar({ name, size = 'w-9 h-9', ring = 'ring-slate-600/60', tex
 export const chartTooltipStyle = {
   contentStyle: {
     background: 'rgba(8, 12, 20, 0.95)',
-    border: '1px solid rgba(51, 65, 85, 0.6)',
+    border: '1px solid rgba(39, 57, 95, 0.6)',
     borderRadius: '10px',
     fontSize: '11px',
-    color: '#e2e8f0',
+    color: '#dde5f4',
   },
-  labelStyle: { color: '#94a3b8', fontWeight: 700 },
-  itemStyle: { color: '#e2e8f0' },
+  labelStyle: { color: '#9aadd4', fontWeight: 700 },
+  itemStyle: { color: '#dde5f4' },
 };
 
-export const axisStyle = { fontSize: 10, fill: '#64748b' };
+export const axisStyle = { fontSize: 10, fill: '#7288b3' };
 
 // ---------------------------------------------------------------------------
 // useHoverCard — detail popovers that open on hover AND on the first touch.

@@ -73,25 +73,25 @@ const KIND_LABEL = {
 };
 
 const C = {
-  card: '#1e293b', line: '#334155', text: '#e2e8f0',
-  dim: '#94a3b8', faint: '#64748b',
-  amber: '#f59e0b', ruby: '#ef4444', emerald: '#10b981', sky: '#38bdf8',
+  card: '#18244a', line: '#27395f', text: '#dde5f4',
+  dim: '#9aadd4', faint: '#5d7196',
+  amber: '#ffb224', ruby: '#ff6b81', emerald: '#2fe39b', sky: '#22d3ee',
 };
 
 const SEV = {
-  CRITICAL: { fg: '#fca5a5', bg: 'rgba(239,68,68,.16)', rank: 4 },
+  CRITICAL: { fg: '#fca5a5', bg: 'rgba(255, 107, 129,.16)', rank: 4 },
   HIGH: { fg: '#fdba74', bg: 'rgba(249,115,22,.16)', rank: 3 },
-  MEDIUM: { fg: '#fcd34d', bg: 'rgba(245,158,11,.14)', rank: 2 },
+  MEDIUM: { fg: '#fcd34d', bg: 'rgba(255, 178, 36,.14)', rank: 2 },
   LOW: { fg: '#93c5fd', bg: 'rgba(59,130,246,.14)', rank: 1 },
 };
 
 const card = { background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18, color: C.text };
 const input = {
-  background: '#0f172a', border: `1px solid ${C.line}`, borderRadius: 6,
+  background: '#121c38', border: `1px solid ${C.line}`, borderRadius: 6,
   color: C.text, padding: '7px 9px', fontSize: 13, width: '100%', boxSizing: 'border-box',
 };
 const btn = (bg, disabled) => ({
-  background: disabled ? '#334155' : bg, border: 'none', borderRadius: 6, color: '#0f172a',
+  background: disabled ? '#27395f' : bg, border: 'none', borderRadius: 6, color: '#121c38',
   fontWeight: 700, fontSize: 13, padding: '8px 14px',
   cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1,
 });
@@ -270,7 +270,7 @@ export default function ActionRequired() {
           ⚠️ Action Required — Staff Pending Tasks
         </h3>
         <span style={{
-          background: sorted.length ? 'rgba(245,158,11,.18)' : 'rgba(16,185,129,.15)',
+          background: sorted.length ? 'rgba(255, 178, 36,.18)' : 'rgba(47, 227, 155,.15)',
           color: sorted.length ? C.amber : C.emerald,
           borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 700,
         }}>
@@ -290,11 +290,11 @@ export default function ActionRequired() {
       </p>
 
       {flash && (
-        <div style={{ background: 'rgba(16,185,129,.12)', border: `1px solid ${C.emerald}`, color: '#a7f3d0',
+        <div style={{ background: 'rgba(47, 227, 155,.12)', border: `1px solid ${C.emerald}`, color: '#a7f3d0',
                       borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>{flash}</div>
       )}
       {error && (
-        <div style={{ background: 'rgba(239,68,68,.12)', border: `1px solid ${C.ruby}`, color: '#fecaca',
+        <div style={{ background: 'rgba(255, 107, 129,.12)', border: `1px solid ${C.ruby}`, color: '#fecaca',
                       borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>{error}</div>
       )}
 
@@ -369,7 +369,7 @@ export default function ActionRequired() {
                     {ev.suggested_customer && (
                       <button
                         onClick={() => setField(exc.id, { customer_name: ev.suggested_customer })}
-                        style={{ ...btn('#475569', false), color: C.text, justifySelf: 'start', fontWeight: 600 }}
+                        style={{ ...btn('#3d548a', false), color: C.text, justifySelf: 'start', fontWeight: 600 }}
                       >
                         Use suggested: {ev.suggested_customer}
                       </button>
@@ -422,7 +422,7 @@ export default function ActionRequired() {
                         />
                         <button
                           onClick={() => setField(exc.id, { fields: { ...(d.fields ?? {}), [cf.field]: cf.on_document } })}
-                          style={{ ...btn('#475569', false), color: C.text, marginTop: 6, fontWeight: 600 }}
+                          style={{ ...btn('#3d548a', false), color: C.text, marginTop: 6, fontWeight: 600 }}
                         >
                           Use the invoice value
                         </button>
@@ -447,7 +447,7 @@ export default function ActionRequired() {
                       {busy ? 'Saving…' : '💾 Update'}
                     </button>
                     <button
-                      style={{ ...btn('#475569', busy), color: C.text }}
+                      style={{ ...btn('#3d548a', busy), color: C.text }}
                       disabled={busy}
                       onClick={() => dismiss(exc)}
                     >

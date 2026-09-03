@@ -246,28 +246,28 @@ export default function UGER() {
   });
 
   return (
-    <div style={{ padding: '20px 30px', minHeight: '100vh', background: '#020617', color: 'white', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ padding: '20px 30px', minHeight: '100vh', background: '#0a1024', color: 'white', fontFamily: "'Inter', sans-serif" }}>
       
       <style>{`
-        .input-box { width: 100%; padding: 10px; background: #0f172a; border: 1px solid #1e293b; color: white; border-radius: 8px; box-sizing: border-box; margin-top: 5px; }
-        .input-box:focus { border-color: #38bdf8; outline: none; }
-        .action-btn { background: transparent; border: 1px solid #38bdf8; color: #38bdf8; padding: 4px 8px; border-radius: 5px; cursor: pointer; margin-right: 5px; font-size: 11px; }
-        .perm-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1e293b; font-size: 12px; }
-        input[type="checkbox"] { cursor: pointer; accent-color: #38bdf8; width: 14px; height: 14px; }
+        .input-box { width: 100%; padding: 10px; background: #121c38; border: 1px solid #18244a; color: white; border-radius: 8px; box-sizing: border-box; margin-top: 5px; }
+        .input-box:focus { border-color: #22d3ee; outline: none; }
+        .action-btn { background: transparent; border: 1px solid #22d3ee; color: #22d3ee; padding: 4px 8px; border-radius: 5px; cursor: pointer; margin-right: 5px; font-size: 11px; }
+        .perm-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #18244a; font-size: 12px; }
+        input[type="checkbox"] { cursor: pointer; accent-color: #22d3ee; width: 14px; height: 14px; }
         
-        .main-tab { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 15px; transition: 0.3s; margin-right: 15px; letter-spacing: 1px; }
-        .main-tab.active { color: #38bdf8; border-bottom: 3px solid #38bdf8; background: rgba(56, 189, 248, 0.1); border-radius: 8px 8px 0 0; }
+        .main-tab { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 15px; transition: 0.3s; margin-right: 15px; letter-spacing: 1px; }
+        .main-tab.active { color: #22d3ee; border-bottom: 3px solid #22d3ee; background: rgba(34, 211, 238, 0.1); border-radius: 8px 8px 0 0; }
         
         .log-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 13px; }
-        .log-table th { background: rgba(15, 23, 42, 0.8); padding: 15px; text-align: left; color: #94a3b8; border-bottom: 2px solid #1e293b; }
-        .log-table td { padding: 15px; border-bottom: 1px solid #0f172a; color: #cbd5e1; }
-        .log-table tr:hover td { background: rgba(30, 41, 59, 0.3); }
+        .log-table th { background: rgba(18, 28, 56, 0.8); padding: 15px; text-align: left; color: #9aadd4; border-bottom: 2px solid #18244a; }
+        .log-table td { padding: 15px; border-bottom: 1px solid #121c38; color: #c4d1ea; }
+        .log-table tr:hover td { background: rgba(24, 36, 74, 0.3); }
       `}</style>
 
       {/* HEADER & MAIN TABS */}
-      <div style={{ marginBottom: '20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <div style={{ marginBottom: '20px', borderBottom: '1px solid #18244a', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '28px', color: '#38bdf8', marginBottom: '15px' }}>👑 PRASAD MASTER CONTROL</h1>
+          <h1 style={{ margin: 0, fontSize: '28px', color: '#22d3ee', marginBottom: '15px' }}>👑 PRASAD MASTER CONTROL</h1>
           <div>
             <button className={`main-tab ${activeMainTab === 'PROFILES' ? 'active' : ''}`} onClick={() => setActiveMainTab('PROFILES')}>👥 STAFF PROFILES & POWERS</button>
             <button className={`main-tab ${activeMainTab === 'LOGS' ? 'active' : ''}`} onClick={() => setActiveMainTab('LOGS')}>📈 ACTIVITY LOGS & REPORT</button>
@@ -281,22 +281,22 @@ export default function UGER() {
       {/* 📈 TAB 2: ACTIVITY LOGS RENDER */}
       {activeMainTab === 'LOGS' && (
         <div>
-          <div style={{ display: 'flex', gap: '20px', background: 'rgba(30, 41, 59, 0.5)', padding: '20px', borderRadius: '15px', border: '1px solid #1e293b', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: '20px', background: 'rgba(24, 36, 74, 0.5)', padding: '20px', borderRadius: '15px', border: '1px solid #18244a', alignItems: 'flex-end' }}>
             
             {/* FROM DATE */}
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', letterSpacing: '1px' }}>📅 FROM DATE</label>
+              <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold', letterSpacing: '1px' }}>📅 FROM DATE</label>
               <input type="date" className="input-box" value={logFilters.startDate} onChange={e => setLogFilters({...logFilters, startDate: e.target.value})} style={{ colorScheme: 'dark' }} />
             </div>
 
             {/* TO DATE */}
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', letterSpacing: '1px' }}>📅 TO DATE</label>
+              <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold', letterSpacing: '1px' }}>📅 TO DATE</label>
               <input type="date" className="input-box" value={logFilters.endDate} onChange={e => setLogFilters({...logFilters, endDate: e.target.value})} style={{ colorScheme: 'dark' }} />
             </div>
 
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', letterSpacing: '1px' }}>👤 SELECT STAFF</label>
+              <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold', letterSpacing: '1px' }}>👤 SELECT STAFF</label>
               <select className="input-box" value={logFilters.user} onChange={e => setLogFilters({...logFilters, user: e.target.value})}>
                 <option value="ALL">-- All Staff --</option>
                 {usersList.map(u => <option key={u.id} value={u.full_name}>{u.full_name}</option>)}
@@ -305,7 +305,7 @@ export default function UGER() {
             <button onClick={fetchLogs} style={{ background: '#10b981', color: 'white', padding: '12px 30px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Get Report</button>
           </div>
 
-          <div style={{ background: 'rgba(30, 41, 59, 0.3)', padding: '20px', borderRadius: '15px', border: '1px solid #1e293b', marginTop: '20px', overflowX: 'auto' }}>
+          <div style={{ background: 'rgba(24, 36, 74, 0.3)', padding: '20px', borderRadius: '15px', border: '1px solid #18244a', marginTop: '20px', overflowX: 'auto' }}>
             <table className="log-table">
               <thead>
                 <tr>
@@ -318,15 +318,15 @@ export default function UGER() {
               </thead>
               <tbody>
                 {filteredLogs.length === 0 ? (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No activity found for this date range/staff.</td></tr>
+                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: '#5d7196' }}>No activity found for this date range/staff.</td></tr>
                 ) : (
                   filteredLogs.map((log, i) => (
                     <tr key={i}>
-                      <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>{log.time || (log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—')}</td>
+                      <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>{log.time || (log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—')}</td>
                       <td style={{ fontWeight: 'bold', color: 'white' }}>{log.user_name}</td>
-                      <td><span style={{ background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '3px 8px', borderRadius: '5px', fontSize: '10px' }}>{log.module}</span></td>
+                      <td><span style={{ background: 'rgba(255, 178, 36,0.1)', color: '#ffb224', padding: '3px 8px', borderRadius: '5px', fontSize: '10px' }}>{log.module}</span></td>
                       <td>{log.action_details}</td>
-                      <td><span style={{ color: log.status === 'SUCCESS' ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>{log.status || 'SUCCESS'}</span></td>
+                      <td><span style={{ color: log.status === 'SUCCESS' ? '#2fe39b' : '#ff6b81', fontWeight: 'bold' }}>{log.status || 'SUCCESS'}</span></td>
                     </tr>
                   ))
                 )}
@@ -338,10 +338,10 @@ export default function UGER() {
 
       {/* 👥 TAB 1: USERS TABLE RENDER */}
       {activeMainTab === 'PROFILES' && (
-        <div style={{ background: 'rgba(30, 41, 59, 0.5)', padding: '20px', borderRadius: '15px', border: '1px solid #1e293b', overflowX: 'auto' }}>
+        <div style={{ background: 'rgba(24, 36, 74, 0.5)', padding: '20px', borderRadius: '15px', border: '1px solid #18244a', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr style={{ color: '#38bdf8', borderBottom: '2px solid #1e293b' }}>
+              <tr style={{ color: '#22d3ee', borderBottom: '2px solid #18244a' }}>
                 <th style={{ padding: '12px' }}>Name & Company</th>
                 <th style={{ padding: '12px' }}>Branch / Scope</th>
                 <th style={{ padding: '12px' }}>Login ID & Role</th>
@@ -351,16 +351,16 @@ export default function UGER() {
             </thead>
             <tbody>
               {usersList.map(u => (
-                <tr key={u.id} style={{ borderBottom: '1px solid #0f172a' }}>
-                  <td style={{ padding: '12px' }}><b>{u.full_name}</b><br/><small style={{color:'#64748b'}}>{u.company_name}</small></td>
-                  <td style={{ padding: '12px' }}><span style={{color: '#f59e0b'}}>🏢 {u.branch}</span><br/><small>{u.scope}</small></td>
-                  <td style={{ padding: '12px' }}>{u.email}<br/><small style={{color:'#10b981'}}>{u.role}</small></td>
+                <tr key={u.id} style={{ borderBottom: '1px solid #121c38' }}>
+                  <td style={{ padding: '12px' }}><b>{u.full_name}</b><br/><small style={{color:'#5d7196'}}>{u.company_name}</small></td>
+                  <td style={{ padding: '12px' }}><span style={{color: '#ffb224'}}>🏢 {u.branch}</span><br/><small>{u.scope}</small></td>
+                  <td style={{ padding: '12px' }}>{u.email}<br/><small style={{color:'#2fe39b'}}>{u.role}</small></td>
                   <td style={{ padding: '12px' }}>
-                    <button onClick={() => toggleStatus(u)} style={{ background: u.status==='ACTIVE'?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)', color: u.status==='ACTIVE'?'#10b981':'#ef4444', border: `1px solid ${u.status==='ACTIVE'?'#10b981':'#ef4444'}`, padding:'3px 8px', borderRadius:'15px', fontSize:'10px', cursor:'pointer' }}>{u.status}</button>
+                    <button onClick={() => toggleStatus(u)} style={{ background: u.status==='ACTIVE'?'rgba(47, 227, 155,0.1)':'rgba(255, 107, 129,0.1)', color: u.status==='ACTIVE'?'#2fe39b':'#ff6b81', border: `1px solid ${u.status==='ACTIVE'?'#2fe39b':'#ff6b81'}`, padding:'3px 8px', borderRadius:'15px', fontSize:'10px', cursor:'pointer' }}>{u.status}</button>
                   </td>
                   <td style={{ padding: '12px' }}>
                     <button className="action-btn" onClick={() => handleEdit(u)}>⚙️ Edit Powers</button>
-                    <button className="action-btn" style={{borderColor:'#ef4444', color:'#ef4444'}} onClick={() => handleDelete(u.id, u.full_name)}>🗑️</button>
+                    <button className="action-btn" style={{borderColor:'#ff6b81', color:'#ff6b81'}} onClick={() => handleDelete(u.id, u.full_name)}>🗑️</button>
                   </td>
                 </tr>
               ))}
@@ -372,43 +372,43 @@ export default function UGER() {
       {/* FULL SCREEN MODAL FOR EDITING/ADDING USERS */}
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div style={{ background: '#020617', width: '100%', maxWidth: '1350px', maxHeight: '95vh', borderRadius: '20px', border: '1px solid #38bdf8', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ background: '#0a1024', width: '100%', maxWidth: '1350px', maxHeight: '95vh', borderRadius: '20px', border: '1px solid #22d3ee', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             
-            <div style={{ padding: '15px 25px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1e293b' }}>
-              <h2 style={{ color: '#38bdf8', margin: 0, fontSize:'20px' }}>⚙️ Setup System Identity & Workflow Access</h2>
+            <div style={{ padding: '15px 25px', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #18244a' }}>
+              <h2 style={{ color: '#22d3ee', margin: 0, fontSize:'20px' }}>⚙️ Setup System Identity & Workflow Access</h2>
               <button onClick={() => setIsModalOpen(false)} style={{ color: 'red', background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer' }}>✖</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '25px', padding: '25px', overflowY: 'auto' }}>
               
               {/* LEFT: IDENTITY DATA */}
-              <div style={{ borderRight: '1px solid #1e293b', paddingRight: '20px' }}>
-                <h4 style={{ color: '#38bdf8', marginTop: 0, borderBottom: '1px solid #1e293b', paddingBottom:'5px' }}>🏢 COMPANY INFO</h4>
-                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#94a3b8'}}>COMPANY NAME</label><input className="input-box" value={formData.company_name} onChange={e => setFormData({...formData, company_name: e.target.value})} /></div>
-                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#94a3b8'}}>GST NUMBER</label><input className="input-box" value={formData.gst_no} onChange={e => setFormData({...formData, gst_no: e.target.value})} /></div>
+              <div style={{ borderRight: '1px solid #18244a', paddingRight: '20px' }}>
+                <h4 style={{ color: '#22d3ee', marginTop: 0, borderBottom: '1px solid #18244a', paddingBottom:'5px' }}>🏢 COMPANY INFO</h4>
+                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#9aadd4'}}>COMPANY NAME</label><input className="input-box" value={formData.company_name} onChange={e => setFormData({...formData, company_name: e.target.value})} /></div>
+                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#9aadd4'}}>GST NUMBER</label><input className="input-box" value={formData.gst_no} onChange={e => setFormData({...formData, gst_no: e.target.value})} /></div>
                 
                 <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'15px'}}>
-                   <div><label style={{fontSize:'11px', color:'#f59e0b'}}>BRANCH *</label>
-                    <select className="input-box" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} style={{borderColor:'#f59e0b'}}>
+                   <div><label style={{fontSize:'11px', color:'#ffb224'}}>BRANCH *</label>
+                    <select className="input-box" value={formData.branch} onChange={e => setFormData({...formData, branch: e.target.value})} style={{borderColor:'#ffb224'}}>
                       <option>BONGAIGAON (HO)</option>
                       <option>GUWAHATI BRANCH</option>
                       <option>SILIGURI BRANCH</option>
                     </select>
                    </div>
-                   <div><label style={{fontSize:'11px', color:'#38bdf8'}}>SCOPE *</label>
-                    <select className="input-box" value={formData.scope} onChange={e => setFormData({...formData, scope: e.target.value})} style={{borderColor:'#38bdf8'}}>
+                   <div><label style={{fontSize:'11px', color:'#22d3ee'}}>SCOPE *</label>
+                    <select className="input-box" value={formData.scope} onChange={e => setFormData({...formData, scope: e.target.value})} style={{borderColor:'#22d3ee'}}>
                       <option value="LOCAL">🔒 LOCAL</option>
                       <option value="GLOBAL">🌐 GLOBAL</option>
                     </select>
                    </div>
                 </div>
 
-                <h4 style={{ color: '#10b981', marginTop: '20px', borderBottom: '1px solid #1e293b', paddingBottom:'5px' }}>👤 CREDENTIALS & ROLE</h4>
+                <h4 style={{ color: '#2fe39b', marginTop: '20px', borderBottom: '1px solid #18244a', paddingBottom:'5px' }}>👤 CREDENTIALS & ROLE</h4>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>FULL NAME</label><input className="input-box" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>MOBILE NO</label><input className="input-box" value={formData.mobile} onChange={e => setFormData({...formData, mobile: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>LOGIN EMAIL</label><input className="input-box" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
                 <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px'}}>PASSWORD</label><input className="input-box" type="password" placeholder={editingId ? 'Leave blank to keep current password' : 'Set a password'} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} /></div>
-                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#f59e0b'}}>SYSTEM ROLE (RBAC)</label>
+                <div style={{marginBottom:'10px'}}><label style={{fontSize:'11px', color:'#ffb224'}}>SYSTEM ROLE (RBAC)</label>
                   <select className="input-box" value={formData.role} onChange={e => setFormData({...formData, role: e.target.value})}>
                     {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                   </select>
@@ -416,7 +416,7 @@ export default function UGER() {
                 {/* 🔐 RBAC data scope — for external roles, restrict their data to this party. */}
                 {['VENDOR','CUSTOMER','DRIVER'].includes(String(formData.role).toUpperCase()) && (
                   <div style={{marginBottom:'10px'}}>
-                    <label style={{fontSize:'11px', color:'#c084fc'}}>SCOPE — {String(formData.role).toUpperCase()} NAME (data restricted to this)</label>
+                    <label style={{fontSize:'11px', color:'#a78bfa'}}>SCOPE — {String(formData.role).toUpperCase()} NAME (data restricted to this)</label>
                     <input className="input-box" placeholder={`Exact ${formData.role} name as in records`} value={formData.scope_name || ''}
                       onChange={e => {
                         const v = e.target.value; const r = String(formData.role).toUpperCase();
@@ -425,17 +425,17 @@ export default function UGER() {
                           customer_name: r==='CUSTOMER'? v : formData.customer_name,
                           driver_name: r==='DRIVER'? v : formData.driver_name });
                       }} />
-                    <small style={{color:'#64748b', fontSize:'10px'}}>Mamta AI + saari tables sirf isi {formData.role.toLowerCase()} ka data dikhayenge.</small>
+                    <small style={{color:'#5d7196', fontSize:'10px'}}>Mamta AI + saari tables sirf isi {formData.role.toLowerCase()} ka data dikhayenge.</small>
                   </div>
                 )}
               </div>
 
               {/* RIGHT: PERMISSIONS GRID WITH APPROVAL DROPDOWN */}
               <div>
-                <h4 style={{ textAlign: 'center', color: '#f59e0b', margin: '0 0 15px 0' }}>📊 ASSIGN APP PAGES & APPROVAL AUTHORITY</h4>
+                <h4 style={{ textAlign: 'center', color: '#ffb224', margin: '0 0 15px 0' }}>📊 ASSIGN APP PAGES & APPROVAL AUTHORITY</h4>
                 {categories.map(cat => (
-                  <div key={cat} style={{ marginBottom: '20px', background: 'rgba(15, 23, 42, 0.4)', padding: '15px', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <div style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '13px', borderBottom: '1px solid #334155', paddingBottom: '5px', marginBottom: '10px' }}>{cat}</div>
+                  <div key={cat} style={{ marginBottom: '20px', background: 'rgba(18, 28, 56, 0.4)', padding: '15px', borderRadius: '12px', border: '1px solid #18244a' }}>
+                    <div style={{ color: '#22d3ee', fontWeight: 'bold', fontSize: '13px', borderBottom: '1px solid #27395f', paddingBottom: '5px', marginBottom: '10px' }}>{cat}</div>
                     {modules.filter(m => m.category === cat).map((mod, i) => {
                        const idx = modules.findIndex(x => x.id === mod.id);
                        return (
@@ -449,11 +449,11 @@ export default function UGER() {
                              
                              {/* ⏳ APPROVAL AUTHORITY SETUP (The magic dropdown) */}
                              {mod.add && (
-                               <div style={{ display: 'flex', alignItems: 'center', background: '#020617', border: '1px solid #f59e0b', padding: '2px 5px', borderRadius: '4px' }}>
+                               <div style={{ display: 'flex', alignItems: 'center', background: '#0a1024', border: '1px solid #ffb224', padding: '2px 5px', borderRadius: '4px' }}>
                                  <input type="checkbox" checked={mod.needs_approval} onChange={e => handlePermChange(idx, 'needs_approval', e.target.checked)} />
-                                 <span style={{ fontSize: '10px', color: '#f59e0b', marginLeft: '3px' }}>Need Approv.</span>
+                                 <span style={{ fontSize: '10px', color: '#ffb224', marginLeft: '3px' }}>Need Approv.</span>
                                  {mod.needs_approval && (
-                                   <select style={{ fontSize: '10px', background: 'transparent', color: '#38bdf8', border: 'none', outline: 'none', marginLeft: '5px', cursor: 'pointer' }} value={mod.assigned_approver} onChange={e => handlePermChange(idx, 'assigned_approver', e.target.value)}>
+                                   <select style={{ fontSize: '10px', background: 'transparent', color: '#22d3ee', border: 'none', outline: 'none', marginLeft: '5px', cursor: 'pointer' }} value={mod.assigned_approver} onChange={e => handlePermChange(idx, 'assigned_approver', e.target.value)}>
                                       <option value="">-- Any Boss --</option>
                                       {branchBosses.map(b => <option key={b.id} value={b.id}>{b.full_name}</option>)}
                                    </select>
@@ -462,7 +462,7 @@ export default function UGER() {
                              )}
 
                              {/* THE BIG BOSS BUTTON */}
-                             <label style={{ color: '#10b981', fontWeight: '900', borderLeft: '1px solid #334155', paddingLeft: '10px' }}>
+                             <label style={{ color: '#2fe39b', fontWeight: '900', borderLeft: '1px solid #27395f', paddingLeft: '10px' }}>
                                <input type="checkbox" checked={mod.approve} onChange={e => handlePermChange(idx, 'approve', e.target.checked)} /> IS BOSS
                              </label>
                            </div>
@@ -476,7 +476,7 @@ export default function UGER() {
             </div>
 
             {/* MODAL FOOTER */}
-            <div style={{ padding: '15px 30px', textAlign: 'right', background: '#020617', borderTop: '1px solid #1e293b' }}>
+            <div style={{ padding: '15px 30px', textAlign: 'right', background: '#0a1024', borderTop: '1px solid #18244a' }}>
               <button onClick={handleSave} disabled={loading} style={{ background: '#10b981', color: 'white', padding: '12px 50px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px' }}>
                 {loading ? '⌛ SAVING...' : '✅ SAVE FULL SYSTEM DATA'}
               </button>

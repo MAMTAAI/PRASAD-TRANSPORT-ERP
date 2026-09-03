@@ -41,10 +41,10 @@ import { useIsMobile } from './hooks/useIsMobile';
 const WAITING = 'PENDING_KYC';
 const isWaiting = (st) => st === 'PENDING_KYC' || st === 'SUBMITTED' || !st;
 const STATUS_META = {
-  PENDING_KYC: { label: '📨 Pending KYC', color: '#f59e0b' },
-  SUBMITTED: { label: '📨 Pending KYC', color: '#f59e0b' },
-  APPROVED: { label: '✅ Approved', color: '#10b981' },
-  REJECTED: { label: '❌ Rejected', color: '#ef4444' },
+  PENDING_KYC: { label: '📨 Pending KYC', color: '#ffb224' },
+  SUBMITTED: { label: '📨 Pending KYC', color: '#ffb224' },
+  APPROVED: { label: '✅ Approved', color: '#2fe39b' },
+  REJECTED: { label: '❌ Rejected', color: '#ff6b81' },
 };
 
 export default function KycApprovals() {
@@ -241,35 +241,35 @@ kar dein? Yeh master par turant lag jayega.`)) return;
 
   const shown = apps.filter(a => filter === 'ALL' || (filter === WAITING ? isWaiting(a.status) : a.status === filter));
   const S = {
-    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" },
-    card: { background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,22px)', marginBottom: '14px' },
+    page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif" },
+    card: { background: 'rgba(24, 36, 74,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,22px)', marginBottom: '14px' },
     chip: (c) => ({ background: c + '22', color: c, border: `1px solid ${c}`, borderRadius: '999px', padding: '4px 12px', fontSize: '12px', fontWeight: 'bold', whiteSpace: 'nowrap' }),
-    btn: (bg, dis) => ({ background: dis ? '#475569' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '12px 18px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '46px' }),
+    btn: (bg, dis) => ({ background: dis ? '#3d548a' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '12px 18px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '46px' }),
   };
 
   return (
     <div style={S.page}>
-      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>🪪 KYC Approvals</h1>
-      <p style={{ color: '#94a3b8', margin: '0 0 16px 0', fontSize: '13px' }}>Portal se aayi customer/fleet-partner applications — approve par master + ledger apne aap banta hai. Live updates.</p>
+      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#22d3ee' }}>🪪 KYC Approvals</h1>
+      <p style={{ color: '#9aadd4', margin: '0 0 16px 0', fontSize: '13px' }}>Portal se aayi customer/fleet-partner applications — approve par master + ledger apne aap banta hai. Live updates.</p>
 
       {bankReqs.length > 0 && (
         <div style={{ ...S.card, borderLeft: '4px solid #a855f7' }}>
           <b style={{ fontSize: '15px' }}>🏦 Bank account change requests ({bankReqs.length})</b>
-          <div style={{ color: '#94a3b8', fontSize: '12px', margin: '4px 0 12px 0' }}>
+          <div style={{ color: '#9aadd4', fontSize: '12px', margin: '4px 0 12px 0' }}>
             Live customers ne apne app se bheja hai. Approve karte hi master par lag jayega — pehle account verify karein.
           </div>
           {bankReqs.map(r => (
-            <div key={r.id} style={{ borderTop: '1px solid #1e293b', paddingTop: '10px', marginTop: '10px' }}>
+            <div key={r.id} style={{ borderTop: '1px solid #18244a', paddingTop: '10px', marginTop: '10px' }}>
               <b style={{ fontSize: '14px' }}>🏢 {r.party_name || '—'}</b>
-              <span style={{ color: '#64748b', fontSize: '12px' }}> · {r.party_code || ''} · 📱 {r.party_mobile || '—'}</span>
+              <span style={{ color: '#5d7196', fontSize: '12px' }}> · {r.party_code || ''} · 📱 {r.party_mobile || '—'}</span>
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '4px 20px', fontSize: '13px', marginTop: '6px' }}>
-                <div><span style={{ color: '#64748b' }}>New:</span> <b style={{ fontFamily: 'monospace' }}>{r.bank_name} · {r.account_no} · {r.ifsc_code}</b></div>
-                <div><span style={{ color: '#64748b' }}>Old:</span> <span style={{ fontFamily: 'monospace' }}>{r.prev_account_no ? `${r.prev_bank_name || ''} · ${r.prev_account_no} · ${r.prev_ifsc_code || ''}` : 'kuch darj nahi tha'}</span></div>
-                {r.note ? <div style={{ gridColumn: '1 / -1', color: '#94a3b8' }}>Note: {r.note}</div> : null}
+                <div><span style={{ color: '#5d7196' }}>New:</span> <b style={{ fontFamily: 'monospace' }}>{r.bank_name} · {r.account_no} · {r.ifsc_code}</b></div>
+                <div><span style={{ color: '#5d7196' }}>Old:</span> <span style={{ fontFamily: 'monospace' }}>{r.prev_account_no ? `${r.prev_bank_name || ''} · ${r.prev_account_no} · ${r.prev_ifsc_code || ''}` : 'kuch darj nahi tha'}</span></div>
+                {r.note ? <div style={{ gridColumn: '1 / -1', color: '#9aadd4' }}>Note: {r.note}</div> : null}
               </div>
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
-                <button onClick={() => decideBank(r, true)} disabled={busy} style={S.btn('#10b981', busy)}>✅ Approve &amp; update master</button>
-                <button onClick={() => decideBank(r, false)} disabled={busy} style={S.btn('#ef4444', busy)}>❌ Reject (reason ke saath)</button>
+                <button onClick={() => decideBank(r, true)} disabled={busy} style={S.btn('#2fe39b', busy)}>✅ Approve &amp; update master</button>
+                <button onClick={() => decideBank(r, false)} disabled={busy} style={S.btn('#ff6b81', busy)}>❌ Reject (reason ke saath)</button>
               </div>
             </div>
           ))}
@@ -278,14 +278,14 @@ kar dein? Yeh master par turant lag jayega.`)) return;
 
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
         {[WAITING, 'APPROVED', 'REJECTED', 'ALL'].map(f => (
-          <button key={f} onClick={() => setFilter(f)} style={{ ...S.btn(filter === f ? '#2563eb' : '#1e293b', false), padding: '9px 16px', minHeight: '40px', fontSize: '13px' }}>
+          <button key={f} onClick={() => setFilter(f)} style={{ ...S.btn(filter === f ? '#2563eb' : '#18244a', false), padding: '9px 16px', minHeight: '40px', fontSize: '13px' }}>
             {f === WAITING ? `📨 Pending KYC (${apps.filter(a => isWaiting(a.status)).length})` : f}
           </button>
         ))}
       </div>
 
       {shown.length === 0 ? (
-        <div style={{ ...S.card, textAlign: 'center', color: '#64748b', padding: '40px' }}>
+        <div style={{ ...S.card, textAlign: 'center', color: '#5d7196', padding: '40px' }}>
           {filter === WAITING ? '✨ Koi pending application nahi. Portal se submissions yahan live aayengi.' : 'Kuch nahi mila.'}
         </div>
       ) : shown.map(a => {
@@ -299,30 +299,30 @@ kar dein? Yeh master par turant lag jayega.`)) return;
             <div onClick={() => setOpenId(open ? null : a.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', cursor: 'pointer', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
                 <b style={{ fontSize: '15px' }}>{a.type === 'CUSTOMER' ? '🏢' : a.type === 'VENDOR' ? '🔧' : '🚛'} {name || '—'}</b>
-                <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                  {a.type === 'CUSTOMER' ? 'Customer' : a.type === 'VENDOR' ? `Vendor · ${a.vendor_category || 'Service'}` : 'Fleet Partner'} · 📱 {a.mobile_no || '—'} · Checks: <span style={{ color: passed === checks.length ? '#10b981' : '#f59e0b', fontWeight: 'bold' }}>{passed}/{checks.length}</span>
+                <div style={{ fontSize: '12px', color: '#9aadd4', marginTop: '2px' }}>
+                  {a.type === 'CUSTOMER' ? 'Customer' : a.type === 'VENDOR' ? `Vendor · ${a.vendor_category || 'Service'}` : 'Fleet Partner'} · 📱 {a.mobile_no || '—'} · Checks: <span style={{ color: passed === checks.length ? '#2fe39b' : '#ffb224', fontWeight: 'bold' }}>{passed}/{checks.length}</span>
                 </div>
               </div>
               <span style={S.chip(st.color)}>{st.label}</span>
             </div>
 
             {open && (
-              <div style={{ marginTop: '14px', borderTop: '1px solid #1e293b', paddingTop: '12px' }}>
+              <div style={{ marginTop: '14px', borderTop: '1px solid #18244a', paddingTop: '12px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '6px 20px', fontSize: '13px' }}>
-                  {a.gst_no ? <div><span style={{ color: '#64748b' }}>GSTIN:</span> <b>{a.gst_no}</b></div> : null}
-                  {a.pan_no ? <div><span style={{ color: '#64748b' }}>PAN:</span> <b>{a.pan_no}</b></div> : null}
-                  {a.owner_name ? <div><span style={{ color: '#64748b' }}>Owner:</span> {a.owner_name}</div> : null}
-                  {a.contact_person ? <div><span style={{ color: '#64748b' }}>Contact:</span> {a.contact_person}</div> : null}
-                  {a.address ? <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#64748b' }}>Address:</span> {a.address}</div> : null}
-                  {a.aadhaar_last4 ? <div><span style={{ color: '#64748b' }}>Aadhaar:</span> XXXX-XXXX-{a.aadhaar_last4}</div> : null}
-                  {a.email ? <div><span style={{ color: '#64748b' }}>Email:</span> {a.email}</div> : null}
+                  {a.gst_no ? <div><span style={{ color: '#5d7196' }}>GSTIN:</span> <b>{a.gst_no}</b></div> : null}
+                  {a.pan_no ? <div><span style={{ color: '#5d7196' }}>PAN:</span> <b>{a.pan_no}</b></div> : null}
+                  {a.owner_name ? <div><span style={{ color: '#5d7196' }}>Owner:</span> {a.owner_name}</div> : null}
+                  {a.contact_person ? <div><span style={{ color: '#5d7196' }}>Contact:</span> {a.contact_person}</div> : null}
+                  {a.address ? <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#5d7196' }}>Address:</span> {a.address}</div> : null}
+                  {a.aadhaar_last4 ? <div><span style={{ color: '#5d7196' }}>Aadhaar:</span> XXXX-XXXX-{a.aadhaar_last4}</div> : null}
+                  {a.email ? <div><span style={{ color: '#5d7196' }}>Email:</span> {a.email}</div> : null}
                   {/* The bank account the applicant gave (migration 134) — the
                       thing the desk is being asked to verify, so it is shown in
                       full rather than masked. */}
-                  {a.bank_name ? <div><span style={{ color: '#64748b' }}>Bank:</span> <b>{a.bank_name}</b></div> : null}
-                  {a.account_no ? <div><span style={{ color: '#64748b' }}>A/c:</span> <b style={{ fontFamily: 'monospace' }}>{a.account_no}</b></div> : null}
-                  {a.ifsc_code ? <div><span style={{ color: '#64748b' }}>IFSC:</span> <b style={{ fontFamily: 'monospace' }}>{a.ifsc_code}</b></div> : null}
-                  {a.reject_reason ? <div style={{ gridColumn: '1 / -1', color: '#ef4444' }}>Reject reason: {a.reject_reason}</div> : null}
+                  {a.bank_name ? <div><span style={{ color: '#5d7196' }}>Bank:</span> <b>{a.bank_name}</b></div> : null}
+                  {a.account_no ? <div><span style={{ color: '#5d7196' }}>A/c:</span> <b style={{ fontFamily: 'monospace' }}>{a.account_no}</b></div> : null}
+                  {a.ifsc_code ? <div><span style={{ color: '#5d7196' }}>IFSC:</span> <b style={{ fontFamily: 'monospace' }}>{a.ifsc_code}</b></div> : null}
+                  {a.reject_reason ? <div style={{ gridColumn: '1 / -1', color: '#ff6b81' }}>Reject reason: {a.reject_reason}</div> : null}
                 </div>
 
                 {/* The trucks this partner applied with (migration 137). Each
@@ -331,41 +331,41 @@ kar dein? Yeh master par turant lag jayega.`)) return;
                     the plate is checked here and the paper is checked there. */}
                 {(a.vehicles ?? []).length > 0 && (
                   <div style={{ marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+                    <div style={{ fontSize: '12px', color: '#5d7196', marginBottom: '6px' }}>
                       🚛 TRUCKS ON THIS APPLICATION ({(a.vehicles ?? []).length})
                     </div>
                     {(a.vehicles ?? []).map((v) => (
                       <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
-                                               borderTop: '1px solid #1e293b', padding: '8px 0', fontSize: '13px' }}>
+                                               borderTop: '1px solid #18244a', padding: '8px 0', fontSize: '13px' }}>
                         <b style={{ fontFamily: 'monospace' }}>{v.registration_no}</b>
-                        <span style={{ color: '#94a3b8' }}>
+                        <span style={{ color: '#9aadd4' }}>
                           {[v.vehicle_class, v.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ') || '—'}
                         </span>
-                        <span style={{ color: v.rc_expiry ? '#94a3b8' : '#f59e0b' }}>
+                        <span style={{ color: v.rc_expiry ? '#9aadd4' : '#ffb224' }}>
                           RC {v.rc_expiry ? String(v.rc_expiry).slice(0, 10) : 'no expiry given'}
                         </span>
                         {v.rc_file_key
                           ? <button onClick={() => openDocument(v.rc_file_key)}
-                              style={{ ...S.btn('#1e293b', false), padding: '6px 12px', minHeight: '34px', fontSize: '12px' }}>
+                              style={{ ...S.btn('#18244a', false), padding: '6px 12px', minHeight: '34px', fontSize: '12px' }}>
                               👁 View RC
                             </button>
-                          : <span style={{ color: '#ef4444', fontWeight: 'bold' }}>NO RC</span>}
-                        {v.market_vehicle_id && <span style={S.chip('#10b981')}>created</span>}
+                          : <span style={{ color: '#ff6b81', fontWeight: 'bold' }}>NO RC</span>}
+                        {v.market_vehicle_id && <span style={S.chip('#2fe39b')}>created</span>}
                       </div>
                     ))}
                   </div>
                 )}
                 <div style={{ marginTop: '10px' }}>
                   {checks.map((c, i) => (
-                    <div key={i} style={{ fontSize: '12px', color: c.ok ? '#10b981' : '#ef4444', padding: '2px 0' }}>
+                    <div key={i} style={{ fontSize: '12px', color: c.ok ? '#2fe39b' : '#ff6b81', padding: '2px 0' }}>
                       {c.ok ? '✔' : '✖'} {c.name}{!c.ok && c.msg ? ` — ${c.msg}` : ''}
                     </div>
                   ))}
                 </div>
                 {isWaiting(a.status) && (
                   <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
-                    <button onClick={() => approve(a)} disabled={busy} style={{ ...S.btn('#10b981', busy), flex: isMobile ? 1 : 'none' }}>✅ Approve → Master + Ledger</button>
-                    <button onClick={() => reject(a)} disabled={busy} style={{ ...S.btn('#ef4444', busy), flex: isMobile ? 1 : 'none' }}>❌ Reject (reason ke saath)</button>
+                    <button onClick={() => approve(a)} disabled={busy} style={{ ...S.btn('#2fe39b', busy), flex: isMobile ? 1 : 'none' }}>✅ Approve → Master + Ledger</button>
+                    <button onClick={() => reject(a)} disabled={busy} style={{ ...S.btn('#ff6b81', busy), flex: isMobile ? 1 : 'none' }}>❌ Reject (reason ke saath)</button>
                   </div>
                 )}
               </div>

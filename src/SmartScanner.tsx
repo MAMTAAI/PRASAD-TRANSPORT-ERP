@@ -14,8 +14,8 @@ import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
 
 const C = {
-  bg: '#0f172a', card: 'rgba(30,41,59,0.55)', line: '#334155', dim: '#94a3b8',
-  text: '#e2e8f0', ok: '#10b981', warn: '#f59e0b', bad: '#ef4444', purple: '#c084fc', blue: '#38bdf8',
+  bg: '#121c38', card: 'rgba(24, 36, 74,0.55)', line: '#27395f', dim: '#9aadd4',
+  text: '#dde5f4', ok: '#2fe39b', warn: '#ffb224', bad: '#ff6b81', purple: '#a78bfa', blue: '#22d3ee',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -126,7 +126,7 @@ function ResultCard({ r }: { r: any }) {
   const confColor = conf >= 0.9 ? C.ok : conf >= 0.6 ? C.warn : C.bad;
   const FIELDS = ['invoice_no', 'gstin', 'vehicle_no', 'driver_name', 'freight_amount', 'hsd_litres', 'date', 'consignee'];
   return (
-    <div style={{ background: '#0b1220', border: `1px solid ${C.line}`, borderLeft: `3px solid ${confColor}`, borderRadius: 10, padding: 12, fontSize: 12, color: C.text }}>
+    <div style={{ background: '#0a1024', border: `1px solid ${C.line}`, borderLeft: `3px solid ${confColor}`, borderRadius: 10, padding: 12, fontSize: 12, color: C.text }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
         <Badge text={r.page ? `PAGE ${r.page}` : 'SCAN'} color={C.dim} />
         <Badge text={r.doc_type ?? '…'} color={C.blue} />
@@ -325,10 +325,10 @@ export default function SmartScanner() {
       {mode === 'camera' ? (
         <div style={{ position: 'relative', maxWidth: 720 }}>
           <video ref={videoRef} playsInline muted style={{ width: '100%', borderRadius: 14, border: `2px solid ${C.purple}` }} />
-          <div style={{ position: 'absolute', inset: 12, border: `2px dashed rgba(192,132,252,0.6)`, borderRadius: 10, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', inset: 12, border: `2px dashed rgba(167, 139, 250,0.6)`, borderRadius: 10, pointerEvents: 'none' }} />
           <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
             <button onClick={capture}
-              style={{ flex: 1, padding: '14px 0', fontSize: 15, fontWeight: 800, background: C.purple, color: '#0f172a', border: 'none', borderRadius: 12, cursor: 'pointer' }}>
+              style={{ flex: 1, padding: '14px 0', fontSize: 15, fontWeight: 800, background: C.purple, color: '#121c38', border: 'none', borderRadius: 12, cursor: 'pointer' }}>
               📷 CAPTURE DOCUMENT
             </button>
             <button onClick={stopCamera}
@@ -345,8 +345,8 @@ export default function SmartScanner() {
           onClick={() => inputRef.current?.click()}
           style={{
             border: `2px dashed ${drag ? C.purple : C.line}`, borderRadius: 16, padding: '38px 20px', textAlign: 'center',
-            cursor: 'pointer', background: drag ? 'rgba(192,132,252,0.08)' : '#0b1220', transition: 'all .2s',
-            boxShadow: drag ? `0 0 24px rgba(192,132,252,0.35)` : '0 0 12px rgba(56,189,248,0.12)',
+            cursor: 'pointer', background: drag ? 'rgba(167, 139, 250,0.08)' : '#0a1024', transition: 'all .2s',
+            boxShadow: drag ? `0 0 24px rgba(167, 139, 250,0.35)` : '0 0 12px rgba(34, 211, 238,0.12)',
           }}>
           <input ref={inputRef} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,application/pdf"
             onChange={(e) => e.target.files?.length && handleFiles(e.target.files)} />

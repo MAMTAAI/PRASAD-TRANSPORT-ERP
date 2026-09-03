@@ -141,15 +141,15 @@ export default function OwnerStatement() {
   };
 
   return (
-    <div className="os-root" style={{ color: '#e2e8f0', fontFamily: "'Inter', sans-serif", paddingBottom: 40 }}>
+    <div className="os-root" style={{ color: '#dde5f4', fontFamily: "'Inter', sans-serif", paddingBottom: 40 }}>
       <style>{`
         .os-tbl { width:100%; border-collapse:collapse; font-size:12px; }
-        .os-tbl th { background:#1e293b; color:#94a3b8; font-size:10px; text-transform:uppercase;
+        .os-tbl th { background:#18244a; color:#9aadd4; font-size:10px; text-transform:uppercase;
                      letter-spacing:.06em; padding:8px 6px; text-align:right; white-space:nowrap; }
         .os-tbl th:first-child, .os-tbl td:first-child { text-align:left; }
-        .os-tbl td { padding:7px 6px; text-align:right; border-bottom:1px solid #1e293b; white-space:nowrap; }
-        .os-tbl tbody tr:hover { background:rgba(56,189,248,.06); }
-        .os-total td { font-weight:900; background:rgba(16,185,129,.10); border-top:2px solid #10b981; }
+        .os-tbl td { padding:7px 6px; text-align:right; border-bottom:1px solid #18244a; white-space:nowrap; }
+        .os-tbl tbody tr:hover { background:rgba(34, 211, 238,.06); }
+        .os-total td { font-weight:900; background:rgba(47, 227, 155,.10); border-top:2px solid #2fe39b; }
         .os-scroll { overflow-x:auto; }
 
         /* ── A4 PRINT ────────────────────────────────────────────────────────
@@ -179,15 +179,15 @@ export default function OwnerStatement() {
 
       {/* ── controls (never printed) ─────────────────────────────────────── */}
       <div className="no-print" style={{ marginBottom: 22 }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: 26, fontWeight: 900, color: '#38bdf8' }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: 26, fontWeight: 900, color: '#22d3ee' }}>
           🧾 Vehicle Owner Statement
         </h1>
-        <p style={{ margin: '0 0 16px', color: '#94a3b8', fontSize: 13 }}>
+        <p style={{ margin: '0 0 16px', color: '#9aadd4', fontSize: 13 }}>
           Owner khata across all operating entities — IOCL e-TRP style, print &amp; share ready.
         </p>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end',
-                      background: 'rgba(30,41,59,.5)', padding: 16, borderRadius: 14, border: '1px solid #334155' }}>
+                      background: 'rgba(24, 36, 74,.5)', padding: 16, borderRadius: 14, border: '1px solid #27395f' }}>
           <Field label="Owner">
             <select value={owner} onChange={(e) => setOwner(e.target.value)} style={inp}>
               {owners.map((o) => (
@@ -207,15 +207,15 @@ export default function OwnerStatement() {
           </Field>
           <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={inp} /></Field>
           <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={inp} /></Field>
-          <button onClick={() => window.print()} style={btn('#38bdf8')}>🖨️ Print / PDF</button>
-          <button onClick={exportCsv} style={btn('#10b981')}>⬇ CSV</button>
+          <button onClick={() => window.print()} style={btn('#22d3ee')}>🖨️ Print / PDF</button>
+          <button onClick={exportCsv} style={btn('#2fe39b')}>⬇ CSV</button>
           <button onClick={shareWhatsApp} style={btn('#25D366')}>💬 WhatsApp</button>
         </div>
       </div>
 
-      {loading && <p style={{ color: '#94a3b8' }}>Loading statement…</p>}
+      {loading && <p style={{ color: '#9aadd4' }}>Loading statement…</p>}
       {err && (
-        <div style={{ padding: 14, border: '1px solid #f59e0b', borderRadius: 10, color: '#fcd34d', background: 'rgba(245,158,11,.08)' }}>
+        <div style={{ padding: 14, border: '1px solid #ffb224', borderRadius: 10, color: '#fcd34d', background: 'rgba(255, 178, 36,.08)' }}>
           Statement unavailable — {err}
         </div>
       )}
@@ -227,11 +227,11 @@ export default function OwnerStatement() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: '.04em' }}>PRASAD TRANSPORT</div>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>Bongaigaon, Assam · Transport &amp; Logistics</div>
+                <div style={{ fontSize: 11, color: '#9aadd4' }}>Bongaigaon, Assam · Transport &amp; Logistics</div>
                 <div style={{ marginTop: 12, fontSize: 13 }}>
                   <b>Owner:</b> {data.owner}
                 </div>
-                <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                <div style={{ fontSize: 11, color: '#9aadd4' }}>
                   {consolidated ? 'Group consolidated — all operating entities' : 'Entity-specific statement'}
                 </div>
               </div>
@@ -261,20 +261,20 @@ export default function OwnerStatement() {
                   {data.by_entity.map((e) => (
                     <tr key={e.company_id}>
                       <td>{e.company_name.trim()}</td>
-                      <td>{e.trips}{e.unbilled_trips > 0 && <span style={{ color: '#f59e0b' }}> ({e.unbilled_trips} unbilled)</span>}</td>
+                      <td>{e.trips}{e.unbilled_trips > 0 && <span style={{ color: '#ffb224' }}> ({e.unbilled_trips} unbilled)</span>}</td>
                       <td>{money(e.gross_freight)}</td>
                       <td>{money(e.commission)}</td>
                       <td>{money(e.fuel)}</td>
                       <td>{money(e.toll)}</td>
                       <td>{money(e.advances)}</td>
                       <td>{money(e.shortage)}</td>
-                      <td style={{ fontWeight: 800, color: Number(e.net_payable) < 0 ? '#f87171' : '#34d399' }}>
+                      <td style={{ fontWeight: 800, color: Number(e.net_payable) < 0 ? '#ff8b9c' : '#2fe39b' }}>
                         {money(e.net_payable)}
                       </td>
                     </tr>
                   ))}
                   {data.by_entity.length === 0 && (
-                    <tr><td colSpan={9} style={{ textAlign: 'center', color: '#64748b', padding: 18 }}>
+                    <tr><td colSpan={9} style={{ textAlign: 'center', color: '#5d7196', padding: 18 }}>
                       No trips for this owner in the selected period.
                     </td></tr>
                   )}
@@ -371,7 +371,7 @@ export default function OwnerStatement() {
                     </tr>
                   ))}
                   {data.trips.length === 0 && (
-                    <tr><td colSpan={11} style={{ textAlign: 'center', color: '#64748b', padding: 18 }}>No trips.</td></tr>
+                    <tr><td colSpan={11} style={{ textAlign: 'center', color: '#5d7196', padding: 18 }}>No trips.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -392,11 +392,11 @@ export default function OwnerStatement() {
 }
 
 const card = {
-  background: 'rgba(30,41,59,.45)', border: '1px solid #334155',
+  background: 'rgba(24, 36, 74,.45)', border: '1px solid #27395f',
   borderRadius: 14, padding: 18, marginBottom: 18,
 };
 const inp = {
-  background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155',
+  background: '#121c38', color: '#dde5f4', border: '1px solid #27395f',
   borderRadius: 9, padding: '9px 11px', fontSize: 13, minWidth: 170,
 };
 const btn = (c) => ({
@@ -405,11 +405,11 @@ const btn = (c) => ({
 });
 const Field = ({ label, children }) => (
   <label style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: '#64748b', textTransform: 'uppercase' }}>{label}</span>
+    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.08em', color: '#5d7196', textTransform: 'uppercase' }}>{label}</span>
     {children}
   </label>
 );
 const SectionTitle = ({ children }) => (
   <h2 style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 900, letterSpacing: '.05em',
-               textTransform: 'uppercase', color: '#38bdf8' }}>{children}</h2>
+               textTransform: 'uppercase', color: '#22d3ee' }}>{children}</h2>
 );

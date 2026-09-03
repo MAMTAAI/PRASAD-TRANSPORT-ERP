@@ -193,36 +193,36 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
   };
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
-        .glow-btn { background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
-        .glow-btn:hover { background: #059669; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4); }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; }
-        .modern-input:focus { border-color: #38bdf8; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; color: #cbd5e1; font-size: 13px; }
-        th { background: rgba(0,0,0,0.3); padding: 12px; text-align: left; border-bottom: 2px solid #334155; color: #38bdf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
-        td { padding: 12px; border-bottom: 1px solid #334155; }
+        .glass-card { background: rgba(24, 36, 74, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
+        .glow-btn { background: linear-gradient(135deg, #2fe39b, #2fe39b); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
+        .glow-btn:hover { background: #059669; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(47, 227, 155, 0.4); }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; }
+        .modern-input:focus { border-color: #22d3ee; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; color: #c4d1ea; font-size: 13px; }
+        th { background: rgba(0,0,0,0.3); padding: 12px; text-align: left; border-bottom: 2px solid #27395f; color: #22d3ee; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
+        td { padding: 12px; border-bottom: 1px solid #27395f; }
         tr:hover { background: rgba(255,255,255,0.02); }
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
       `}</style>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '32px', fontWeight: '900' }}>GST & Tax Management</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Invoice Registry & Return Submission Status</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Invoice Registry & Return Submission Status</p>
         </div>
-        <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }} onClick={handleExportCSV}>
+        <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #d97706)' }} onClick={handleExportCSV}>
           📥 Download CA Report (CSV)
         </button>
       </div>
 
       {/* Input Form Section */}
-      <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderTop: '4px solid #38bdf8' }}>
+      <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderTop: '4px solid #22d3ee' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
-          <h3 style={{ color: '#38bdf8', margin: 0 }}>➕ New GST Entry</h3>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg,#c084fc,#8b5cf6)', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningBill ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
+          <h3 style={{ color: '#22d3ee', margin: 0 }}>➕ New GST Entry</h3>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg,#a78bfa,#8b5cf6)', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningBill ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
             {scanningBill ? '⏳ Reading…' : '📄 Scan Bill (PDF) — auto-fill'}
             <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanBill} disabled={scanningBill} />
           </label>
@@ -230,7 +230,7 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', alignItems: 'end' }}>
           
           <div style={{ gridColumn: 'span 2' }}>
-            <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>Customer Name *</label>
+            <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>Customer Name *</label>
             <select className="modern-input" value={formData.Customer_Name} onChange={e=>setFormData({...formData, Customer_Name: e.target.value})}>
               <option value="">-- Select Customer --</option>
               {customers.map((c: any) => <option key={c.id} value={c.customer_name}>{c.customer_name}</option>)}
@@ -239,7 +239,7 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
           </div>
           
           <div>
-            <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>GST Type</label>
+            <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>GST Type</label>
             <select className="modern-input" value={formData.GST_Type} onChange={e=>setFormData({...formData, GST_Type: e.target.value})}>
               <option value="CGST+SGST">CGST + SGST (Local)</option>
               <option value="IGST">IGST (Interstate)</option>
@@ -247,14 +247,14 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
             </select>
           </div>
           
-          <div><label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>Invoice No *</label>
+          <div><label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>Invoice No *</label>
           <input className="modern-input" placeholder="INV-2026-01" value={formData.Invoice_No} onChange={e=>setFormData({...formData, Invoice_No: e.target.value})} /></div>
           
-          <div><label style={{ fontSize: '11px', color: '#f59e0b', fontWeight:'bold' }}>Taxable Amt (₹) *</label>
-          <input type="number" className="modern-input" style={{ border: '1px solid #f59e0b' }} value={formData.Taxable_Amt} onChange={e=>handleAmountChange(e.target.value, formData.GST_Rate)} /></div>
+          <div><label style={{ fontSize: '11px', color: '#ffb224', fontWeight:'bold' }}>Taxable Amt (₹) *</label>
+          <input type="number" className="modern-input" style={{ border: '1px solid #ffb224' }} value={formData.Taxable_Amt} onChange={e=>handleAmountChange(e.target.value, formData.GST_Rate)} /></div>
           
           <div>
-            <label style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>GST Rate (%)</label>
+            <label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>GST Rate (%)</label>
             <select className="modern-input" value={formData.GST_Rate} onChange={e=>handleAmountChange(formData.Taxable_Amt, e.target.value)}>
               <option value="0">0%</option>
               <option value="5">5%</option>
@@ -263,9 +263,9 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
             </select>
           </div>
           
-          <div style={{ background: 'rgba(56, 189, 248, 0.1)', padding: '10px', borderRadius: '8px', border: '1px dashed #38bdf8' }}>
-            <label style={{ fontSize: '11px', color: '#38bdf8', fontWeight:'bold' }}>Total GST (₹)</label>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#38bdf8', marginTop: '3px' }}>₹{formData.Total_GST}</div>
+          <div style={{ background: 'rgba(34, 211, 238, 0.1)', padding: '10px', borderRadius: '8px', border: '1px dashed #22d3ee' }}>
+            <label style={{ fontSize: '11px', color: '#22d3ee', fontWeight:'bold' }}>Total GST (₹)</label>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#22d3ee', marginTop: '3px' }}>₹{formData.Total_GST}</div>
           </div>
 
           <button className="glow-btn" onClick={handleSave}>✅ Save Entry</button>
@@ -275,7 +275,7 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
       {/* Data Table Section */}
       <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
         <h3 style={{ color: '#fff', marginTop: 0 }}>📊 GST Invoice Registry</h3>
-        {loading ? <p style={{ color: '#38bdf8' }}>Loading Data...</p> : (
+        {loading ? <p style={{ color: '#22d3ee' }}>Loading Data...</p> : (
           <table>
             <thead>
               <tr>
@@ -285,7 +285,7 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
                 <th>GST Type</th>
                 <th>Taxable Amt</th>
                 <th>Rate</th>
-                <th style={{ color: '#38bdf8' }}>Total GST</th>
+                <th style={{ color: '#22d3ee' }}>Total GST</th>
                 <th>GSTR Filing Status</th>
                 <th style={{ textAlign: 'center' }}>Action</th>
               </tr>
@@ -298,20 +298,20 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
                   <tr key={i}>
                     <td>{r.Entry_Date || 'N/A'}</td>
                     <td style={{ fontWeight: 'bold', color: '#fff' }}>{r.Customer_Name}</td>
-                    <td style={{ color: '#f59e0b' }}>{r.Invoice_No}</td>
+                    <td style={{ color: '#ffb224' }}>{r.Invoice_No}</td>
                     <td>{r.GST_Type}</td>
                     <td>₹{r.Taxable_Amt}</td>
-                    <td><span style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>{r.GST_Rate}%</span></td>
-                    <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>₹{r.Total_GST}</td>
+                    <td><span style={{ background: 'rgba(255, 178, 36,0.2)', color: '#ffb224', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>{r.GST_Rate}%</span></td>
+                    <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>₹{r.Total_GST}</td>
                     
                     {/* Toggle Status Button */}
                     <td>
                       <button 
                         onClick={() => toggleSubmitStatus(r.id, r.is_submitted)}
                         style={{ 
-                          background: r.is_submitted ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)', 
-                          color: r.is_submitted ? '#10b981' : '#f59e0b', 
-                          border: `1px solid ${r.is_submitted ? '#10b981' : '#f59e0b'}`, 
+                          background: r.is_submitted ? 'rgba(47, 227, 155, 0.1)' : 'rgba(255, 178, 36, 0.1)', 
+                          color: r.is_submitted ? '#2fe39b' : '#ffb224', 
+                          border: `1px solid ${r.is_submitted ? '#2fe39b' : '#ffb224'}`, 
                           padding: '6px 12px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', transition: '0.3s'
                         }}
                       >
@@ -323,9 +323,9 @@ total_gross_amount = the grand total taxable/gross freight (sum of all gross amo
                     <td style={{ textAlign: 'center' }}>
                       <span 
                         onClick={() => handleDelete(r.id, r.Invoice_No)} 
-                        style={{ cursor: 'pointer', color: '#64748b', fontSize: '16px', transition: '0.2s' }}
-                        onMouseOver={(e) => e.currentTarget.style.color = '#ef4444'}
-                        onMouseOut={(e) => e.currentTarget.style.color = '#64748b'}
+                        style={{ cursor: 'pointer', color: '#5d7196', fontSize: '16px', transition: '0.2s' }}
+                        onMouseOver={(e) => e.currentTarget.style.color = '#ff6b81'}
+                        onMouseOut={(e) => e.currentTarget.style.color = '#5d7196'}
                         title="Delete Record"
                       >
                         🗑️

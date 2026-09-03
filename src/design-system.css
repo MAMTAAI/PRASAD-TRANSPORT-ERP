@@ -6,28 +6,46 @@
    ============================================================ */
 
 :root {
-  /* ---- Brand / semantic colors (formalized from de-facto usage) ---- */
-  --pt-primary: #38bdf8;        /* sky neon — primary accent (509 uses) */
-  --pt-primary-2: #3b82f6;      /* blue — gradient partner */
-  --pt-success: #10b981;        /* emerald — active / completed */
-  --pt-warning: #f59e0b;        /* amber — pending / attention */
-  --pt-danger:  #ef4444;        /* red — error / destructive */
-  --pt-ai:      #c084fc;        /* violet — MAMTA AI surfaces */
-  --pt-info:    #6366f1;        /* indigo — secondary info */
+  /* ---- Brand / semantic colors - 2026 "Indigo Deck" ----
+     Named by MEANING, not by hue: a new screen picks --pt-warning because the
+     row is waiting on a person, and gets whatever amber the theme is using. */
+  --pt-primary: #22d3ee;        /* glowing cyan - live tracking, primary accent */
+  --pt-primary-2: #4f7cf7;      /* royal blue - gradient partner */
+  --pt-success: #2fe39b;        /* neon green - active / settled / verified */
+  --pt-warning: #ffb224;        /* vibrant amber - pending / waiting on a person */
+  --pt-danger:  #ff6b81;        /* rose - blocked / expired / destructive */
+  --pt-ai:      #a78bfa;        /* violet - MAMTA AI surfaces */
+  --pt-info:    #7c8cff;        /* periwinkle - secondary info */
 
-  /* ---- Neutral / surface layers (slate ramp) ---- */
-  --pt-bg-0: #020617;           /* app background (deepest) */
-  --pt-bg-1: #0f172a;           /* panel */
-  --pt-bg-2: #1e293b;           /* raised surface */
-  --pt-border: #334155;         /* hairline border */
-  --pt-text:   #f1f5f9;         /* primary text */
-  --pt-text-muted: #94a3b8;     /* secondary text */
-  --pt-text-dim:   #cbd5e1;     /* tertiary text */
+  /* ---- Neutral / surface layers (deep-navy ramp) ----
+     Mirrors the Tailwind `slate` override in tailwind.config.cjs, so a module
+     styled with classes and a module styled with these vars land on the same
+     colour. Change one, change the other. */
+  --pt-bg-0: #0a1024;           /* app ground (deep navy, was #020617 black) */
+  --pt-bg-1: #121c38;           /* panel */
+  --pt-bg-2: #18244a;           /* raised surface / inset */
+  --pt-border: #27395f;         /* hairline border */
+  --pt-border-hi: #3d548a;      /* hairline on hover - a card answers the pointer */
+  --pt-text:   #eef3ff;         /* primary text */
+  --pt-text-muted: #9aadd4;     /* secondary text */
+  --pt-text-dim:   #c4d1ea;     /* tertiary text */
+
+  /* ---- The ground itself ----
+     A flat fill is what made the decks read as "only black". This is navy with
+     a cyan wash top-right and a violet wash bottom-left; it never moves, so it
+     reads as room lighting rather than decoration. */
+  --pt-ground:
+    radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,0.10) 0%, transparent 60%),
+    radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,0.09) 0%, transparent 58%),
+    linear-gradient(180deg, #0b1228 0%, #0a1024 100%);
+  /* Card lighting: a lit top-left edge that fades out across the panel. */
+  --pt-card-sheen: linear-gradient(168deg, rgba(46,66,118,0.42) 0%, rgba(18,28,56,0) 58%);
+  --pt-tile-sheen: linear-gradient(160deg, rgba(46,66,118,0.50) 0%, rgba(18,28,56,0) 62%);
 
   /* ---- Glass ---- */
-  --pt-glass-bg: rgba(30, 41, 59, 0.45);
-  --pt-glass-border: rgba(255, 255, 255, 0.08);
-  --pt-glass-blur: 12px;
+  --pt-glass-bg: rgba(24, 36, 74, 0.52);
+  --pt-glass-border: rgba(154, 173, 212, 0.14);
+  --pt-glass-blur: 14px;
 
   /* ---- Spacing scale (4px base) ---- */
   --pt-space-1: 4px;  --pt-space-2: 8px;  --pt-space-3: 12px;
@@ -38,21 +56,30 @@
   --pt-radius-sm: 8px; --pt-radius-md: 12px;
   --pt-radius-lg: 16px; --pt-radius-xl: 20px; --pt-radius-pill: 999px;
 
-  /* ---- Shadow scale ---- */
-  --pt-shadow-sm: 0 2px 8px rgba(0,0,0,0.25);
-  --pt-shadow-md: 0 8px 24px rgba(0,0,0,0.35);
-  --pt-shadow-lg: 0 16px 40px rgba(0,0,0,0.45);
-  --pt-glow-primary: 0 4px 18px rgba(56,189,248,0.35);
+  /* ---- Shadow scale ----
+     Elevation on navy needs a bluer, deeper shadow than black-on-black did,
+     plus a hairline of light along the top edge so the card looks lifted. */
+  --pt-shadow-sm: 0 2px 10px rgba(4,9,26,0.45), inset 0 1px 0 rgba(255,255,255,0.045);
+  --pt-shadow-md: 0 10px 28px rgba(4,9,26,0.52), inset 0 1px 0 rgba(255,255,255,0.055);
+  --pt-shadow-lg: 0 16px 38px rgba(4,9,26,0.60), inset 0 1px 0 rgba(255,255,255,0.070);
+
+  /* ---- Status glows - the "pop". One per meaning. ---- */
+  --pt-glow-primary: 0 0 24px rgba(34,211,238,0.30);
+  --pt-glow-success: 0 0 24px rgba(47,227,155,0.28);
+  --pt-glow-warning: 0 0 24px rgba(255,178,36,0.28);
+  --pt-glow-danger:  0 0 24px rgba(255,107,129,0.26);
+  --pt-glow-ai:      0 0 24px rgba(167,139,250,0.28);
 
   /* ---- Type scale ---- */
   --pt-font: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --pt-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
   --pt-fs-xs: 11px; --pt-fs-sm: 13px; --pt-fs-md: 15px;
   --pt-fs-lg: 18px; --pt-fs-xl: 24px; --pt-fs-2xl: 32px;
 }
 
 /* ---- Glass card ---- */
 .pt-glass {
-  background: var(--pt-glass-bg);
+  background: var(--pt-card-sheen), var(--pt-glass-bg);
   border: 1px solid var(--pt-glass-border);
   border-radius: var(--pt-radius-xl);
   backdrop-filter: blur(var(--pt-glass-blur));
@@ -76,11 +103,11 @@
   border: 1px solid transparent;
 }
 .pt-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.pt-pill--pending-load   { color: var(--pt-warning); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.35); }
-.pt-pill--loading        { color: var(--pt-primary); background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.35); }
-.pt-pill--transit        { color: var(--pt-info);    background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.35); }
-.pt-pill--pending-unload { color: #fb923c;           background: rgba(251,146,60,0.12); border-color: rgba(251,146,60,0.35); }
-.pt-pill--completed      { color: var(--pt-success); background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.35); }
+.pt-pill--pending-load   { color: var(--pt-warning); background: rgba(255,178,36,0.13);  border-color: rgba(255,178,36,0.38);  box-shadow: var(--pt-glow-warning); }
+.pt-pill--loading        { color: var(--pt-primary); background: rgba(34,211,238,0.13);  border-color: rgba(34,211,238,0.38);  box-shadow: var(--pt-glow-primary); }
+.pt-pill--transit        { color: var(--pt-info);    background: rgba(124,140,255,0.15); border-color: rgba(124,140,255,0.38); }
+.pt-pill--pending-unload { color: #ff9d4d;           background: rgba(255,157,77,0.13);  border-color: rgba(255,157,77,0.38); }
+.pt-pill--completed      { color: var(--pt-success); background: rgba(47,227,155,0.13);  border-color: rgba(47,227,155,0.38);  box-shadow: var(--pt-glow-success); }
 
 /* ---- Buttons ---- */
 .pt-btn {
@@ -103,13 +130,16 @@
 .pt-btn:active { transform: translateY(0); }
 .pt-btn:disabled, .pt-btn.is-loading { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
 
-.pt-btn--primary   { background: linear-gradient(135deg, var(--pt-primary), var(--pt-primary-2)); color: #fff; }
+.pt-btn--primary   { background: linear-gradient(135deg, var(--pt-primary), var(--pt-primary-2)); color: #04202b; }
 .pt-btn--primary:hover { box-shadow: var(--pt-glow-primary); }
-.pt-btn--success   { background: linear-gradient(135deg, var(--pt-success), #059669); color: #fff; }
+.pt-btn--success   { background: linear-gradient(135deg, var(--pt-success), #059669); color: #04231a; }
+.pt-btn--success:hover { box-shadow: var(--pt-glow-success); }
 .pt-btn--danger    { background: linear-gradient(135deg, var(--pt-danger), #b91c1c); color: #fff; }
-.pt-btn--ai        { background: linear-gradient(135deg, var(--pt-ai), #818cf8); color: #fff; }
+.pt-btn--danger:hover { box-shadow: var(--pt-glow-danger); }
+.pt-btn--ai        { background: linear-gradient(135deg, var(--pt-ai), #6d63f5); color: #fff; }
+.pt-btn--ai:hover { box-shadow: var(--pt-glow-ai); }
 .pt-btn--secondary { background: var(--pt-bg-2); color: var(--pt-text-dim); border-color: var(--pt-border); }
-.pt-btn--secondary:hover { background: #283548; color: #fff; }
+.pt-btn--secondary:hover { background: #21315e; color: #fff; border-color: var(--pt-border-hi); }
 .pt-btn--ghost     { background: transparent; color: var(--pt-text-dim); border-color: var(--pt-border); }
 .pt-btn--ghost:hover { background: rgba(255,255,255,0.04); color: #fff; }
 
@@ -164,32 +194,56 @@
 
 /* ---- Premium card ---- */
 .pt-card {
-  background: linear-gradient(180deg, rgba(30,41,59,0.65), rgba(15,23,42,0.85));
+  background: var(--pt-card-sheen), var(--pt-bg-1);
   border: 1px solid var(--pt-border);
   border-radius: var(--pt-radius-lg);
   padding: var(--pt-space-5);
   box-shadow: var(--pt-shadow-sm);
   transition: transform .18s ease, box-shadow .22s ease, border-color .22s ease;
 }
-.pt-card:hover { transform: translateY(-3px); box-shadow: var(--pt-shadow-md); border-color: #475569; }
+.pt-card:hover { transform: translateY(-3px); box-shadow: var(--pt-shadow-lg); border-color: var(--pt-border-hi); }
+/* Accent rail. A 3px top edge was invisible on black; on navy it is the fastest
+   read on the card, so it gets a matching glow and answers hover. */
 .pt-card--accent-warning { border-top: 3px solid var(--pt-warning); }
 .pt-card--accent-success { border-top: 3px solid var(--pt-success); }
 .pt-card--accent-danger  { border-top: 3px solid var(--pt-danger); }
 .pt-card--accent-primary { border-top: 3px solid var(--pt-primary); }
+.pt-card--accent-ai      { border-top: 3px solid var(--pt-ai); }
+.pt-card--accent-warning:hover { box-shadow: var(--pt-shadow-lg), var(--pt-glow-warning); }
+.pt-card--accent-success:hover { box-shadow: var(--pt-shadow-lg), var(--pt-glow-success); }
+.pt-card--accent-danger:hover  { box-shadow: var(--pt-shadow-lg), var(--pt-glow-danger); }
+.pt-card--accent-primary:hover { box-shadow: var(--pt-shadow-lg), var(--pt-glow-primary); }
+.pt-card--accent-ai:hover      { box-shadow: var(--pt-shadow-lg), var(--pt-glow-ai); }
 
 /* ---- KPI tile ---- */
 .pt-kpi {
+  position: relative;
+  overflow: hidden;
   flex: 1 1 180px;
-  background: linear-gradient(180deg, rgba(30,41,59,0.6), rgba(15,23,42,0.9));
+  background: var(--pt-tile-sheen), var(--pt-bg-1);
   border: 1px solid var(--pt-border);
   border-radius: var(--pt-radius-lg);
   padding: 16px 20px;
   box-shadow: var(--pt-shadow-sm);
-  transition: transform .18s ease, box-shadow .22s ease;
+  transition: transform .18s ease, box-shadow .22s ease, border-color .22s ease;
 }
-.pt-kpi:hover { transform: translateY(-2px); box-shadow: var(--pt-shadow-md); }
-.pt-kpi__label { font-size: var(--pt-fs-xs); font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
-.pt-kpi__value { font-size: clamp(22px, 5vw, 28px); font-weight: 900; color: var(--pt-text); margin: 4px 0 2px; }
+/* The rail carries the metric's status colour. Set --pt-rail on the tile
+   (defaults to the primary accent) and the glow follows it for free. */
+.pt-kpi::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: var(--pt-rail, var(--pt-primary));
+  box-shadow: 0 0 18px var(--pt-rail, var(--pt-primary));
+}
+.pt-kpi--success { --pt-rail: var(--pt-success); }
+.pt-kpi--warning { --pt-rail: var(--pt-warning); }
+.pt-kpi--danger  { --pt-rail: var(--pt-danger); }
+.pt-kpi--ai      { --pt-rail: var(--pt-ai); }
+.pt-kpi:hover { transform: translateY(-3px); box-shadow: var(--pt-shadow-lg); border-color: var(--pt-border-hi); }
+.pt-kpi__label { font-size: var(--pt-fs-xs); font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--pt-text-muted); }
+/* Figures are read in columns, so they get the mono face and tabular digits -
+   a 6 and a 1 take the same width and the decimal points line up. */
+.pt-kpi__value { font-family: var(--pt-mono); font-variant-numeric: tabular-nums; font-size: clamp(22px, 5vw, 28px); font-weight: 700; letter-spacing: -.02em; color: var(--pt-text); margin: 6px 0 2px; }
 .pt-kpi__sub   { font-size: var(--pt-fs-xs); color: var(--pt-text-muted); }
 
 /* ---- Color-coded status badges ---- */
@@ -199,11 +253,11 @@
   font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
   border: 1px solid transparent; white-space: nowrap;
 }
-.pt-badge--danger  { color: var(--pt-danger);  background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.4); }
-.pt-badge--warning { color: var(--pt-warning); background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.4); }
-.pt-badge--success { color: var(--pt-success); background: rgba(16,185,129,0.12); border-color: rgba(16,185,129,0.4); }
-.pt-badge--info    { color: var(--pt-primary); background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.4); }
-.pt-badge--ai      { color: var(--pt-ai);      background: rgba(192,132,252,0.12); border-color: rgba(192,132,252,0.4); }
+.pt-badge--danger  { color: var(--pt-danger);  background: rgba(255,107,129,0.13); border-color: rgba(255,107,129,0.42); }
+.pt-badge--warning { color: var(--pt-warning); background: rgba(255,178,36,0.13);  border-color: rgba(255,178,36,0.42); }
+.pt-badge--success { color: var(--pt-success); background: rgba(47,227,155,0.13);  border-color: rgba(47,227,155,0.42); }
+.pt-badge--info    { color: var(--pt-primary); background: rgba(34,211,238,0.13);  border-color: rgba(34,211,238,0.42); }
+.pt-badge--ai      { color: var(--pt-ai);      background: rgba(167,139,250,0.14); border-color: rgba(167,139,250,0.42); }
 
 /* ---- Tap-first inputs (44px+ touch targets) ---- */
 .pt-input {
@@ -215,7 +269,7 @@
   outline: none; color-scheme: dark;
   transition: border-color .2s ease, box-shadow .2s ease;
 }
-.pt-input:focus { border-color: var(--pt-primary); box-shadow: 0 0 0 3px rgba(56,189,248,0.15); }
+.pt-input:focus { border-color: var(--pt-primary); box-shadow: 0 0 0 3px rgba(34,211,238,0.18), var(--pt-glow-primary); }
 .pt-label {
   display: block; margin-bottom: 6px;
   font-size: var(--pt-fs-xs); font-weight: 800;
@@ -232,13 +286,13 @@
   cursor: pointer; user-select: none;
   transition: all .18s ease;
 }
-.pt-chip:hover { border-color: var(--pt-primary); color: #fff; }
+.pt-chip:hover { border-color: var(--pt-border-hi); color: #fff; transform: translateY(-2px); }
 .pt-chip.is-on {
-  background: rgba(56,189,248,0.15); color: var(--pt-primary);
-  border-color: var(--pt-primary); box-shadow: 0 0 12px rgba(56,189,248,0.25);
+  background: rgba(34,211,238,0.15); color: var(--pt-primary);
+  border-color: var(--pt-primary); box-shadow: var(--pt-glow-primary);
 }
-.pt-chip.is-on--success { background: rgba(16,185,129,0.15); color: var(--pt-success); border-color: var(--pt-success); box-shadow: 0 0 12px rgba(16,185,129,0.25); }
-.pt-chip.is-on--warning { background: rgba(245,158,11,0.15); color: var(--pt-warning); border-color: var(--pt-warning); box-shadow: 0 0 12px rgba(245,158,11,0.25); }
+.pt-chip.is-on--success { background: rgba(47,227,155,0.15); color: var(--pt-success); border-color: var(--pt-success); box-shadow: var(--pt-glow-success); }
+.pt-chip.is-on--warning { background: rgba(255,178,36,0.15); color: var(--pt-warning); border-color: var(--pt-warning); box-shadow: var(--pt-glow-warning); }
 
 /* ---- Segmented control (icon choice, tap-first) ---- */
 .pt-seg { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
@@ -251,8 +305,8 @@
   cursor: pointer; text-align: center;
   transition: all .18s ease;
 }
-.pt-seg__opt:hover { border-color: #475569; color: #fff; transform: translateY(-2px); }
-.pt-seg__opt.is-on { background: rgba(56,189,248,0.12); border-color: var(--pt-primary); color: var(--pt-primary); box-shadow: 0 4px 14px rgba(56,189,248,0.2); }
+.pt-seg__opt:hover { border-color: var(--pt-border-hi); color: #fff; transform: translateY(-2px); }
+.pt-seg__opt.is-on { background: rgba(34,211,238,0.13); border-color: var(--pt-primary); color: var(--pt-primary); box-shadow: var(--pt-glow-primary); }
 .pt-seg__opt .pt-seg__icon { font-size: 22px; line-height: 1; }
 
 /* ---- Animated tabs ---- */
@@ -271,11 +325,11 @@
   transform: scaleX(0); transition: transform .25s cubic-bezier(.22,.9,.35,1);
 }
 .pt-tab:hover { color: var(--pt-text); }
-.pt-tab.is-active { color: var(--pt-primary); background: rgba(56,189,248,0.08); }
+.pt-tab.is-active { color: var(--pt-primary); background: rgba(34,211,238,0.09); }
 .pt-tab.is-active::after { transform: scaleX(1); }
-.pt-tab.is-active--success { color: var(--pt-success); background: rgba(16,185,129,0.08); }
-.pt-tab.is-active--warning { color: var(--pt-warning); background: rgba(245,158,11,0.08); }
-.pt-tab.is-active--danger  { color: var(--pt-danger);  background: rgba(239,68,68,0.08); }
+.pt-tab.is-active--success { color: var(--pt-success); background: rgba(47,227,155,0.09); }
+.pt-tab.is-active--warning { color: var(--pt-warning); background: rgba(255,178,36,0.09); }
+.pt-tab.is-active--danger  { color: var(--pt-danger);  background: rgba(255,107,129,0.09); }
 .pt-tab__count {
   margin-left: 6px; padding: 1px 8px; border-radius: var(--pt-radius-pill);
   background: var(--pt-danger); color: #fff; font-size: 10px; font-weight: 900;
@@ -295,7 +349,7 @@
   background: var(--pt-text-muted);
   transition: transform .22s cubic-bezier(.22,.9,.35,1), background .2s ease;
 }
-.pt-switch input:checked + .pt-switch__track { background: rgba(16,185,129,0.25); border-color: var(--pt-success); }
+.pt-switch input:checked + .pt-switch__track { background: rgba(47,227,155,0.25); border-color: var(--pt-success); box-shadow: var(--pt-glow-success); }
 .pt-switch input:checked + .pt-switch__track::after { transform: translateX(20px); background: var(--pt-success); }
 
 /* ---- Accessibility: visible keyboard focus everywhere ---- */
@@ -308,4 +362,147 @@ select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--pt-primary);
   outline-offset: 2px;
+}
+
+/* ============================================================
+   INDIGO DECK — GLOBAL LAYER (2026-09-03)
+   Owner verdict on the old theme: "too dark, plain, only black."
+   The cause was a flat #020617 ground under flat #0f172a panels —
+   nothing separated a card from the air around it. This layer
+   paints the room, then gives the structural pieces (grid, rails,
+   scrollbars, focus) the treatment a control centre needs.
+   Mock this was approved from: docs/mockups/theme-2026-indigo-deck.html
+   ============================================================ */
+
+/* ---- The room. Every full-screen surface stands on this, so a gap
+        between two panels shows navy rather than white or black. ---- */
+/* color-scheme is deliberately NOT set here: the Super-App portals
+   (Customer / Vendor / Fleet Partner) are light surfaces, and a global
+   dark scheme would render their native select popups dark on white.
+   .pt-input carries color-scheme: dark for the dark forms instead. */
+html, body, #root {
+  background: var(--pt-bg-0);
+}
+/* background-image + background-color, NOT the `background` shorthand: the
+   shorthand resets background-color to transparent, which left the body
+   leaning on html for its ground colour. Explicit is better here — a
+   transparent body borrows whatever is behind it. */
+body {
+  background-color: var(--pt-bg-0);
+  background-image: var(--pt-ground);
+  background-attachment: fixed;
+}
+
+/* Opt-in ground for any module that paints its own full-height shell. */
+.pt-ground {
+  background-color: var(--pt-bg-0);
+  background-image: var(--pt-ground);
+  background-attachment: fixed;
+  color: var(--pt-text);
+}
+
+/* ---- Structured grid. The decks laid tiles out with flex-wrap, which
+        left orphan cards stretched across a half-empty row. These give
+        equal tracks that collapse in one step, never mid-card. ---- */
+.pt-grid       { display: grid; gap: var(--pt-space-3); align-items: start; }
+.pt-grid--4    { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pt-grid--3    { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pt-grid--2    { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pt-grid--auto { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+@media (max-width: 1100px) {
+  .pt-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pt-grid--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .pt-grid--4, .pt-grid--3, .pt-grid--2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ---- Panel: the workhorse container. A card is visibly a card before
+        you go looking for its border. ---- */
+.pt-panel {
+  background: var(--pt-card-sheen), var(--pt-bg-1);
+  border: 1px solid var(--pt-border);
+  border-radius: var(--pt-radius-lg);
+  box-shadow: var(--pt-shadow-sm);
+  overflow: hidden;
+  transition: border-color .2s ease, box-shadow .24s ease;
+}
+.pt-panel:hover { border-color: var(--pt-border-hi); box-shadow: var(--pt-shadow-md); }
+.pt-panel > header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--pt-space-3);
+  padding: 14px 16px 11px;
+  border-bottom: 1px solid var(--pt-border);
+}
+.pt-panel > header h2, .pt-panel > header h3 {
+  margin: 0; font-size: var(--pt-fs-sm); font-weight: 700; letter-spacing: -.01em;
+  color: var(--pt-text);
+}
+.pt-panel > header .pt-panel__meta { font-size: var(--pt-fs-xs); color: var(--pt-text-muted); text-align: right; }
+.pt-panel__body { padding: 6px 16px 14px; }
+
+/* ---- Glow utilities. Reach for these by MEANING, not by colour. ---- */
+.pt-glow-live    { box-shadow: var(--pt-glow-primary); }
+.pt-glow-active  { box-shadow: var(--pt-glow-success); }
+.pt-glow-pending { box-shadow: var(--pt-glow-warning); }
+.pt-glow-blocked { box-shadow: var(--pt-glow-danger); }
+.pt-glow-ai      { box-shadow: var(--pt-glow-ai); }
+
+/* ---- Live beacon. Anything reporting right now gets a slow pulse, so a
+        stale screen is obvious from across the office. ---- */
+.pt-beacon {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--pt-primary);
+  box-shadow: 0 0 10px var(--pt-primary);
+  animation: pt-beat 1.9s ease-in-out infinite;
+  flex: none;
+}
+.pt-beacon--active  { background: var(--pt-success); box-shadow: 0 0 10px var(--pt-success); }
+.pt-beacon--pending { background: var(--pt-warning); box-shadow: 0 0 10px var(--pt-warning); }
+.pt-beacon--blocked { background: var(--pt-danger);  box-shadow: 0 0 10px var(--pt-danger); }
+@keyframes pt-beat { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .38; transform: scale(.82); } }
+@media (prefers-reduced-motion: reduce) { .pt-beacon { animation: none; } }
+
+/* ---- Figures. Anywhere digits line up in a column they get the mono
+        face and tabular numerals, so ₹1,11,000 and ₹98,400 align. ---- */
+.pt-num { font-family: var(--pt-mono); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+
+/* ---- Data table. Hairlines only, hover on the row, figures right. ---- */
+.pt-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pt-table th {
+  text-align: left; padding: 8px 6px 8px 0;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 700; color: var(--pt-text-muted);
+  border-bottom: 1px solid var(--pt-border);
+}
+.pt-table td {
+  padding: 9px 6px 9px 0; border-bottom: 1px solid var(--pt-border);
+  color: var(--pt-text-dim); vertical-align: top;
+}
+.pt-table tbody tr { transition: background .14s ease; }
+.pt-table tbody tr:hover { background: var(--pt-bg-2); }
+.pt-table tbody tr:last-child td { border-bottom: 0; }
+.pt-table td.pt-r, .pt-table th.pt-r {
+  text-align: right; font-family: var(--pt-mono); font-variant-numeric: tabular-nums;
+}
+
+/* ---- Scrollbars in the theme, not the OS default grey. ---- */
+* { scrollbar-color: var(--pt-border-hi) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--pt-border); border-radius: 6px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--pt-border-hi); background-clip: content-box; }
+
+/* ---- Selection + autofill: two places the browser paints its own colour
+        and breaks the theme. ---- */
+::selection { background: rgba(34,211,238,0.28); color: #fff; }
+input:-webkit-autofill,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--pt-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--pt-bg-2) inset;
+  caret-color: var(--pt-text);
 }

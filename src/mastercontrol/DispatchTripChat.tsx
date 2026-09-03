@@ -704,7 +704,7 @@ export default function DispatchTripChat({ trips, offline, onExpand, onNewContac
               /* Tailwind cannot build a class name at runtime, and the three
                  tones are decided by the result — so the one colour that varies
                  is an inline style rather than a class that would be purged. */
-              style={{ borderColor: toast.tone === 'err' ? 'rgba(248,113,113,.5)' : toast.tone === 'warn' ? 'rgba(251,191,36,.5)' : 'rgba(52,211,153,.5)' }}>
+              style={{ borderColor: toast.tone === 'err' ? 'rgba(255, 139, 156,.5)' : toast.tone === 'warn' ? 'rgba(255, 192, 61,.5)' : 'rgba(47, 227, 155,.5)' }}>
               <div className="flex items-start gap-2">
                 {toast.tone === 'err' ? <AlertTriangle size={13} className="text-red-400 mt-0.5 shrink-0" />
                   : toast.tone === 'warn' ? <AlertTriangle size={13} className="text-amber-400 mt-0.5 shrink-0" />

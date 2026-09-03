@@ -5,7 +5,7 @@
 // Kills the 450/800/850px fixed modals that were clipped and unusable on phones.
 import React, { useRef, useState, useEffect } from 'react';
 
-export default function BottomSheet({ open, onClose, title, accent = '#38bdf8', maxWidth = 720, children }) {
+export default function BottomSheet({ open, onClose, title, accent = '#22d3ee', maxWidth = 720, children }) {
   const [dragY, setDragY] = useState(0);
   const startRef = useRef(null);
 
@@ -34,7 +34,7 @@ export default function BottomSheet({ open, onClose, title, accent = '#38bdf8', 
   return (
     <div
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.8)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.8)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
       className="pt-sheet-scrim"
     >
       <style>{`
@@ -50,7 +50,7 @@ export default function BottomSheet({ open, onClose, title, accent = '#38bdf8', 
         className="pt-sheet-panel"
         style={{
           '--sheet-max': `${maxWidth}px`,
-          background: '#0f172a', border: '1px solid #334155', borderBottom: 'none',
+          background: '#121c38', border: '1px solid #27395f', borderBottom: 'none',
           display: 'flex', flexDirection: 'column', overflow: 'hidden',
           boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
           transform: dragY ? `translateY(${dragY}px)` : undefined,
@@ -63,12 +63,12 @@ export default function BottomSheet({ open, onClose, title, accent = '#38bdf8', 
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
           style={{ padding: '10px 0 4px', touchAction: 'none', cursor: 'grab', flexShrink: 0 }}
         >
-          <div style={{ width: '44px', height: '5px', borderRadius: '3px', background: '#475569', margin: '0 auto' }} />
+          <div style={{ width: '44px', height: '5px', borderRadius: '3px', background: '#3d548a', margin: '0 auto' }} />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #1e293b', flexShrink: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px', borderBottom: '1px solid #18244a', flexShrink: 0 }}>
           <h3 style={{ margin: 0, color: accent, fontSize: 'clamp(16px, 4vw, 20px)', fontWeight: 900 }}>{title}</h3>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '10px', minWidth: '44px', minHeight: '40px', fontSize: '16px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'rgba(255, 107, 129,0.12)', color: '#ff6b81', border: '1px solid #ff6b81', borderRadius: '10px', minWidth: '44px', minHeight: '40px', fontSize: '16px', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
         </div>
 
         <div style={{ padding: 'clamp(14px, 3vw, 24px)', overflowY: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 'calc(clamp(14px, 3vw, 24px) + env(safe-area-inset-bottom))' }}>

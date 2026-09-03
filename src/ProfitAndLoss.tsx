@@ -195,19 +195,19 @@ export default function ProfitAndLoss() {
     a.click();
   };
 
-  const Row = ({ icon, label, value, sub, color = '#cbd5e1', bold = false, minus = false }) => (
-    <tr style={{ borderBottom: '1px solid #1e293b', background: bold ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
-      <td style={{ padding: '12px 10px', fontWeight: bold ? 900 : 600, color: bold ? '#fff' : '#cbd5e1' }}>{icon} {label}{sub && <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 400 }}>{sub}</div>}</td>
+  const Row = ({ icon, label, value, sub, color = '#c4d1ea', bold = false, minus = false }) => (
+    <tr style={{ borderBottom: '1px solid #18244a', background: bold ? 'rgba(255,255,255,0.03)' : 'transparent' }}>
+      <td style={{ padding: '12px 10px', fontWeight: bold ? 900 : 600, color: bold ? '#fff' : '#c4d1ea' }}>{icon} {label}{sub && <div style={{ fontSize: '11px', color: '#5d7196', fontWeight: 400 }}>{sub}</div>}</td>
       <td style={{ padding: '12px 10px', textAlign: 'right', fontWeight: bold ? 900 : 700, fontSize: bold ? '16px' : '14px', color }}>{minus ? '− ' : ''}₹{inr(value)}</td>
     </tr>
   );
 
   return (
-    <div className="pt-anim-fade" style={{ padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '60px' }}>
+    <div className="pt-anim-fade" style={{ padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '60px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
         <div>
-          <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: 0, color: '#38bdf8' }}>📊 Company P&L (Live)</h1>
-          <p style={{ color: '#94a3b8', margin: '4px 0 0', fontSize: '13px' }}>Billing-engine se seedha operating P&L — GST revenue mein nahi (RCM govt ko). CA-ready.</p>
+          <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: 0, color: '#22d3ee' }}>📊 Company P&L (Live)</h1>
+          <p style={{ color: '#9aadd4', margin: '4px 0 0', fontSize: '13px' }}>Billing-engine se seedha operating P&L — GST revenue mein nahi (RCM govt ko). CA-ready.</p>
         </div>
         <button className="pt-btn pt-btn--ghost" style={{ minHeight: '48px' }} onClick={exportCsv}>📥 Export CSV</button>
       </div>
@@ -216,15 +216,15 @@ export default function ProfitAndLoss() {
       <div className="pt-card pt-anim-up" style={{ marginBottom: '18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '12px' }}>
           <div>
-            <label className="pt-label" style={{ color: '#f59e0b' }}>🏢 Operating Company</label>
-            <select className="pt-input" style={{ borderColor: '#f59e0b' }}
+            <label className="pt-label" style={{ color: '#ffb224' }}>🏢 Operating Company</label>
+            <select className="pt-input" style={{ borderColor: '#ffb224' }}
                     value={gf.filters.companyId} onChange={e => setCompanyById(e.target.value)}>
               <option value="">— All Companies (Group) —</option>
               {companyRows.map(c => (
                 <option key={c.id} value={c.id}>{String(c.company_name).trim()}</option>
               ))}
             </select>
-            <p style={{ margin: '5px 0 0', fontSize: 10, color: '#64748b' }}>
+            <p style={{ margin: '5px 0 0', fontSize: 10, color: '#5d7196' }}>
               Shared with the dashboard — changing it here changes it everywhere.
             </p>
           </div>
@@ -233,7 +233,7 @@ export default function ProfitAndLoss() {
         </div>
       </div>
 
-      {loading ? <div style={{ textAlign: 'center', padding: '50px', color: '#38bdf8' }}>⌛ Loading books…</div> : (
+      {loading ? <div style={{ textAlign: 'center', padding: '50px', color: '#22d3ee' }}>⌛ Loading books…</div> : (
         <>
           {/* ⚠️ A P&L with expenses and NO bills is not a loss — it is an
               incomplete period, and rendering a confident red "NET LOSS" over
@@ -244,7 +244,7 @@ export default function ProfitAndLoss() {
           {pl.invCount === 0 && pl.expenses > 0 && (
             <div className="pt-anim-up" style={{
               borderRadius: '16px', padding: '18px 22px', marginBottom: '18px',
-              background: 'rgba(245,158,11,0.10)', border: '1px solid #f59e0b', color: '#fcd34d', fontSize: '13px',
+              background: 'rgba(255, 178, 36,0.10)', border: '1px solid #ffb224', color: '#fcd34d', fontSize: '13px',
             }}>
               <b>⚠️ Is period me koi bill raise nahi hua — yeh "loss" asli nahi hai.</b>
               <div style={{ marginTop: '6px', color: '#fde68a' }}>
@@ -259,23 +259,23 @@ export default function ProfitAndLoss() {
           {/* 🏆 NET PROFIT hero card — green profit / red loss */}
           <div className="pt-anim-pop" style={{
             borderRadius: '20px', padding: 'clamp(20px, 4vw, 32px)', marginBottom: '18px',
-            background: pl.netProfit >= 0 ? 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))' : 'linear-gradient(135deg, rgba(239,68,68,0.18), rgba(185,28,28,0.08))',
-            border: `2px solid ${pl.netProfit >= 0 ? '#10b981' : '#ef4444'}`,
-            boxShadow: `0 12px 40px ${pl.netProfit >= 0 ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}`,
+            background: pl.netProfit >= 0 ? 'linear-gradient(135deg, rgba(47, 227, 155,0.18), rgba(5,150,105,0.08))' : 'linear-gradient(135deg, rgba(255, 107, 129,0.18), rgba(185,28,28,0.08))',
+            border: `2px solid ${pl.netProfit >= 0 ? '#2fe39b' : '#ff6b81'}`,
+            boxShadow: `0 12px 40px ${pl.netProfit >= 0 ? 'rgba(47, 227, 155,0.15)' : 'rgba(255, 107, 129,0.15)'}`,
             display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px',
           }}>
             <div>
-              <div style={{ fontSize: '12px', fontWeight: 900, letterSpacing: '1px', color: pl.netProfit >= 0 ? '#10b981' : '#ef4444' }}>
+              <div style={{ fontSize: '12px', fontWeight: 900, letterSpacing: '1px', color: pl.netProfit >= 0 ? '#2fe39b' : '#ff6b81' }}>
                 {pl.invCount === 0 && pl.expenses > 0
                   ? '📊 COSTS ONLY (no bills in range)'
                   : pl.netProfit >= 0 ? '📈 NET PROFIT' : '📉 NET LOSS'} — {company === 'ALL' ? 'GROUP (ALL COMPANIES)' : company}
               </div>
-              <div style={{ fontSize: 'clamp(30px, 7vw, 46px)', fontWeight: 900, color: pl.netProfit >= 0 ? '#10b981' : '#ef4444' }}>₹{inr(Math.abs(pl.netProfit))}</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8' }}>{fromDate} → {toDate} · {pl.invCount} invoices · {pl.tripCount} trips · margin {pl.margin}%</div>
+              <div style={{ fontSize: 'clamp(30px, 7vw, 46px)', fontWeight: 900, color: pl.netProfit >= 0 ? '#2fe39b' : '#ff6b81' }}>₹{inr(Math.abs(pl.netProfit))}</div>
+              <div style={{ fontSize: '12px', color: '#9aadd4' }}>{fromDate} → {toDate} · {pl.invCount} invoices · {pl.tripCount} trips · margin {pl.margin}%</div>
             </div>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-              <div style={{ textAlign: 'right' }}><div style={{ fontSize: '11px', color: '#38bdf8', fontWeight: 800 }}>REVENUE</div><div style={{ fontSize: '22px', fontWeight: 900, color: '#38bdf8' }}>₹{inr(pl.revenue)}</div></div>
-              <div style={{ textAlign: 'right' }}><div style={{ fontSize: '11px', color: '#ef4444', fontWeight: 800 }}>EXPENSES</div><div style={{ fontSize: '22px', fontWeight: 900, color: '#ef4444' }}>₹{inr(pl.expenses)}</div></div>
+              <div style={{ textAlign: 'right' }}><div style={{ fontSize: '11px', color: '#22d3ee', fontWeight: 800 }}>REVENUE</div><div style={{ fontSize: '22px', fontWeight: 900, color: '#22d3ee' }}>₹{inr(pl.revenue)}</div></div>
+              <div style={{ textAlign: 'right' }}><div style={{ fontSize: '11px', color: '#ff6b81', fontWeight: 800 }}>EXPENSES</div><div style={{ fontSize: '22px', fontWeight: 900, color: '#ff6b81' }}>₹{inr(pl.expenses)}</div></div>
             </div>
           </div>
 
@@ -283,27 +283,27 @@ export default function ProfitAndLoss() {
           <div className="pt-card pt-anim-up" style={{ padding: 'clamp(10px, 2vw, 20px)', overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', minWidth: '460px' }}>
               <tbody>
-                <tr><td colSpan={2} style={{ padding: '10px', color: '#38bdf8', fontWeight: 900, fontSize: '12px', letterSpacing: '1px', borderBottom: '2px solid #334155' }}>💵 REVENUE (INCOME)</td></tr>
-                <Row icon="🚛" label="Freight Income" sub={`${pl.invCount} invoices (Transportation Bills RCM)`} value={pl.freight} color="#38bdf8" />
-                <Row icon="⏱️" label="Detention Income" value={pl.detention} color="#38bdf8" />
-                <Row icon="" label="TOTAL REVENUE" sub={`GST ₹${inr(pl.gstRcm)} excluded — RCM me buyer govt ko deta hai`} value={pl.revenue} color="#38bdf8" bold />
+                <tr><td colSpan={2} style={{ padding: '10px', color: '#22d3ee', fontWeight: 900, fontSize: '12px', letterSpacing: '1px', borderBottom: '2px solid #27395f' }}>💵 REVENUE (INCOME)</td></tr>
+                <Row icon="🚛" label="Freight Income" sub={`${pl.invCount} invoices (Transportation Bills RCM)`} value={pl.freight} color="#22d3ee" />
+                <Row icon="⏱️" label="Detention Income" value={pl.detention} color="#22d3ee" />
+                <Row icon="" label="TOTAL REVENUE" sub={`GST ₹${inr(pl.gstRcm)} excluded — RCM me buyer govt ko deta hai`} value={pl.revenue} color="#22d3ee" bold />
 
-                <tr><td colSpan={2} style={{ padding: '16px 10px 10px', color: '#ef4444', fontWeight: 900, fontSize: '12px', letterSpacing: '1px', borderBottom: '2px solid #334155' }}>💸 DIRECT EXPENSES</td></tr>
-                <Row icon="🛣️" label="Toll Taxes (FASTag)" sub={`${pl.tollCount} toll transactions`} value={pl.toll} color="#ef4444" minus />
-                <Row icon="⛽" label="Fuel & Trip Kharcha" sub="trips ka total_expense minus toll (double-count nahi)" value={pl.fuelOther} color="#ef4444" minus />
-                <Row icon="🛞" label="Tyre & Other Ledger Kharcha" sub="Direct-Expense ledgers (tyre scrap, compliance) — ab is P&L me bhi" value={pl.ledgerExp} color="#ef4444" minus />
-                <Row icon="📉" label="Shortage Deductions" sub="party ne bill se kata — business loss" value={pl.shortage} color="#ef4444" minus />
-                <Row icon="🤝" label="Driver Advance" sub="placeholder — advance recoverable khata hai, expense nahi (CA adjust kare to yahan judega)" value={0} color="#64748b" />
-                <Row icon="" label="TOTAL EXPENSES" value={pl.expenses} color="#ef4444" bold minus />
+                <tr><td colSpan={2} style={{ padding: '16px 10px 10px', color: '#ff6b81', fontWeight: 900, fontSize: '12px', letterSpacing: '1px', borderBottom: '2px solid #27395f' }}>💸 DIRECT EXPENSES</td></tr>
+                <Row icon="🛣️" label="Toll Taxes (FASTag)" sub={`${pl.tollCount} toll transactions`} value={pl.toll} color="#ff6b81" minus />
+                <Row icon="⛽" label="Fuel & Trip Kharcha" sub="trips ka total_expense minus toll (double-count nahi)" value={pl.fuelOther} color="#ff6b81" minus />
+                <Row icon="🛞" label="Tyre & Other Ledger Kharcha" sub="Direct-Expense ledgers (tyre scrap, compliance) — ab is P&L me bhi" value={pl.ledgerExp} color="#ff6b81" minus />
+                <Row icon="📉" label="Shortage Deductions" sub="party ne bill se kata — business loss" value={pl.shortage} color="#ff6b81" minus />
+                <Row icon="🤝" label="Driver Advance" sub="placeholder — advance recoverable khata hai, expense nahi (CA adjust kare to yahan judega)" value={0} color="#5d7196" />
+                <Row icon="" label="TOTAL EXPENSES" value={pl.expenses} color="#ff6b81" bold minus />
 
-                {pl.recovery > 0 && <Row icon="💪" label="Add: Shortage Recovery (Driver Khata Debit)" sub="shortage loss ki driver-se bharpai" value={pl.recovery} color="#10b981" />}
-                <tr style={{ background: pl.netProfit >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' }}>
+                {pl.recovery > 0 && <Row icon="💪" label="Add: Shortage Recovery (Driver Khata Debit)" sub="shortage loss ki driver-se bharpai" value={pl.recovery} color="#2fe39b" />}
+                <tr style={{ background: pl.netProfit >= 0 ? 'rgba(47, 227, 155,0.1)' : 'rgba(255, 107, 129,0.1)' }}>
                   <td style={{ padding: '16px 10px', fontWeight: 900, fontSize: '16px' }}>{pl.netProfit >= 0 ? '📈 NET PROFIT' : '📉 NET LOSS'}</td>
-                  <td style={{ padding: '16px 10px', textAlign: 'right', fontWeight: 900, fontSize: '20px', color: pl.netProfit >= 0 ? '#10b981' : '#ef4444' }}>₹{inr(pl.netProfit)}</td>
+                  <td style={{ padding: '16px 10px', textAlign: 'right', fontWeight: 900, fontSize: '20px', color: pl.netProfit >= 0 ? '#2fe39b' : '#ff6b81' }}>₹{inr(pl.netProfit)}</td>
                 </tr>
               </tbody>
             </table>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '12px 0 0' }}>ℹ️ Statutory Balance Sheet / full journal P&L ke liye "Balance Sheet/P&L" module dekhein — ye page billing-side ka fast operating view hai. Dono ek hi journal se milte hain.</p>
+            <p style={{ fontSize: '11px', color: '#5d7196', margin: '12px 0 0' }}>ℹ️ Statutory Balance Sheet / full journal P&L ke liye "Balance Sheet/P&L" module dekhein — ye page billing-side ka fast operating view hai. Dono ek hi journal se milte hain.</p>
           </div>
         </>
       )}

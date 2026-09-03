@@ -155,7 +155,7 @@ export function partnerDocDrawerProps(r, { userName, decide, isAdmin = true }) {
   return {
     title: `${DOC_LABEL[r.doc_type] ?? r.doc_type} · ${r.uploader_name}`,
     subtitle: `${String(r.uploader_role ?? '').toLowerCase()} app upload · ${when(r.created_at)}${r.trip_code ? ` · trip ${r.trip_code}` : ''}`,
-    accent: KYC_TYPES.has(r.doc_type) ? '#22d3ee' : isQty ? '#34d399' : '#f59e0b',
+    accent: KYC_TYPES.has(r.doc_type) ? '#22d3ee' : isQty ? '#2fe39b' : '#ffb224',
     fileKey: r.file_key ?? null,
     fileLabel: DOC_LABEL[r.doc_type] ?? 'Document',
     amount, amountLabel,
@@ -191,11 +191,11 @@ export function partnerDocDrawerProps(r, { userName, decide, isAdmin = true }) {
 
 // ── The queues. One entry per staging table an outside party can fill. ──────
 export const SECTIONS = [
-  { key: 'expenses', label: 'Expense bills', icon: '🧾', badge: 'pending_expenses', accent: '#f59e0b', screen: 'EXPENSE_APPROVALS',
+  { key: 'expenses', label: 'Expense bills', icon: '🧾', badge: 'pending_expenses', accent: '#ffb224', screen: 'EXPENSE_APPROVALS',
     list: async () => firstArray(await api('/queues/expenses?status=PENDING&limit=100')) },
-  { key: 'docs', label: 'App uploads', icon: '📱', badge: 'pending_partner_docs', accent: '#f59e0b', screen: 'EXPENSE_APPROVALS',
+  { key: 'docs', label: 'App uploads', icon: '📱', badge: 'pending_partner_docs', accent: '#ffb224', screen: 'EXPENSE_APPROVALS',
     list: async () => firstArray(await api('/queues/partner-documents?status=PENDING')) },
-  { key: 'kyc', label: 'KYC applications', icon: '🪪', badge: 'pending_kyc', accent: '#38bdf8', screen: 'ONBOARDING',
+  { key: 'kyc', label: 'KYC applications', icon: '🪪', badge: 'pending_kyc', accent: '#22d3ee', screen: 'ONBOARDING',
     list: async () => firstArray(await api('/bazaar/onboarding?status=PENDING_KYC')) },
   { key: 'pods', label: 'PODs to verify', icon: '📄', badge: 'pending_pods', accent: '#8b5cf6', screen: 'BAZAAR_ADMIN',
     list: async () => firstArray(await api('/bazaar/settlements?status=POD_SUBMITTED')) },
@@ -205,13 +205,13 @@ export const SECTIONS = [
       const req = new Map((ov?.loads?.award_requests ?? []).map((r) => [r.load_id, r]));
       return firstArray(loads).map((l) => ({ ...l, requested: req.get(l.load_id) ?? null }));
     } },
-  { key: 'review', label: 'Loads to review', icon: '📦', badge: 'pending_loads_review', accent: '#38bdf8', screen: 'BAZAAR_ADMIN',
+  { key: 'review', label: 'Loads to review', icon: '📦', badge: 'pending_loads_review', accent: '#22d3ee', screen: 'BAZAAR_ADMIN',
     list: async () => firstArray(await api('/bazaar/loads?status=PENDING_REVIEW')) },
   { key: 'trucks', label: 'Market trucks', icon: '🚚', badge: 'pending_market_trucks', accent: '#22d3ee', screen: 'MARKET_VEHICLE',
     list: async () => firstArray(await api('/bazaar/market-vehicles')).filter((v) => v.system_status === 'PENDING APPROVAL') },
   { key: 'mdrivers', label: 'Market drivers', icon: '🧑‍✈️', badge: 'pending_market_drivers', accent: '#22d3ee', screen: 'ACCESS_HUB',
     list: async () => firstArray(await api('/bazaar/market-drivers?status=PENDING%20APPROVAL')).filter((d) => (d.system_status ?? 'PENDING APPROVAL') === 'PENDING APPROVAL') },
-  { key: 'dreq', label: 'Driver requests', icon: '🙋', badge: 'pending_requests', accent: '#34d399', screen: 'DRIVER',
+  { key: 'dreq', label: 'Driver requests', icon: '🙋', badge: 'pending_requests', accent: '#2fe39b', screen: 'DRIVER',
     list: async () => firstArray(await api('/masters/driver-requests?status=PENDING')) },
 ];
 const SECTION = Object.fromEntries(SECTIONS.map((s) => [s.key, s]));
@@ -237,35 +237,35 @@ const CSS = `
 @keyframes apdIn { from { transform: translateX(28px); opacity: 0 } to { transform: none; opacity: 1 } }
 @keyframes apdFade { from { opacity: 0 } to { opacity: 1 } }
 @keyframes apdRow { from { opacity: 0; transform: translateY(5px) } to { opacity: 1; transform: none } }
-.apd-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-radius: 14px; border: 1px solid rgba(245,158,11,.28); background: linear-gradient(90deg, rgba(245,158,11,.08), rgba(15,23,42,.35)); font-family: 'Inter', system-ui, sans-serif; }
+.apd-strip { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-radius: 14px; border: 1px solid rgba(255, 178, 36,.28); background: linear-gradient(90deg, rgba(255, 178, 36,.08), rgba(18, 28, 56,.35)); font-family: 'Inter', system-ui, sans-serif; }
 .apd-strip .t { font-size: 12px; font-weight: 900; color: #fbbf24; letter-spacing: .04em; display: inline-flex; align-items: center; gap: 6px; }
-.apd-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid #334155; background: rgba(2,6,23,.55); color: #e2e8f0; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: transform .12s, border-color .15s; }
+.apd-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; border: 1px solid #27395f; background: rgba(10, 16, 36,.55); color: #dde5f4; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: transform .12s, border-color .15s; }
 .apd-chip:hover { transform: translateY(-1px); border-color: #fbbf24; }
 .apd-chip b { color: #fbbf24; font-size: 12.5px; }
-.apd-open { margin-left: auto; padding: 6px 12px; border-radius: 10px; border: 0; background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; font-weight: 900; font-size: 12px; cursor: pointer; transition: transform .12s; white-space: nowrap; }
+.apd-open { margin-left: auto; padding: 6px 12px; border-radius: 10px; border: 0; background: linear-gradient(135deg, #ffb224, #d97706); color: #121c38; font-weight: 900; font-size: 12px; cursor: pointer; transition: transform .12s; white-space: nowrap; }
 .apd-open:hover { transform: translateY(-1px); }
-.apd-overlay { position: fixed; inset: 0; z-index: 9990; background: rgba(2,6,23,.6); backdrop-filter: blur(4px); animation: apdFade .16s ease; display: flex; justify-content: flex-end; }
-.apd-panel { width: min(640px, 100vw); height: 100%; background: #0b1220; border-left: 1px solid #1e293b; color: #e2e8f0; display: grid; grid-template-rows: auto auto 1fr; animation: apdIn .2s cubic-bezier(.2,.8,.2,1); font-family: 'Inter', system-ui, sans-serif; }
-.apd-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #1e293b; background: linear-gradient(180deg, #0f172a, #0b1220); }
-.apd-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 10px 12px; border-bottom: 1px solid #1e293b; scrollbar-width: none; }
-.apd-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: #94a3b8; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; white-space: nowrap; }
-.apd-tab:hover { color: #e2e8f0; background: rgba(30,41,59,.6); }
-.apd-tab.on { color: #fff; background: rgba(245,158,11,.14); border-color: rgba(245,158,11,.4); }
-.apd-tab .n { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: #1e293b; color: #cbd5e1; }
-.apd-tab.on .n { background: #f59e0b; color: #0f172a; }
+.apd-overlay { position: fixed; inset: 0; z-index: 9990; background: rgba(10, 16, 36,.6); backdrop-filter: blur(4px); animation: apdFade .16s ease; display: flex; justify-content: flex-end; }
+.apd-panel { width: min(640px, 100vw); height: 100%; background: #0a1024; border-left: 1px solid #18244a; color: #dde5f4; display: grid; grid-template-rows: auto auto 1fr; animation: apdIn .2s cubic-bezier(.2,.8,.2,1); font-family: 'Inter', system-ui, sans-serif; }
+.apd-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #18244a; background: linear-gradient(180deg, #121c38, #0a1024); }
+.apd-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 10px 12px; border-bottom: 1px solid #18244a; scrollbar-width: none; }
+.apd-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: #9aadd4; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s; white-space: nowrap; }
+.apd-tab:hover { color: #dde5f4; background: rgba(24, 36, 74,.6); }
+.apd-tab.on { color: #fff; background: rgba(255, 178, 36,.14); border-color: rgba(255, 178, 36,.4); }
+.apd-tab .n { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: #18244a; color: #c4d1ea; }
+.apd-tab.on .n { background: #f59e0b; color: #121c38; }
 .apd-list { overflow-y: auto; padding: 12px; display: grid; gap: 8px; align-content: start; }
-.apd-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 11px 13px; border-radius: 13px; border: 1px solid #1e293b; background: rgba(15,23,42,.65); animation: apdRow .22s ease both; transition: border-color .15s, background .15s; }
-.apd-row:hover { border-color: #334155; background: rgba(15,23,42,.95); }
+.apd-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 11px 13px; border-radius: 13px; border: 1px solid #18244a; background: rgba(18, 28, 56,.65); animation: apdRow .22s ease both; transition: border-color .15s, background .15s; }
+.apd-row:hover { border-color: #27395f; background: rgba(18, 28, 56,.95); }
 .apd-row .ti { font-size: 13px; font-weight: 800; color: #fff; }
-.apd-row .su { font-size: 11.5px; color: #94a3b8; margin-top: 2px; }
+.apd-row .su { font-size: 11.5px; color: #9aadd4; margin-top: 2px; }
 .apd-row .amt { font-size: 15px; font-weight: 900; color: #fbbf24; }
-.apd-btn { min-height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-weight: 700; font-size: 12px; cursor: pointer; transition: transform .12s, border-color .15s; white-space: nowrap; }
-.apd-btn:hover { transform: translateY(-1px); border-color: #475569; }
+.apd-btn { min-height: 34px; padding: 0 11px; border-radius: 9px; border: 1px solid #27395f; background: #121c38; color: #dde5f4; font-weight: 700; font-size: 12px; cursor: pointer; transition: transform .12s, border-color .15s; white-space: nowrap; }
+.apd-btn:hover { transform: translateY(-1px); border-color: #3d548a; }
 .apd-btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
-.apd-btn--ok { background: linear-gradient(135deg, #10b981, #059669); border-color: transparent; color: #fff; }
-.apd-btn--view { background: rgba(56,189,248,.12); border-color: rgba(56,189,248,.35); color: #38bdf8; }
-.apd-empty { padding: 34px 16px; text-align: center; color: #64748b; font-size: 13px; border: 1px dashed #334155; border-radius: 14px; }
-.apd-note { font-size: 11px; color: #64748b; line-height: 1.5; }
+.apd-btn--ok { background: linear-gradient(135deg, #2fe39b, #2fe39b); border-color: transparent; color: #fff; }
+.apd-btn--view { background: rgba(34, 211, 238,.12); border-color: rgba(34, 211, 238,.35); color: #22d3ee; }
+.apd-empty { padding: 34px 16px; text-align: center; color: #5d7196; font-size: 13px; border: 1px dashed #27395f; border-radius: 14px; }
+.apd-note { font-size: 11px; color: #5d7196; line-height: 1.5; }
 `;
 let cssMounted = false;
 const useCss = () => useEffect(() => {
@@ -279,7 +279,7 @@ export function ApprovalDeskPanel({ counts, total, onOpen, subtitle }) {
   const live = SECTIONS.filter((s) => (Number(counts?.[s.badge]) || 0) > 0);
   return (
     <div className="apd-strip" role="region" aria-label="Pending approvals">
-      <span className="t">⏳ PENDING APPROVALS <span style={{ padding: '1px 8px', borderRadius: 999, background: total > 0 ? '#f59e0b' : '#1e293b', color: total > 0 ? '#0f172a' : '#94a3b8', fontSize: 11 }}>{counts ? total : '…'}</span></span>
+      <span className="t">⏳ PENDING APPROVALS <span style={{ padding: '1px 8px', borderRadius: 999, background: total > 0 ? '#f59e0b' : '#18244a', color: total > 0 ? '#121c38' : '#9aadd4', fontSize: 11 }}>{counts ? total : '…'}</span></span>
       {counts && total === 0 && <span className="apd-note">Quarantine clear — nothing an outside party sent is waiting on the office.</span>}
       {live.map((s) => (
         <button key={s.key} className="apd-chip" onClick={() => onOpen?.(s.key)} title={`open ${s.label} in the desk`}>
@@ -586,7 +586,7 @@ export function ApprovalDeskDrawer({ open, onClose, initialSection = null, count
         <div className="apd-panel" role="dialog" aria-modal="true" aria-label="Approval desk">
           <div className="apd-head">
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 900 }}>⏳ Approval Desk <span style={{ marginLeft: 6, padding: '1px 8px', borderRadius: 999, background: total > 0 ? '#f59e0b' : '#1e293b', color: total > 0 ? '#0f172a' : '#94a3b8', fontSize: 11, fontWeight: 900 }}>{counts ? total : '…'}</span></div>
+              <div style={{ fontSize: 15, fontWeight: 900 }}>⏳ Approval Desk <span style={{ marginLeft: 6, padding: '1px 8px', borderRadius: 999, background: total > 0 ? '#f59e0b' : '#18244a', color: total > 0 ? '#121c38' : '#9aadd4', fontSize: 11, fontWeight: 900 }}>{counts ? total : '…'}</span></div>
               <div className="apd-note">Everything an outside party sent, waiting on the office. Approve here runs the server transaction — nothing moves without it.</div>
             </div>
             <button className="apd-btn" onClick={() => load(section)} disabled={!!loading}>{loading ? '…' : '↻'}</button>
@@ -641,7 +641,7 @@ export function ApprovalDeskDrawer({ open, onClose, initialSection = null, count
         />
       )}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 10002, background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', padding: '10px 16px', borderRadius: 12, fontSize: 13, boxShadow: '0 10px 30px rgba(0,0,0,.4)', maxWidth: '90vw' }}>
+        <div style={{ position: 'fixed', bottom: 22, left: '50%', transform: 'translateX(-50%)', zIndex: 10002, background: '#121c38', border: '1px solid #27395f', color: '#dde5f4', padding: '10px 16px', borderRadius: 12, fontSize: 13, boxShadow: '0 10px 30px rgba(0,0,0,.4)', maxWidth: '90vw' }}>
           {toast}
         </div>
       )}

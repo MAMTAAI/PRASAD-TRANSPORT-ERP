@@ -34,15 +34,15 @@ type Alert = {
 };
 
 const STATUS_TONE: Record<string, string> = {
-  RED: '#ef4444', DIAGNOSING: '#fbbf24', FIX_PROPOSED: '#a78bfa', GREEN: '#22c55e',
+  RED: '#ff6b81', DIAGNOSING: '#fbbf24', FIX_PROPOSED: '#a78bfa', GREEN: '#22c55e',
 };
 const STATUS_LABEL: Record<string, string> = {
   RED: 'Broken', DIAGNOSING: 'Being looked at', FIX_PROPOSED: 'Fix waiting for approval', GREEN: 'Resolved',
 };
 
 const box: React.CSSProperties = {
-  background: 'rgba(15,23,42,0.72)', border: '1px solid #1e293b',
-  borderRadius: 12, padding: '12px 14px', color: '#e2e8f0', fontSize: 13,
+  background: 'rgba(18, 28, 56,0.72)', border: '1px solid #18244a',
+  borderRadius: 12, padding: '12px 14px', color: '#dde5f4', fontSize: 13,
 };
 const btn = (bg: string): React.CSSProperties => ({
   background: bg, border: 'none', borderRadius: 8, color: '#fff',
@@ -97,10 +97,10 @@ export default function WatchdogWidget({
     } finally { setBusy(null); }
   };
 
-  if (err) return <div style={{ ...box, borderColor: '#ef4444', color: '#fca5a5', marginBottom: 20 }}>{err}</div>;
+  if (err) return <div style={{ ...box, borderColor: '#ff6b81', color: '#fca5a5', marginBottom: 20 }}>{err}</div>;
   if (!live.length && !warning && !resolved24) return null;
 
-  const headerTone = red ? '#ef4444' : live.length ? '#fbbf24' : '#22c55e';
+  const headerTone = red ? '#ff6b81' : live.length ? '#fbbf24' : '#22c55e';
 
   return (
     <div style={{ marginBottom: 22, background: `${headerTone}12`, border: `1px solid ${headerTone}`,
@@ -108,12 +108,12 @@ export default function WatchdogWidget({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 17, fontWeight: 800, color: headerTone }}>
           {red ? '🔴' : live.length ? '🟡' : '🟢'} System Watchdog
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
+          <span style={{ marginLeft: 8, fontSize: 12, color: '#9aadd4', fontWeight: 600 }}>
             {company === 'PRASAD' ? 'Prasad Transport' : 'Jaiswal Capital'}
           </span>
         </div>
         {live.length > 0 && (
-          <span style={{ background: headerTone, color: '#0b1220', borderRadius: 999,
+          <span style={{ background: headerTone, color: '#0a1024', borderRadius: 999,
                          padding: '2px 10px', fontSize: 13, fontWeight: 800 }}>
             {live.length} open{critical ? ` · ${critical} critical` : ''}
           </span>
@@ -126,8 +126,8 @@ export default function WatchdogWidget({
         {summary.map((s) => (
           <span key={s.environment} style={{ ...box, padding: '5px 10px', fontSize: 11.5 }}>
             <b>{s.environment}</b>
-            <span style={{ color: s.red ? '#f87171' : '#4ade80', marginLeft: 6 }}>{s.red} red</span>
-            <span style={{ color: '#64748b', marginLeft: 6 }}>
+            <span style={{ color: s.red ? '#ff8b9c' : '#4ade80', marginLeft: 6 }}>{s.red} red</span>
+            <span style={{ color: '#5d7196', marginLeft: 6 }}>
               {s.watchdogs_alive}/{s.watchdogs} watching
             </span>
           </span>
@@ -151,10 +151,10 @@ export default function WatchdogWidget({
                 <span style={{ color: tone, fontWeight: 800, fontSize: 11, letterSpacing: '.05em' }}>
                   {STATUS_LABEL[a.status] ?? a.status}
                 </span>
-                <span style={{ color: '#94a3b8', fontSize: 11 }}>{a.environment}</span>
-                {a.service && <span style={{ color: '#64748b', fontSize: 11 }}>{a.service}</span>}
+                <span style={{ color: '#9aadd4', fontSize: 11 }}>{a.environment}</span>
+                {a.service && <span style={{ color: '#5d7196', fontSize: 11 }}>{a.service}</span>}
                 {a.severity === 'CRITICAL' && (
-                  <span style={{ color: '#ef4444', fontSize: 11, fontWeight: 700 }}>CRITICAL</span>
+                  <span style={{ color: '#ff6b81', fontSize: 11, fontWeight: 700 }}>CRITICAL</span>
                 )}
                 {a.occurrences > 1 && (
                   <span style={{ color: '#fbbf24', fontSize: 11 }}>{a.occurrences}× </span>
@@ -166,12 +166,12 @@ export default function WatchdogWidget({
 
               <div style={{ fontWeight: 700, color: '#fff', margin: '4px 0' }}>{a.title}</div>
               {a.source_file && (
-                <div style={{ color: '#64748b', fontSize: 11.5, fontFamily: 'ui-monospace, monospace' }}>
+                <div style={{ color: '#5d7196', fontSize: 11.5, fontFamily: 'ui-monospace, monospace' }}>
                   {a.source_file}{a.source_line ? `:${a.source_line}` : ''}
                 </div>
               )}
               {a.error_message && a.status !== 'GREEN' && (
-                <div style={{ color: '#cbd5e1', fontSize: 12, marginTop: 4 }}>{a.error_message}</div>
+                <div style={{ color: '#c4d1ea', fontSize: 12, marginTop: 4 }}>{a.error_message}</div>
               )}
 
               {/* The fix report is the point of the green state. Shown inline,
@@ -188,7 +188,7 @@ export default function WatchdogWidget({
               )}
 
               <div style={{ display: 'flex', gap: 8, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ color: '#475569', fontSize: 11 }}>
+                <span style={{ color: '#3d548a', fontSize: 11 }}>
                   last seen {a.minutes_since_seen < 1 ? 'just now' : `${a.minutes_since_seen} min ago`}
                 </span>
                 <div style={{ flex: 1 }} />
@@ -197,7 +197,7 @@ export default function WatchdogWidget({
                     I am on it
                   </button>
                 )}
-                <button style={btn('#334155')} onClick={() => setOpenRow(open ? null : a.id)}>
+                <button style={btn('#27395f')} onClick={() => setOpenRow(open ? null : a.id)}>
                   {open ? 'Hide detail' : 'Detail'}
                 </button>
               </div>

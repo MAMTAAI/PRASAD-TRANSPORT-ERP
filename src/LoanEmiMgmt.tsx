@@ -324,7 +324,7 @@ export default function LoanEmiMgmt() {
   };
 
   const getDueStatus = (l: any) => {
-    if(!l) return { status: '🟢 Up to Date', dueMonths: 0, dueAmount: 0, color: '#10b981', currentEmiAmt: 0 };
+    if(!l) return { status: '🟢 Up to Date', dueMonths: 0, dueAmount: 0, color: '#2fe39b', currentEmiAmt: 0 };
     const todayStr = new Date().toISOString().split('T')[0];
     let expectedTotalPaid = 0;
     const currentEmiAmt = getCurrentEmiAmount(l);
@@ -342,8 +342,8 @@ export default function LoanEmiMgmt() {
     const dueMonths = Math.max(0, expectedTotalPaid - actualCompleted);
     const dueAmount = dueMonths * currentEmiAmt;
 
-    if (dueMonths === 0) return { status: '🟢 Up to Date', dueMonths: 0, dueAmount: 0, color: '#10b981', currentEmiAmt };
-    return { status: `🔴 ${dueMonths} Month(s) Overdue`, dueMonths, dueAmount, color: '#ef4444', currentEmiAmt };
+    if (dueMonths === 0) return { status: '🟢 Up to Date', dueMonths: 0, dueAmount: 0, color: '#2fe39b', currentEmiAmt };
+    return { status: `🔴 ${dueMonths} Month(s) Overdue`, dueMonths, dueAmount, color: '#ff6b81', currentEmiAmt };
   };
 
   // -------------------------------------------------------------
@@ -824,15 +824,15 @@ export default function LoanEmiMgmt() {
     <html><head><title>${title}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     <style>
-      body { font-family: 'Inter', sans-serif; padding: 40px; color: #334155; background-color: #fff; margin: 0; }
-      .header-container { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1e293b; padding-bottom: 15px; margin-bottom: 30px; }
-      .company-title { font-size: 28px; font-weight: 900; color: #0f172a; margin: 0; text-transform: uppercase; letter-spacing: 1px; }
-      .report-title { font-size: 16px; color: #64748b; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 2px; }
-      .date-text { font-size: 13px; color: #475569; font-weight: 600; }
+      body { font-family: 'Inter', sans-serif; padding: 40px; color: #27395f; background-color: #fff; margin: 0; }
+      .header-container { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #18244a; padding-bottom: 15px; margin-bottom: 30px; }
+      .company-title { font-size: 28px; font-weight: 900; color: #121c38; margin: 0; text-transform: uppercase; letter-spacing: 1px; }
+      .report-title { font-size: 16px; color: #5d7196; margin: 5px 0 0 0; text-transform: uppercase; letter-spacing: 2px; }
+      .date-text { font-size: 13px; color: #3d548a; font-weight: 600; }
       table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
-      thead tr { background-color: #1e293b; color: #ffffff; }
-      th { padding: 12px; border-bottom: 2px solid #cbd5e1; }
-      td { padding: 12px; border: 1px solid #e2e8f0; }
+      thead tr { background-color: #18244a; color: #ffffff; }
+      th { padding: 12px; border-bottom: 2px solid #c4d1ea; }
+      td { padding: 12px; border: 1px solid #dde5f4; }
       @media print { body { padding: 20px; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page-break { page-break-before: always; } }
     </style></head><body>
     <div class="header-container"><div><h1 class="company-title">PRASAD TRANSPORT</h1><p class="report-title">${title}</p></div>
@@ -840,7 +840,7 @@ export default function LoanEmiMgmt() {
   `;
 
   const getHtmlFooter = () => `
-    <div style="margin-top: 50px; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 15px; color: #64748b; font-size: 11px;">
+    <div style="margin-top: 50px; text-align: center; border-top: 1px dashed #c4d1ea; padding-top: 15px; color: #5d7196; font-size: 11px;">
       <p><b>Note:</b> This is an auto-generated system report and does not require any physical signature.</p>
     </div>
     <script>window.onload = function() { setTimeout(function() { window.print(); }, 800); }</script></body></html>
@@ -863,7 +863,7 @@ export default function LoanEmiMgmt() {
            const type = getVal(l, ['Loan_Type', 'loan_type'], 'Loan');
            const pAmt = parseNum(getVal(l, ['Principal_Amt', 'principal_amt', 'loan_amount', 'amount'])).toLocaleString('en-IN');
            const remAmt = parseNum(getVal(l, ['Remaining_Principal', 'remaining_principal', 'Principal_Amt', 'balance'])).toLocaleString('en-IN', {minimumFractionDigits: 2});
-           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};"><td><b>${vNo}</b></td><td>${getRealCompany(l)}</td><td>${getRealOwner(l)}</td><td>${bName}</td><td>${aNo}</td><td>${type}</td><td style="text-align:right;">₹ ${pAmt}</td><td style="text-align:right;"><b>₹ ${remAmt}</b></td></tr>`;
+           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f6f8fd'};"><td><b>${vNo}</b></td><td>${getRealCompany(l)}</td><td>${getRealOwner(l)}</td><td>${bName}</td><td>${aNo}</td><td>${type}</td><td style="text-align:right;">₹ ${pAmt}</td><td style="text-align:right;"><b>₹ ${remAmt}</b></td></tr>`;
          }).join('')}</tbody></table>`;
     } else if (activeTab === 'EMIS') {
        title = `EMI Payment History Report ${historyFromDate ? `(${new Date(historyFromDate).toLocaleDateString('en-GB')} to ${historyToDate ? new Date(historyToDate).toLocaleDateString('en-GB') : 'Now'})` : ''}`;
@@ -876,7 +876,7 @@ export default function LoanEmiMgmt() {
            const totEmi = parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN');
            const prin = parseNum(getVal(p, ['Principal_Part', 'principal_part', 'principal'])).toLocaleString('en-IN');
            const intP = parseNum(getVal(p, ['Interest_Part', 'interest_part', 'interest'])).toLocaleString('en-IN');
-           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};"><td>${date}</td><td><b>${vNo}</b></td><td>${getRealCompany(p)}</td><td>${getRealOwner(p)}</td><td>${bName}</td><td>${mYr}</td><td style="text-align:right; color: #15803d; font-weight: bold;">₹ ${totEmi}</td><td style="text-align:right;">₹ ${prin}</td><td style="text-align:right;">₹ ${intP}</td></tr>`;
+           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f6f8fd'};"><td>${date}</td><td><b>${vNo}</b></td><td>${getRealCompany(p)}</td><td>${getRealOwner(p)}</td><td>${bName}</td><td>${mYr}</td><td style="text-align:right; color: #15803d; font-weight: bold;">₹ ${totEmi}</td><td style="text-align:right;">₹ ${prin}</td><td style="text-align:right;">₹ ${intP}</td></tr>`;
          }).join('')}</tbody></table>`;
     } else if (activeTab === 'REPORT') {
        title = "EMI Due & Overdue Report";
@@ -887,7 +887,7 @@ export default function LoanEmiMgmt() {
            const curEmi = (r.currentEmiAmt || 0).toLocaleString('en-IN');
            const clr = getVal(r, ['EMIs_Completed', 'emis_completed', 'old_emis_paid'], '0');
            const tot = getVal(r, ['Tenure_Months', 'tenure_months', 'tenure'], '-');
-           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};"><td><b>${vNo}</b><br><span style="font-size:10px; color:#64748b;">${bName}</span></td><td>${getRealCompany(r)}</td><td>${getRealOwner(r)}</td><td style="text-align:right;">₹ ${curEmi}</td><td>${clr} / ${tot}</td><td style="color: ${r.dueMonths > 0 ? '#b91c1c' : '#15803d'}; font-weight: bold;">${r.dueMonths} Month(s)</td><td style="text-align:right; color: ${r.dueAmount > 0 ? '#b91c1c' : '#0f172a'}; font-weight: bold;">₹ ${r.dueAmount.toLocaleString('en-IN')}</td><td>${r.status}</td></tr>`;
+           return `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f6f8fd'};"><td><b>${vNo}</b><br><span style="font-size:10px; color:#5d7196;">${bName}</span></td><td>${getRealCompany(r)}</td><td>${getRealOwner(r)}</td><td style="text-align:right;">₹ ${curEmi}</td><td>${clr} / ${tot}</td><td style="color: ${r.dueMonths > 0 ? '#b91c1c' : '#15803d'}; font-weight: bold;">${r.dueMonths} Month(s)</td><td style="text-align:right; color: ${r.dueAmount > 0 ? '#b91c1c' : '#121c38'}; font-weight: bold;">₹ ${r.dueAmount.toLocaleString('en-IN')}</td><td>${r.status}</td></tr>`;
          }).join('')}</tbody></table>`;
     }
 
@@ -922,22 +922,22 @@ export default function LoanEmiMgmt() {
         const cName = getRealOwner(p); 
         const totEmi = parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN', {minimumFractionDigits: 2});
         
-        rowsHtml += `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+        rowsHtml += `<tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f6f8fd'};">
           <td style="text-align: center;">${idx + 1}</td>
           <td style="text-transform: uppercase; font-weight: 600;">${cName}</td>
           <td style="text-align: center;">${getVal(p, ['Loan_Account_No', 'loan_account_no', 'account_no'], '-')}</td>
-          <td style="text-align: center; font-weight: bold; color: #0f172a;">${getVal(p, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'], '-')}</td>
+          <td style="text-align: center; font-weight: bold; color: #121c38;">${getVal(p, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'], '-')}</td>
           <td style="text-align: center; text-transform: uppercase;">${lType.replace(' Loan', '')}</td>
           <td style="text-align: right; font-weight: 600;">₹ ${totEmi}</td>
-          ${idx === 0 ? `<td rowspan="${group.length}" style="text-align: center; vertical-align: middle;">${date}</td><td rowspan="${group.length}" style="text-align: right; vertical-align: middle; font-weight: bold; font-size: 14px; color: #15803d;">₹ ${totalAmt.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td><td rowspan="${group.length}" style="text-align: center; vertical-align: middle; font-weight: bold;">${refNo}<br/><span style="font-size:10px; color:#64748b; font-weight:normal;">(${paymentMode})</span></td>` : ''}
+          ${idx === 0 ? `<td rowspan="${group.length}" style="text-align: center; vertical-align: middle;">${date}</td><td rowspan="${group.length}" style="text-align: right; vertical-align: middle; font-weight: bold; font-size: 14px; color: #15803d;">₹ ${totalAmt.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td><td rowspan="${group.length}" style="text-align: center; vertical-align: middle; font-weight: bold;">${refNo}<br/><span style="font-size:10px; color:#5d7196; font-weight:normal;">(${paymentMode})</span></td>` : ''}
         </tr>`;
       });
 
       allHtml += `
-      <div style="margin-bottom: 50px; page-break-inside: avoid; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-        <div style="background-color: #f1f5f9; padding: 12px 20px; border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
-           <h3 style="margin: 0; color: #0f172a; font-size: 16px;">💳 Payment Schedule: <span style="color: #2563eb;">${date}</span></h3>
-           <span style="font-size: 14px; font-weight: bold; color: #475569;">Ref: ${refNo}</span>
+      <div style="margin-bottom: 50px; page-break-inside: avoid; border: 1px solid #dde5f4; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
+        <div style="background-color: #eef3fa; padding: 12px 20px; border-bottom: 1px solid #c4d1ea; display: flex; justify-content: space-between; align-items: center;">
+           <h3 style="margin: 0; color: #121c38; font-size: 16px;">💳 Payment Schedule: <span style="color: #2563eb;">${date}</span></h3>
+           <span style="font-size: 14px; font-weight: bold; color: #3d548a;">Ref: ${refNo}</span>
         </div>
         <table>
           <thead>
@@ -955,7 +955,7 @@ export default function LoanEmiMgmt() {
           </thead>
           <tbody>
             ${rowsHtml}
-            <tr style="font-weight: bold; background-color: #e2e8f0; border-top: 2px solid #94a3b8;">
+            <tr style="font-weight: bold; background-color: #dde5f4; border-top: 2px solid #9aadd4;">
               <td colspan="5" style="text-align: right; text-transform: uppercase;">Total of this block:</td>
               <td style="text-align: right;">₹ ${totalAmt.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
               <td></td><td style="text-align: right; font-size: 14px; color: #15803d;">₹ ${totalAmt.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td><td></td>
@@ -965,7 +965,7 @@ export default function LoanEmiMgmt() {
       </div>`;
     });
 
-    const htmlContent = getHtmlHeader("Bank Submission Annexure") + (allHtml || '<p style="text-align:center; font-size: 16px; color: #94a3b8; padding: 50px;">No payment records found.</p>') + getHtmlFooter();
+    const htmlContent = getHtmlHeader("Bank Submission Annexure") + (allHtml || '<p style="text-align:center; font-size: 16px; color: #9aadd4; padding: 50px;">No payment records found.</p>') + getHtmlFooter();
     printWindow.document.write(htmlContent);
     printWindow.document.close();
   };
@@ -994,35 +994,35 @@ export default function LoanEmiMgmt() {
   };
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; }
-        .glow-btn { background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .glow-btn:hover { box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4); transform: translateY(-2px); }
-        .tab-btn { padding: 12px 25px; background: transparent; color: #94a3b8; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s;}
+        .glass-card { background: rgba(24, 36, 74, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; }
+        .glow-btn { background: linear-gradient(135deg, #7c8cff, #4f46e5); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .glow-btn:hover { box-shadow: 0 4px 15px rgba(124, 140, 255, 0.4); transform: translateY(-2px); }
+        .tab-btn { padding: 12px 25px; background: transparent; color: #9aadd4; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: bold; font-size: 14px; transition: 0.3s;}
         .tab-btn.active { color: #818cf8; border-bottom: 3px solid #818cf8; background: rgba(129, 140, 248, 0.1); border-radius: 8px 8px 0 0; }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; colorScheme: dark;}
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; colorScheme: dark;}
         .modern-input:focus { border-color: #818cf8; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #cbd5e1; font-size: 13px; }
-        th { background: rgba(255,255,255,0.05); padding: 12px; text-align: left; border-bottom: 2px solid #334155; color: #818cf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
-        td { padding: 12px; border-bottom: 1px solid #334155; }
-        tr.selected { background: rgba(16, 185, 129, 0.15) !important; border-left: 3px solid #10b981; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; color: #c4d1ea; font-size: 13px; }
+        th { background: rgba(255,255,255,0.05); padding: 12px; text-align: left; border-bottom: 2px solid #27395f; color: #818cf8; text-transform: uppercase; font-size: 11px; letter-spacing: 1px;}
+        td { padding: 12px; border-bottom: 1px solid #27395f; }
+        tr.selected { background: rgba(47, 227, 155, 0.15) !important; border-left: 3px solid #2fe39b; }
         tr:hover { background: rgba(255,255,255,0.02); }
         .badge { padding: 4px 8px; border-radius: 12px; font-size: 10px; font-weight: bold; }
         .smart-table-input { background: transparent; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 5px; width: 100%; box-sizing: border-box; border-radius: 4px; text-align: center; }
-        .smart-table-input:focus { border-color: #38bdf8; outline: none; background: rgba(0,0,0,0.5); }
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .smart-table-input:focus { border-color: #22d3ee; outline: none; background: rgba(0,0,0,0.5); }
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
       `}</style>
 
       {/* 🚀 Header & Dashboard */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '32px', fontWeight: '900' }}>Finance & EMI Command</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Vehicle-wise Chassis & Body Loan Tracking</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Vehicle-wise Chassis & Body Loan Tracking</p>
         </div>
         <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-          <button className="glow-btn" style={{ background: '#334155', border: '1px solid #475569' }} onClick={handlePrintPDF}>🖨️ Print List PDF</button>
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={() => setIsEmiModalOpen(true)}>💸 Pay Multi-Loan EMIs</button>
+          <button className="glow-btn" style={{ background: '#27395f', border: '1px solid #3d548a' }} onClick={handlePrintPDF}>🖨️ Print List PDF</button>
+          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)' }} onClick={() => setIsEmiModalOpen(true)}>💸 Pay Multi-Loan EMIs</button>
           <button className="glow-btn" onClick={() => { resetLoanForm(); setIsLoanModalOpen(true); }}>🏦 Add New Loan</button>
         </div>
       </div>
@@ -1043,23 +1043,23 @@ export default function LoanEmiMgmt() {
           const owing = payable != null && payable > 0;
           // Red only when there is something to act on. A dashboard that is
           // permanently red is a dashboard nobody reads.
-          const accent = dueErr ? '#64748b' : owing ? '#ef4444' : '#10b981';
+          const accent = dueErr ? '#5d7196' : owing ? '#ff6b81' : '#2fe39b';
           const rupee = (v: any) => Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
           return (
             <div className="glass-card" style={{ padding: '20px', borderLeft: `5px solid ${accent}` }}>
-              <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '12px' }}>
+              <h3 style={{ color: '#9aadd4', margin: '0 0 10px 0', fontSize: '12px' }}>
                 💰 TOTAL EMI DUE (CURRENT &amp; OVERDUE)
               </h3>
 
               {dueErr ? (
                 <>
-                  <h1 style={{ color: '#64748b', margin: 0, fontSize: '24px' }}>—</h1>
-                  <div style={{ color: '#f59e0b', fontSize: '11px', marginTop: '6px' }}>
+                  <h1 style={{ color: '#5d7196', margin: 0, fontSize: '24px' }}>—</h1>
+                  <div style={{ color: '#ffb224', fontSize: '11px', marginTop: '6px' }}>
                     could not be calculated: {dueErr}
                   </div>
                 </>
               ) : !dueSummary ? (
-                <h1 style={{ color: '#64748b', margin: 0, fontSize: '24px' }}>calculating…</h1>
+                <h1 style={{ color: '#5d7196', margin: 0, fontSize: '24px' }}>calculating…</h1>
               ) : (
                 <>
                   <h1 style={{ color: accent, margin: 0, fontSize: '30px' }}>₹{rupee(payable)}</h1>
@@ -1067,19 +1067,19 @@ export default function LoanEmiMgmt() {
                   {/* The two components, separately. An "EMI due" that quietly
                       bundles penal charges into the instalment total is a figure
                       nobody can reconcile against a lender's statement. */}
-                  <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '8px', lineHeight: 1.7 }}>
+                  <div style={{ color: '#9aadd4', fontSize: '11px', marginTop: '8px', lineHeight: 1.7 }}>
                     {owing ? (
                       <>
-                        <b style={{ color: '#e2e8f0' }}>{dueSummary.instalments_unpaid}</b> unpaid instalment
+                        <b style={{ color: '#dde5f4' }}>{dueSummary.instalments_unpaid}</b> unpaid instalment
                         {dueSummary.instalments_unpaid === 1 ? '' : 's'} ₹{rupee(dueSummary.emi_unpaid)}
                         {Number(dueSummary.penal_unpaid) > 0 && (
                           <> + LPC / bounce ₹{rupee(dueSummary.penal_unpaid)}</>
                         )}
                         <br />
-                        across <b style={{ color: '#e2e8f0' }}>{dueSummary.loans_with_dues}</b> of{' '}
+                        across <b style={{ color: '#dde5f4' }}>{dueSummary.loans_with_dues}</b> of{' '}
                         {dueSummary.active_loans} active loans
                         {dueSummary.worst_days_overdue > 0 && (
-                          <> · oldest <b style={{ color: '#ef4444' }}>{dueSummary.worst_days_overdue} days</b> overdue</>
+                          <> · oldest <b style={{ color: '#ff6b81' }}>{dueSummary.worst_days_overdue} days</b> overdue</>
                         )}
                       </>
                     ) : (
@@ -1088,9 +1088,9 @@ export default function LoanEmiMgmt() {
                   </div>
 
                   {/* Secondary badge — see the note above the grid. */}
-                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #334155',
+                  <div style={{ marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #27395f',
                     display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase',
+                    <span style={{ fontSize: '10px', color: '#5d7196', textTransform: 'uppercase',
                       letterSpacing: '.05em' }}>
                       🏦 Bank liability (principal)
                     </span>
@@ -1098,7 +1098,7 @@ export default function LoanEmiMgmt() {
                       title={'Total principal outstanding across active loans, per the books. Useful '
                         + 'for the balance sheet, not for deciding what to pay today. It is carried on '
                         + 'a denormalised counter — read v_loan_reconciliation before relying on it.'}
-                      style={{ fontSize: '14px', fontWeight: 700, color: '#cbd5e1', cursor: 'help' }}>
+                      style={{ fontSize: '14px', fontWeight: 700, color: '#c4d1ea', cursor: 'help' }}>
                       ₹{rupee(dueSummary.principal_outstanding ?? totalPrincipalDue)}
                     </span>
                   </div>
@@ -1107,7 +1107,7 @@ export default function LoanEmiMgmt() {
                       figure, and a total that silently omits one reads as if it
                       were square. Say how many. */}
                   {dueSummary.loans_without_payment_history > 0 && (
-                    <div style={{ color: '#f59e0b', fontSize: '10px', marginTop: '6px' }}>
+                    <div style={{ color: '#ffb224', fontSize: '10px', marginTop: '6px' }}>
                       ⚠ {dueSummary.loans_without_payment_history} loan
                       {dueSummary.loans_without_payment_history === 1 ? ' has' : 's have'} no payment
                       history on record and cannot be included.
@@ -1119,10 +1119,10 @@ export default function LoanEmiMgmt() {
           );
         })()}
 
-        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #f59e0b' }}>
-          <h3 style={{ color: '#94a3b8', margin: '0 0 10px 0', fontSize: '12px' }}>📅 EST. MONTHLY EMI COMMITMENT</h3>
-          <h1 style={{ color: '#f59e0b', margin: 0, fontSize: '30px' }}>₹{totalEmiPerMonth.toLocaleString('en-IN', {minimumFractionDigits: 2})}+</h1>
-          <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '8px' }}>
+        <div className="glass-card" style={{ padding: '20px', borderLeft: '5px solid #ffb224' }}>
+          <h3 style={{ color: '#9aadd4', margin: '0 0 10px 0', fontSize: '12px' }}>📅 EST. MONTHLY EMI COMMITMENT</h3>
+          <h1 style={{ color: '#ffb224', margin: 0, fontSize: '30px' }}>₹{totalEmiPerMonth.toLocaleString('en-IN', {minimumFractionDigits: 2})}+</h1>
+          <div style={{ color: '#9aadd4', fontSize: '11px', marginTop: '8px' }}>
             contracted instalment this month, across {activeLoansList.length} active loans
           </div>
         </div>
@@ -1130,10 +1130,10 @@ export default function LoanEmiMgmt() {
 
       {/* 🔍 GLOBAL SEARCH BAR */}
       <div style={{ marginBottom: '20px' }}>
-         <input type="text" className="modern-input" placeholder="🔍 Search by Vehicle No, Owner Name, Company, Bank Name, Loan Account, or UTR..." value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} style={{ border: '1px solid #6366f1', fontSize: '15px', background: '#1e293b' }} />
+         <input type="text" className="modern-input" placeholder="🔍 Search by Vehicle No, Owner Name, Company, Bank Name, Loan Account, or UTR..." value={globalSearch} onChange={e => setGlobalSearch(e.target.value)} style={{ border: '1px solid #7c8cff', fontSize: '15px', background: '#18244a' }} />
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid #334155', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid #27395f', marginBottom: '20px' }}>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button className={`tab-btn ${activeTab === 'LOANS' ? 'active' : ''}`} onClick={() => setActiveTab('LOANS')}>🏦 VEHICLE LOAN MASTER</button>
           <button className={`tab-btn ${activeTab === 'EMIS' ? 'active' : ''}`} onClick={() => setActiveTab('EMIS')}>💸 EMI PAYMENT HISTORY</button>
@@ -1158,7 +1158,7 @@ export default function LoanEmiMgmt() {
                 <tr>
                   <th>Vehicle No</th><th>Company</th><th>Owner Name</th><th>Bank / A/C No</th><th>Type</th>
                   <th>EMI Structure</th><th>EMIs Cleared</th><th>Total Principal</th>
-                  <th style={{ color: '#ef4444' }}>Remaining Bal.</th><th>Status</th><th style={{ textAlign: 'center' }}>Action</th>
+                  <th style={{ color: '#ff6b81' }}>Remaining Bal.</th><th>Status</th><th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1169,7 +1169,7 @@ export default function LoanEmiMgmt() {
                     let showSlabs = false;
                     let showEmiBox = '';
                     if (l.repayment_schedule && Array.isArray(l.repayment_schedule) && l.repayment_schedule.length > 0) {
-                        showEmiBox = <span style={{color: '#10b981', fontWeight: 'bold'}}>✅ Auto Schedule</span>;
+                        showEmiBox = <span style={{color: '#2fe39b', fontWeight: 'bold'}}>✅ Auto Schedule</span>;
                     } else if (l.emi_slabs && Array.isArray(l.emi_slabs) && l.emi_slabs.length > 0 && l.emi_slabs[0].amount) {
                         showSlabs = true;
                     } else {
@@ -1179,26 +1179,26 @@ export default function LoanEmiMgmt() {
                     return (
                       <tr key={i} style={{ opacity: status === 'CLOSED' ? 0.6 : 1 }}>
                         <td><b style={{ color: '#fff', fontSize: '14px' }}>{getVal(l, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'])}</b></td>
-                        <td style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>🏢 {getRealCompany(l)}</td>
-                        <td style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold' }}>👤 {getRealOwner(l)}</td>
+                        <td style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold' }}>🏢 {getRealCompany(l)}</td>
+                        <td style={{ color: '#2fe39b', fontSize: '12px', fontWeight: 'bold' }}>👤 {getRealOwner(l)}</td>
                         <td>
                           {getVal(l, ['Bank_Name', 'bank_name', 'financier_name'])}<br/>
                           <span style={{ color: '#818cf8', fontWeight: 'bold', fontSize: '11px' }}>{getVal(l, ['Loan_Account_No', 'loan_account_no', 'account_no'])}</span>
                         </td>
-                        <td><span className="badge" style={{ background: getVal(l, ['Loan_Type', 'loan_type']) === 'Chassis Loan' ? 'rgba(56,189,248,0.2)' : 'rgba(245,158,11,0.2)', color: getVal(l, ['Loan_Type', 'loan_type']) === 'Chassis Loan' ? '#38bdf8' : '#f59e0b' }}>{getVal(l, ['Loan_Type', 'loan_type'], 'Loan')}</span></td>
-                        <td style={{ color: '#f59e0b', fontSize: '11px' }}>
+                        <td><span className="badge" style={{ background: getVal(l, ['Loan_Type', 'loan_type']) === 'Chassis Loan' ? 'rgba(34, 211, 238,0.2)' : 'rgba(255, 178, 36,0.2)', color: getVal(l, ['Loan_Type', 'loan_type']) === 'Chassis Loan' ? '#22d3ee' : '#ffb224' }}>{getVal(l, ['Loan_Type', 'loan_type'], 'Loan')}</span></td>
+                        <td style={{ color: '#ffb224', fontSize: '11px' }}>
                           {showSlabs ? l.emi_slabs.map((slab:any, idx:number) => (
-                              <div key={idx} style={{ marginBottom: '3px' }}><span style={{ color: '#94a3b8' }}>{slab.date ? `[${new Date(slab.date).toLocaleDateString('en-GB')}] ` : ''}</span> M({slab.from_month}-{slab.to_month}): <b style={{ color: '#fff' }}>₹{slab.amount}</b></div>
+                              <div key={idx} style={{ marginBottom: '3px' }}><span style={{ color: '#9aadd4' }}>{slab.date ? `[${new Date(slab.date).toLocaleDateString('en-GB')}] ` : ''}</span> M({slab.from_month}-{slab.to_month}): <b style={{ color: '#fff' }}>₹{slab.amount}</b></div>
                             )) : showEmiBox}
                         </td>
-                        <td><span style={{ color: '#10b981', fontWeight: 'bold' }}>{getVal(l, ['EMIs_Completed', 'emis_completed', 'old_emis_paid'], '0')}</span> / {getVal(l, ['Tenure_Months', 'tenure_months', 'tenure'], '-')}</td>
+                        <td><span style={{ color: '#2fe39b', fontWeight: 'bold' }}>{getVal(l, ['EMIs_Completed', 'emis_completed', 'old_emis_paid'], '0')}</span> / {getVal(l, ['Tenure_Months', 'tenure_months', 'tenure'], '-')}</td>
                         <td>₹{parseNum(getVal(l, ['Principal_Amt', 'principal_amt', 'loan_amount', 'amount'])).toLocaleString('en-IN')}</td>
-                        <td style={{ color: '#ef4444', fontWeight: '900', fontSize: '15px' }}>₹{parseNum(getVal(l, ['Remaining_Principal', 'remaining_principal', 'balance', 'Principal_Amt'])).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
-                        <td><span className="badge" style={{ background: status === 'ACTIVE' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: status === 'ACTIVE' ? '#10b981' : '#ef4444', border: `1px solid ${status === 'ACTIVE' ? '#10b981' : '#ef4444'}` }}>{status === 'CLOSED' ? 'DEACTIVE' : status}</span></td>
+                        <td style={{ color: '#ff6b81', fontWeight: '900', fontSize: '15px' }}>₹{parseNum(getVal(l, ['Remaining_Principal', 'remaining_principal', 'balance', 'Principal_Amt'])).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        <td><span className="badge" style={{ background: status === 'ACTIVE' ? 'rgba(47, 227, 155,0.1)' : 'rgba(255, 107, 129,0.1)', color: status === 'ACTIVE' ? '#2fe39b' : '#ff6b81', border: `1px solid ${status === 'ACTIVE' ? '#2fe39b' : '#ff6b81'}` }}>{status === 'CLOSED' ? 'DEACTIVE' : status}</span></td>
                         <td style={{ textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '5px', justifyContent: 'center' }}>
-                            <button onClick={() => handleEditLoan(l)} style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
-                            <button onClick={() => handleDeleteLoan(l.id)} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🗑️</button>
+                            <button onClick={() => handleEditLoan(l)} style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid #22d3ee', color: '#22d3ee', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
+                            <button onClick={() => handleDeleteLoan(l.id)} style={{ background: 'rgba(255, 107, 129, 0.1)', border: '1px solid #ff6b81', color: '#ff6b81', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🗑️</button>
                           </div>
                         </td>
                       </tr>
@@ -1216,19 +1216,19 @@ export default function LoanEmiMgmt() {
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
               <div style={{ display: 'flex', gap: '15px', background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '10px' }}>
-                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>From Date</label><input type="date" className="modern-input" style={{ padding: '5px 10px', colorScheme: 'dark' }} value={historyFromDate} onChange={e=>setHistoryFromDate(e.target.value)} /></div>
-                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>To Date</label><input type="date" className="modern-input" style={{ padding: '5px 10px', colorScheme: 'dark' }} value={historyToDate} onChange={e=>setHistoryToDate(e.target.value)} /></div>
+                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>From Date</label><input type="date" className="modern-input" style={{ padding: '5px 10px', colorScheme: 'dark' }} value={historyFromDate} onChange={e=>setHistoryFromDate(e.target.value)} /></div>
+                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>To Date</label><input type="date" className="modern-input" style={{ padding: '5px 10px', colorScheme: 'dark' }} value={historyToDate} onChange={e=>setHistoryToDate(e.target.value)} /></div>
                  <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-                   <button onClick={()=>{setHistoryFromDate(''); setHistoryToDate('');}} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '5px 15px', borderRadius: '5px', cursor: 'pointer', height: '32px' }}>Clear</button>
+                   <button onClick={()=>{setHistoryFromDate(''); setHistoryToDate('');}} style={{ background: 'transparent', border: '1px solid #ff6b81', color: '#ff6b81', padding: '5px 15px', borderRadius: '5px', cursor: 'pointer', height: '32px' }}>Clear</button>
                  </div>
               </div>
-              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', padding: '10px 20px' }} onClick={handlePrintBankSheet}>
+              <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #d97706)', padding: '10px 20px' }} onClick={handlePrintBankSheet}>
                 🏦 Print Selected Bank Submission Sheet
               </button>
            </div>
            
            {Object.keys(groupedHistoryPayments).length === 0 ? (
-             <div style={{ textAlign: 'center', padding: '30px', color: '#94a3b8' }}>No EMI Payments found for selected dates/search.</div>
+             <div style={{ textAlign: 'center', padding: '30px', color: '#9aadd4' }}>No EMI Payments found for selected dates/search.</div>
            ) : (
              Object.keys(groupedHistoryPayments).map((key, idx) => {
                const group = groupedHistoryPayments[key];
@@ -1236,31 +1236,31 @@ export default function LoanEmiMgmt() {
                const blockTotal = group.reduce((sum: number, p: any) => sum + parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])), 0);
 
                return (
-                 <div key={idx} style={{ marginBottom: '30px', background: 'rgba(15,23,42,0.8)', border: '1px solid #334155', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+                 <div key={idx} style={{ marginBottom: '30px', background: 'rgba(18, 28, 56,0.8)', border: '1px solid #27395f', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
                    {/* BLOCK HEADER */}
-                   <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '15px 20px', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                   <div style={{ background: 'rgba(47, 227, 155, 0.1)', padding: '15px 20px', borderBottom: '1px solid #27395f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                       <div>
-                        <h3 style={{ margin: '0 0 5px 0', color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ margin: '0 0 5px 0', color: '#2fe39b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                           📅 {getVal(first, ['Date_of_Payment', 'date_of_payment', 'date', 'EMI_Date', 'emi_date'])} 
-                          <span className="badge" style={{ background: 'rgba(56,189,248,0.2)', color: '#38bdf8', fontSize: '12px' }}>{group.length} Vehicles</span>
+                          <span className="badge" style={{ background: 'rgba(34, 211, 238,0.2)', color: '#22d3ee', fontSize: '12px' }}>{group.length} Vehicles</span>
                         </h3>
-                        <span style={{ color: '#94a3b8', fontSize: '13px' }}>
-                          🏢 To: <b style={{color: '#f59e0b'}}>{getVal(first, ['Bank_Name', 'bank_name'], 'N/A')}</b>
+                        <span style={{ color: '#9aadd4', fontSize: '13px' }}>
+                          🏢 To: <b style={{color: '#ffb224'}}>{getVal(first, ['Bank_Name', 'bank_name'], 'N/A')}</b>
                           {' '}| 🏦 Paid From: <b style={{color: '#818cf8'}}>{getVal(first, ['Payment_From_Account'], 'N/A')}</b>
                           {/* The bank's own reference where it was recorded. Where it was
                               not, say so rather than showing a voucher number that looks
                               like a UTR and will not be found on any statement. */}
                           {first.Instrument_Ref
-                            ? <> | 🔖 UTR/Cheque: <b style={{color: '#c084fc'}}>{first.Instrument_Ref}</b></>
-                            : <> | <span style={{ color: '#64748b' }}>no UTR/cheque recorded — grouped by date &amp; financier</span></>}
+                            ? <> | 🔖 UTR/Cheque: <b style={{color: '#a78bfa'}}>{first.Instrument_Ref}</b></>
+                            : <> | <span style={{ color: '#5d7196' }}>no UTR/cheque recorded — grouped by date &amp; financier</span></>}
                         </span>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '20px' }}>
                         <div>
-                          <span style={{ color: '#94a3b8', fontSize: '11px', textTransform: 'uppercase' }}>Total Block Payout</span>
+                          <span style={{ color: '#9aadd4', fontSize: '11px', textTransform: 'uppercase' }}>Total Block Payout</span>
                           <h2 style={{ margin: '0', color: '#fff' }}>₹{blockTotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
                         </div>
-                        <button onClick={() => handleDeleteBlock(group)} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <button onClick={() => handleDeleteBlock(group)} style={{ background: 'rgba(255, 107, 129, 0.1)', border: '1px solid #ff6b81', color: '#ff6b81', padding: '8px 15px', borderRadius: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
                           {loading ? '⏳ Deleting...' : '🗑️ Delete Entire Block'}
                         </button>
                       </div>
@@ -1272,28 +1272,28 @@ export default function LoanEmiMgmt() {
                        <thead>
                          <tr>
                            <th>Vehicle No</th><th>Company</th><th>Owner Name</th><th>Bank / A/C No</th><th>Month/Year</th>
-                           <th style={{ color: '#10b981' }}>Total EMI Paid</th><th style={{ color: '#38bdf8' }}>Principal Cut</th><th style={{ color: '#ef4444' }}>Interest Paid</th><th style={{ textAlign: 'center' }}>Action</th>
+                           <th style={{ color: '#2fe39b' }}>Total EMI Paid</th><th style={{ color: '#22d3ee' }}>Principal Cut</th><th style={{ color: '#ff6b81' }}>Interest Paid</th><th style={{ textAlign: 'center' }}>Action</th>
                          </tr>
                        </thead>
                        <tbody>
                           {group.map((p: any, i: number) => (
                             <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.02)' }}>
                               <td><b style={{ color: '#fff', fontSize: '14px' }}>{getVal(p, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'])}</b></td>
-                              <td style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🏢 {getRealCompany(p)}</td>
-                              <td style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold' }}>👤 {getRealOwner(p)}</td>
+                              <td style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 'bold' }}>🏢 {getRealCompany(p)}</td>
+                              <td style={{ color: '#2fe39b', fontSize: '11px', fontWeight: 'bold' }}>👤 {getRealOwner(p)}</td>
                               <td>{getVal(p, ['Bank_Name', 'bank_name', 'financier_name'])} <br/><small style={{color:'#818cf8', fontWeight:'bold'}}>{getVal(p, ['Loan_Account_No', 'loan_account_no', 'account_no'])}</small></td>
-                              <td><span style={{ color: '#f59e0b', fontWeight: 'bold' }}>{emiMonthLabel(getVal(p, ['EMI_Month_Year', 'month_year', 'month', 'EMI_Month'], 'N/A'))}</span><br/><small style={{ color: '#cbd5e1' }}>
+                              <td><span style={{ color: '#ffb224', fontWeight: 'bold' }}>{emiMonthLabel(getVal(p, ['EMI_Month_Year', 'month_year', 'month', 'EMI_Month'], 'N/A'))}</span><br/><small style={{ color: '#c4d1ea' }}>
                                 {p.Instalment_No ? `EMI #${p.Instalment_No}` : ''}
                                 {Number(getVal(p, ['Months_Paid', 'months_paid'], '1')) > 1
                                   ? `${p.Instalment_No ? ' · ' : ''}covers ${getVal(p, ['Months_Paid', 'months_paid'])} months` : ''}
                               </small></td>
-                              <td style={{ color: '#10b981', fontWeight: 'bold', fontSize: '14px' }}>₹{parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN')}</td>
-                              <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Principal_Part', 'principal_part', 'principal'])).toLocaleString('en-IN')}</td>
-                              <td style={{ color: '#ef4444', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Interest_Part', 'interest_part', 'interest'])).toLocaleString('en-IN')}</td>
+                              <td style={{ color: '#2fe39b', fontWeight: 'bold', fontSize: '14px' }}>₹{parseNum(getVal(p, ['Total_EMI_Paid', 'total_emi', 'amount', 'EMI_Amount', 'Amount'])).toLocaleString('en-IN')}</td>
+                              <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Principal_Part', 'principal_part', 'principal'])).toLocaleString('en-IN')}</td>
+                              <td style={{ color: '#ff6b81', fontWeight: 'bold' }}>₹{parseNum(getVal(p, ['Interest_Part', 'interest_part', 'interest'])).toLocaleString('en-IN')}</td>
                               <td style={{ textAlign: 'center' }}>
                                 <div style={{ display: 'flex', gap: '5px', justifyContent: 'center' }}>
-                                  <button onClick={() => setPaymentEditData(p)} style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
-                                  <button onClick={() => handleDeletePayment(p)} style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🗑️ Delete</button>
+                                  <button onClick={() => setPaymentEditData(p)} style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid #22d3ee', color: '#22d3ee', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>✏️ Edit</button>
+                                  <button onClick={() => handleDeletePayment(p)} style={{ background: 'rgba(255, 107, 129, 0.1)', border: '1px solid #ff6b81', color: '#ff6b81', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🗑️ Delete</button>
                                 </div>
                               </td>
                             </tr>
@@ -1312,9 +1312,9 @@ export default function LoanEmiMgmt() {
       {activeTab === 'TRACKER' && (
         <>
           {trackerErr && (
-            <div className="glass-card" style={{ padding: '18px', marginBottom: '18px', border: '1px solid #ef4444' }}>
-              <b style={{ color: '#ef4444' }}>EMI tracker unavailable</b>
-              <div style={{ color: '#94a3b8', fontSize: '12px', marginTop: '6px' }}>{trackerErr}</div>
+            <div className="glass-card" style={{ padding: '18px', marginBottom: '18px', border: '1px solid #ff6b81' }}>
+              <b style={{ color: '#ff6b81' }}>EMI tracker unavailable</b>
+              <div style={{ color: '#9aadd4', fontSize: '12px', marginTop: '6px' }}>{trackerErr}</div>
             </div>
           )}
           {tracker && (() => {
@@ -1323,18 +1323,18 @@ export default function LoanEmiMgmt() {
               <div style={{ background: `${colour}1a`, padding: '14px 22px', border: `1px solid ${colour}`, borderRadius: '12px', minWidth: '170px' }}>
                 <div style={{ color: colour, fontSize: '11px', fontWeight: 'bold', letterSpacing: '.4px' }}>{label}</div>
                 <div style={{ fontSize: '24px', fontWeight: 900, color: '#fff', marginTop: '4px' }}>{value}</div>
-                {note && <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '2px' }}>{note}</div>}
+                {note && <div style={{ color: '#9aadd4', fontSize: '10px', marginTop: '2px' }}>{note}</div>}
               </div>
             );
             return (
               <>
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '18px' }}>
-                  {tile('✅ PAID', String(tracker.totals.PAID), '#10b981', rup(tracker.money.paid))}
-                  {tile('⚠️ OVERDUE', String(tracker.totals.OVERDUE), '#ef4444', rup(tracker.money.overdue))}
-                  {tile('🗓️ UPCOMING', String(tracker.totals.UPCOMING), '#38bdf8', `next 6 months ${rup(tracker.money.upcoming)}`)}
+                  {tile('✅ PAID', String(tracker.totals.PAID), '#2fe39b', rup(tracker.money.paid))}
+                  {tile('⚠️ OVERDUE', String(tracker.totals.OVERDUE), '#ff6b81', rup(tracker.money.overdue))}
+                  {tile('🗓️ UPCOMING', String(tracker.totals.UPCOMING), '#22d3ee', `next 6 months ${rup(tracker.money.upcoming)}`)}
                   {tile('📘 IN OPENING BAL.', String(tracker.totals.SETTLED_IN_OPENING), '#a78bfa', 'settled before cut-off')}
                 </div>
-                <div style={{ color: '#94a3b8', fontSize: '11px', marginBottom: '14px' }}>
+                <div style={{ color: '#9aadd4', fontSize: '11px', marginBottom: '14px' }}>
                   Status is judged per instalment as at {tracker.as_of}. Instalments that fell due before a
                   loan's opening balance date are shown as settled in the opening balance, not as arrears —
                   they are already inside the figure carried into the books.
@@ -1344,9 +1344,9 @@ export default function LoanEmiMgmt() {
                     <thead>
                       <tr>
                         <th>Loan / Vehicle</th><th>Financier</th><th>Type</th>
-                        <th style={{ color: '#10b981' }}>Paid</th>
-                        <th style={{ color: '#ef4444' }}>Overdue</th>
-                        <th style={{ color: '#ef4444' }}>Overdue ₹</th>
+                        <th style={{ color: '#2fe39b' }}>Paid</th>
+                        <th style={{ color: '#ff6b81' }}>Overdue</th>
+                        <th style={{ color: '#ff6b81' }}>Overdue ₹</th>
                         <th>Next Due</th><th>Opening Principal</th>
                       </tr>
                     </thead>
@@ -1354,21 +1354,21 @@ export default function LoanEmiMgmt() {
                       {tracker.tracker.map((t: any) => (
                         <tr key={t.loan_no}>
                           <td><b style={{ color: '#fff', fontSize: '13px' }}>{t.vehicle || '—'}</b><br/>
-                              <span style={{ color: '#94a3b8', fontSize: '10px' }}>{t.loan_no}</span></td>
+                              <span style={{ color: '#9aadd4', fontSize: '10px' }}>{t.loan_no}</span></td>
                           <td style={{ fontSize: '11px' }}>{t.financier}</td>
                           <td style={{ fontSize: '11px' }}>{t.loan_type}</td>
-                          <td style={{ color: '#10b981', fontWeight: 'bold' }}>{t.paid_count}</td>
-                          <td style={{ color: t.overdue_count ? '#ef4444' : '#64748b', fontWeight: 'bold' }}>{t.overdue_count}</td>
-                          <td style={{ color: t.overdue_amount ? '#ef4444' : '#64748b', fontWeight: 'bold' }}>{rup(t.overdue_amount)}</td>
+                          <td style={{ color: '#2fe39b', fontWeight: 'bold' }}>{t.paid_count}</td>
+                          <td style={{ color: t.overdue_count ? '#ff6b81' : '#5d7196', fontWeight: 'bold' }}>{t.overdue_count}</td>
+                          <td style={{ color: t.overdue_amount ? '#ff6b81' : '#5d7196', fontWeight: 'bold' }}>{rup(t.overdue_amount)}</td>
                           <td style={{ fontSize: '11px' }}>
                             {t.next_due
-                              ? <><b style={{ color: '#38bdf8' }}>{t.next_due.due_date}</b><br/>{rup(t.next_due.emi)}</>
-                              : <span style={{ color: '#94a3b8' }}>no forward schedule</span>}
+                              ? <><b style={{ color: '#22d3ee' }}>{t.next_due.due_date}</b><br/>{rup(t.next_due.emi)}</>
+                              : <span style={{ color: '#9aadd4' }}>no forward schedule</span>}
                           </td>
                           <td style={{ fontSize: '11px' }}>
                             {t.opening_principal == null ? '—'
                               : <><b style={{ color: '#fff' }}>{rup(t.opening_principal)}</b><br/>
-                                 <span style={{ color: '#94a3b8', fontSize: '10px' }}>as at {t.opening_as_of}</span></>}
+                                 <span style={{ color: '#9aadd4', fontSize: '10px' }}>as at {t.opening_as_of}</span></>}
                           </td>
                         </tr>
                       ))}
@@ -1385,8 +1385,8 @@ export default function LoanEmiMgmt() {
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
              <div style={{ display: 'flex', gap: '20px' }}>
-                <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '15px 25px', border: '1px solid #ef4444', borderRadius: '12px' }}>
-                  <div style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold' }}>⚠️ TOTAL OVERDUE AMOUNT</div>
+                <div style={{ background: 'rgba(255, 107, 129, 0.1)', padding: '15px 25px', border: '1px solid #ff6b81', borderRadius: '12px' }}>
+                  <div style={{ color: '#ff6b81', fontSize: '12px', fontWeight: 'bold' }}>⚠️ TOTAL OVERDUE AMOUNT</div>
                   <div style={{ fontSize: '28px', fontWeight: '900', color: '#fff', marginTop: '5px' }}>₹{totalOverdueAmount.toLocaleString('en-IN', {minimumFractionDigits: 2})}</div>
                 </div>
              </div>
@@ -1400,7 +1400,7 @@ export default function LoanEmiMgmt() {
                 <thead>
                   <tr>
                     <th>Vehicle & Bank</th><th>Company</th><th>Owner Name</th><th>Current EMI</th><th>Tenure & Cleared</th>
-                    <th style={{ color: '#f59e0b' }}>Pending EMIs</th><th style={{ color: '#ef4444' }}>Due Amount (₹)</th><th>Live Status</th>
+                    <th style={{ color: '#ffb224' }}>Pending EMIs</th><th style={{ color: '#ff6b81' }}>Due Amount (₹)</th><th>Live Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1409,13 +1409,13 @@ export default function LoanEmiMgmt() {
                       const curEmi = (r.currentEmiAmt || 0).toLocaleString('en-IN');
                       return (
                         <tr key={i}>
-                          <td><b style={{ color: '#fff', fontSize: '14px' }}>{getVal(r, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'])}</b><br/><span style={{ color: '#94a3b8', fontSize: '10px' }}>{getVal(r, ['Bank_Name', 'bank_name', 'financier_name'])}</span></td>
-                          <td><span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '11px' }}>🏢 {getRealCompany(r)}</span></td>
-                          <td><span style={{ color: '#10b981', fontWeight: 'bold', fontSize: '11px' }}>👤 {getRealOwner(r)}</span></td>
-                          <td style={{ color: '#38bdf8', fontWeight: 'bold' }}>₹{curEmi}</td>
-                          <td><span style={{ color: '#10b981', fontWeight: 'bold' }}>{getVal(r, ['EMIs_Completed', 'emis_completed', 'old_emis_paid'], '0')}</span> / {getVal(r, ['Tenure_Months', 'tenure_months', 'tenure'], '-')}</td>
-                          <td style={{ color: r.dueMonths > 0 ? '#ef4444' : '#10b981', fontWeight: 'bold', fontSize: '15px' }}>{r.dueMonths} Month(s)</td>
-                          <td style={{ color: r.dueAmount > 0 ? '#ef4444' : '#cbd5e1', fontWeight: 'bold', fontSize: '15px' }}>₹{r.dueAmount.toLocaleString('en-IN')}</td>
+                          <td><b style={{ color: '#fff', fontSize: '14px' }}>{getVal(r, ['Vehicle_No', 'vehicle_no', 'vehical_no', 'registration_no'])}</b><br/><span style={{ color: '#9aadd4', fontSize: '10px' }}>{getVal(r, ['Bank_Name', 'bank_name', 'financier_name'])}</span></td>
+                          <td><span style={{ color: '#22d3ee', fontWeight: 'bold', fontSize: '11px' }}>🏢 {getRealCompany(r)}</span></td>
+                          <td><span style={{ color: '#2fe39b', fontWeight: 'bold', fontSize: '11px' }}>👤 {getRealOwner(r)}</span></td>
+                          <td style={{ color: '#22d3ee', fontWeight: 'bold' }}>₹{curEmi}</td>
+                          <td><span style={{ color: '#2fe39b', fontWeight: 'bold' }}>{getVal(r, ['EMIs_Completed', 'emis_completed', 'old_emis_paid'], '0')}</span> / {getVal(r, ['Tenure_Months', 'tenure_months', 'tenure'], '-')}</td>
+                          <td style={{ color: r.dueMonths > 0 ? '#ff6b81' : '#2fe39b', fontWeight: 'bold', fontSize: '15px' }}>{r.dueMonths} Month(s)</td>
+                          <td style={{ color: r.dueAmount > 0 ? '#ff6b81' : '#c4d1ea', fontWeight: 'bold', fontSize: '15px' }}>₹{r.dueAmount.toLocaleString('en-IN')}</td>
                           <td><span style={{ color: r.color, fontWeight: 'bold', background: `${r.color}20`, padding: '5px 10px', borderRadius: '20px', border: `1px solid ${r.color}` }}>{r.status}</span></td>
                         </tr>
                       )
@@ -1431,39 +1431,39 @@ export default function LoanEmiMgmt() {
       {/* ✏️ MODAL: EDIT INDIVIDUAL EMI PAYMENT (WITH AUTO-ADJUST) */}
       {/* -------------------------------------------------------- */}
       {paymentEditData && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '800px', border: '1px solid #38bdf8', background: '#0f172a' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '800px', border: '1px solid #22d3ee', background: '#121c38' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#38bdf8' }}>✏️ Edit EMI Payment & Auto-Adjust Balances</h2>
-              <button onClick={() => setPaymentEditData(null)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#22d3ee' }}>✏️ Edit EMI Payment & Auto-Adjust Balances</h2>
+              <button onClick={() => setPaymentEditData(null)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
             <div style={{ background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '10px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between' }}>
-               <div><span style={{ color: '#94a3b8', fontSize: '12px' }}>Vehicle</span><br/><b style={{ color: '#fff', fontSize: '16px' }}>{getVal(paymentEditData, ['Vehicle_No', 'vehicle_no', 'registration_no'])}</b></div>
-               <div><span style={{ color: '#94a3b8', fontSize: '12px' }}>Loan A/C</span><br/><b style={{ color: '#818cf8', fontSize: '16px' }}>{getVal(paymentEditData, ['Loan_Account_No'])}</b></div>
-               <div><span style={{ color: '#94a3b8', fontSize: '12px' }}>Bank</span><br/><b style={{ color: '#10b981', fontSize: '16px' }}>{getVal(paymentEditData, ['Bank_Name'])}</b></div>
+               <div><span style={{ color: '#9aadd4', fontSize: '12px' }}>Vehicle</span><br/><b style={{ color: '#fff', fontSize: '16px' }}>{getVal(paymentEditData, ['Vehicle_No', 'vehicle_no', 'registration_no'])}</b></div>
+               <div><span style={{ color: '#9aadd4', fontSize: '12px' }}>Loan A/C</span><br/><b style={{ color: '#818cf8', fontSize: '16px' }}>{getVal(paymentEditData, ['Loan_Account_No'])}</b></div>
+               <div><span style={{ color: '#9aadd4', fontSize: '12px' }}>Bank</span><br/><b style={{ color: '#2fe39b', fontSize: '16px' }}>{getVal(paymentEditData, ['Bank_Name'])}</b></div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Deduction Date</label><input type="date" className="modern-input" value={paymentEditData.Date_of_Payment} onChange={e=>setPaymentEditData({...paymentEditData, Date_of_Payment: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Paid From (Our Bank)</label>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Deduction Date</label><input type="date" className="modern-input" value={paymentEditData.Date_of_Payment} onChange={e=>setPaymentEditData({...paymentEditData, Date_of_Payment: e.target.value})} style={{colorScheme:'dark'}}/></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Paid From (Our Bank)</label>
                  <select className="modern-input" value={paymentEditData.Payment_From_Account} onChange={e=>setPaymentEditData({...paymentEditData, Payment_From_Account: e.target.value})}>
                     <option value="">-- Select Bank Account --</option>
                     {bankAccounts.map((b, i) => <option key={i} value={b}>{b}</option>)}
                  </select>
               </div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Mth/Year (Mar-26 or 2026-03)</label><input type="text" className="modern-input" value={paymentEditData.EMI_Month_Year} onChange={e=>setPaymentEditData({...paymentEditData, EMI_Month_Year: e.target.value})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Ref / UTR No</label><input type="text" className="modern-input" value={paymentEditData.Ref_No} onChange={e=>setPaymentEditData({...paymentEditData, Ref_No: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Mth/Year (Mar-26 or 2026-03)</label><input type="text" className="modern-input" value={paymentEditData.EMI_Month_Year} onChange={e=>setPaymentEditData({...paymentEditData, EMI_Month_Year: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Ref / UTR No</label><input type="text" className="modern-input" value={paymentEditData.Ref_No} onChange={e=>setPaymentEditData({...paymentEditData, Ref_No: e.target.value})} /></div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '15px', padding: '15px', background: 'rgba(245,158,11,0.05)', borderRadius: '10px', border: '1px dashed #f59e0b' }}>
-               <div><label style={{ fontSize:'11px', color:'#38bdf8', fontWeight:'bold' }}>No. of EMIs</label><input type="number" className="modern-input" style={{ borderColor: '#38bdf8', color: '#38bdf8', fontWeight: 'bold' }} value={paymentEditData.Months_Paid} onChange={e=>setPaymentEditData({...paymentEditData, Months_Paid: e.target.value})} /></div>
-               <div><label style={{ fontSize:'11px', color:'#10b981', fontWeight:'bold' }}>Total EMI Paid (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={paymentEditData.Total_EMI_Paid} onChange={e=>setPaymentEditData({...paymentEditData, Total_EMI_Paid: e.target.value})} /></div>
-               <div><label style={{ fontSize:'11px', color:'#f59e0b', fontWeight:'bold' }}>Principal Cut (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#f59e0b', color: '#f59e0b', fontWeight: 'bold' }} value={paymentEditData.Principal_Part} onChange={e=>setPaymentEditData({...paymentEditData, Principal_Part: e.target.value})} /></div>
-               <div><label style={{ fontSize:'11px', color:'#ef4444', fontWeight:'bold' }}>Interest Paid (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#ef4444', color: '#ef4444', fontWeight: 'bold' }} value={paymentEditData.Interest_Part} onChange={e=>setPaymentEditData({...paymentEditData, Interest_Part: e.target.value})} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '15px', padding: '15px', background: 'rgba(255, 178, 36,0.05)', borderRadius: '10px', border: '1px dashed #ffb224' }}>
+               <div><label style={{ fontSize:'11px', color:'#22d3ee', fontWeight:'bold' }}>No. of EMIs</label><input type="number" className="modern-input" style={{ borderColor: '#22d3ee', color: '#22d3ee', fontWeight: 'bold' }} value={paymentEditData.Months_Paid} onChange={e=>setPaymentEditData({...paymentEditData, Months_Paid: e.target.value})} /></div>
+               <div><label style={{ fontSize:'11px', color:'#2fe39b', fontWeight:'bold' }}>Total EMI Paid (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={paymentEditData.Total_EMI_Paid} onChange={e=>setPaymentEditData({...paymentEditData, Total_EMI_Paid: e.target.value})} /></div>
+               <div><label style={{ fontSize:'11px', color:'#ffb224', fontWeight:'bold' }}>Principal Cut (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#ffb224', color: '#ffb224', fontWeight: 'bold' }} value={paymentEditData.Principal_Part} onChange={e=>setPaymentEditData({...paymentEditData, Principal_Part: e.target.value})} /></div>
+               <div><label style={{ fontSize:'11px', color:'#ff6b81', fontWeight:'bold' }}>Interest Paid (₹)</label><input type="number" className="modern-input" style={{ borderColor: '#ff6b81', color: '#ff6b81', fontWeight: 'bold' }} value={paymentEditData.Interest_Part} onChange={e=>setPaymentEditData({...paymentEditData, Interest_Part: e.target.value})} /></div>
             </div>
             
-            <p style={{ fontSize: '11px', color: '#ef4444', textAlign: 'center', marginTop: '15px' }}>⚠️ Warning: Changing Principal or Month values here will automatically adjust the Main Loan Account's Remaining Balance.</p>
+            <p style={{ fontSize: '11px', color: '#ff6b81', textAlign: 'center', marginTop: '15px' }}>⚠️ Warning: Changing Principal or Month values here will automatically adjust the Main Loan Account's Remaining Balance.</p>
             
             <button className="glow-btn" style={{ width: '100%', marginTop: '10px', padding: '15px', fontSize: '16px' }} onClick={handleSaveEditedPayment} disabled={loading}>
               {loading ? '⏳ Updating...' : '✅ Save & Auto-Adjust Balances'}
@@ -1474,15 +1474,15 @@ export default function LoanEmiMgmt() {
 
       {/* 🏦 MODAL 1: ADD / EDIT LOAN MASTER */}
       {isLoanModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '850px', border: '1px solid #6366f1', background: '#0f172a', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '30px', width: '100%', maxWidth: '850px', border: '1px solid #7c8cff', background: '#121c38', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
               <h2 style={{ margin: 0, color: '#818cf8' }}>{editingLoanId ? '✏️ Edit & Update Loan' : '🏦 Register Vehicle Loan'}</h2>
-              <button onClick={() => setIsLoanModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <button onClick={() => setIsLoanModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight: 'bold' }}>Vehicle No *</label>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight: 'bold' }}>Vehicle No *</label>
                 <input 
                   className="modern-input" 
                   list="vehicle-list-options" 
@@ -1513,10 +1513,10 @@ export default function LoanEmiMgmt() {
               </div>
               
               <div>
-                <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight: 'bold' }}>Company Name *</label>
+                <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight: 'bold' }}>Company Name *</label>
                 <input 
                   className="modern-input" 
-                  style={{ borderColor: '#38bdf8' }} 
+                  style={{ borderColor: '#22d3ee' }} 
                   list="company-list-options"
                   placeholder="Search or Type Company..."
                   value={loanData.Company_Name} 
@@ -1528,10 +1528,10 @@ export default function LoanEmiMgmt() {
               </div>
 
               <div>
-                <label style={{ fontSize:'12px', color:'#10b981', fontWeight: 'bold' }}>Owner Name (Ledger) *</label>
+                <label style={{ fontSize:'12px', color:'#2fe39b', fontWeight: 'bold' }}>Owner Name (Ledger) *</label>
                 <input 
                   className="modern-input" 
-                  style={{ borderColor: '#10b981' }} 
+                  style={{ borderColor: '#2fe39b' }} 
                   list="owner-list-options"
                   placeholder="Search or Type Owner..."
                   value={loanData.Owner_Name} 
@@ -1544,36 +1544,36 @@ export default function LoanEmiMgmt() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '15px' }}>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8', fontWeight: 'bold' }}>Loan Type *</label>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4', fontWeight: 'bold' }}>Loan Type *</label>
                 <select className="modern-input" value={loanData.Loan_Type} onChange={e=>setLoanData({...loanData, Loan_Type: e.target.value})}>
                   <option value="Chassis Loan">Chassis Loan (Company)</option>
                   <option value="Body Loan">Body Building Loan</option>
                   <option value="Refinance">Refinance / Top-up</option>
                 </select>
               </div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Bank / Financier Name *</label><input className="modern-input" placeholder="e.g. HDFC Bank" value={loanData.Bank_Name} onChange={e=>setLoanData({...loanData, Bank_Name: e.target.value})} /></div>
-              <div><label style={{ fontSize:'12px', color:'#94a3b8' }}>Loan Account No *</label><input className="modern-input" value={loanData.Loan_Account_No} onChange={e=>setLoanData({...loanData, Loan_Account_No: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Bank / Financier Name *</label><input className="modern-input" placeholder="e.g. HDFC Bank" value={loanData.Bank_Name} onChange={e=>setLoanData({...loanData, Bank_Name: e.target.value})} /></div>
+              <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Loan Account No *</label><input className="modern-input" value={loanData.Loan_Account_No} onChange={e=>setLoanData({...loanData, Loan_Account_No: e.target.value})} /></div>
             </div>
 
-            <div style={{ gridColumn: 'span 2', background: 'rgba(245, 158, 11, 0.05)', padding: '15px', borderRadius: '10px', border: '1px dashed #f59e0b', marginBottom: '20px' }}>
-               <h4 style={{ margin: '0 0 10px 0', color: '#f59e0b', fontSize: '13px' }}>⏳ Master Loan Setup (For Amortization)</h4>
+            <div style={{ gridColumn: 'span 2', background: 'rgba(255, 178, 36, 0.05)', padding: '15px', borderRadius: '10px', border: '1px dashed #ffb224', marginBottom: '20px' }}>
+               <h4 style={{ margin: '0 0 10px 0', color: '#ffb224', fontSize: '13px' }}>⏳ Master Loan Setup (For Amortization)</h4>
                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '15px' }}>
-                  <div><label style={{ fontSize:'11px', color:'#f59e0b', fontWeight:'bold' }}>Original Principal (₹) *</label><input type="number" className="modern-input" style={{ border:'1px solid #f59e0b', color: '#f59e0b', fontWeight: 'bold' }} placeholder="e.g. 2000000" value={loanData.Principal_Amt} onChange={e=>setLoanData({...loanData, Principal_Amt: e.target.value})} /></div>
-                  <div><label style={{ fontSize:'11px', color:'#10b981', fontWeight:'bold' }}>Loan Start Date</label><input type="date" className="modern-input" value={loanData.As_On_Date} onChange={e=>setLoanData({...loanData, As_On_Date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-                  <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Total Tenure (Months)</label><input type="number" className="modern-input" placeholder="e.g. 48" value={loanData.Tenure_Months} onChange={e=>setLoanData({...loanData, Tenure_Months: e.target.value})} /></div>
-                  <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Bank ROI (%)</label><input type="number" className="modern-input" placeholder="e.g. 8.5" value={loanData.Rate_Of_Interest} onChange={e=>setLoanData({...loanData, Rate_Of_Interest: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#ffb224', fontWeight:'bold' }}>Original Principal (₹) *</label><input type="number" className="modern-input" style={{ border:'1px solid #ffb224', color: '#ffb224', fontWeight: 'bold' }} placeholder="e.g. 2000000" value={loanData.Principal_Amt} onChange={e=>setLoanData({...loanData, Principal_Amt: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#2fe39b', fontWeight:'bold' }}>Loan Start Date</label><input type="date" className="modern-input" value={loanData.As_On_Date} onChange={e=>setLoanData({...loanData, As_On_Date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                  <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>Total Tenure (Months)</label><input type="number" className="modern-input" placeholder="e.g. 48" value={loanData.Tenure_Months} onChange={e=>setLoanData({...loanData, Tenure_Months: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>Bank ROI (%)</label><input type="number" className="modern-input" placeholder="e.g. 8.5" value={loanData.Rate_Of_Interest} onChange={e=>setLoanData({...loanData, Rate_Of_Interest: e.target.value})} /></div>
                   
-                  <div><label style={{ fontSize:'11px', color:'#c084fc', fontWeight:'bold' }}>Moratorium (Gap) Mths</label><input type="number" className="modern-input" style={{ border:'1px solid #c084fc', color: '#c084fc', fontWeight: 'bold' }} placeholder="e.g. 1 or 2" value={loanData.Moratorium_Months} onChange={e=>setLoanData({...loanData, Moratorium_Months: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#a78bfa', fontWeight:'bold' }}>Moratorium (Gap) Mths</label><input type="number" className="modern-input" style={{ border:'1px solid #a78bfa', color: '#a78bfa', fontWeight: 'bold' }} placeholder="e.g. 1 or 2" value={loanData.Moratorium_Months} onChange={e=>setLoanData({...loanData, Moratorium_Months: e.target.value})} /></div>
                   
-                  <div><label style={{ fontSize:'11px', color:'#38bdf8', fontWeight:'bold' }}>Standard EMI (₹)</label><input type="number" className="modern-input" style={{ border:'1px solid #38bdf8', color: '#38bdf8', fontWeight: 'bold' }} placeholder="e.g. 45000" value={loanData.EMI_Amount} onChange={e=>setLoanData({...loanData, EMI_Amount: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#22d3ee', fontWeight:'bold' }}>Standard EMI (₹)</label><input type="number" className="modern-input" style={{ border:'1px solid #22d3ee', color: '#22d3ee', fontWeight: 'bold' }} placeholder="e.g. 45000" value={loanData.EMI_Amount} onChange={e=>setLoanData({...loanData, EMI_Amount: e.target.value})} /></div>
 
-                  <div><label style={{ fontSize:'11px', color:'#10b981', fontWeight:'bold' }}>Remaining Bal (If Old) ₹</label><input type="number" className="modern-input" style={{ border:'1px solid #10b981', color: '#10b981', fontWeight: 'bold' }} placeholder="Leave blank if new" value={loanData.Remaining_Principal_As_On} onChange={e=>setLoanData({...loanData, Remaining_Principal_As_On: e.target.value})} /></div>
-                  <div><label style={{ fontSize:'11px', color:'#38bdf8', fontWeight:'bold' }}>Old EMIs Paid</label><input type="number" className="modern-input" placeholder="e.g. 12" style={{ border:'1px solid #38bdf8', color: '#38bdf8', fontWeight: 'bold' }} value={loanData.Old_EMIs_Paid} onChange={e=>setLoanData({...loanData, Old_EMIs_Paid: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#2fe39b', fontWeight:'bold' }}>Remaining Bal (If Old) ₹</label><input type="number" className="modern-input" style={{ border:'1px solid #2fe39b', color: '#2fe39b', fontWeight: 'bold' }} placeholder="Leave blank if new" value={loanData.Remaining_Principal_As_On} onChange={e=>setLoanData({...loanData, Remaining_Principal_As_On: e.target.value})} /></div>
+                  <div><label style={{ fontSize:'11px', color:'#22d3ee', fontWeight:'bold' }}>Old EMIs Paid</label><input type="number" className="modern-input" placeholder="e.g. 12" style={{ border:'1px solid #22d3ee', color: '#22d3ee', fontWeight: 'bold' }} value={loanData.Old_EMIs_Paid} onChange={e=>setLoanData({...loanData, Old_EMIs_Paid: e.target.value})} /></div>
                   
                   {editingLoanId && (
                     <div style={{ gridColumn: 'span 4' }}>
-                      <label style={{ fontSize:'11px', color:'#ef4444', fontWeight:'bold' }}>Loan Status</label>
-                      <select className="modern-input" style={{ border: '1px solid #ef4444', color: loanData.Payment_Status === 'ACTIVE' ? '#10b981' : '#ef4444', fontWeight: 'bold' }} value={loanData.Payment_Status} onChange={e=>setLoanData({...loanData, Payment_Status: e.target.value})}>
+                      <label style={{ fontSize:'11px', color:'#ff6b81', fontWeight:'bold' }}>Loan Status</label>
+                      <select className="modern-input" style={{ border: '1px solid #ff6b81', color: loanData.Payment_Status === 'ACTIVE' ? '#2fe39b' : '#ff6b81', fontWeight: 'bold' }} value={loanData.Payment_Status} onChange={e=>setLoanData({...loanData, Payment_Status: e.target.value})}>
                         <option value="ACTIVE">🟢 ACTIVE</option><option value="CLOSED">🔴 CLOSED / DEACTIVE</option>
                       </select>
                     </div>
@@ -1585,7 +1585,7 @@ export default function LoanEmiMgmt() {
                </button>
             </div>
 
-            <div style={{ gridColumn: 'span 2', background: 'rgba(99, 102, 241, 0.1)', padding: '15px', borderRadius: '10px', border: '1px dashed #6366f1' }}>
+            <div style={{ gridColumn: 'span 2', background: 'rgba(124, 140, 255, 0.1)', padding: '15px', borderRadius: '10px', border: '1px dashed #7c8cff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <label style={{ fontSize:'13px', color:'#818cf8', fontWeight: 'bold' }}>{loanData.repayment_schedule && loanData.repayment_schedule.length > 0 ? '📊 Generated Amortization Schedule' : '📅 Manual EMI Structure (Step-up/Step-down)'}</label>
                 {(!loanData.repayment_schedule || loanData.repayment_schedule.length === 0) && <button onClick={addEmiSlab} style={{ background: '#6366f1', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>+ Add EMI Slab</button>}
@@ -1594,14 +1594,14 @@ export default function LoanEmiMgmt() {
               {loanData.repayment_schedule && loanData.repayment_schedule.length > 0 ? (
                 <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                   <table style={{ width: '100%', textAlign: 'center', fontSize: '11px' }}>
-                    <thead style={{ background: '#0f172a', position: 'sticky', top: 0 }}>
+                    <thead style={{ background: '#121c38', position: 'sticky', top: 0 }}>
                       <tr><th>Month</th><th>Date</th><th>EMI</th><th>Interest</th><th>Principal</th><th>Balance</th></tr>
                     </thead>
                     <tbody>
                       {loanData.repayment_schedule.map((row:any, idx:number) => (
-                        <tr key={idx} style={{ color: '#94a3b8' }}>
-                          <td>{row.month_no}</td><td>{row.date}</td><td style={{color:'#10b981', fontWeight:'bold'}}>{row.emi}</td>
-                          <td style={{color:'#ef4444'}}>{row.interest}</td><td style={{color:'#38bdf8'}}>{row.principal}</td>
+                        <tr key={idx} style={{ color: '#9aadd4' }}>
+                          <td>{row.month_no}</td><td>{row.date}</td><td style={{color:'#2fe39b', fontWeight:'bold'}}>{row.emi}</td>
+                          <td style={{color:'#ff6b81'}}>{row.interest}</td><td style={{color:'#22d3ee'}}>{row.principal}</td>
                           <td style={{fontWeight:'bold'}}>{row.balance}</td>
                         </tr>
                       ))}
@@ -1613,11 +1613,11 @@ export default function LoanEmiMgmt() {
                   <div key={slab.id} style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
                     <div style={{ flex: 1.5 }}><input type="date" className="modern-input" title="EMI Deduction Date" value={slab.date} onChange={e=>updateEmiSlab(slab.id, 'date', e.target.value)} style={{colorScheme:'dark'}}/></div>
                     <div style={{ flex: 1 }}><input type="number" className="modern-input" placeholder="From Mth" value={slab.from_month} onChange={e=>updateEmiSlab(slab.id, 'from_month', e.target.value)} /></div>
-                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>To</span>
+                    <span style={{ color: '#9aadd4', fontSize: '12px' }}>To</span>
                     <div style={{ flex: 1 }}><input type="number" className="modern-input" placeholder="To Mth" value={slab.to_month} onChange={e=>updateEmiSlab(slab.id, 'to_month', e.target.value)} /></div>
-                    <span style={{ color: '#94a3b8', fontSize: '12px' }}>EMI: ₹</span>
-                    <div style={{ flex: 1.5 }}><input type="number" className="modern-input" placeholder="Amount" style={{ border: '1px solid #10b981', color: '#10b981', fontWeight: 'bold' }} value={slab.amount} onChange={e=>updateEmiSlab(slab.id, 'amount', e.target.value)} /></div>
-                    {loanData.emi_slabs.length > 1 && <button onClick={() => removeEmiSlab(slab.id)} style={{ background: 'transparent', color: '#ef4444', border: 'none', cursor: 'pointer', fontSize: '18px' }}>✕</button>}
+                    <span style={{ color: '#9aadd4', fontSize: '12px' }}>EMI: ₹</span>
+                    <div style={{ flex: 1.5 }}><input type="number" className="modern-input" placeholder="Amount" style={{ border: '1px solid #2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={slab.amount} onChange={e=>updateEmiSlab(slab.id, 'amount', e.target.value)} /></div>
+                    {loanData.emi_slabs.length > 1 && <button onClick={() => removeEmiSlab(slab.id)} style={{ background: 'transparent', color: '#ff6b81', border: 'none', cursor: 'pointer', fontSize: '18px' }}>✕</button>}
                   </div>
                 ))
               )}
@@ -1632,24 +1632,24 @@ export default function LoanEmiMgmt() {
 
       {/* 💸 MODAL 2: 🚀 SMART BULK PAY EMI */}
       {isEmiModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
-          <div className="glass-card" style={{ padding: '20px', width: '100%', maxWidth: '1400px', border: '1px solid #10b981', background: '#0f172a', maxHeight: '95vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.95)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}>
+          <div className="glass-card" style={{ padding: '20px', width: '100%', maxWidth: '1400px', border: '1px solid #2fe39b', background: '#121c38', maxHeight: '95vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
-              <h2 style={{ margin: 0, color: '#10b981' }}>🚀 Smart Bulk EMI Payment</h2>
-              <button onClick={() => setIsEmiModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <h2 style={{ margin: 0, color: '#2fe39b' }}>🚀 Smart Bulk EMI Payment</h2>
+              <button onClick={() => setIsEmiModalOpen(false)} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
             
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#1e293b', padding: '15px', borderRadius: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#18244a', padding: '15px', borderRadius: '10px', flexWrap: 'wrap' }}>
                <div style={{ flex: 1, minWidth: '200px' }}>
-                 <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight: 'bold' }}>1. Select Financier (Bank) *</label>
-                 <select className="modern-input" value={bulkBankFilter} onChange={e => handleBankSelect(e.target.value)} style={{ border: '1px solid #38bdf8', fontWeight: 'bold' }}>
+                 <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight: 'bold' }}>1. Select Financier (Bank) *</label>
+                 <select className="modern-input" value={bulkBankFilter} onChange={e => handleBankSelect(e.target.value)} style={{ border: '1px solid #22d3ee', fontWeight: 'bold' }}>
                     <option value="">-- Choose Bank to Fetch Loans --</option>
                     {uniqueBanks.map((b, i) => <option key={i} value={b}>{b}</option>)}
                  </select>
                </div>
                <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight: 'bold' }}>2. Filter Loan Type</label>
-                 <select className="modern-input" value={bulkTypeFilter} onChange={e => { setBulkTypeFilter(e.target.value); setSelectAll(false); }} style={{ border: '1px solid #38bdf8', fontWeight: 'bold' }}>
+                 <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight: 'bold' }}>2. Filter Loan Type</label>
+                 <select className="modern-input" value={bulkTypeFilter} onChange={e => { setBulkTypeFilter(e.target.value); setSelectAll(false); }} style={{ border: '1px solid #22d3ee', fontWeight: 'bold' }}>
                     <option value="ALL">-- All Types --</option>
                     <option value="Chassis Loan">Chassis Loan</option>
                     <option value="Body Loan">Body Loan</option>
@@ -1659,41 +1659,41 @@ export default function LoanEmiMgmt() {
                
                {/* 🌟 SMART SEARCHABLE DROPDOWN FOR OWNER NAME FILTER */}
                <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={{ fontSize:'12px', color:'#38bdf8', fontWeight: 'bold' }}>3. Filter Owner Name</label>
-                 <select className="modern-input" value={bulkOwnerFilter} onChange={e => { setBulkOwnerFilter(e.target.value); setSelectAll(false); }} style={{ border: '1px solid #38bdf8', fontWeight: 'bold' }}>
+                 <label style={{ fontSize:'12px', color:'#22d3ee', fontWeight: 'bold' }}>3. Filter Owner Name</label>
+                 <select className="modern-input" value={bulkOwnerFilter} onChange={e => { setBulkOwnerFilter(e.target.value); setSelectAll(false); }} style={{ border: '1px solid #22d3ee', fontWeight: 'bold' }}>
                     <option value="ALL">-- All Owners --</option>
                     {uniqueOwnersList.map((owner, i) => <option key={i} value={owner}>{owner}</option>)}
                  </select>
                </div>
 
                <div style={{ flex: 1, minWidth: '200px' }}>
-                 <label style={{ fontSize:'12px', color:'#10b981', fontWeight: 'bold' }}>4. Payment From (Our Bank) *</label>
-                 <select className="modern-input" value={multiEmi.Payment_From_Account} onChange={e=>setMultiEmi({...multiEmi, Payment_From_Account: e.target.value})} style={{ border: '1px solid #10b981', fontWeight: 'bold' }}>
+                 <label style={{ fontSize:'12px', color:'#2fe39b', fontWeight: 'bold' }}>4. Payment From (Our Bank) *</label>
+                 <select className="modern-input" value={multiEmi.Payment_From_Account} onChange={e=>setMultiEmi({...multiEmi, Payment_From_Account: e.target.value})} style={{ border: '1px solid #2fe39b', fontWeight: 'bold' }}>
                     <option value="">-- Select Bank Account --</option>
                     {bankAccounts.map((b, i) => <option key={i} value={b}>{b}</option>)}
                  </select>
                </div>
             </div>
             
-            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#1e293b', padding: '15px', borderRadius: '10px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', background: '#18244a', padding: '15px', borderRadius: '10px', flexWrap: 'wrap' }}>
                <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={{ fontSize:'12px', color:'#94a3b8' }}>Deduction Date</label>
+                 <label style={{ fontSize:'12px', color:'#9aadd4' }}>Deduction Date</label>
                  <input type="date" className="modern-input" value={multiEmi.Date_of_Payment} onChange={e=>setMultiEmi({...multiEmi, Date_of_Payment: e.target.value})} style={{colorScheme:'dark'}}/>
                </div>
                <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={{ fontSize:'12px', color:'#94a3b8' }}>Payment Mode</label>
+                 <label style={{ fontSize:'12px', color:'#9aadd4' }}>Payment Mode</label>
                  <select className="modern-input" value={multiEmi.Payment_Mode} onChange={e=>setMultiEmi({...multiEmi, Payment_Mode: e.target.value})}>
                     <option value="Bank Auto-Debit">Bank Auto-Debit</option><option value="NEFT/RTGS">NEFT / RTGS</option>
                  </select>
                </div>
                <div style={{ flex: 1, minWidth: '150px' }}>
-                 <label style={{ fontSize:'12px', color:'#94a3b8' }}>Ref No (Optional)</label>
+                 <label style={{ fontSize:'12px', color:'#9aadd4' }}>Ref No (Optional)</label>
                  <input type="text" className="modern-input" placeholder="UTR/Ref" value={multiEmi.Ref_No} onChange={e=>setMultiEmi({...multiEmi, Ref_No: e.target.value})}/>
                </div>
             </div>
 
             {bulkBankFilter && (
-              <div style={{ overflowX: 'auto', background: 'rgba(0,0,0,0.3)', borderRadius: '10px', border: '1px solid #334155' }}>
+              <div style={{ overflowX: 'auto', background: 'rgba(0,0,0,0.3)', borderRadius: '10px', border: '1px solid #27395f' }}>
                 <table style={{ minWidth: '1000px' }}>
                   <thead>
                     <tr>
@@ -1706,10 +1706,10 @@ export default function LoanEmiMgmt() {
                       <th>Owner Name</th>
                       <th>Loan A/C No</th>
                       <th>Type / Tenure</th>
-                      <th style={{ color: '#ef4444' }}>Pending / Due</th>
+                      <th style={{ color: '#ff6b81' }}>Pending / Due</th>
                       <th>Mth/Yr</th>
-                      <th style={{ color: '#38bdf8' }}>No. EMIs</th>
-                      <th style={{ color: '#10b981' }}>Total EMI (₹)*</th>
+                      <th style={{ color: '#22d3ee' }}>No. EMIs</th>
+                      <th style={{ color: '#2fe39b' }}>Total EMI (₹)*</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1721,20 +1721,20 @@ export default function LoanEmiMgmt() {
                           <input type="checkbox" checked={e.selected} onChange={(ev) => handleEmiEntryChange(e.id, 'selected', ev.target.checked)} style={{ transform: 'scale(1.5)', cursor: 'pointer' }} />
                         </td>
                         <td><b style={{ color: '#fff' }}>{e._vehicle}</b></td>
-                        <td style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🏢 {e._company}</td>
-                        <td style={{ color: '#10b981', fontSize: '11px', fontWeight: 'bold' }}>👤 {e._owner}</td>
+                        <td style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 'bold' }}>🏢 {e._company}</td>
+                        <td style={{ color: '#2fe39b', fontSize: '11px', fontWeight: 'bold' }}>👤 {e._owner}</td>
                         <td style={{ color: '#818cf8', fontWeight: 'bold' }}>{e._loanAc}</td>
                         <td>
-                           <span className="badge" style={{ background: '#334155' }}>{e._type}</span><br/>
-                           <b style={{ color: '#10b981' }}>{e._cleared}</b> / {e._tenure}
+                           <span className="badge" style={{ background: '#27395f' }}>{e._type}</span><br/>
+                           <b style={{ color: '#2fe39b' }}>{e._cleared}</b> / {e._tenure}
                         </td>
                         <td>
-                           <span style={{ color: e._dueStatus.dueMonths > 0 ? '#ef4444' : '#10b981', fontWeight: 'bold' }}>{e._dueStatus.dueMonths} Mths</span><br/>
-                           <small style={{ color: e._dueStatus.dueAmount > 0 ? '#ef4444' : '#94a3b8' }}>₹{e._dueStatus.dueAmount.toLocaleString('en-IN')}</small>
+                           <span style={{ color: e._dueStatus.dueMonths > 0 ? '#ff6b81' : '#2fe39b', fontWeight: 'bold' }}>{e._dueStatus.dueMonths} Mths</span><br/>
+                           <small style={{ color: e._dueStatus.dueAmount > 0 ? '#ff6b81' : '#9aadd4' }}>₹{e._dueStatus.dueAmount.toLocaleString('en-IN')}</small>
                         </td>
                         <td><input className="smart-table-input" style={{ width: '80px' }} value={e.EMI_Month_Year} onChange={ev => handleEmiEntryChange(e.id, 'EMI_Month_Year', ev.target.value)} disabled={!e.selected}/></td>
-                        <td><input type="number" className="smart-table-input" style={{ width: '60px', borderColor: '#38bdf8', color: '#38bdf8', fontWeight: 'bold' }} value={e.Months_Paid} onChange={ev => handleEmiEntryChange(e.id, 'Months_Paid', ev.target.value)} disabled={!e.selected}/></td>
-                        <td><input type="number" className="smart-table-input" style={{ width: '100px', borderColor: '#10b981', color: '#10b981', fontWeight: 'bold' }} value={e.Total_EMI_Paid} onChange={ev => handleEmiEntryChange(e.id, 'Total_EMI_Paid', ev.target.value)} disabled={!e.selected}/></td>
+                        <td><input type="number" className="smart-table-input" style={{ width: '60px', borderColor: '#22d3ee', color: '#22d3ee', fontWeight: 'bold' }} value={e.Months_Paid} onChange={ev => handleEmiEntryChange(e.id, 'Months_Paid', ev.target.value)} disabled={!e.selected}/></td>
+                        <td><input type="number" className="smart-table-input" style={{ width: '100px', borderColor: '#2fe39b', color: '#2fe39b', fontWeight: 'bold' }} value={e.Total_EMI_Paid} onChange={ev => handleEmiEntryChange(e.id, 'Total_EMI_Paid', ev.target.value)} disabled={!e.selected}/></td>
                       </tr>
                     ))}
                   </tbody>
@@ -1742,12 +1742,12 @@ export default function LoanEmiMgmt() {
               </div>
             )}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', padding: '20px', border: '1px solid #10b981', borderRadius: '10px', background: 'rgba(16,185,129,0.05)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', padding: '20px', border: '1px solid #2fe39b', borderRadius: '10px', background: 'rgba(47, 227, 155,0.05)' }}>
                <div>
-                 <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>Grand Total Deducted from Bank (Selected Only):</p>
-                 <h2 style={{ margin: 0, color: '#10b981', fontSize: '32px' }}>₹{currentTotalPayout.toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
+                 <p style={{ margin: 0, color: '#9aadd4', fontSize: '13px' }}>Grand Total Deducted from Bank (Selected Only):</p>
+                 <h2 style={{ margin: 0, color: '#2fe39b', fontSize: '32px' }}>₹{currentTotalPayout.toLocaleString('en-IN', {minimumFractionDigits: 2})}</h2>
                </div>
-               <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', padding: '15px 40px', fontSize: '18px' }} onClick={handleSaveMultiEmi} disabled={loading || currentTotalPayout === 0}>
+               <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)', padding: '15px 40px', fontSize: '18px' }} onClick={handleSaveMultiEmi} disabled={loading || currentTotalPayout === 0}>
                  {loading ? '⏳ Processing...' : '✅ Confirm Bulk Payment'}
                </button>
             </div>

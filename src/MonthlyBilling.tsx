@@ -688,18 +688,18 @@ export default function MonthlyBilling() {
   };
 
   const S = {
-    page: { padding: 'clamp(12px, 3vw, 30px)', paddingBottom: '170px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" },
-    card: { background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
-    input: { background: 'rgba(15,23,42,0.7)', border: '1px solid #334155', borderRadius: '10px', color: 'white', padding: '11px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '44px', colorScheme: 'dark' },
-    btn: (bg, dis) => ({ background: dis ? '#475569' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '13px 20px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px' }),
-    label: { display: 'block', fontSize: '11px', color: '#94a3b8', fontWeight: 'bold', marginBottom: '5px' },
-    cell: { background: 'rgba(15,23,42,0.7)', border: '1px solid #334155', borderRadius: '6px', color: 'white', padding: '6px', minHeight: '32px', boxSizing: 'border-box', colorScheme: 'dark' },
+    page: { padding: 'clamp(12px, 3vw, 30px)', paddingBottom: '170px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', color: 'white', fontFamily: "'Inter', sans-serif" },
+    card: { background: 'rgba(24, 36, 74,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,25px)', marginBottom: '18px' },
+    input: { background: 'rgba(18, 28, 56,0.7)', border: '1px solid #27395f', borderRadius: '10px', color: 'white', padding: '11px', width: '100%', boxSizing: 'border-box', outline: 'none', minHeight: '44px', colorScheme: 'dark' },
+    btn: (bg, dis) => ({ background: dis ? '#3d548a' : bg, color: 'white', border: 'none', borderRadius: '10px', padding: '13px 20px', fontWeight: 'bold', cursor: dis ? 'default' : 'pointer', minHeight: '48px' }),
+    label: { display: 'block', fontSize: '11px', color: '#9aadd4', fontWeight: 'bold', marginBottom: '5px' },
+    cell: { background: 'rgba(18, 28, 56,0.7)', border: '1px solid #27395f', borderRadius: '6px', color: 'white', padding: '6px', minHeight: '32px', boxSizing: 'border-box', colorScheme: 'dark' },
   };
 
   return (
     <div style={S.page} className="pt-anim-fade">
-      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>🧾 Customer-Wise Auto-Billing</h1>
-      <p style={{ color: '#94a3b8', margin: '0 0 18px 0', fontSize: '13px' }}>Multi-company: bill hamesha usi transport company ke naam se banta hai jiski trips hain — letterhead, GSTIN, bank aur invoice series sab us company ki.</p>
+      <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#22d3ee' }}>🧾 Customer-Wise Auto-Billing</h1>
+      <p style={{ color: '#9aadd4', margin: '0 0 18px 0', fontSize: '13px' }}>Multi-company: bill hamesha usi transport company ke naam se banta hai jiski trips hain — letterhead, GSTIN, bank aur invoice series sab us company ki.</p>
 
       {/* Step 1: selection */}
       <div style={S.card}>
@@ -708,15 +708,15 @@ export default function MonthlyBilling() {
             <input list="mb-cust" style={S.input} value={cust} onChange={e => setCust(e.target.value)} placeholder="e.g. Aadhar Green Industries LLP" />
             <datalist id="mb-cust">{customerOptions.map(c => <option key={c} value={c} />)}</datalist>
           </div>
-          <div><label style={{ ...S.label, color: '#f59e0b' }}>🏢 Operating Company</label>
-            <select style={{ ...S.input, borderColor: '#f59e0b' }} value={companyFilterSel} onChange={e => setCompanyFilterSel(e.target.value)}>
+          <div><label style={{ ...S.label, color: '#ffb224' }}>🏢 Operating Company</label>
+            <select style={{ ...S.input, borderColor: '#ffb224' }} value={companyFilterSel} onChange={e => setCompanyFilterSel(e.target.value)}>
               <option value="AUTO">🔍 Auto-detect from trips</option>
               {companyOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div><label style={S.label}>Month *</label><input type="month" style={S.input} value={month} onChange={e => setMonth(e.target.value)} /></div>
           <div style={{ gridColumn: isMobile ? 'auto' : 'span 2' }}>
-            <label style={{ ...S.label, color: custCycle === '15_days' ? '#c084fc' : '#94a3b8' }}>
+            <label style={{ ...S.label, color: custCycle === '15_days' ? '#a78bfa' : '#9aadd4' }}>
               🗓️ Billing Period {custCycle === '15_days' ? '— customer cycle: 15 DIN (Fortnightly)' : custCycle === '30_days' ? '— customer cycle: 30 DIN (Monthly)' : ''}
             </label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -735,7 +735,7 @@ export default function MonthlyBilling() {
               )}
             </div>
             {custCycle === '15_days' && period === 'FULL' && (
-              <div className="pt-anim-pop" style={{ marginTop: '6px', fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>⚠️ Is customer ke bill 15-din ke bante hain — Full Month chunne par confirm poocha jayega.</div>
+              <div className="pt-anim-pop" style={{ marginTop: '6px', fontSize: '11px', color: '#ffb224', fontWeight: 'bold' }}>⚠️ Is customer ke bill 15-din ke bante hain — Full Month chunne par confirm poocha jayega.</div>
             )}
           </div>
           <div><label style={S.label}>Freight Rate (₹/KL) — default</label><input type="number" inputMode="decimal" style={S.input} value={freightRate}
@@ -755,8 +755,8 @@ export default function MonthlyBilling() {
       {generated && (
         <>
           {/* 🏢 OPERATING COMPANY — bill kis transport company ke naam se? */}
-          <div style={{ ...S.card, border: '1px solid #f59e0b' }} className="pt-anim-up">
-            <label style={{ ...S.label, color: '#f59e0b' }}>🏢 BILL BANEGA IS COMPANY KE NAAM SE (auto-detected from trips)</label>
+          <div style={{ ...S.card, border: '1px solid #ffb224' }} className="pt-anim-up">
+            <label style={{ ...S.label, color: '#ffb224' }}>🏢 BILL BANEGA IS COMPANY KE NAAM SE (auto-detected from trips)</label>
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
               {detectedCompanies.map(d => (
                 <button key={d.name} className={`pt-chip ${opCompany === d.name ? 'is-on is-on--warning' : ''}`}
@@ -769,19 +769,19 @@ export default function MonthlyBilling() {
                 <button key={c.id} className={`pt-chip ${opCompany === (c.company_name || c.name) ? 'is-on is-on--warning' : ''}`} onClick={() => setOpCompany(c.company_name || c.name)}>{c.company_name || c.name}</button>
               ))}
             </div>
-            <p style={{ fontSize: '12px', color: '#94a3b8', margin: '10px 0 0' }}>
-              Selected: <b style={{ color: '#f59e0b' }}>{co.name}</b> · GSTIN {co.gstin || '—'} · Series {companyInitials(opCompany)}/{fyToken(month)}/…
-              {excludedCount > 0 && <span style={{ color: '#ef4444', fontWeight: 'bold' }}> · ⚠ {excludedCount} trips dusri company ki hain — is bill se bahar (company badal kar unka bill alag banayein)</span>}
+            <p style={{ fontSize: '12px', color: '#9aadd4', margin: '10px 0 0' }}>
+              Selected: <b style={{ color: '#ffb224' }}>{co.name}</b> · GSTIN {co.gstin || '—'} · Series {companyInitials(opCompany)}/{fyToken(month)}/…
+              {excludedCount > 0 && <span style={{ color: '#ff6b81', fontWeight: 'bold' }}> · ⚠ {excludedCount} trips dusri company ki hain — is bill se bahar (company badal kar unka bill alag banayein)</span>}
             </p>
             {missingCoFields.length > 0 && (
-              <div className="pt-anim-pop" style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(239,68,68,0.08)', border: '1px dashed #ef4444', fontSize: '12px', color: '#fca5a5' }}>
+              <div className="pt-anim-pop" style={{ marginTop: '10px', padding: '10px 14px', borderRadius: '10px', background: 'rgba(255, 107, 129,0.08)', border: '1px dashed #ff6b81', fontSize: '12px', color: '#fca5a5' }}>
                 ⚠️ <b>{co.name}</b> ke Company Master mein missing: <b>{missingCoFields.join(', ').toUpperCase()}</b> — bill par ye blank print honge. CRM → Company Master mein bharein (kisi doosri company ka data kabhi use NahI hoga).
               </div>
             )}
             {/* 🏭 LOCATION-WISE BILL (IOCL format): customer ke kai plants — har plant ki bill alag */}
             {detectedLocations.length > 1 && (
               <div style={{ marginTop: '12px' }}>
-                <label style={{ ...S.label, color: '#f59e0b' }}>🏭 LOCATION-WISE BILL — oil company har plant/depot ki ALAG bill leti hai; ek location chun kar bill banayein</label>
+                <label style={{ ...S.label, color: '#ffb224' }}>🏭 LOCATION-WISE BILL — oil company har plant/depot ki ALAG bill leti hai; ek location chun kar bill banayein</label>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                   <button type="button" className={`pt-chip ${locFilter === 'ALL' ? 'is-on' : ''}`} onClick={() => setLocFilter('ALL')}>ALL ({rows.filter(companyFilter).length})</button>
                   {detectedLocations.map(l => (
@@ -796,39 +796,39 @@ export default function MonthlyBilling() {
 
           {/* Freight rows */}
           <div style={S.card} className="pt-anim-up">
-            <b style={{ color: '#10b981' }}>🚛 Transportation Bill — {fRows.length}/{visRows.length} LR/CN selected</b>
+            <b style={{ color: '#2fe39b' }}>🚛 Transportation Bill — {fRows.length}/{visRows.length} LR/CN selected</b>
             <div style={{ overflowX: 'auto', marginTop: '10px' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '640px' }}>
-                <thead><tr style={{ color: '#38bdf8', textAlign: 'left' }}>{['✓', 'Loading Date', 'CN No', 'Vehicle', 'Unloading', 'Qty (KL)', 'Rate ₹/KL', 'Freight ₹'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #334155' }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ color: '#22d3ee', textAlign: 'left' }}>{['✓', 'Loading Date', 'CN No', 'Vehicle', 'Unloading', 'Qty (KL)', 'Rate ₹/KL', 'Freight ₹'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #27395f' }}>{h}</th>)}</tr></thead>
                 <tbody>{visRows.map((r) => (
-                  <tr key={r.tripId} style={{ borderBottom: '1px solid #1e293b', opacity: r.include ? 1 : 0.4 }}>
-                    <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#10b981' }} checked={r.include} onChange={e => editRow(r.tripId, 'include', e.target.checked)} /></td>
+                  <tr key={r.tripId} style={{ borderBottom: '1px solid #18244a', opacity: r.include ? 1 : 0.4 }}>
+                    <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#2fe39b' }} checked={r.include} onChange={e => editRow(r.tripId, 'include', e.target.checked)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.date} onChange={e => editRow(r.tripId, 'date', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input style={{ ...S.cell, width: '100px' }} value={r.cn} onChange={e => editRow(r.tripId, 'cn', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}>
                       <input style={{ ...S.cell, width: '115px' }} value={r.vehicle} onChange={e => editRow(r.tripId, 'vehicle', e.target.value)} />
                       {/* 🗺️ Route (From ➔ To) + RTKM — har row par visible */}
                       {r.route_label && r.route_label !== '➔' && (
-                        <div style={{ fontSize: '10px', color: '#38bdf8', marginTop: '3px', maxWidth: '230px', whiteSpace: 'normal', lineHeight: 1.4 }}>
-                          {r.route_label}{parseFloat(r.rtkm) > 0 && <b style={{ color: '#f59e0b' }}> · 📏 {r.rtkm} km</b>}
+                        <div style={{ fontSize: '10px', color: '#22d3ee', marginTop: '3px', maxWidth: '230px', whiteSpace: 'normal', lineHeight: 1.4 }}>
+                          {r.route_label}{parseFloat(r.rtkm) > 0 && <b style={{ color: '#ffb224' }}> · 📏 {r.rtkm} km</b>}
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.unloadDate) || '—'}</td>
+                    <td style={{ padding: '4px', color: '#9aadd4', fontSize: '12px' }}>{dmy(r.unloadDate) || '—'}</td>
                     {/* ✏️ Excel-style inline: 0 par laal border = challan aane par yahin bharo; blur = TRIPS me instant save */}
-                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.qty) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} onBlur={() => persistRow(r)} /></td>
-                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ef4444' : '#334155' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
-                    <td style={{ padding: '4px', color: '#10b981', fontWeight: 'bold' }}>
+                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.qty) || 0) <= 0 ? '#ff6b81' : '#27395f' }} value={r.qty} onChange={e => editRow(r.tripId, 'qty', e.target.value)} onBlur={() => persistRow(r)} /></td>
+                    <td style={{ padding: '4px' }}><input type="number" inputMode="decimal" style={{ ...S.cell, width: '80px', borderColor: (parseFloat(r.rate) || 0) <= 0 ? '#ff6b81' : '#27395f' }} value={r.rate} onChange={e => editRow(r.tripId, 'rate', e.target.value)} onBlur={() => persistRow(r)} /></td>
+                    <td style={{ padding: '4px', color: '#2fe39b', fontWeight: 'bold' }}>
                       ₹{inr(tripFreightOf(r))}
                       {/* 💹 Rate Master badge: admin-set rule laga hai (formula + rate dono wahi se) */}
                       {r.rate_source === 'rate_master' ? (
                         <span title={`Rate Master rule: ${CALC_TYPES.find(c => c.key === r.calc_type)?.label || ''} — ${CALC_TYPES.find(c => c.key === r.calc_type)?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}`}
-                          style={{ display: 'block', fontSize: '9px', color: '#10b981', fontWeight: 'bold' }}>
+                          style={{ display: 'block', fontSize: '9px', color: '#2fe39b', fontWeight: 'bold' }}>
                           💹 {CALC_TYPES.find(c => c.key === r.calc_type)?.label || 'Rate Master'} ·RM
                         </span>
                       ) : rowBt(r) !== 'PER_KL' && (
                         <span title={`${BILLING_TYPES.find(b => b.key === rowBt(r))?.formula || ''}${r.rtkm ? ` · RTKM ${r.rtkm}` : ''}${r.rate_source === 'history' ? ' · quarterly rate (route master)' : ''}`}
-                          style={{ display: 'block', fontSize: '9px', color: '#c084fc', fontWeight: 'bold' }}>
+                          style={{ display: 'block', fontSize: '9px', color: '#a78bfa', fontWeight: 'bold' }}>
                           ⚙ {BILLING_TYPES.find(b => b.key === rowBt(r))?.label || rowBt(r)}{r.rate_source === 'history' ? ' ·Q' : ''}
                         </span>
                       )}
@@ -842,32 +842,32 @@ export default function MonthlyBilling() {
           {/* Detention rows — sirf detention-applicable customers (AADHAR-style bills) */}
           {!detentionApplicable && (
             <div style={{ ...S.card, borderStyle: 'dashed', opacity: 0.8 }} className="pt-anim-up">
-              <span style={{ color: '#64748b', fontSize: '12px' }}>⏱️ Detention: <b>{cust}</b> par lagoo NAHI (oil-company Transportation Bill format me detention nahi hota). Zaroorat ho to Customer Master me "Detention Billing" ON karein.</span>
+              <span style={{ color: '#5d7196', fontSize: '12px' }}>⏱️ Detention: <b>{cust}</b> par lagoo NAHI (oil-company Transportation Bill format me detention nahi hota). Zaroorat ho to Customer Master me "Detention Billing" ON karein.</span>
             </div>
           )}
           {detentionApplicable && (
           <div style={S.card} className="pt-anim-up">
-            <b style={{ color: '#f59e0b' }}>⏱️ Detention — {dRows.length} chargeable · rule: reporting + {freeDays} free days, days inclusive</b>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 8px' }}>Reporting = driver ka 🏭 plant stamp (trips.plant_reported_at). Stamp na ho to detention 0 rehta hai — pehle koi fallback loading+1 maan leta tha, usse June 2026 ka detention ₹1,20,000 ban gaya tha jabki signed bill ₹45,000 ka hai. Start/End/Days sab editable.</p>
+            <b style={{ color: '#ffb224' }}>⏱️ Detention — {dRows.length} chargeable · rule: reporting + {freeDays} free days, days inclusive</b>
+            <p style={{ fontSize: '11px', color: '#5d7196', margin: '4px 0 8px' }}>Reporting = driver ka 🏭 plant stamp (trips.plant_reported_at). Stamp na ho to detention 0 rehta hai — pehle koi fallback loading+1 maan leta tha, usse June 2026 ka detention ₹1,20,000 ban gaya tha jabki signed bill ₹45,000 ka hai. Start/End/Days sab editable.</p>
             {visDetRows.some(r => r.missingReporting) && (
-              <div style={{ background: '#7c2d12', border: '1px solid #f59e0b', borderRadius: '6px', padding: '8px 10px', margin: '0 0 8px', fontSize: '12px', color: '#fed7aa' }}>
+              <div style={{ background: '#7c2d12', border: '1px solid #ffb224', borderRadius: '6px', padding: '8px 10px', margin: '0 0 8px', fontSize: '12px', color: '#fed7aa' }}>
                 ⚠️ <b>{visDetRows.filter(r => r.missingReporting).length} trips</b> me plant reporting stamp nahi hai, is liye unka detention <b>0</b> hai. Sahi detention chahiye to un trips par 🏭 plant reporting date bharein (ya neeche Days column me haath se daalein) — warna bill kam banega.
               </div>
             )}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', minWidth: '860px' }}>
-                <thead><tr style={{ color: '#f59e0b', textAlign: 'left' }}>{['✓', 'Vehicle', 'CN', 'Reported', 'Unloaded', 'Det. Start', 'Det. End', 'Days', 'Amount'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #334155' }}>{h}</th>)}</tr></thead>
+                <thead><tr style={{ color: '#ffb224', textAlign: 'left' }}>{['✓', 'Vehicle', 'CN', 'Reported', 'Unloaded', 'Det. Start', 'Det. End', 'Days', 'Amount'].map(h => <th key={h} style={{ padding: '6px', borderBottom: '2px solid #27395f' }}>{h}</th>)}</tr></thead>
                 <tbody>{visDetRows.map((r) => (
-                  <tr key={r.tripId} style={{ borderBottom: '1px solid #1e293b', opacity: r.include ? 1 : 0.4 }}>
-                    <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#f59e0b' }} checked={r.include} onChange={e => editDet(r.tripId, 'include', e.target.checked)} /></td>
+                  <tr key={r.tripId} style={{ borderBottom: '1px solid #18244a', opacity: r.include ? 1 : 0.4 }}>
+                    <td style={{ padding: '4px' }}><input type="checkbox" style={{ width: '20px', height: '20px', accentColor: '#ffb224' }} checked={r.include} onChange={e => editDet(r.tripId, 'include', e.target.checked)} /></td>
                     <td style={{ padding: '4px', fontWeight: 'bold' }}>{r.vehicle}</td>
                     <td style={{ padding: '4px' }}>{r.cn}</td>
-                    <td style={{ padding: '4px', color: r.missingReporting ? '#f59e0b' : '#94a3b8', fontSize: '12px' }}>{r.missingReporting ? '— no stamp —' : dmy(r.reportDate)}</td>
-                    <td style={{ padding: '4px', color: '#94a3b8', fontSize: '12px' }}>{dmy(r.unloadDate)}</td>
+                    <td style={{ padding: '4px', color: r.missingReporting ? '#ffb224' : '#9aadd4', fontSize: '12px' }}>{r.missingReporting ? '— no stamp —' : dmy(r.reportDate)}</td>
+                    <td style={{ padding: '4px', color: '#9aadd4', fontSize: '12px' }}>{dmy(r.unloadDate)}</td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.startDate} onChange={e => editDet(r.tripId, 'startDate', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input type="date" style={{ ...S.cell, width: '135px' }} value={r.endDate} onChange={e => editDet(r.tripId, 'endDate', e.target.value)} /></td>
                     <td style={{ padding: '4px' }}><input type="number" style={{ ...S.cell, width: '55px', fontWeight: 'bold' }} value={r.days} onChange={e => editDet(r.tripId, 'days', e.target.value)} /></td>
-                    <td style={{ padding: '4px', color: '#f59e0b', fontWeight: 'bold' }}>₹{inr(r.days * (parseFloat(detRate) || 0))}</td>
+                    <td style={{ padding: '4px', color: '#ffb224', fontWeight: 'bold' }}>₹{inr(r.days * (parseFloat(detRate) || 0))}</td>
                   </tr>))}
                 </tbody>
               </table>
@@ -883,14 +883,14 @@ export default function MonthlyBilling() {
             </div>
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
               <button onClick={printInvoices} style={{ ...S.btn('#8b5cf6', false), flex: isMobile ? 1 : 'none' }}>🖨️ Preview PDF — {detentionApplicable ? 'Tax Invoice + Detention + Annexure' : 'Tax Invoice (Transportation Bill)'}</button>
-              <button onClick={saveAndPost} disabled={saving} style={{ ...S.btn('#10b981', saving), flex: isMobile ? 1 : 'none' }}>{saving ? '⌛ Saving…' : '💾 Save & Mark as Billed (+ Journal)'}</button>
+              <button onClick={saveAndPost} disabled={saving} style={{ ...S.btn('#2fe39b', saving), flex: isMobile ? 1 : 'none' }}>{saving ? '⌛ Saving…' : '💾 Save & Mark as Billed (+ Journal)'}</button>
             </div>
           </div>
 
           {/* ➖ DEDUCTIONS & ADJUSTMENTS panel */}
-          <div style={{ ...S.card, border: '1px solid #ef4444' }} className="pt-anim-up">
-            <b style={{ color: '#ef4444' }}>➖ Deductions & Adjustments</b>
-            <p style={{ fontSize: '11px', color: '#64748b', margin: '4px 0 12px' }}>TDS sirf Freight amount par lagta hai · Shortage/Advance manual entry. Net Payable neeche footer mein live dikh raha hai.</p>
+          <div style={{ ...S.card, border: '1px solid #ff6b81' }} className="pt-anim-up">
+            <b style={{ color: '#ff6b81' }}>➖ Deductions & Adjustments</b>
+            <p style={{ fontSize: '11px', color: '#5d7196', margin: '4px 0 12px' }}>TDS sirf Freight amount par lagta hai · Shortage/Advance manual entry. Net Payable neeche footer mein live dikh raha hai.</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: '12px' }}>
               <div>
                 <label style={S.label}>TDS (%) — on Freight only</label>
@@ -898,29 +898,29 @@ export default function MonthlyBilling() {
                   {['1', '2'].map(p => <button key={p} type="button" className={`pt-chip ${tdsPct === p ? 'is-on' : ''}`} onClick={() => setTdsPct(p)}>{p}%</button>)}
                   <input type="number" inputMode="decimal" style={{ ...S.input, width: '90px' }} value={tdsPct} onChange={e => setTdsPct(e.target.value)} />
                 </div>
-                <div style={{ fontSize: '11px', color: '#f59e0b', marginTop: '4px' }}>= ₹{inr(tdsAmt)}</div>
+                <div style={{ fontSize: '11px', color: '#ffb224', marginTop: '4px' }}>= ₹{inr(tdsAmt)}</div>
               </div>
-              <div><label style={S.label}>Shortage Amount (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ef4444' }} value={shortageAmt} onChange={e => setShortageAmt(e.target.value)} placeholder="0.00" /></div>
-              <div><label style={S.label}>Advance Deduction (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ef4444' }} value={advanceAmt} onChange={e => setAdvanceAmt(e.target.value)} placeholder="0.00" /></div>
+              <div><label style={S.label}>Shortage Amount (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ff6b81' }} value={shortageAmt} onChange={e => setShortageAmt(e.target.value)} placeholder="0.00" /></div>
+              <div><label style={S.label}>Advance Deduction (₹)</label><input type="number" inputMode="decimal" style={{ ...S.input, borderColor: '#ff6b81' }} value={advanceAmt} onChange={e => setAdvanceAmt(e.target.value)} placeholder="0.00" /></div>
               <div style={{ alignSelf: 'end', textAlign: 'right' }}>
-                <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>TOTAL DEDUCTIONS</div>
-                <div style={{ fontSize: '20px', fontWeight: 900, color: '#ef4444' }}>− ₹{inr(totalDeductions)}</div>
+                <div style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'bold' }}>TOTAL DEDUCTIONS</div>
+                <div style={{ fontSize: '20px', fontWeight: 900, color: '#ff6b81' }}>− ₹{inr(totalDeductions)}</div>
               </div>
             </div>
           </div>
 
           {/* 💰 LIVE SUMMARY — sticky footer, updates with every checkbox */}
-          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 500, background: 'rgba(2,6,23,0.97)', borderTop: '2px solid #10b981', backdropFilter: 'blur(8px)', padding: '10px clamp(12px, 3vw, 30px)', boxShadow: '0 -8px 30px rgba(0,0,0,0.5)' }}>
+          <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 500, background: 'rgba(10, 16, 36,0.97)', borderTop: '2px solid #2fe39b', backdropFilter: 'blur(8px)', padding: '10px clamp(12px, 3vw, 30px)', boxShadow: '0 -8px 30px rgba(0,0,0,0.5)' }}>
             <div style={{ display: 'flex', gap: 'clamp(8px, 2vw, 22px)', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 900 }}>🏢 {co.name}</div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>FREIGHT ({totalQty} KL)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#10b981' }}>₹{inr(freightTotal)}</div></div>
-              {detentionApplicable && <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>DETENTION ({totalDetDays}d)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#f59e0b' }}>₹{inr(detTotal)}</div></div>}
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>CGST+SGST 5% <span style={{ color: '#64748b' }}>(RCM)</span></div><div style={{ fontSize: '13px', fontWeight: 'bold', color: '#38bdf8' }}>₹{inr(cgst)} + ₹{inr(sgst)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 'bold' }}>SUB TOTAL</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#cbd5e1' }}>₹{inr(grandWithGst)}</div></div>
-              <div><div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>DEDUCTIONS (TDS+Short+Adv)</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#ef4444' }}>− ₹{inr(totalDeductions)}</div></div>
-              <div style={{ textAlign: 'right', background: 'rgba(16,185,129,0.12)', border: '1px solid #10b981', borderRadius: '10px', padding: '5px 14px' }}>
-                <div style={{ fontSize: '10px', color: '#10b981', fontWeight: 900 }}>💰 NET PAYABLE AMOUNT</div>
-                <div style={{ fontSize: 'clamp(17px, 3vw, 23px)', fontWeight: 900, color: '#10b981' }}>₹{inr(netPayable)}</div>
+              <div style={{ fontSize: '11px', color: '#ffb224', fontWeight: 900 }}>🏢 {co.name}</div>
+              <div><div style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'bold' }}>FREIGHT ({totalQty} KL)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#2fe39b' }}>₹{inr(freightTotal)}</div></div>
+              {detentionApplicable && <div><div style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'bold' }}>DETENTION ({totalDetDays}d)</div><div style={{ fontSize: '15px', fontWeight: 900, color: '#ffb224' }}>₹{inr(detTotal)}</div></div>}
+              <div><div style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'bold' }}>CGST+SGST 5% <span style={{ color: '#5d7196' }}>(RCM)</span></div><div style={{ fontSize: '13px', fontWeight: 'bold', color: '#22d3ee' }}>₹{inr(cgst)} + ₹{inr(sgst)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'bold' }}>SUB TOTAL</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#c4d1ea' }}>₹{inr(grandWithGst)}</div></div>
+              <div><div style={{ fontSize: '10px', color: '#ff6b81', fontWeight: 'bold' }}>DEDUCTIONS (TDS+Short+Adv)</div><div style={{ fontSize: '14px', fontWeight: 'bold', color: '#ff6b81' }}>− ₹{inr(totalDeductions)}</div></div>
+              <div style={{ textAlign: 'right', background: 'rgba(47, 227, 155,0.12)', border: '1px solid #2fe39b', borderRadius: '10px', padding: '5px 14px' }}>
+                <div style={{ fontSize: '10px', color: '#2fe39b', fontWeight: 900 }}>💰 NET PAYABLE AMOUNT</div>
+                <div style={{ fontSize: 'clamp(17px, 3vw, 23px)', fontWeight: 900, color: '#2fe39b' }}>₹{inr(netPayable)}</div>
               </div>
             </div>
           </div>

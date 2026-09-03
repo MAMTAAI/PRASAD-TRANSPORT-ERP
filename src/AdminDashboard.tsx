@@ -34,7 +34,7 @@ export default function AdminDashboard({ userData, onLogout, onGoToERP }: AdminP
     <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-orange-500 selection:text-white">
       
       {/* 🚀 LEFT SIDEBAR (DARK THEME) */}
-      <aside className="w-72 bg-[#020617] text-white flex flex-col shadow-2xl z-20 relative">
+      <aside className="w-72 bg-[#0a1024] text-white flex flex-col shadow-2xl z-20 relative">
         <div className="absolute inset-0 bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:20px_20px] opacity-[0.03]"></div>
         
         {/* BRANDING */}

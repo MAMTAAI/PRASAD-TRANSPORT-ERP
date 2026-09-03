@@ -39,15 +39,15 @@ const DEPT_LABEL: Record<string, string> = {
   COMPLIANCE: 'Compliance', CRM: 'CRM', IT: 'IT',
 };
 const SEV_TONE: Record<string, string> = {
-  CRITICAL: '#ef4444', HIGH: '#fb923c', MEDIUM: '#fbbf24', LOW: '#38bdf8',
+  CRITICAL: '#ff6b81', HIGH: '#fb923c', MEDIUM: '#fbbf24', LOW: '#22d3ee',
 };
 
 const money = (v: any) =>
   v == null ? null : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
 
 const box: React.CSSProperties = {
-  background: 'rgba(15,23,42,0.72)', border: '1px solid #1e293b',
-  borderRadius: 12, padding: '12px 14px', color: '#e2e8f0', fontSize: 13,
+  background: 'rgba(18, 28, 56,0.72)', border: '1px solid #18244a',
+  borderRadius: 12, padding: '12px 14px', color: '#dde5f4', fontSize: 13,
 };
 const btn = (bg: string): React.CSSProperties => ({
   background: bg, border: 'none', borderRadius: 8, color: '#fff',
@@ -55,7 +55,7 @@ const btn = (bg: string): React.CSSProperties => ({
 });
 const qLabel: React.CSSProperties = {
   fontFamily: 'ui-monospace, monospace', fontSize: 10.5, letterSpacing: '.08em',
-  textTransform: 'uppercase', color: '#64748b', marginBottom: 2,
+  textTransform: 'uppercase', color: '#5d7196', marginBottom: 2,
 };
 
 export default function DepartmentQueue({ only }: { only?: string }) {
@@ -100,21 +100,21 @@ export default function DepartmentQueue({ only }: { only?: string }) {
   if (!total && !msg) return null;
 
   return (
-    <div style={{ marginBottom: 22, background: 'rgba(239,68,68,0.05)', border: '1px solid #ef4444',
+    <div style={{ marginBottom: 22, background: 'rgba(255, 107, 129,0.05)', border: '1px solid #ff6b81',
                   borderRadius: 16, padding: 'clamp(12px, 2.5vw, 18px)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 17, fontWeight: 800, color: '#f87171' }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: '#ff8b9c' }}>
           🛠️ Needs a person
           <span style={{ marginLeft: 10, background: '#ef4444', color: '#fff', borderRadius: 999,
                          padding: '2px 10px', fontSize: 13 }}>{total}</span>
         </div>
-        <div style={{ color: '#94a3b8', fontSize: 12.5 }}>
+        <div style={{ color: '#9aadd4', fontSize: 12.5 }}>
           Everything the system tried and could not finish. Nothing here failed quietly.
         </div>
         <div style={{ flex: 1 }} />
         {atRisk > 0 && (
-          <div style={{ ...box, borderColor: '#ef4444', padding: '6px 12px' }}>
-            <span style={{ color: '#94a3b8' }}>at risk </span>
+          <div style={{ ...box, borderColor: '#ff6b81', padding: '6px 12px' }}>
+            <span style={{ color: '#9aadd4' }}>at risk </span>
             <b style={{ color: '#fca5a5', fontVariantNumeric: 'tabular-nums' }}>₹{money(atRisk)}</b>
           </div>
         )}
@@ -128,19 +128,19 @@ export default function DepartmentQueue({ only }: { only?: string }) {
       {/* Department tabs — the routing made visible. */}
       {!only && (
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          <button onClick={() => setDept('')} style={btn(dept === '' ? '#ef4444' : '#334155')}>
+          <button onClick={() => setDept('')} style={btn(dept === '' ? '#ff6b81' : '#27395f')}>
             All ({total})
           </button>
           {DEPTS.map((d) => (
             <button key={d} onClick={() => setDept(d)}
-                    style={{ ...btn(dept === d ? '#ef4444' : '#334155'), opacity: countFor(d) ? 1 : 0.45 }}>
+                    style={{ ...btn(dept === d ? '#ff6b81' : '#27395f'), opacity: countFor(d) ? 1 : 0.45 }}>
               {DEPT_LABEL[d]} ({countFor(d)})
             </button>
           ))}
         </div>
       )}
 
-      {msg && <div style={{ ...box, marginTop: 10, borderColor: '#ef4444' }}>{msg}</div>}
+      {msg && <div style={{ ...box, marginTop: 10, borderColor: '#ff6b81' }}>{msg}</div>}
 
       <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10,
                     maxHeight: 620, overflowY: 'auto' }}>
@@ -148,12 +148,12 @@ export default function DepartmentQueue({ only }: { only?: string }) {
         {items.map((it) => {
           const expanded = openRow === it.id;
           return (
-            <div key={it.id} style={{ ...box, borderLeft: `3px solid ${SEV_TONE[it.severity] ?? '#334155'}` }}>
+            <div key={it.id} style={{ ...box, borderLeft: `3px solid ${SEV_TONE[it.severity] ?? '#27395f'}` }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
                 <span style={{ color: SEV_TONE[it.severity], fontWeight: 800, fontSize: 11,
                                letterSpacing: '.06em' }}>{it.severity}</span>
-                <span style={{ color: '#94a3b8', fontSize: 11 }}>{DEPT_LABEL[it.department] ?? it.department}</span>
-                <span style={{ color: '#64748b', fontSize: 11 }}>{it.kind}</span>
+                <span style={{ color: '#9aadd4', fontSize: 11 }}>{DEPT_LABEL[it.department] ?? it.department}</span>
+                <span style={{ color: '#5d7196', fontSize: 11 }}>{it.kind}</span>
                 {it.seen_count > 1 && (
                   <span style={{ color: '#fbbf24', fontSize: 11 }}>seen {it.seen_count}×</span>
                 )}
@@ -170,11 +170,11 @@ export default function DepartmentQueue({ only }: { only?: string }) {
               <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                 <div>
                   <div style={qLabel}>Why it stopped</div>
-                  <div style={{ color: '#e2e8f0' }}>{it.why_it_stopped ?? '—'}</div>
+                  <div style={{ color: '#dde5f4' }}>{it.why_it_stopped ?? '—'}</div>
                 </div>
                 <div>
                   <div style={qLabel}>How it got here</div>
-                  <div style={{ color: '#94a3b8', fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }}>
+                  <div style={{ color: '#9aadd4', fontFamily: 'ui-monospace, monospace', fontSize: 11.5 }}>
                     {it.how_it_got_here && Object.keys(it.how_it_got_here).length
                       ? Object.entries(it.how_it_got_here).map(([k, v]) => `${k}=${v}`).join('  ')
                       : `${it.detected_by} · ${new Date(it.detected_at).toLocaleString('en-IN')}`}
@@ -188,7 +188,7 @@ export default function DepartmentQueue({ only }: { only?: string }) {
 
               <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 {it.evidence && Object.keys(it.evidence).length > 0 && (
-                  <button style={btn('#334155')} onClick={() => setOpenRow(expanded ? null : it.id)}>
+                  <button style={btn('#27395f')} onClick={() => setOpenRow(expanded ? null : it.id)}>
                     {expanded ? 'Hide evidence' : 'Show evidence'}
                   </button>
                 )}
@@ -206,7 +206,7 @@ export default function DepartmentQueue({ only }: { only?: string }) {
                     Manual Update
                   </button>
                 )}
-                <button disabled={busy === it.id} style={btn('#475569')} onClick={() => act(it, 'DISMISS')}>
+                <button disabled={busy === it.id} style={btn('#3d548a')} onClick={() => act(it, 'DISMISS')}>
                   Dismiss
                 </button>
               </div>

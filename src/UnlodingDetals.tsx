@@ -200,8 +200,8 @@ export default function UnloadingDetails() {
       .sort((a, b) => String(b.unloading_date ?? '').localeCompare(String(a.unloading_date ?? ''))),
     [trips]);
 
-  const inputStyle = { width: '100%', padding: '12px 14px', minHeight: '48px', background: '#0f172a', border: '1px solid #475569', color: '#fff', borderRadius: '12px', fontSize: '15px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
-  const autoFillStyle = { ...inputStyle, background: 'rgba(56, 189, 248, 0.05)', border: '1px dashed #38bdf8', color: '#94a3b8' };
+  const inputStyle = { width: '100%', padding: '12px 14px', minHeight: '48px', background: '#121c38', border: '1px solid #3d548a', color: '#fff', borderRadius: '12px', fontSize: '15px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
+  const autoFillStyle = { ...inputStyle, background: 'rgba(34, 211, 238, 0.05)', border: '1px dashed #22d3ee', color: '#9aadd4' };
 
   const billingBadge = (t: any) => t.billing_status === 'BILLED' || t.bill_no
     ? <span className="pt-badge pt-badge--success">Billed{t.bill_no ? ` ${t.bill_no}` : ''}</span>
@@ -215,7 +215,7 @@ export default function UnloadingDetails() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(22px, 5vw, 28px)', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>🏁 Unloading & Shortage Register</h2>
-          <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>
+          <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>
             Live PostgreSQL · shortage computed server-side, driver khata and ledger posted together
           </p>
         </div>
@@ -223,13 +223,13 @@ export default function UnloadingDetails() {
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}/trips</code>. Check that the ERP API is running.</div>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}/trips</code>. Check that the ERP API is running.</div>
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '25px', borderBottom: '1px solid #334155', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', gap: '6px', marginBottom: '25px', borderBottom: '1px solid #27395f', overflowX: 'auto' }}>
         <button className={`pt-tab ${activeTab === 'MANUAL' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('MANUAL')}>✍️ MANUAL UNLOADING</button>
         <button className={`pt-tab ${activeTab === 'AUTO' ? 'is-active' : ''}`} onClick={() => setActiveTab('AUTO')}>
           📱 APP SYNC (Driver) {pendingDriverApprovals.length > 0 && <span className="pt-tab__count">{pendingDriverApprovals.length}</span>}
@@ -241,13 +241,13 @@ export default function UnloadingDetails() {
 
       {/* ✍️ TAB 1: MANUAL UNLOADING */}
       {activeTab === 'MANUAL' && (
-        <div className="pt-anim-up" style={{ background: 'linear-gradient(180deg, rgba(30,41,59,0.7), rgba(15,23,42,0.9))', border: '1px solid #334155', borderRadius: '18px', padding: 'clamp(16px, 3vw, 30px)', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
+        <div className="pt-anim-up" style={{ background: 'linear-gradient(180deg, rgba(24, 36, 74,0.7), rgba(18, 28, 56,0.9))', border: '1px solid #27395f', borderRadius: '18px', padding: 'clamp(16px, 3vw, 30px)', boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}>
 
-          <div style={{ marginBottom: '20px', background: 'rgba(16, 185, 129, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-            <label style={{ color: '#10b981', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>
-              🔍 Select an on-road trip to unload * {loading && <span style={{ color: '#38bdf8' }}>(loading…)</span>}
+          <div style={{ marginBottom: '20px', background: 'rgba(47, 227, 155, 0.05)', padding: '15px', borderRadius: '10px', border: '1px solid rgba(47, 227, 155, 0.2)' }}>
+            <label style={{ color: '#2fe39b', fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', display: 'block' }}>
+              🔍 Select an on-road trip to unload * {loading && <span style={{ color: '#22d3ee' }}>(loading…)</span>}
             </label>
-            <select value={selectedTripId} onChange={handleManualTripSelect} style={{ width: '100%', padding: '12px', background: '#0f172a', border: '1px solid #10b981', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '15px' }}>
+            <select value={selectedTripId} onChange={handleManualTripSelect} style={{ width: '100%', padding: '12px', background: '#121c38', border: '1px solid #2fe39b', color: '#fff', borderRadius: '8px', outline: 'none', fontSize: '15px' }}>
               <option value="">-- Choose Active Trip --</option>
               {inTransitTrips.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -256,37 +256,37 @@ export default function UnloadingDetails() {
               ))}
             </select>
             {!loading && inTransitTrips.length === 0 && (
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 8 }}>No trips are on the road. Dispatch one from Loading Details first.</div>
+              <div style={{ color: '#5d7196', fontSize: 12, marginTop: 8 }}>No trips are on the road. Dispatch one from Loading Details first.</div>
             )}
           </div>
 
           {selectedTripId && (
             <>
-              <h4 style={{ color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '10px', marginBottom: '15px' }}>Verify Trip Details</h4>
+              <h4 style={{ color: '#22d3ee', borderBottom: '1px solid #27395f', paddingBottom: '10px', marginBottom: '15px' }}>Verify Trip Details</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '30px' }}>
-                <div><label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Trip Code</label><input type="text" value={unloadingData.trip_code} readOnly style={autoFillStyle} /></div>
-                <div><label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Vehicle No</label><input type="text" value={unloadingData.vehicle_no} readOnly style={autoFillStyle} /></div>
-                <div><label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Loading Point</label><input type="text" value={unloadingData.loading_point} readOnly style={autoFillStyle} /></div>
-                <div><label style={{ color: '#94a3b8', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Consignee</label><input type="text" value={unloadingData.consignee_name} readOnly style={autoFillStyle} /></div>
+                <div><label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Trip Code</label><input type="text" value={unloadingData.trip_code} readOnly style={autoFillStyle} /></div>
+                <div><label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Vehicle No</label><input type="text" value={unloadingData.vehicle_no} readOnly style={autoFillStyle} /></div>
+                <div><label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Loading Point</label><input type="text" value={unloadingData.loading_point} readOnly style={autoFillStyle} /></div>
+                <div><label style={{ color: '#9aadd4', fontSize: '11px', display: 'block', marginBottom: '5px' }}>Consignee</label><input type="text" value={unloadingData.consignee_name} readOnly style={autoFillStyle} /></div>
               </div>
 
-              <h4 style={{ color: '#ef4444', borderBottom: '1px dashed #ef4444', paddingBottom: '10px', marginBottom: '15px' }}>Enter Unloading & Calculate Shortage</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px', background: 'rgba(239, 68, 68, 0.05)', padding: '20px', borderRadius: '10px' }}>
+              <h4 style={{ color: '#ff6b81', borderBottom: '1px dashed #ff6b81', paddingBottom: '10px', marginBottom: '15px' }}>Enter Unloading & Calculate Shortage</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px', background: 'rgba(255, 107, 129, 0.05)', padding: '20px', borderRadius: '10px' }}>
                 <div>
-                  <label style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Original Loaded Qty</label>
-                  <input type="text" value={unloadingData.loaded_qty} readOnly style={{ ...autoFillStyle, fontSize: '18px', fontWeight: 'bold', color: '#38bdf8' }} />
+                  <label style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Original Loaded Qty</label>
+                  <input type="text" value={unloadingData.loaded_qty} readOnly style={{ ...autoFillStyle, fontSize: '18px', fontWeight: 'bold', color: '#22d3ee' }} />
                 </div>
                 <div>
-                  <label style={{ color: '#10b981', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Unloaded Qty (Received) *</label>
-                  <input type="number" inputMode="decimal" value={unloadingData.unloaded_qty} onChange={(e) => recalc({ unloaded_qty: e.target.value })} style={{ ...inputStyle, borderColor: '#10b981', fontSize: '18px', fontWeight: 'bold', color: '#10b981' }} placeholder="0.00" />
+                  <label style={{ color: '#2fe39b', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Unloaded Qty (Received) *</label>
+                  <input type="number" inputMode="decimal" value={unloadingData.unloaded_qty} onChange={(e) => recalc({ unloaded_qty: e.target.value })} style={{ ...inputStyle, borderColor: '#2fe39b', fontSize: '18px', fontWeight: 'bold', color: '#2fe39b' }} placeholder="0.00" />
                   <button type="button" className={`pt-chip ${num(unloadingData.unloaded_qty) === unloadingData.loaded_qty && unloadingData.loaded_qty > 0 ? 'is-on is-on--success' : ''}`} style={{ marginTop: '8px', width: '100%' }}
                     onClick={() => recalc({ unloaded_qty: String(unloadingData.loaded_qty) })}>
                     ✅ Full Unload — No Shortage
                   </button>
                 </div>
                 <div>
-                  <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Shortage Qty (server recomputes)</label>
-                  <input type="text" value={unloadingData.shortage_qty} readOnly style={{ ...autoFillStyle, borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', fontSize: '18px', fontWeight: 'bold' }} />
+                  <label style={{ color: '#ff6b81', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Shortage Qty (server recomputes)</label>
+                  <input type="text" value={unloadingData.shortage_qty} readOnly style={{ ...autoFillStyle, borderColor: '#ff6b81', background: 'rgba(255, 107, 129, 0.1)', color: '#ff6b81', fontSize: '18px', fontWeight: 'bold' }} />
                 </div>
                 <div>
                   <label style={{ color: '#fff', fontSize: '12px', display: 'block', marginBottom: '5px' }}>Unloading Date</label>
@@ -294,32 +294,32 @@ export default function UnloadingDetails() {
                 </div>
               </div>
 
-              <h4 style={{ color: '#f59e0b', borderBottom: '1px dashed #f59e0b', paddingBottom: '10px', marginBottom: '15px' }}>⚖️ Driver Shortage Recovery (khata + ledger)</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px', background: 'rgba(245, 158, 11, 0.05)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(245,158,11,0.2)' }}>
+              <h4 style={{ color: '#ffb224', borderBottom: '1px dashed #ffb224', paddingBottom: '10px', marginBottom: '15px' }}>⚖️ Driver Shortage Recovery (khata + ledger)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px', background: 'rgba(255, 178, 36, 0.05)', padding: '20px', borderRadius: '10px', border: '1px solid rgba(255, 178, 36,0.2)' }}>
                 <div>
-                  <label style={{ color: '#f59e0b', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty Rate (₹ per unit short)</label>
+                  <label style={{ color: '#ffb224', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty Rate (₹ per unit short)</label>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     {[['₹50', '50'], ['₹90 HSD', '90'], ['₹100 MS', '100'], ['₹110 ATF', '110']].map(([lbl, v]) => (
                       <button key={v} type="button" className={`pt-chip ${unloadingData.penalty_rate === v ? 'is-on is-on--warning' : ''}`} onClick={() => recalc({ penalty_rate: v })}>{lbl}</button>
                     ))}
                   </div>
-                  <input type="number" inputMode="decimal" value={unloadingData.penalty_rate} onChange={(e) => recalc({ penalty_rate: e.target.value })} style={{ ...inputStyle, borderColor: '#f59e0b' }} placeholder="or type a custom rate" />
+                  <input type="number" inputMode="decimal" value={unloadingData.penalty_rate} onChange={(e) => recalc({ penalty_rate: e.target.value })} style={{ ...inputStyle, borderColor: '#ffb224' }} placeholder="or type a custom rate" />
                 </div>
                 <div>
-                  <label style={{ color: '#ef4444', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty ₹ (shortage × rate, editable)</label>
-                  <input type="number" value={unloadingData.penalty_amount} onChange={(e) => recalc({ penalty_amount: e.target.value })} style={{ ...inputStyle, borderColor: '#ef4444', color: '#ef4444', fontSize: '18px', fontWeight: 'bold' }} placeholder="0" />
+                  <label style={{ color: '#ff6b81', fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Penalty ₹ (shortage × rate, editable)</label>
+                  <input type="number" value={unloadingData.penalty_amount} onChange={(e) => recalc({ penalty_amount: e.target.value })} style={{ ...inputStyle, borderColor: '#ff6b81', color: '#ff6b81', fontSize: '18px', fontWeight: 'bold' }} placeholder="0" />
                 </div>
-                <div style={{ alignSelf: 'end', fontSize: '12px', color: '#94a3b8', lineHeight: 1.6 }}>
-                  💸 On save this is debited to the driver's khata <b style={{ color: '#f59e0b' }}>and posted to the ledger</b> (Dr driver advance / Cr shortage expense). ₹0 = no recovery.
+                <div style={{ alignSelf: 'end', fontSize: '12px', color: '#9aadd4', lineHeight: 1.6 }}>
+                  💸 On save this is debited to the driver's khata <b style={{ color: '#ffb224' }}>and posted to the ledger</b> (Dr driver advance / Cr shortage expense). ₹0 = no recovery.
                 </div>
               </div>
 
               <div>
-                <label style={{ color: '#94a3b8', fontSize: '12px', display: 'block', marginBottom: '5px' }}>Remarks / Shortage Note</label>
+                <label style={{ color: '#9aadd4', fontSize: '12px', display: 'block', marginBottom: '5px' }}>Remarks / Shortage Note</label>
                 <input type="text" value={unloadingData.remarks} onChange={(e) => setUnloadingData({ ...unloadingData, remarks: e.target.value })} style={inputStyle} placeholder="e.g. temperature loss or pilferage" />
               </div>
 
-              <button onClick={handleManualSave} disabled={saving} className="pt-anim-pop" style={{ width: '100%', marginTop: '20px', minHeight: '54px', background: saving ? '#334155' : 'linear-gradient(135deg, #ef4444, #b91c1c)', color: '#fff', border: 'none', padding: '15px', borderRadius: '14px', fontWeight: '900', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '16px', boxShadow: '0 8px 24px rgba(239,68,68,0.4)' }}>
+              <button onClick={handleManualSave} disabled={saving} className="pt-anim-pop" style={{ width: '100%', marginTop: '20px', minHeight: '54px', background: saving ? '#27395f' : 'linear-gradient(135deg, #ff6b81, #b91c1c)', color: '#fff', border: 'none', padding: '15px', borderRadius: '14px', fontWeight: '900', cursor: saving ? 'not-allowed' : 'pointer', fontSize: '16px', boxShadow: '0 8px 24px rgba(255, 107, 129,0.4)' }}>
                 {saving ? 'Saving…' : '🏁 SAVE UNLOADING & CLOSE TRIP'}
               </button>
             </>
@@ -331,7 +331,7 @@ export default function UnloadingDetails() {
       {activeTab === 'AUTO' && (
         <div className="pt-stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(320px, 100%), 1fr))', gap: '20px' }}>
           {pendingDriverApprovals.length === 0 ? (
-            <div className="pt-anim-up" style={{ color: '#64748b', padding: '40px', textAlign: 'center', background: 'rgba(30,41,59,0.3)', borderRadius: '16px', border: '1px dashed #334155', gridColumn: '1 / -1' }}>
+            <div className="pt-anim-up" style={{ color: '#5d7196', padding: '40px', textAlign: 'center', background: 'rgba(24, 36, 74,0.3)', borderRadius: '16px', border: '1px dashed #27395f', gridColumn: '1 / -1' }}>
               🎉 No pending unloading approvals from the driver app.
             </div>
           ) : pendingDriverApprovals.map((t) => {
@@ -342,35 +342,35 @@ export default function UnloadingDetails() {
             return (
               <div key={t.id} className="pt-card pt-card--accent-primary" style={{ position: 'relative' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <span style={{ color: '#38bdf8', fontWeight: 'bold', fontSize: '18px' }}>{t.vehicle_no}</span>
-                  <span style={{ background: '#334155', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>{t.trip_code}</span>
+                  <span style={{ color: '#22d3ee', fontWeight: 'bold', fontSize: '18px' }}>{t.vehicle_no}</span>
+                  <span style={{ background: '#27395f', padding: '2px 8px', borderRadius: '5px', fontSize: '11px' }}>{t.trip_code}</span>
                 </div>
                 <div style={{ marginBottom: '10px' }}><span className="pt-pill pt-pill--pending-unload">Pending Unload</span></div>
-                <div style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '15px' }}>📍 {t.loading_point} ➔ {t.consignee_name ?? t.unloading_location}</div>
+                <div style={{ color: '#9aadd4', fontSize: '13px', marginBottom: '15px' }}>📍 {t.loading_point} ➔ {t.consignee_name ?? t.unloading_location}</div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(56, 189, 248, 0.05)', padding: '10px', borderRadius: '10px', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Loaded: <b style={{ color: '#38bdf8' }}>{loaded}</b></span>
-                  <span style={{ fontSize: '12px', color: '#94a3b8' }}>Driver says: <b style={{ color: '#10b981' }}>{unloaded}</b></span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(34, 211, 238, 0.05)', padding: '10px', borderRadius: '10px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '12px', color: '#9aadd4' }}>Loaded: <b style={{ color: '#22d3ee' }}>{loaded}</b></span>
+                  <span style={{ fontSize: '12px', color: '#9aadd4' }}>Driver says: <b style={{ color: '#2fe39b' }}>{unloaded}</b></span>
                 </div>
 
-                <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '15px', borderRadius: '10px', marginBottom: '15px', textAlign: 'center', border: '1px dashed #ef4444' }}>
-                  <div style={{ fontSize: '12px', color: '#ef4444', textTransform: 'uppercase', fontWeight: 'bold' }}>Calculated Shortage</div>
-                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#ef4444' }}>{shortage}</div>
+                <div style={{ background: 'rgba(255, 107, 129, 0.1)', padding: '15px', borderRadius: '10px', marginBottom: '15px', textAlign: 'center', border: '1px dashed #ff6b81' }}>
+                  <div style={{ fontSize: '12px', color: '#ff6b81', textTransform: 'uppercase', fontWeight: 'bold' }}>Calculated Shortage</div>
+                  <div style={{ fontSize: '24px', fontWeight: '900', color: '#ff6b81' }}>{shortage}</div>
                   {t.driver_unloading_photo && (
-                    <a href={t.driver_unloading_photo} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#10b981', textDecoration: 'none', marginTop: '5px', display: 'inline-block' }}>📎 View Receipt / Dip Photo</a>
+                    <a href={t.driver_unloading_photo} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: '#2fe39b', textDecoration: 'none', marginTop: '5px', display: 'inline-block' }}>📎 View Receipt / Dip Photo</a>
                   )}
                 </div>
 
                 {shortage > 0 && (
-                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px', background: 'rgba(245,158,11,0.08)', border: '1px dashed #f59e0b', borderRadius: '10px', padding: '10px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '12px', background: 'rgba(255, 178, 36,0.08)', border: '1px dashed #ffb224', borderRadius: '10px', padding: '10px' }}>
                     <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '10px', color: '#f59e0b', fontWeight: 'bold', display: 'block' }}>PENALTY RATE ₹/unit</label>
+                      <label style={{ fontSize: '10px', color: '#ffb224', fontWeight: 'bold', display: 'block' }}>PENALTY RATE ₹/unit</label>
                       <input type="number" value={cardPenaltyRates[t.id] || ''} onChange={(e) => setCardPenaltyRates({ ...cardPenaltyRates, [t.id]: e.target.value })} placeholder="e.g. 90"
-                        style={{ width: '100%', padding: '8px', background: '#0f172a', border: '1px solid #f59e0b', color: '#fff', borderRadius: '6px', boxSizing: 'border-box' }} />
+                        style={{ width: '100%', padding: '8px', background: '#121c38', border: '1px solid #ffb224', color: '#fff', borderRadius: '6px', boxSizing: 'border-box' }} />
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>DRIVER DEBIT</div>
-                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#ef4444' }}>₹{inr(rate > 0 ? Math.round(rate * shortage) : 0)}</div>
+                      <div style={{ fontSize: '10px', color: '#ff6b81', fontWeight: 'bold' }}>DRIVER DEBIT</div>
+                      <div style={{ fontSize: '18px', fontWeight: 900, color: '#ff6b81' }}>₹{inr(rate > 0 ? Math.round(rate * shortage) : 0)}</div>
                     </div>
                   </div>
                 )}
@@ -387,17 +387,17 @@ export default function UnloadingDetails() {
       {/* 📋 TAB 3: COMPLETED REGISTER */}
       {activeTab === 'REGISTER' && isPhone && (
         <div className="pt-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {loading ? <div style={{ color: '#38bdf8', textAlign: 'center', padding: '30px' }}>Loading…</div>
-            : completedTrips.length === 0 ? <div style={{ color: '#64748b', textAlign: 'center', padding: '30px' }}>No completed trips found.</div>
+          {loading ? <div style={{ color: '#22d3ee', textAlign: 'center', padding: '30px' }}>Loading…</div>
+            : completedTrips.length === 0 ? <div style={{ color: '#5d7196', textAlign: 'center', padding: '30px' }}>No completed trips found.</div>
             : completedTrips.map((t) => {
               const penaltyAmt = num(t.shortage_penalty);
               return (
                 <div key={t.id} className={`pt-card ${penaltyAmt > 0 ? 'pt-card--accent-danger' : 'pt-card--accent-success'}`}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                    <b style={{ color: '#38bdf8', fontSize: '17px' }}>{t.vehicle_no}</b>
+                    <b style={{ color: '#22d3ee', fontSize: '17px' }}>{t.vehicle_no}</b>
                     <span className="pt-badge pt-badge--success">{t.status}</span>
                   </div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '12px', color: '#9aadd4', marginBottom: '10px' }}>
                     {t.trip_code} · {t.driver_name}<br />
                     📍 {t.loading_point} ➔ {t.consignee_name ?? t.unloading_location}
                   </div>
@@ -416,34 +416,34 @@ export default function UnloadingDetails() {
       )}
 
       {activeTab === 'REGISTER' && !isPhone && (
-        <div className="pt-anim-up" style={{ background: '#1e293b', borderRadius: '16px', overflowX: 'auto', border: '1px solid #334155', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
+        <div className="pt-anim-up" style={{ background: '#18244a', borderRadius: '16px', overflowX: 'auto', border: '1px solid #27395f', boxShadow: '0 8px 24px rgba(0,0,0,0.3)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap' }}>
-            <thead style={{ background: '#0f172a', color: '#f59e0b', fontSize: '11px', textTransform: 'uppercase' }}>
+            <thead style={{ background: '#121c38', color: '#ffb224', fontSize: '11px', textTransform: 'uppercase' }}>
               <tr>
                 <th style={{ padding: '15px' }}>Trip</th>
-                <th style={{ padding: '15px', color: '#38bdf8' }}>Vehicle</th>
+                <th style={{ padding: '15px', color: '#22d3ee' }}>Vehicle</th>
                 <th style={{ padding: '15px' }}>Route (From ➔ To)</th>
-                <th style={{ padding: '15px', color: '#38bdf8' }}>Loaded</th>
-                <th style={{ padding: '15px', color: '#10b981' }}>Unloaded</th>
-                <th style={{ padding: '15px', color: '#ef4444' }}>Shortage</th>
-                <th style={{ padding: '15px', color: '#ef4444' }}>Penalty ₹ (Driver)</th>
+                <th style={{ padding: '15px', color: '#22d3ee' }}>Loaded</th>
+                <th style={{ padding: '15px', color: '#2fe39b' }}>Unloaded</th>
+                <th style={{ padding: '15px', color: '#ff6b81' }}>Shortage</th>
+                <th style={{ padding: '15px', color: '#ff6b81' }}>Penalty ₹ (Driver)</th>
                 <th style={{ padding: '15px' }}>Driver</th>
-                <th style={{ padding: '15px', color: '#10b981' }}>Billing</th>
+                <th style={{ padding: '15px', color: '#2fe39b' }}>Billing</th>
                 <th style={{ padding: '15px', textAlign: 'center' }}>Notify Driver</th>
               </tr>
             </thead>
             <tbody>
-              {loading ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#38bdf8' }}>Loading from PostgreSQL…</td></tr>
-                : completedTrips.length === 0 ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No completed trips found.</td></tr>
+              {loading ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#22d3ee' }}>Loading from PostgreSQL…</td></tr>
+                : completedTrips.length === 0 ? <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', color: '#5d7196' }}>No completed trips found.</td></tr>
                 : completedTrips.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '12px' }}>
+                  <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea', fontSize: '12px' }}>
                     <td style={{ padding: '12px 15px' }}>{t.trip_code}<br /><span className="pt-pill pt-pill--completed" style={{ marginTop: '4px' }}>{t.status}</span></td>
-                    <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.vehicle_no}</td>
+                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.vehicle_no}</td>
                     <td style={{ padding: '12px 15px' }}>{t.loading_point} ➔ {t.consignee_name ?? t.unloading_location}</td>
-                    <td style={{ padding: '12px 15px', color: '#38bdf8', fontWeight: 'bold' }}>{t.loaded_qty ?? '-'}</td>
-                    <td style={{ padding: '12px 15px', color: '#10b981', fontWeight: 'bold' }}>{t.unloaded_qty ?? '-'}</td>
-                    <td style={{ padding: '12px 15px', color: '#ef4444', fontWeight: '900' }}>{t.shortage_qty ?? '0'}</td>
-                    <td style={{ padding: '12px 15px', color: '#ef4444', fontWeight: '900' }}>{num(t.shortage_penalty) > 0 ? `₹${inr(t.shortage_penalty)} 💸` : '—'}</td>
+                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.loaded_qty ?? '-'}</td>
+                    <td style={{ padding: '12px 15px', color: '#2fe39b', fontWeight: 'bold' }}>{t.unloaded_qty ?? '-'}</td>
+                    <td style={{ padding: '12px 15px', color: '#ff6b81', fontWeight: '900' }}>{t.shortage_qty ?? '0'}</td>
+                    <td style={{ padding: '12px 15px', color: '#ff6b81', fontWeight: '900' }}>{num(t.shortage_penalty) > 0 ? `₹${inr(t.shortage_penalty)} 💸` : '—'}</td>
                     <td style={{ padding: '12px 15px' }}>{t.driver_name}</td>
                     <td style={{ padding: '12px 15px' }}>{billingBadge(t)}</td>
                     <td style={{ padding: '12px 15px', textAlign: 'center' }}>

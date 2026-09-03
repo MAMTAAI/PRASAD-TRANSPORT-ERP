@@ -361,25 +361,25 @@ export default function Vehical() {
   const pgFilteredVehicles = usePagination(filteredVehicles);
 
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)' }}>
+    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)' }}>
       <style>{`
-        .glass-card { background: rgba(30, 41, 59, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px; transition: all 0.4s; }
-        .glass-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px -10px rgba(56, 189, 248, 0.25); border: 1px solid rgba(56, 189, 248, 0.4); }
-        .gradient-text { background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .glow-btn { background: linear-gradient(135deg, #3b82f6, #6366f1); box-shadow: 0 0 20px rgba(99, 102, 241, 0.4); color: white; border: none; font-weight: bold; cursor: pointer; transition: all 0.3s; padding: 12px 25px; border-radius: 8px; }
-        .glow-btn:hover { box-shadow: 0 0 35px rgba(99, 102, 241, 0.8); transform: scale(1.05); }
-        .modern-input { background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(51, 65, 85, 0.8); border-radius: 10px; color: white; padding: 10px 14px; outline: none; width: 100%; box-sizing: border-box; font-size: 13px;}
-        .modern-input:focus { border-color: #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.9); }
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(2, 6, 23, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; }
-        .modal-content { background: #0f172a; border: 1px solid #38bdf8; width: 95%; max-width: 1300px; max-height: 90vh; overflow-y: auto; padding: 30px; border-radius: 20px; box-shadow: 0 0 50px rgba(56, 189, 248, 0.2); }
-        label { font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px; font-weight: bold; text-transform: uppercase; }
+        .glass-card { background: rgba(24, 36, 74, 0.4); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 24px; transition: all 0.4s; }
+        .glass-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px -10px rgba(34, 211, 238, 0.25); border: 1px solid rgba(34, 211, 238, 0.4); }
+        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .glow-btn { background: linear-gradient(135deg, #3b82f6, #7c8cff); box-shadow: 0 0 20px rgba(124, 140, 255, 0.4); color: white; border: none; font-weight: bold; cursor: pointer; transition: all 0.3s; padding: 12px 25px; border-radius: 8px; }
+        .glow-btn:hover { box-shadow: 0 0 35px rgba(124, 140, 255, 0.8); transform: scale(1.05); }
+        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 10px; color: white; padding: 10px 14px; outline: none; width: 100%; box-sizing: border-box; font-size: 13px;}
+        .modern-input:focus { border-color: #22d3ee; box-shadow: 0 0 15px rgba(34, 211, 238, 0.3); background: rgba(18, 28, 56, 0.9); }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(10, 16, 36, 0.85); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .modal-content { background: #121c38; border: 1px solid #22d3ee; width: 95%; max-width: 1300px; max-height: 90vh; overflow-y: auto; padding: 30px; border-radius: 20px; box-shadow: 0 0 50px rgba(34, 211, 238, 0.2); }
+        label { font-size: 11px; color: #9aadd4; display: block; margin-bottom: 4px; font-weight: bold; text-transform: uppercase; }
       `}</style>
 
       {/* 🚀 Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '30px' }}>
         <div>
           <h1 className="gradient-text" style={{ margin: 0, fontSize: '38px', fontWeight: '900', letterSpacing: '-1px' }}>Prasad Fleet AI</h1>
-          <p style={{ color: '#94a3b8', margin: '5px 0' }}>Vehicle Data, Owner Mapping & IOCL e-TRP Integration</p>
+          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Vehicle Data, Owner Mapping & IOCL e-TRP Integration</p>
         </div>
         <button className="glow-btn" onClick={() => { resetForm(); setShowForm(true); }} style={{ borderRadius: '50px', fontSize: '15px' }}>
           + Initialize Vehicle
@@ -387,23 +387,23 @@ export default function Vehical() {
       </div>
 
       {/* 🔍 स्मार्ट फ़िल्टरिंग सेक्शन */}
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap', background: 'rgba(30, 41, 59, 0.3)', padding: '15px', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', gap: '15px', marginBottom: '30px', flexWrap: 'wrap', background: 'rgba(24, 36, 74, 0.3)', padding: '15px', borderRadius: '15px', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ flex: 1, minWidth: '250px', position: 'relative' }}>
           <input placeholder="Search Vehicle, Driver or FASTag..." className="modern-input" style={{ paddingLeft: '40px' }} onChange={(e) => setSearchTerm(e.target.value)} />
           <span style={{ position: 'absolute', left: '12px', top: '10px', fontSize: '16px' }}>🔍</span>
         </div>
         
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <select className="modern-input" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} style={{ color: filterCompany ? '#38bdf8' : 'white', fontWeight: filterCompany ? 'bold' : 'normal' }}>
+          <select className="modern-input" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} style={{ color: filterCompany ? '#22d3ee' : 'white', fontWeight: filterCompany ? 'bold' : 'normal' }}>
             <option value="">🏢 All Companies</option>
             {companies.map(c => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
           </select>
         </div>
 
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <select className="modern-input" value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} style={{ color: filterOwner ? '#c084fc' : 'white', fontWeight: filterOwner ? 'bold' : 'normal' }}>
+          <select className="modern-input" value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} style={{ color: filterOwner ? '#a78bfa' : 'white', fontWeight: filterOwner ? 'bold' : 'normal' }}>
             <option value="">👤 All Owners (Own + Attached)</option>
-            <option value="Own" style={{ color: '#10b981', fontWeight: 'bold' }}>⭐ Only Own Assets (Prasad)</option>
+            <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only Own Assets (Prasad)</option>
             {uniqueOwners.map((owner: any, i) => <option key={i} value={owner}>🤝 {owner}</option>)}
           </select>
         </div>
@@ -411,7 +411,7 @@ export default function Vehical() {
 
       {/* 🚨 FETCH ERROR BANNER — khali list ka reason ab hamesha dikhta hai */}
       {fetchError && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '2px dashed #ef4444', borderRadius: '15px', padding: '20px', marginBottom: '25px', color: '#fca5a5', fontWeight: 'bold', fontSize: '14px', lineHeight: 1.6 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '2px dashed #ff6b81', borderRadius: '15px', padding: '20px', marginBottom: '25px', color: '#fca5a5', fontWeight: 'bold', fontSize: '14px', lineHeight: 1.6 }}>
           {fetchError}
           <div style={{ marginTop: '12px' }}>
             <button onClick={fetchVehicles} style={{ background: '#ef4444', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 Retry</button>
@@ -420,10 +420,10 @@ export default function Vehical() {
       )}
 
       {/* 🚛 Grid List */}
-      {loading ? <p style={{ color: '#38bdf8', textAlign: 'center', fontSize: '18px' }}>🔄 Syncing with Global Database...</p> : (
+      {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', fontSize: '18px' }}>🔄 Syncing with Global Database...</p> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '30px' }}>
           {!fetchError && filteredVehicles.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px', color: '#94a3b8', fontSize: '15px' }}>
+            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px', color: '#9aadd4', fontSize: '15px' }}>
               {vehicles.length === 0
                 ? '🚛 Database me abhi koi vehicle nahi mili. "+ Initialize Vehicle" se pehli vehicle add karein.'
                 : `🔍 ${vehicles.length} vehicles me se koi filter/search se match nahi hui — filters clear karke dekhein.`}
@@ -436,26 +436,26 @@ export default function Vehical() {
               <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <span className="gradient-text" style={{ fontSize: '24px', fontWeight: '900' }}>{v.vehicle_no || v.Vehicle_No || v.vehical_no}</span>
-                  <p style={{ margin: '5px 0 0 0', color: v.own_attach === 'Own' ? '#10b981' : '#f59e0b', fontSize: '13px', fontWeight: 'bold' }}>
+                  <p style={{ margin: '5px 0 0 0', color: v.own_attach === 'Own' ? '#2fe39b' : '#ffb224', fontSize: '13px', fontWeight: 'bold' }}>
                     {v.own_attach} Asset {(v.owner_name || v.asset_owner_name) ? `• ${v.owner_name || v.asset_owner_name}` : ''}
                   </p>
                 </div>
-                <span style={{ fontSize: '10px', background: 'rgba(245,158,11,0.1)', color: '#f59e0b', padding: '4px 8px', borderRadius: '12px', border: '1px solid #f59e0b' }}>
+                <span style={{ fontSize: '10px', background: 'rgba(255, 178, 36,0.1)', color: '#ffb224', padding: '4px 8px', borderRadius: '12px', border: '1px solid #ffb224' }}>
                   {v.vehicle_category || 'Truck'}
                 </span>
               </div>
               
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', color: '#e2e8f0', fontSize: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', color: '#dde5f4', fontSize: '12px' }}>
                 <div>🏢 <b>{v.company_name || v.operating_company || 'N/A'}</b></div>
                 <div>👤 <b>{v.driver_name || 'No Driver'}</b></div>
                 
                 {/* 🛞 TYRE CONFIG DISPLAY */}
-                <div style={{ color: '#cbd5e1' }}>🛞 Tyres: <b style={{color: '#f59e0b'}}>{v.no_of_tyres || '10+1'}</b></div>
-                <div>📑 {v.rc_photo_url ? <a href={v.rc_photo_url} target="_blank" rel="noreferrer" style={{ color: '#10b981' }}>RC Attached ✓</a> : <span style={{ color: '#ef4444' }}>No RC</span>}</div>
+                <div style={{ color: '#c4d1ea' }}>🛞 Tyres: <b style={{color: '#ffb224'}}>{v.no_of_tyres || '10+1'}</b></div>
+                <div>📑 {v.rc_photo_url ? <a href={v.rc_photo_url} target="_blank" rel="noreferrer" style={{ color: '#2fe39b' }}>RC Attached ✓</a> : <span style={{ color: '#ff6b81' }}>No RC</span>}</div>
                 
-                <div style={{ gridColumn: 'span 2', color: '#cbd5e1' }}>🏷️ FASTag: <b style={{color: '#38bdf8'}}>{v.fastag_id || 'Not Set'}</b></div>
+                <div style={{ gridColumn: 'span 2', color: '#c4d1ea' }}>🏷️ FASTag: <b style={{color: '#22d3ee'}}>{v.fastag_id || 'Not Set'}</b></div>
                 
-                <div style={{ gridColumn: 'span 2', borderTop: '1px dashed #334155', paddingTop: '10px', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ gridColumn: 'span 2', borderTop: '1px dashed #27395f', paddingTop: '10px', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {(() => {
                     const norm = String(v.vehicle_no || v.Vehicle_No || v.vehical_no || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
                     const isMaint = /maint|offline|repair/i.test(String(v.status || ''));
@@ -464,13 +464,13 @@ export default function Vehical() {
                     const label = live === 'transit' ? 'In Transit' : live === 'maintenance' ? 'Maintenance' : 'Available';
                     return <span className={`pt-pill ${cls}`}>{label}</span>;
                   })()}
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>Live status</span>
+                  <span style={{ fontSize: '11px', color: '#5d7196' }}>Live status</span>
                 </div>
               </div>
               
               <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
-                <button onClick={() => handleEdit(v)} style={{ background: 'rgba(56, 189, 248, 0.1)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>✏️ Configure</button>
-                <button onClick={() => handleDelete(v.id, v.vehicle_no)} style={{ background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ Erase</button>
+                <button onClick={() => handleEdit(v)} style={{ background: 'rgba(34, 211, 238, 0.1)', border: '1px solid #22d3ee', color: '#22d3ee', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>✏️ Configure</button>
+                <button onClick={() => handleDelete(v.id, v.vehicle_no)} style={{ background: 'transparent', border: '1px solid #ff6b81', color: '#ff6b81', padding: '6px 15px', borderRadius: '50px', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ Erase</button>
               </div>
             </div>
           )})}
@@ -486,7 +486,7 @@ export default function Vehical() {
             
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px' }}>
               <h2 className="gradient-text" style={{ margin: 0, fontSize: '24px' }}>{editingId ? 'System Update: Asset Data' : 'Initialize New Asset & Ledger'}</h2>
-              <button onClick={resetForm} style={{ background: 'transparent', color: '#ef4444', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✕</button>
+              <button onClick={resetForm} style={{ background: 'transparent', color: '#ff6b81', border: 'none', fontSize: '24px', cursor: 'pointer' }}>✕</button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth > 768 ? 'repeat(3, 1fr)' : '1fr', gap: '25px' }}>
@@ -495,10 +495,10 @@ export default function Vehical() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
                 {/* Core Block */}
-                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #334155' }}>
-                  <h4 style={{ color: '#38bdf8', margin: '0 0 15px 0' }}>1️⃣ CORE IDENTITY & OWNERSHIP</h4>
+                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #27395f' }}>
+                  <h4 style={{ color: '#22d3ee', margin: '0 0 15px 0' }}>1️⃣ CORE IDENTITY & OWNERSHIP</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div><label style={{color: '#38bdf8'}}>Vehicle Registration No. *</label><input className="modern-input" name="vehicle_no" style={{borderColor: '#38bdf8', fontWeight: 'bold', fontSize: '16px', textTransform: 'uppercase'}} value={formData.vehicle_no} onChange={handleInputChange} placeholder="e.g. AS 26C 5106" /></div>
+                    <div><label style={{color: '#22d3ee'}}>Vehicle Registration No. *</label><input className="modern-input" name="vehicle_no" style={{borderColor: '#22d3ee', fontWeight: 'bold', fontSize: '16px', textTransform: 'uppercase'}} value={formData.vehicle_no} onChange={handleInputChange} placeholder="e.g. AS 26C 5106" /></div>
                     
                     <div><label>Asset Type</label>
                       <select className="modern-input" name="own_attach" value={formData.own_attach} onChange={handleInputChange}>
@@ -508,9 +508,9 @@ export default function Vehical() {
                     </div>
 
                     {formData.own_attach === 'Attached' ? (
-                      <div><label style={{ color: '#f59e0b', fontWeight: 'bold' }}>Asset Owner Name (For Ledger) *</label><input className="modern-input" name="owner_name" style={{border: '1px solid #f59e0b', background: 'rgba(245,158,11,0.05)'}} value={formData.owner_name} onChange={handleInputChange} placeholder="e.g. SANDEEP KUMAR PRASAD" /></div>
+                      <div><label style={{ color: '#ffb224', fontWeight: 'bold' }}>Asset Owner Name (For Ledger) *</label><input className="modern-input" name="owner_name" style={{border: '1px solid #ffb224', background: 'rgba(255, 178, 36,0.05)'}} value={formData.owner_name} onChange={handleInputChange} placeholder="e.g. SANDEEP KUMAR PRASAD" /></div>
                     ) : (
-                      <div><label style={{ color: '#38bdf8', fontWeight: 'bold' }}>Vehicle Value (₹) - For Asset Ledger</label><input type="number" className="modern-input" name="vehicle_value" style={{ border: '1px solid #38bdf8' }} value={formData.vehicle_value} onChange={handleInputChange} /></div>
+                      <div><label style={{ color: '#22d3ee', fontWeight: 'bold' }}>Vehicle Value (₹) - For Asset Ledger</label><input type="number" className="modern-input" name="vehicle_value" style={{ border: '1px solid #22d3ee' }} value={formData.vehicle_value} onChange={handleInputChange} /></div>
                     )}
 
                     <div><label>Operating Company</label>
@@ -530,11 +530,11 @@ export default function Vehical() {
                 </div>
 
                 {/* 🛢️ Oil Company / e-TRP Block */}
-                <div style={{ background: 'rgba(245,158,11,0.05)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(245,158,11,0.3)' }}>
-                  <h4 style={{ color: '#f59e0b', margin: '0 0 15px 0' }}>🛢️ IOCL e-TRP / FASTAG DATA</h4>
+                <div style={{ background: 'rgba(255, 178, 36,0.05)', padding: '20px', borderRadius: '12px', border: '1px solid rgba(255, 178, 36,0.3)' }}>
+                  <h4 style={{ color: '#ffb224', margin: '0 0 15px 0' }}>🛢️ IOCL e-TRP / FASTAG DATA</h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    <div><label style={{color: '#f59e0b'}}>Vehicle Category (e-TRP) *</label>
-                      <select className="modern-input" name="vehicle_category" style={{borderColor: '#f59e0b', fontWeight: 'bold', color: '#f59e0b'}} value={formData.vehicle_category} onChange={handleInputChange}>
+                    <div><label style={{color: '#ffb224'}}>Vehicle Category (e-TRP) *</label>
+                      <select className="modern-input" name="vehicle_category" style={{borderColor: '#ffb224', fontWeight: 'bold', color: '#ffb224'}} value={formData.vehicle_category} onChange={handleInputChange}>
                         <option value="Bulk Trucks">Bulk Trucks</option>
                         <option value="Packed Trucks">Packed Trucks</option>
                         <option value="Others">Others</option>
@@ -550,15 +550,15 @@ export default function Vehical() {
               </div>
 
               {/* 2️⃣ COLUMN 2: HARDWARE SPECS & 🛞 TYRE CONFIG */}
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #334155' }}>
-                <h4 style={{ color: '#c084fc', margin: '0 0 15px 0' }}>2️⃣ HARDWARE SPECS</h4>
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #27395f' }}>
+                <h4 style={{ color: '#a78bfa', margin: '0 0 15px 0' }}>2️⃣ HARDWARE SPECS</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
                   
                   <div style={{ gridColumn: 'span 2' }}><label>Vehicle Class</label><input className="modern-input" name="veh_class" placeholder="e.g. Tanker / Trailer" value={formData.veh_class} onChange={handleInputChange} /></div>
 
                   {/* 🌟 SMART TYRE CONFIGURATION DATALIST 🌟 */}
-                  <div style={{ gridColumn: 'span 2', background: 'rgba(245, 158, 11, 0.1)', padding: '10px', borderRadius: '8px', border: '1px dashed #f59e0b' }}>
-                    <label style={{color: '#f59e0b'}}>🛞 Total Tyres (Wheel Config) *</label>
+                  <div style={{ gridColumn: 'span 2', background: 'rgba(255, 178, 36, 0.1)', padding: '10px', borderRadius: '8px', border: '1px dashed #ffb224' }}>
+                    <label style={{color: '#ffb224'}}>🛞 Total Tyres (Wheel Config) *</label>
                     <input 
                       className="modern-input" 
                       list="tyre-config-options"
@@ -566,7 +566,7 @@ export default function Vehical() {
                       value={formData.no_of_tyres} 
                       onChange={handleInputChange} 
                       placeholder="Select or type (e.g. 16+1)"
-                      style={{borderColor: '#f59e0b', fontWeight: 'bold', color: '#f59e0b'}}
+                      style={{borderColor: '#ffb224', fontWeight: 'bold', color: '#ffb224'}}
                     />
                     <datalist id="tyre-config-options">
                       <option value="4+1" />
@@ -578,7 +578,7 @@ export default function Vehical() {
                       <option value="18+1" />
                       <option value="22+1" />
                     </datalist>
-                    <small style={{color: '#cbd5e1', fontSize: '10px'}}>Type custom config (e.g. '16+1') if not in list. Links to Tyre Mgmt.</small>
+                    <small style={{color: '#c4d1ea', fontSize: '10px'}}>Type custom config (e.g. '16+1') if not in list. Links to Tyre Mgmt.</small>
                   </div>
 
                   <div><label>Capacity (KL/Ton)</label><input type="number" className="modern-input" name="capacity_kl" value={formData.capacity_kl} onChange={handleInputChange} placeholder="e.g. 18" /></div>
@@ -600,8 +600,8 @@ export default function Vehical() {
               </div>
 
               {/* 3️⃣ COLUMN 3: LEGAL, PILOT & RC UPLOAD */}
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #334155' }}>
-                <h4 style={{ color: '#10b981', margin: '0 0 15px 0' }}>3️⃣ LEGAL & PILOT</h4>
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '12px', border: '1px solid #27395f' }}>
+                <h4 style={{ color: '#2fe39b', margin: '0 0 15px 0' }}>3️⃣ LEGAL & PILOT</h4>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                   
                   <div><label>Registration Date</label><input type="date" className="modern-input" name="reg_date" value={formData.reg_date} onChange={handleInputChange} style={{colorScheme:'dark'}}/></div>
@@ -614,7 +614,7 @@ export default function Vehical() {
 
                   <div>
                     <label>System Status</label>
-                    <select className="modern-input" name="status" value={formData.status} onChange={handleInputChange} style={{ color: formData.status.includes('Active') ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                    <select className="modern-input" name="status" value={formData.status} onChange={handleInputChange} style={{ color: formData.status.includes('Active') ? '#2fe39b' : '#ff6b81', fontWeight: 'bold' }}>
                       <option value="System Active">🟢 System Active</option>
                       <option value="Offline / Maintenance">🔴 Offline / Maintenance</option>
                       <option value="Sold / Blacklisted">⚫ Sold / Blacklisted</option>
@@ -622,16 +622,16 @@ export default function Vehical() {
                   </div>
 
                   {/* 🌟 DOCUMENT SCANNER (RC UPLOAD) */}
-                  <div style={{ background: 'rgba(56, 189, 248, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #38bdf8', marginTop: '10px', textAlign: 'center' }}>
-                    <label style={{ color: '#38bdf8', fontWeight: 'bold', marginBottom: '10px', fontSize: '13px' }}>📎 Upload Original RC (2TB Drive)</label>
-                    <input type="file" accept="image/*,.pdf" onChange={(e) => setRcFile(e.target.files ? e.target.files[0] : null)} style={{ color: '#94a3b8', marginBottom: '15px', fontSize: '12px', width: '100%', background: '#0f172a', padding: '10px', borderRadius: '8px' }} />
+                  <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '20px', borderRadius: '10px', border: '1px dashed #22d3ee', marginTop: '10px', textAlign: 'center' }}>
+                    <label style={{ color: '#22d3ee', fontWeight: 'bold', marginBottom: '10px', fontSize: '13px' }}>📎 Upload Original RC (2TB Drive)</label>
+                    <input type="file" accept="image/*,.pdf" onChange={(e) => setRcFile(e.target.files ? e.target.files[0] : null)} style={{ color: '#9aadd4', marginBottom: '15px', fontSize: '12px', width: '100%', background: '#121c38', padding: '10px', borderRadius: '8px' }} />
                     
-                    <button onClick={handleRCUpload} disabled={!rcFile || uploadingRC} style={{ width: '100%', padding: '12px', background: rcFile ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#334155', color: 'white', border: 'none', borderRadius: '8px', cursor: rcFile ? 'pointer' : 'not-allowed', fontWeight: 'bold', transition: '0.3s' }}>
+                    <button onClick={handleRCUpload} disabled={!rcFile || uploadingRC} style={{ width: '100%', padding: '12px', background: rcFile ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#27395f', color: 'white', border: 'none', borderRadius: '8px', cursor: rcFile ? 'pointer' : 'not-allowed', fontWeight: 'bold', transition: '0.3s' }}>
                       {uploadingRC ? '🚀 SCANNING AI...' : '🤖 SCAN TO DRIVE & AUTO-FILL'}
                     </button>
                     
                     {formData.rc_photo_url && (
-                        <div style={{ marginTop: '15px', fontSize: '13px', color: '#10b981', fontWeight: 'bold' }}>✅ RC Verified & Attached</div>
+                        <div style={{ marginTop: '15px', fontSize: '13px', color: '#2fe39b', fontWeight: 'bold' }}>✅ RC Verified & Attached</div>
                     )}
                   </div>
 

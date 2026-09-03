@@ -36,7 +36,7 @@ const iconDataUri = 'data:image/webp;base64,' + readFileSync(SOURCE_ICON).toStri
 
 // The app's own palette, so the store page and the app do not look like two
 // different products. These are the values in index.html and vite.config.ts.
-const INK = '#020617';
+const INK = '#0a1024';
 const CYAN = '#22d3ee';
 
 const FEATURE_HTML = `<!doctype html>
@@ -49,7 +49,7 @@ const FEATURE_HTML = `<!doctype html>
       radial-gradient(700px 380px at 12% 88%, rgba(59,130,246,.14), transparent 60%),
       linear-gradient(140deg, ${INK} 0%, #060d1c 52%, #0a1424 100%);
     font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    color:#e2e8f0;
+    color:#dde5f4;
     display:flex; align-items:center; gap:52px;
     /* Play crops and overlays the edges of this slot on some surfaces, so
        nothing that has to be readable sits within 64px of a border. */
@@ -63,14 +63,14 @@ const FEATURE_HTML = `<!doctype html>
     background:url('${iconDataUri}') center/cover no-repeat;
     box-shadow: 0 24px 60px rgba(0,0,0,.6), 0 0 0 1px rgba(148,163,184,.22);
   }
-  .name { font-size:62px; font-weight:800; letter-spacing:-1.2px; line-height:1.04; color:#f8fafc; }
+  .name { font-size:62px; font-weight:800; letter-spacing:-1.2px; line-height:1.04; color:#f6f8fd; }
   .name span { color:${CYAN}; }
-  .tag { margin-top:18px; font-size:25px; font-weight:600; color:#94a3b8; letter-spacing:.2px; }
+  .tag { margin-top:18px; font-size:25px; font-weight:600; color:#9aadd4; letter-spacing:.2px; }
   .chips { margin-top:26px; display:flex; gap:10px; }
   .chip {
     font-size:16px; font-weight:700; letter-spacing:.6px;
     padding:9px 16px; border-radius:999px;
-    color:#cbd5e1; background:rgba(148,163,184,.10);
+    color:#c4d1ea; background:rgba(148,163,184,.10);
     border:1px solid rgba(148,163,184,.24);
   }
 </style></head><body>

@@ -68,14 +68,21 @@ const monthLabel = (ym: string) => {
 };
 
 const C = {
-  bg: '#0f172a', card: '#1e293b', line: '#334155',
-  text: '#e2e8f0', dim: '#94a3b8', faint: '#64748b',
-  emerald: '#10b981', ruby: '#ef4444', amber: '#f59e0b',
-  violet: '#8b5cf6', sky: '#38bdf8',
+  bg: '#121c38', card: '#18244a', line: '#27395f', lineHi: '#3d548a',
+  text: '#dde5f4', dim: '#9aadd4', faint: '#5d7196',
+  emerald: '#2fe39b', ruby: '#ff6b81', amber: '#ffb224',
+  violet: '#a78bfa', sky: '#22d3ee',
 };
 
+// 2026 "Indigo Deck": a card was a flat fill inside a hairline, which is what
+// made this screen read as plain. The sheen puts a lit edge top-left and fades
+// out, so the tile has a form; the shadow lifts it off the navy ground.
 const card: React.CSSProperties = {
-  background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: 18,
+  background: 'linear-gradient(168deg, rgba(46,66,118,0.42) 0%, rgba(18,28,56,0) 58%), ' + C.card,
+  border: `1px solid ${C.line}`,
+  borderRadius: 14,
+  padding: 18,
+  boxShadow: '0 2px 10px rgba(4,9,26,0.45), inset 0 1px 0 rgba(255,255,255,0.045)',
 };
 
 // activeModule is still part of DashboardProps (App.tsx passes it) but this

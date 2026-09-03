@@ -35,9 +35,9 @@ const today = () => new Date().toISOString().slice(0, 10);
 // Voucher-type presentation. The API returns RECEIPT / PAYMENT / CONTRA; these
 // are the labels and colours the screen has always used for them.
 const TYPE_UI: Record<string, { label: string; color: string; sign: string }> = {
-  RECEIPT: { label: 'Receipt (IN)', color: '#10b981', sign: '+' },
-  PAYMENT: { label: 'Payment (OUT)', color: '#ef4444', sign: '-' },
-  CONTRA: { label: 'Contra (TRANSFER)', color: '#f59e0b', sign: '🔄' },
+  RECEIPT: { label: 'Receipt (IN)', color: '#2fe39b', sign: '+' },
+  PAYMENT: { label: 'Payment (OUT)', color: '#ff6b81', sign: '-' },
+  CONTRA: { label: 'Contra (TRANSFER)', color: '#ffb224', sign: '🔄' },
 };
 
 export default function CashBankBook() {
@@ -363,7 +363,7 @@ export default function CashBankBook() {
   const handlePrintVoucher = (t: any) => {
     const w = window.open('', '_blank');
     if (!w) return alert('Please allow popups to print.');
-    const ui = TYPE_UI[t.type] ?? { label: t.type, color: '#334155' };
+    const ui = TYPE_UI[t.type] ?? { label: t.type, color: '#27395f' };
     const isContra = t.type === 'CONTRA';
     const vTitle = isContra ? 'CONTRA VOUCHER' : t.type === 'RECEIPT' ? 'RECEIPT VOUCHER' : 'PAYMENT VOUCHER';
     const partyName = isContra ? `${t.account} ➔ ${t.party_name ?? '-'}` : (t.party_name ?? '-');
@@ -407,48 +407,48 @@ export default function CashBankBook() {
   const companyBanks = accounts;
 
   return (
-    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #0f172a, #020617)', minHeight: '100vh', padding: '30px' }}>
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', minHeight: '100vh', padding: '30px' }}>
 
       {/* HEADER */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '32px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>🏦 Cash & Bank Book</h2>
-          <p style={{ margin: '5px 0 0 0', color: '#94a3b8', fontSize: '14px' }}>
+          <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>
             Live from the general ledger · PostgreSQL
             {book?.entry_count != null && <> · {book.entry_count} entr{book.entry_count === 1 ? 'y' : 'ies'} in range</>}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button onClick={generatePaymentLink} style={btn('#ec4899', '#fff')}>🔗 Gen UPI Link</button>
-          <button onClick={() => setShowBankMaster(true)} style={{ ...btn('#1e293b', '#38bdf8'), border: '1px solid #38bdf8' }}>⚙️ Manage Accounts</button>
-          <button onClick={() => { setShowReconcileModal(true); setStatementRows([]); setReconNote(''); }} style={btn('linear-gradient(135deg,#f59e0b,#d97706)', '#0f172a')}>🔄 Reconcile</button>
-          <button onClick={() => setShowModal(true)} style={btn('linear-gradient(135deg,#10b981,#059669)', '#fff')}>+ Create Voucher</button>
-          <button onClick={downloadStatement} style={{ ...btn('#334155', '#fff'), border: '1px solid #475569' }}>📥 CSV</button>
+          <button onClick={() => setShowBankMaster(true)} style={{ ...btn('#18244a', '#22d3ee'), border: '1px solid #22d3ee' }}>⚙️ Manage Accounts</button>
+          <button onClick={() => { setShowReconcileModal(true); setStatementRows([]); setReconNote(''); }} style={btn('linear-gradient(135deg,#ffb224,#d97706)', '#121c38')}>🔄 Reconcile</button>
+          <button onClick={() => setShowModal(true)} style={btn('linear-gradient(135deg,#2fe39b,#2fe39b)', '#fff')}>+ Create Voucher</button>
+          <button onClick={downloadStatement} style={{ ...btn('#27395f', '#fff'), border: '1px solid #3d548a' }}>📥 CSV</button>
         </div>
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '16px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '14px' }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '16px 20px', borderRadius: '12px', marginBottom: '20px', fontSize: '14px' }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>
             The book reads <code>{FIN}/cashbook</code>. Check that the ERP API is running.
           </div>
-          <button onClick={loadBook} style={{ ...btn('#ef4444', '#fff'), marginTop: 10, padding: '8px 14px' }}>Retry</button>
+          <button onClick={loadBook} style={{ ...btn('#ff6b81', '#fff'), marginTop: 10, padding: '8px 14px' }}>Retry</button>
         </div>
       )}
 
       {/* FILTERS */}
-      <div style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.05)', padding: '20px', borderRadius: '15px', marginBottom: '25px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+      <div style={{ background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.05)', padding: '20px', borderRadius: '15px', marginBottom: '25px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 200px' }}>
-          <label style={lbl('#94a3b8')}>Operating Company</label>
-          <select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} style={sel('#334155', '#fff')}>
+          <label style={lbl('#9aadd4')}>Operating Company</label>
+          <select value={selectedCompany} onChange={(e) => setSelectedCompany(e.target.value)} style={sel('#27395f', '#fff')}>
             <option value="ALL">-- All Companies --</option>
             {companies.map((c) => <option key={c.company_name} value={c.company_name}>{c.company_name}</option>)}
           </select>
         </div>
         <div style={{ flex: '1 1 250px' }}>
-          <label style={lbl('#38bdf8')}>Bank Account / Cash Source</label>
-          <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)} style={sel('#38bdf8', '#38bdf8')}>
+          <label style={lbl('#22d3ee')}>Bank Account / Cash Source</label>
+          <select value={selectedAccount} onChange={(e) => setSelectedAccount(e.target.value)} style={sel('#22d3ee', '#22d3ee')}>
             <option value="ALL">-- All Accounts & Cash --</option>
             {companyBanks.map((b: any) => (
               <option key={b.ledger_name} value={b.ledger_name}>
@@ -458,47 +458,47 @@ export default function CashBankBook() {
           </select>
         </div>
         <div style={{ flex: '1 1 150px' }}>
-          <label style={lbl('#94a3b8')}>Branch</label>
-          <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} style={sel('#334155', '#fff')}>
+          <label style={lbl('#9aadd4')}>Branch</label>
+          <select value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)} style={sel('#27395f', '#fff')}>
             <option value="ALL">-- All Branches --</option>
             {branches.map((b) => <option key={b} value={b}>{b}</option>)}
           </select>
         </div>
         <div style={{ flex: '1 1 150px' }}>
-          <label style={lbl('#94a3b8')}>From Date</label>
-          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...sel('#334155', '#fff'), colorScheme: 'dark' }} />
+          <label style={lbl('#9aadd4')}>From Date</label>
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} style={{ ...sel('#27395f', '#fff'), colorScheme: 'dark' }} />
         </div>
         <div style={{ flex: '1 1 150px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <label style={lbl('#94a3b8')}>To Date</label>
-            {(fromDate || toDate) && <span onClick={clearDates} style={{ color: '#ef4444', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold' }}>❌ Clear</span>}
+            <label style={lbl('#9aadd4')}>To Date</label>
+            {(fromDate || toDate) && <span onClick={clearDates} style={{ color: '#ff6b81', fontSize: '11px', cursor: 'pointer', fontWeight: 'bold' }}>❌ Clear</span>}
           </div>
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...sel('#334155', '#fff'), colorScheme: 'dark' }} />
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...sel('#27395f', '#fff'), colorScheme: 'dark' }} />
         </div>
         <div style={{ flex: '2 1 250px' }}>
-          <label style={lbl('#f59e0b')}>Search</label>
-          <input type="text" placeholder="🔍 Party, ref/UTR, narration…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={sel('#f59e0b', '#fff')} />
+          <label style={lbl('#ffb224')}>Search</label>
+          <input type="text" placeholder="🔍 Party, ref/UTR, narration…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={sel('#ffb224', '#fff')} />
         </div>
       </div>
 
       {/* SUMMARY */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '25px' }}>
-        {card('#94a3b8', 'Opening Balance', opening, '#cbd5e1')}
-        {card('#10b981', 'Total In (Receipts)', totalIn)}
-        {card('#ef4444', 'Total Out (Payments)', totalOut)}
-        {card('#38bdf8', closing >= 0 ? 'Closing Balance' : 'Closing Balance (Overdrawn)', Math.abs(closing))}
+        {card('#9aadd4', 'Opening Balance', opening, '#c4d1ea')}
+        {card('#2fe39b', 'Total In (Receipts)', totalIn)}
+        {card('#ff6b81', 'Total Out (Payments)', totalOut)}
+        {card('#22d3ee', closing >= 0 ? 'Closing Balance' : 'Closing Balance (Overdrawn)', Math.abs(closing))}
       </div>
 
       {book?.truncated && (
-        <div style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid #f59e0b', color: '#fcd34d', padding: '12px 16px', borderRadius: '10px', marginBottom: '18px', fontSize: '13px' }}>
+        <div style={{ background: 'rgba(255, 178, 36,0.1)', border: '1px solid #ffb224', color: '#fcd34d', padding: '12px 16px', borderRadius: '10px', marginBottom: '18px', fontSize: '13px' }}>
           Showing the most recent {book.returned} of {book.entry_count} entries. The balances above cover all {book.entry_count} — narrow the dates to list the rest.
         </div>
       )}
 
       {/* LEDGER TABLE */}
-      <div style={{ background: '#1e293b', borderRadius: '15px', overflowX: 'auto', border: '1px solid #334155' }}>
+      <div style={{ background: '#18244a', borderRadius: '15px', overflowX: 'auto', border: '1px solid #27395f' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap' }}>
-          <thead style={{ background: '#0f172a', color: '#94a3b8', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <thead style={{ background: '#121c38', color: '#9aadd4', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
             <tr>
               <th style={th}>Date</th>
               <th style={th}>Party / Contra Account</th>
@@ -511,26 +511,26 @@ export default function CashBankBook() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#38bdf8', fontWeight: 'bold' }}>Loading from PostgreSQL…</td></tr>
+              <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#22d3ee', fontWeight: 'bold' }}>Loading from PostgreSQL…</td></tr>
             ) : entries.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
+              <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#5d7196' }}>
                 {err ? 'Could not load — see the message above.' : 'No entries for these filters.'}
               </td></tr>
             ) : entries.map((t: any) => {
-              const ui = TYPE_UI[t.type] ?? { label: t.type, color: '#94a3b8', sign: '' };
+              const ui = TYPE_UI[t.type] ?? { label: t.type, color: '#9aadd4', sign: '' };
               return (
-                <tr key={t.id} style={{ borderBottom: '1px solid #334155', color: '#cbd5e1', fontSize: '14px' }}>
+                <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea', fontSize: '14px' }}>
                   <td style={td}>{dmy(t.date)}</td>
                   <td style={{ ...td, fontWeight: 'bold', color: '#fff' }}>
                     {t.party_name || (t.is_legacy ? '—' : 'Unknown')}
                     {t.is_legacy ? (
                       <span title="Imported before double-entry; no voucher behind it" style={tag('#78350f', '#fcd34d')}>Legacy</span>
                     ) : t.party_group ? (
-                      <span style={tag('#334155', '#cbd5e1')}>{t.party_group}</span>
+                      <span style={tag('#27395f', '#c4d1ea')}>{t.party_group}</span>
                     ) : null}
-                    <div style={{ fontSize: '11px', color: '#64748b', fontWeight: 'normal', marginTop: '4px', whiteSpace: 'normal', maxWidth: 420 }}>{t.particulars || '-'}</div>
+                    <div style={{ fontSize: '11px', color: '#5d7196', fontWeight: 'normal', marginTop: '4px', whiteSpace: 'normal', maxWidth: 420 }}>{t.particulars || '-'}</div>
                   </td>
-                  <td style={{ ...td, color: '#38bdf8', fontFamily: 'monospace', fontWeight: 'bold' }}>{t.ref_no || '-'}</td>
+                  <td style={{ ...td, color: '#22d3ee', fontFamily: 'monospace', fontWeight: 'bold' }}>{t.ref_no || '-'}</td>
                   <td style={{ ...td, fontWeight: 'bold' }}>
                     {t.account}
                     {t.account_group === 'Cash-in-Hand' && <span style={tag('#1e3a8a', '#93c5fd')}>Cash</span>}
@@ -545,8 +545,8 @@ export default function CashBankBook() {
                   </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-                      <button onClick={() => handlePrintVoucher(t)} title="Print voucher" style={iconBtn('#38bdf8')}>🖨️</button>
-                      <button onClick={() => handleReverse(t)} disabled={busy || t.is_legacy} title={t.is_legacy ? 'Legacy entry — no voucher to reverse' : 'Post a reversing voucher'} style={{ ...iconBtn('#ef4444'), opacity: t.is_legacy ? 0.35 : 1, cursor: t.is_legacy ? 'not-allowed' : 'pointer' }}>↩️</button>
+                      <button onClick={() => handlePrintVoucher(t)} title="Print voucher" style={iconBtn('#22d3ee')}>🖨️</button>
+                      <button onClick={() => handleReverse(t)} disabled={busy || t.is_legacy} title={t.is_legacy ? 'Legacy entry — no voucher to reverse' : 'Post a reversing voucher'} style={{ ...iconBtn('#ff6b81'), opacity: t.is_legacy ? 0.35 : 1, cursor: t.is_legacy ? 'not-allowed' : 'pointer' }}>↩️</button>
                     </div>
                   </td>
                 </tr>
@@ -559,49 +559,49 @@ export default function CashBankBook() {
       {/* VOUCHER MODAL */}
       {showModal && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: '750px', background: '#0f172a', borderRadius: '24px', border: '1px solid rgba(56,189,248,0.3)', padding: '35px', boxShadow: '0 30px 60px rgba(0,0,0,0.9)', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1e293b', paddingBottom: '15px', marginBottom: '25px' }}>
+          <div style={{ width: '100%', maxWidth: '750px', background: '#121c38', borderRadius: '24px', border: '1px solid rgba(34, 211, 238,0.3)', padding: '35px', boxShadow: '0 30px 60px rgba(0,0,0,0.9)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #18244a', paddingBottom: '15px', marginBottom: '25px' }}>
               <div>
                 <h3 style={{ color: '#fff', margin: 0, fontSize: '22px' }}>
                   {formData.type === 'PAYMENT' ? '💸 Pay' : formData.type === 'RECEIPT' ? '📥 Receive' : '🔄 Transfer'}
                 </h3>
-                <p style={{ color: '#64748b', fontSize: '13px', margin: '5px 0 0 0' }}>Posted through TARA — double-entry, guarded, append-only</p>
+                <p style={{ color: '#5d7196', fontSize: '13px', margin: '5px 0 0 0' }}>Posted through TARA — double-entry, guarded, append-only</p>
               </div>
-              <button onClick={() => setShowModal(false)} style={{ ...btn('transparent', '#94a3b8'), fontSize: 22, padding: '2px 10px' }}>✕</button>
+              <button onClick={() => setShowModal(false)} style={{ ...btn('transparent', '#9aadd4'), fontSize: 22, padding: '2px 10px' }}>✕</button>
             </div>
 
-            <div style={{ display: 'flex', background: '#1e293b', padding: '6px', borderRadius: '12px', marginBottom: '25px' }}>
+            <div style={{ display: 'flex', background: '#18244a', padding: '6px', borderRadius: '12px', marginBottom: '25px' }}>
               {(['RECEIPT', 'PAYMENT', 'CONTRA'] as const).map((tp) => (
-                <button key={tp} onClick={() => setFormData({ ...formData, type: tp })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: formData.type === tp ? TYPE_UI[tp].color : 'transparent', color: formData.type === tp ? '#fff' : '#94a3b8' }}>
+                <button key={tp} onClick={() => setFormData({ ...formData, type: tp })} style={{ flex: 1, padding: '12px', borderRadius: '8px', border: 'none', fontWeight: 'bold', cursor: 'pointer', background: formData.type === tp ? TYPE_UI[tp].color : 'transparent', color: formData.type === tp ? '#fff' : '#9aadd4' }}>
                   {TYPE_UI[tp].label}
                 </button>
               ))}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-              <div style={box('#1e293b', '#334155')}>
-                <label style={lbl('#94a3b8')}>📅 Voucher Date *</label>
-                <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} style={{ ...sel('#475569', '#fff'), colorScheme: 'dark' }} />
+              <div style={box('#18244a', '#27395f')}>
+                <label style={lbl('#9aadd4')}>📅 Voucher Date *</label>
+                <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} style={{ ...sel('#3d548a', '#fff'), colorScheme: 'dark' }} />
               </div>
-              <div style={box('rgba(16,185,129,0.05)', 'rgba(16,185,129,0.2)')}>
-                <label style={lbl('#10b981')}>💰 Amount (₹) *</label>
-                <input type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" style={{ ...sel('#10b981', '#10b981'), fontSize: 20, fontWeight: 900 }} />
-                {formData.type !== 'CONTRA' && <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>Gross, before TDS.</div>}
+              <div style={box('rgba(47, 227, 155,0.05)', 'rgba(47, 227, 155,0.2)')}>
+                <label style={lbl('#2fe39b')}>💰 Amount (₹) *</label>
+                <input type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} placeholder="0.00" style={{ ...sel('#2fe39b', '#2fe39b'), fontSize: 20, fontWeight: 900 }} />
+                {formData.type !== 'CONTRA' && <div style={{ color: '#5d7196', fontSize: 11, marginTop: 6 }}>Gross, before TDS.</div>}
               </div>
             </div>
 
             {formData.type !== 'CONTRA' && (
-              <div style={{ ...box('#1e293b', '#334155'), marginBottom: 20 }}>
-                <label style={lbl('#38bdf8')}>👤 Party *</label>
-                <input type="text" value={partyQuery} onChange={(e) => { setPartyQuery(e.target.value); setFormData({ ...formData, party_ledger: '', party_group: '' }); }} placeholder="Type 2+ letters — customers, vendors, drivers, accounts…" style={sel('#38bdf8', '#fff')} />
+              <div style={{ ...box('#18244a', '#27395f'), marginBottom: 20 }}>
+                <label style={lbl('#22d3ee')}>👤 Party *</label>
+                <input type="text" value={partyQuery} onChange={(e) => { setPartyQuery(e.target.value); setFormData({ ...formData, party_ledger: '', party_group: '' }); }} placeholder="Type 2+ letters — customers, vendors, drivers, accounts…" style={sel('#22d3ee', '#fff')} />
                 {partyHits.length > 0 && (
-                  <div style={{ marginTop: 8, maxHeight: 190, overflowY: 'auto', border: '1px solid #334155', borderRadius: 8 }}>
+                  <div style={{ marginTop: 8, maxHeight: 190, overflowY: 'auto', border: '1px solid #27395f', borderRadius: 8 }}>
                     {partyHits.map((h) => (
-                      <div key={`${h.kind}-${h.id}`} onClick={() => pickParty(h)} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-                        <span style={{ color: '#e2e8f0', fontSize: 13 }}>
-                          <span style={tag('#334155', '#93c5fd')}>{h.kind}</span> {h.name}
+                      <div key={`${h.kind}-${h.id}`} onClick={() => pickParty(h)} style={{ padding: '10px 12px', cursor: 'pointer', borderBottom: '1px solid #18244a', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                        <span style={{ color: '#dde5f4', fontSize: 13 }}>
+                          <span style={tag('#27395f', '#93c5fd')}>{h.kind}</span> {h.name}
                         </span>
-                        <span style={{ color: Number(h.balance) >= 0 ? '#10b981' : '#f43f5e', fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                        <span style={{ color: Number(h.balance) >= 0 ? '#2fe39b' : '#f43f5e', fontSize: 12, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                           ₹{inr(h.balance)} {h.balance_side}
                         </span>
                       </div>
@@ -609,14 +609,14 @@ export default function CashBankBook() {
                   </div>
                 )}
                 {formData.party_ledger && (
-                  <div style={{ marginTop: 12, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.35)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ color: '#10b981', fontSize: 13, fontWeight: 'bold' }}>Posting to: {formData.party_ledger}</div>
-                    {formData.party_group && <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>{formData.party_group}</div>}
+                  <div style={{ marginTop: 12, background: 'rgba(47, 227, 155,0.08)', border: '1px solid rgba(47, 227, 155,0.35)', padding: 12, borderRadius: 8 }}>
+                    <div style={{ color: '#2fe39b', fontSize: 13, fontWeight: 'bold' }}>Posting to: {formData.party_ledger}</div>
+                    {formData.party_group && <div style={{ color: '#5d7196', fontSize: 11, marginTop: 3 }}>{formData.party_group}</div>}
                     {partyCtx?.warnings?.map((w: string, i: number) => (
                       <div key={i} style={{ color: '#fcd34d', fontSize: 11, marginTop: 6 }}>⚠️ {w}</div>
                     ))}
                     {partyCtx?.pending_advance != null && (
-                      <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 6 }}>Pending advance: ₹{inr(partyCtx.pending_advance)}</div>
+                      <div style={{ color: '#9aadd4', fontSize: 11, marginTop: 6 }}>Pending advance: ₹{inr(partyCtx.pending_advance)}</div>
                     )}
                   </div>
                 )}
@@ -624,17 +624,17 @@ export default function CashBankBook() {
             )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              <div style={box('#1e293b', '#334155')}>
-                <label style={lbl('#38bdf8')}>{formData.type === 'CONTRA' ? '🏦 From Account *' : '🏦 Bank / Cash Account *'}</label>
-                <select value={formData.account} onChange={(e) => setFormData({ ...formData, account: e.target.value })} style={sel('#38bdf8', '#fff')}>
+              <div style={box('#18244a', '#27395f')}>
+                <label style={lbl('#22d3ee')}>{formData.type === 'CONTRA' ? '🏦 From Account *' : '🏦 Bank / Cash Account *'}</label>
+                <select value={formData.account} onChange={(e) => setFormData({ ...formData, account: e.target.value })} style={sel('#22d3ee', '#fff')}>
                   <option value="">-- Select --</option>
                   {accounts.map((a: any) => <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{inr(a.balance)}</option>)}
                 </select>
               </div>
               {formData.type === 'CONTRA' ? (
-                <div style={box('#1e293b', '#334155')}>
-                  <label style={lbl('#f59e0b')}>🏦 To Account *</label>
-                  <select value={formData.to_account} onChange={(e) => setFormData({ ...formData, to_account: e.target.value })} style={sel('#f59e0b', '#fff')}>
+                <div style={box('#18244a', '#27395f')}>
+                  <label style={lbl('#ffb224')}>🏦 To Account *</label>
+                  <select value={formData.to_account} onChange={(e) => setFormData({ ...formData, to_account: e.target.value })} style={sel('#ffb224', '#fff')}>
                     <option value="">-- Select --</option>
                     {accounts.filter((a: any) => a.ledger_name !== formData.account).map((a: any) => (
                       <option key={a.ledger_name} value={a.ledger_name}>{a.ledger_name} — ₹{inr(a.balance)}</option>
@@ -642,10 +642,10 @@ export default function CashBankBook() {
                   </select>
                 </div>
               ) : (
-                <div style={box('#1e293b', '#334155')}>
-                  <label style={lbl('#c084fc')}>✂️ TDS withheld (₹)</label>
-                  <input type="number" value={formData.tds_amount} onChange={(e) => setFormData({ ...formData, tds_amount: e.target.value })} placeholder="0.00" style={sel('#c084fc', '#fff')} />
-                  <div style={{ color: '#64748b', fontSize: 11, marginTop: 6 }}>
+                <div style={box('#18244a', '#27395f')}>
+                  <label style={lbl('#a78bfa')}>✂️ TDS withheld (₹)</label>
+                  <input type="number" value={formData.tds_amount} onChange={(e) => setFormData({ ...formData, tds_amount: e.target.value })} placeholder="0.00" style={sel('#a78bfa', '#fff')} />
+                  <div style={{ color: '#5d7196', fontSize: 11, marginTop: 6 }}>
                     {formData.type === 'RECEIPT' ? 'Withheld from us — booked as an asset.' : 'Withheld by us — booked as a liability.'}
                   </div>
                 </div>
@@ -653,27 +653,27 @@ export default function CashBankBook() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              <div style={box('#1e293b', '#334155')}>
-                <label style={lbl('#94a3b8')}>🔖 Ref / Cheque / UTR</label>
-                <input type="text" value={formData.ref_no} onChange={(e) => setFormData({ ...formData, ref_no: e.target.value })} placeholder="Posts once, ever" style={sel('#475569', '#fff')} />
+              <div style={box('#18244a', '#27395f')}>
+                <label style={lbl('#9aadd4')}>🔖 Ref / Cheque / UTR</label>
+                <input type="text" value={formData.ref_no} onChange={(e) => setFormData({ ...formData, ref_no: e.target.value })} placeholder="Posts once, ever" style={sel('#3d548a', '#fff')} />
               </div>
-              <div style={box('#1e293b', '#334155')}>
-                <label style={lbl('#94a3b8')}>🏢 Branch</label>
-                <select value={formData.branch} onChange={(e) => setFormData({ ...formData, branch: e.target.value })} style={sel('#475569', '#fff')}>
+              <div style={box('#18244a', '#27395f')}>
+                <label style={lbl('#9aadd4')}>🏢 Branch</label>
+                <select value={formData.branch} onChange={(e) => setFormData({ ...formData, branch: e.target.value })} style={sel('#3d548a', '#fff')}>
                   <option value="">-- None --</option>
                   {branches.map((b) => <option key={b} value={b}>{b}</option>)}
                 </select>
               </div>
             </div>
 
-            <div style={{ ...box('#1e293b', '#334155'), marginBottom: 25 }}>
-              <label style={lbl('#94a3b8')}>📝 Narration</label>
-              <textarea value={formData.particulars} onChange={(e) => setFormData({ ...formData, particulars: e.target.value })} rows={2} placeholder="What this voucher is for" style={{ ...sel('#475569', '#fff'), resize: 'vertical', fontFamily: 'inherit' }} />
+            <div style={{ ...box('#18244a', '#27395f'), marginBottom: 25 }}>
+              <label style={lbl('#9aadd4')}>📝 Narration</label>
+              <textarea value={formData.particulars} onChange={(e) => setFormData({ ...formData, particulars: e.target.value })} rows={2} placeholder="What this voucher is for" style={{ ...sel('#3d548a', '#fff'), resize: 'vertical', fontFamily: 'inherit' }} />
             </div>
 
             <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setShowModal(false)} style={{ ...btn('#334155', '#fff'), flex: 1, padding: 14 }}>Cancel</button>
-              <button onClick={handleSaveVoucher} disabled={busy} style={{ ...btn(busy ? '#334155' : TYPE_UI[formData.type].color, '#fff'), flex: 2, padding: 14, fontSize: 15 }}>
+              <button onClick={() => setShowModal(false)} style={{ ...btn('#27395f', '#fff'), flex: 1, padding: 14 }}>Cancel</button>
+              <button onClick={handleSaveVoucher} disabled={busy} style={{ ...btn(busy ? '#27395f' : TYPE_UI[formData.type].color, '#fff'), flex: 2, padding: 14, fontSize: 15 }}>
                 {busy ? 'Posting…' : `Post ${TYPE_UI[formData.type].label}`}
               </button>
             </div>
@@ -684,59 +684,59 @@ export default function CashBankBook() {
       {/* BANK MASTER MODAL */}
       {showBankMaster && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: 700, background: '#0f172a', borderRadius: 20, border: '1px solid #334155', padding: 30, maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ width: '100%', maxWidth: 700, background: '#121c38', borderRadius: 20, border: '1px solid #27395f', padding: 30, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ color: '#fff', margin: 0 }}>⚙️ Bank & Cash Accounts</h3>
-              <button onClick={() => setShowBankMaster(false)} style={{ ...btn('transparent', '#94a3b8'), fontSize: 22, padding: '2px 10px' }}>✕</button>
+              <button onClick={() => setShowBankMaster(false)} style={{ ...btn('transparent', '#9aadd4'), fontSize: 22, padding: '2px 10px' }}>✕</button>
             </div>
-            <p style={{ color: '#64748b', fontSize: 12, marginTop: 0 }}>
+            <p style={{ color: '#5d7196', fontSize: 12, marginTop: 0 }}>
               An account is a ledger under Bank Accounts or Cash-in-Hand — there is no separate bank table to drift from the chart of accounts.
               The opening balance is set on the master; it is not posted as an entry.
             </p>
 
-            <div style={{ background: '#1e293b', borderRadius: 12, overflow: 'hidden', marginBottom: 25, border: '1px solid #334155' }}>
+            <div style={{ background: '#18244a', borderRadius: 12, overflow: 'hidden', marginBottom: 25, border: '1px solid #27395f' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead style={{ background: '#0f172a', color: '#94a3b8' }}>
+                <thead style={{ background: '#121c38', color: '#9aadd4' }}>
                   <tr><th style={th2}>Account</th><th style={th2}>Group</th><th style={th2}>A/c No</th><th style={th2}>IFSC</th><th style={{ ...th2, textAlign: 'right' }}>Balance</th></tr>
                 </thead>
                 <tbody>
                   {accounts.map((a: any) => (
-                    <tr key={a.ledger_name} style={{ borderTop: '1px solid #334155', color: '#cbd5e1' }}>
+                    <tr key={a.ledger_name} style={{ borderTop: '1px solid #27395f', color: '#c4d1ea' }}>
                       <td style={td2}>{a.ledger_name}</td>
-                      <td style={{ ...td2, color: '#64748b' }}>{a.group_head}</td>
+                      <td style={{ ...td2, color: '#5d7196' }}>{a.group_head}</td>
                       <td style={{ ...td2, fontFamily: 'monospace' }}>{a.account_no || '-'}</td>
                       <td style={{ ...td2, fontFamily: 'monospace' }}>{a.ifsc_code || '-'}</td>
-                      <td style={{ ...td2, textAlign: 'right', fontWeight: 'bold', color: Number(a.balance) >= 0 ? '#10b981' : '#f43f5e' }}>₹{inr(a.balance)}</td>
+                      <td style={{ ...td2, textAlign: 'right', fontWeight: 'bold', color: Number(a.balance) >= 0 ? '#2fe39b' : '#f43f5e' }}>₹{inr(a.balance)}</td>
                     </tr>
                   ))}
-                  {accounts.length === 0 && <tr><td colSpan={5} style={{ ...td2, textAlign: 'center', color: '#64748b' }}>No accounts yet.</td></tr>}
+                  {accounts.length === 0 && <tr><td colSpan={5} style={{ ...td2, textAlign: 'center', color: '#5d7196' }}>No accounts yet.</td></tr>}
                 </tbody>
               </table>
             </div>
 
-            <h4 style={{ color: '#38bdf8', margin: '0 0 12px' }}>➕ Add an account</h4>
+            <h4 style={{ color: '#22d3ee', margin: '0 0 12px' }}>➕ Add an account</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-              <div><label style={lbl('#94a3b8')}>Account name *</label>
-                <input value={newBank.ledger_name} onChange={(e) => setNewBank({ ...newBank, ledger_name: e.target.value })} placeholder="e.g. SBI (1234)" style={sel('#475569', '#fff')} /></div>
-              <div><label style={lbl('#94a3b8')}>Group *</label>
-                <select value={newBank.group_head} onChange={(e) => setNewBank({ ...newBank, group_head: e.target.value })} style={sel('#475569', '#fff')}>
+              <div><label style={lbl('#9aadd4')}>Account name *</label>
+                <input value={newBank.ledger_name} onChange={(e) => setNewBank({ ...newBank, ledger_name: e.target.value })} placeholder="e.g. SBI (1234)" style={sel('#3d548a', '#fff')} /></div>
+              <div><label style={lbl('#9aadd4')}>Group *</label>
+                <select value={newBank.group_head} onChange={(e) => setNewBank({ ...newBank, group_head: e.target.value })} style={sel('#3d548a', '#fff')}>
                   <option value="Bank Accounts">Bank Accounts</option>
                   <option value="Cash-in-Hand">Cash-in-Hand</option>
                 </select></div>
-              <div><label style={lbl('#94a3b8')}>Company</label>
-                <select value={newBank.company} onChange={(e) => setNewBank({ ...newBank, company: e.target.value })} style={sel('#475569', '#fff')}>
+              <div><label style={lbl('#9aadd4')}>Company</label>
+                <select value={newBank.company} onChange={(e) => setNewBank({ ...newBank, company: e.target.value })} style={sel('#3d548a', '#fff')}>
                   <option value="">-- None --</option>
                   {companies.map((c) => <option key={c.company_name} value={c.company_name}>{c.company_name}</option>)}
                 </select></div>
-              <div><label style={lbl('#94a3b8')}>Opening balance (₹)</label>
-                <input type="number" value={newBank.opening_balance} onChange={(e) => setNewBank({ ...newBank, opening_balance: e.target.value })} placeholder="0.00" style={sel('#475569', '#fff')} /></div>
-              <div><label style={lbl('#94a3b8')}>Account number</label>
-                <input value={newBank.account_no} onChange={(e) => setNewBank({ ...newBank, account_no: e.target.value })} style={sel('#475569', '#fff')} /></div>
-              <div><label style={lbl('#94a3b8')}>IFSC</label>
-                <input value={newBank.ifsc_code} onChange={(e) => setNewBank({ ...newBank, ifsc_code: e.target.value.toUpperCase() })} placeholder="SBIN0001234" style={sel('#475569', '#fff')} />
-                <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Validated server-side — a wrong code fails at the bank, not here.</div></div>
+              <div><label style={lbl('#9aadd4')}>Opening balance (₹)</label>
+                <input type="number" value={newBank.opening_balance} onChange={(e) => setNewBank({ ...newBank, opening_balance: e.target.value })} placeholder="0.00" style={sel('#3d548a', '#fff')} /></div>
+              <div><label style={lbl('#9aadd4')}>Account number</label>
+                <input value={newBank.account_no} onChange={(e) => setNewBank({ ...newBank, account_no: e.target.value })} style={sel('#3d548a', '#fff')} /></div>
+              <div><label style={lbl('#9aadd4')}>IFSC</label>
+                <input value={newBank.ifsc_code} onChange={(e) => setNewBank({ ...newBank, ifsc_code: e.target.value.toUpperCase() })} placeholder="SBIN0001234" style={sel('#3d548a', '#fff')} />
+                <div style={{ color: '#5d7196', fontSize: 11, marginTop: 4 }}>Validated server-side — a wrong code fails at the bank, not here.</div></div>
             </div>
-            <button onClick={handleSaveBank} disabled={busy} style={{ ...btn('#10b981', '#fff'), marginTop: 18, width: '100%', padding: 13 }}>
+            <button onClick={handleSaveBank} disabled={busy} style={{ ...btn('#2fe39b', '#fff'), marginTop: 18, width: '100%', padding: 13 }}>
               {busy ? 'Saving…' : '✅ Add Account'}
             </button>
           </div>
@@ -746,36 +746,36 @@ export default function CashBankBook() {
       {/* RECONCILE MODAL */}
       {showReconcileModal && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: 900, background: '#0f172a', borderRadius: 20, border: '1px solid #f59e0b', padding: 30, maxHeight: '90vh', overflowY: 'auto' }}>
+          <div style={{ width: '100%', maxWidth: 900, background: '#121c38', borderRadius: 20, border: '1px solid #ffb224', padding: 30, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ color: '#f59e0b', margin: 0 }}>🔄 Statement Reconciliation</h3>
-              <button onClick={() => setShowReconcileModal(false)} style={{ ...btn('transparent', '#94a3b8'), fontSize: 22, padding: '2px 10px' }}>✕</button>
+              <h3 style={{ color: '#ffb224', margin: 0 }}>🔄 Statement Reconciliation</h3>
+              <button onClick={() => setShowReconcileModal(false)} style={{ ...btn('transparent', '#9aadd4'), fontSize: 22, padding: '2px 10px' }}>✕</button>
             </div>
-            <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 0 }}>
+            <p style={{ color: '#9aadd4', fontSize: 13, marginTop: 0 }}>
               Upload the CSV your bank exports. Each line is matched against the {entries.length} book entr{entries.length === 1 ? 'y' : 'ies'} currently
               listed — same amount, same direction, within four days. Nothing is written; this only shows where the two disagree.
             </p>
-            <input type="file" accept=".csv,text/csv" onChange={handleStatementUpload} style={{ ...sel('#475569', '#fff'), padding: 10, marginBottom: 14 }} />
+            <input type="file" accept=".csv,text/csv" onChange={handleStatementUpload} style={{ ...sel('#3d548a', '#fff'), padding: 10, marginBottom: 14 }} />
             {reconNote && (
-              <div style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid #38bdf8', color: '#bae6fd', padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{reconNote}</div>
+              <div style={{ background: 'rgba(34, 211, 238,0.08)', border: '1px solid #22d3ee', color: '#bae6fd', padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 14 }}>{reconNote}</div>
             )}
             {statementRows.length > 0 && (
-              <div style={{ background: '#1e293b', borderRadius: 12, overflow: 'hidden', border: '1px solid #334155' }}>
+              <div style={{ background: '#18244a', borderRadius: 12, overflow: 'hidden', border: '1px solid #27395f' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                  <thead style={{ background: '#0f172a', color: '#94a3b8' }}>
+                  <thead style={{ background: '#121c38', color: '#9aadd4' }}>
                     <tr><th style={th2}>Stmt Date</th><th style={th2}>Description</th><th style={{ ...th2, textAlign: 'right' }}>Amount</th><th style={th2}>Dir</th><th style={th2}>Matched book entry</th></tr>
                   </thead>
                   <tbody>
                     {statementRows.map((r, i) => (
-                      <tr key={i} style={{ borderTop: '1px solid #334155', color: '#cbd5e1', background: r.status === 'matched' ? 'transparent' : 'rgba(239,68,68,0.07)' }}>
+                      <tr key={i} style={{ borderTop: '1px solid #27395f', color: '#c4d1ea', background: r.status === 'matched' ? 'transparent' : 'rgba(255, 107, 129,0.07)' }}>
                         <td style={td2}>{r.date ? dmy(r.date) : '?'}</td>
                         <td style={{ ...td2, maxWidth: 280, whiteSpace: 'normal' }}>{r.desc || '-'}</td>
                         <td style={{ ...td2, textAlign: 'right', fontWeight: 'bold' }}>₹{inr(r.amount)}</td>
                         <td style={td2}>{r.dir ? TYPE_UI[r.dir]?.label ?? r.dir : '?'}</td>
                         <td style={td2}>
                           {r.matched
-                            ? <span style={{ color: '#10b981' }}>✅ {dmy(r.matched.date)} · {r.matched.party_name || r.matched.account}</span>
-                            : <span style={{ color: '#f87171' }}>⚠️ not in the book</span>}
+                            ? <span style={{ color: '#2fe39b' }}>✅ {dmy(r.matched.date)} · {r.matched.party_name || r.matched.account}</span>
+                            : <span style={{ color: '#ff8b9c' }}>⚠️ not in the book</span>}
                         </td>
                       </tr>
                     ))}
@@ -790,13 +790,13 @@ export default function CashBankBook() {
       {/* UPI LINK MODAL */}
       {showLinkModal && (
         <div style={overlay}>
-          <div style={{ width: '100%', maxWidth: 480, background: '#0f172a', borderRadius: 20, border: '1px solid #ec4899', padding: 30 }}>
+          <div style={{ width: '100%', maxWidth: 480, background: '#121c38', borderRadius: 20, border: '1px solid #ec4899', padding: 30 }}>
             <h3 style={{ color: '#ec4899', marginTop: 0 }}>🔗 UPI Collect Link</h3>
-            <p style={{ color: '#94a3b8', fontSize: 13 }}>Share this with the payer. Money received still has to be entered as a RECEIPT voucher — the link does not post anything.</p>
-            <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8, padding: 12, color: '#38bdf8', fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{paymentLink}</div>
+            <p style={{ color: '#9aadd4', fontSize: 13 }}>Share this with the payer. Money received still has to be entered as a RECEIPT voucher — the link does not post anything.</p>
+            <div style={{ background: '#18244a', border: '1px solid #27395f', borderRadius: 8, padding: 12, color: '#22d3ee', fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-all' }}>{paymentLink}</div>
             <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-              <button onClick={() => { navigator.clipboard?.writeText(paymentLink); alert('Copied.'); }} style={{ ...btn('#38bdf8', '#0f172a'), flex: 1, padding: 12 }}>Copy</button>
-              <button onClick={() => setShowLinkModal(false)} style={{ ...btn('#334155', '#fff'), flex: 1, padding: 12 }}>Close</button>
+              <button onClick={() => { navigator.clipboard?.writeText(paymentLink); alert('Copied.'); }} style={{ ...btn('#22d3ee', '#121c38'), flex: 1, padding: 12 }}>Copy</button>
+              <button onClick={() => setShowLinkModal(false)} style={{ ...btn('#27395f', '#fff'), flex: 1, padding: 12 }}>Close</button>
             </div>
           </div>
         </div>
@@ -808,13 +808,13 @@ export default function CashBankBook() {
 // ── small style helpers, kept local so the screen stays self-contained ───────
 const btn = (bg: string, color: string): React.CSSProperties => ({ background: bg, color, border: 'none', padding: '10px 15px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer' });
 const lbl = (color: string): React.CSSProperties => ({ color, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', display: 'block', marginBottom: 6 });
-const sel = (border: string, color: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#0f172a', border: `1px solid ${border}`, color, borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
+const sel = (border: string, color: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#121c38', border: `1px solid ${border}`, color, borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
 const box = (bg: string, border: string): React.CSSProperties => ({ background: bg, padding: 15, borderRadius: 12, border: `1px solid ${border}` });
 const th: React.CSSProperties = { padding: '15px 20px' };
 const td: React.CSSProperties = { padding: '15px 20px' };
 const th2: React.CSSProperties = { padding: '10px 12px', textAlign: 'left', fontSize: 11, textTransform: 'uppercase' };
 const td2: React.CSSProperties = { padding: '10px 12px' };
-const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(2,6,23,0.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, boxSizing: 'border-box' };
+const overlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(10, 16, 36,0.92)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, boxSizing: 'border-box' };
 const tag = (bg: string, color: string): React.CSSProperties => ({ fontSize: 10, background: bg, color, padding: '3px 8px', borderRadius: 10, marginLeft: 6, fontWeight: 'bold' });
 const iconBtn = (color: string): React.CSSProperties => ({ background: `${color}1a`, color, border: `1px solid ${color}`, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', fontWeight: 'bold', fontSize: 12 });
 

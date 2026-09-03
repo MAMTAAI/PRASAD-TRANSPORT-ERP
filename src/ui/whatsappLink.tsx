@@ -190,14 +190,14 @@ export function MyWhatsApp({ variant = 'menu' }) {
    *  walked away from and all of them cost the same slot. */
   const cancelRow = (
     <button onClick={cancelPending} disabled={busy}
-      style={{ width: '100%', marginTop: 12, padding: '9px', borderRadius: 10, border: '1px solid #334155',
-               background: 'transparent', color: '#94a3b8', fontWeight: 700, fontSize: 11.5, cursor: 'pointer' }}>
+      style={{ width: '100%', marginTop: 12, padding: '9px', borderRadius: 10, border: '1px solid #27395f',
+               background: 'transparent', color: '#9aadd4', fontWeight: 700, fontSize: 11.5, cursor: 'pointer' }}>
       {busy ? '…' : 'Band karein'}
     </button>
   );
 
   // One line, in the menu. Everything else lives in the dialog.
-  let dot = '#64748b';
+  let dot = '#5d7196';
   let line = 'checking…';
   let action = null;
 
@@ -208,20 +208,20 @@ export function MyWhatsApp({ variant = 'menu' }) {
     // find out what, which is the state this whole panel was reported in.
     action = 'VIEW';
     if (state.reachable === false) {
-      dot = '#f59e0b';
+      dot = '#ffb224';
       line = 'Engine offline';
     } else if (state.multi_session === false) {
       // The single-session engine answers /api/status/:userId by ignoring the
       // id and returning the COMPANY line's state. Saying "linked" there would
       // be a confident lie, so it is named for what it is.
-      dot = '#f59e0b';
+      dot = '#ffb224';
       line = 'Engine purana — restart chahiye';
     } else if (state.linked) {
-      dot = '#34d399';
+      dot = '#2fe39b';
       line = 'Juda hua';
       action = 'MANAGE';
     } else {
-      dot = '#64748b';
+      dot = '#5d7196';
       line = 'Juda nahi';
       action = 'LINK';
     }
@@ -234,20 +234,20 @@ export function MyWhatsApp({ variant = 'menu' }) {
           carries a bottom border instead. Nothing else differs — the states,
           the wording and the dialog are identical wherever it is mounted. */}
       <div style={variant === 'panel'
-        ? { padding: '8px 12px', borderBottom: '1px solid rgba(51,65,85,0.5)', background: 'rgba(255,255,255,0.02)',
+        ? { padding: '8px 12px', borderBottom: '1px solid rgba(39, 57, 95,0.5)', background: 'rgba(255,255,255,0.02)',
             display: 'flex', alignItems: 'center', gap: 10 }
-        : { padding: '10px 16px', borderTop: '1px solid #1e293b',
+        : { padding: '10px 16px', borderTop: '1px solid #18244a',
             display: 'flex', alignItems: 'center', gap: 10 }}>
         <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', fontWeight: 700 }}>
+          <div style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#5d7196', fontWeight: 700 }}>
             My WhatsApp
           </div>
-          <div style={{ fontSize: 12, color: '#cbd5e1', fontWeight: 600, overflowWrap: 'anywhere' }}>{line}</div>
+          <div style={{ fontSize: 12, color: '#c4d1ea', fontWeight: 600, overflowWrap: 'anywhere' }}>{line}</div>
         </div>
         {action && (
           <button onClick={() => setOpen(true)}
-            style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 8, border: '1px solid #334155',
+            style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 8, border: '1px solid #27395f',
                      background: 'transparent', color: '#7dd3fc', fontWeight: 800, fontSize: 10.5, cursor: 'pointer' }}>
             {action === 'LINK' ? 'JODEIN' : 'DEKHEIN'}
 
@@ -269,7 +269,7 @@ export function MyWhatsApp({ variant = 'menu' }) {
         <div
           onClick={() => setOpen(false)}
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.82)', zIndex: 1400,
+            position: 'fixed', inset: 0, background: 'rgba(10, 16, 36,0.82)', zIndex: 1400,
             display: 'grid', placeItems: 'center', padding: 20,
           }}
         >
@@ -277,18 +277,18 @@ export function MyWhatsApp({ variant = 'menu' }) {
               under the portal previews at 9999. */}
           <div onClick={(e) => e.stopPropagation()}
             style={{ width: 'min(340px, 100%)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
-                     background: '#0f172a', border: '1px solid #1e293b', borderRadius: 18, padding: 20,
+                     background: '#121c38', border: '1px solid #18244a', borderRadius: 18, padding: 20,
                      boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <span style={{ fontSize: 14, fontWeight: 900, color: '#f1f5f9' }}>My WhatsApp</span>
+              <span style={{ fontSize: 14, fontWeight: 900, color: '#eef3fa' }}>My WhatsApp</span>
               <button onClick={() => setOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                style={{ background: 'transparent', border: 'none', color: '#5d7196', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
             </div>
 
             {state.linked ? (
               <>
                 <p style={{ fontSize: 12.5, color: '#6ee7b7', fontWeight: 700, marginBottom: 6 }}>● Juda hua</p>
-                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.5, marginBottom: 14 }}>
+                <p style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.5, marginBottom: 14 }}>
                   Aapke bheje dispatch messages aapke apne WhatsApp number se jayenge, company number se nahi.
                 </p>
                 <button onClick={unlink} disabled={busy}
@@ -309,18 +309,18 @@ export function MyWhatsApp({ variant = 'menu' }) {
                     account holder acting on their own handset is
                     authentication. What this removes is the second device, not
                     the person. */}
-                <div style={{ background: '#020617', border: '1px solid #1e293b', borderRadius: 14,
+                <div style={{ background: '#0a1024', border: '1px solid #18244a', borderRadius: 14,
                               padding: '20px 12px', display: 'grid', placeItems: 'center' }}>
                   <div style={{ fontSize: 27, fontWeight: 900, letterSpacing: '0.26em',
                                 color: '#7dd3fc', fontFamily: 'ui-monospace, SFMono-Regular, monospace' }}>
                     {state.pairing_code}
                   </div>
                 </div>
-                <ol style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
+                <ol style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
                   <li>Apne phone par WhatsApp kholein</li>
-                  <li><b style={{ color: '#cbd5e1' }}>Settings → Linked devices</b></li>
-                  <li><b style={{ color: '#cbd5e1' }}>Link a device</b> dabayein</li>
-                  <li><b style={{ color: '#cbd5e1' }}>Link with phone number instead</b> chunein</li>
+                  <li><b style={{ color: '#c4d1ea' }}>Settings → Linked devices</b></li>
+                  <li><b style={{ color: '#c4d1ea' }}>Link a device</b> dabayein</li>
+                  <li><b style={{ color: '#c4d1ea' }}>Link with phone number instead</b> chunein</li>
                   <li>Ye code daalein</li>
                 </ol>
                 {/* SAID OUT LOUD, BECAUSE A SILENT EXPIRY LOOKS LIKE A BROKEN
@@ -333,7 +333,7 @@ export function MyWhatsApp({ variant = 'menu' }) {
                   Ye code kuch hi minute chalta hai aur apne aap naya ho jata hai —
                   <b> jo is waqt screen par hai wahi daalein</b>. Badal jaye to naya wala lein.
                 </p>
-                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 6, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 10.5, color: '#5d7196', marginTop: 6, lineHeight: 1.5 }}>
                   Code daalte hi ye screen apne aap badal jayegi.
                 </p>
               </>
@@ -348,13 +348,13 @@ export function MyWhatsApp({ variant = 'menu' }) {
                 <div style={{ background: '#fff', padding: 12, borderRadius: 14, display: 'grid', placeItems: 'center' }}>
                   <QRCodeSVG value={state.qr} size={220} />
                 </div>
-                <ol style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
+                <ol style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.7, margin: '14px 0 0', paddingLeft: 18 }}>
                   <li>Apne phone par WhatsApp kholein</li>
-                  <li><b style={{ color: '#cbd5e1' }}>Settings → Linked devices</b></li>
-                  <li><b style={{ color: '#cbd5e1' }}>Link a device</b> dabayein</li>
+                  <li><b style={{ color: '#c4d1ea' }}>Settings → Linked devices</b></li>
+                  <li><b style={{ color: '#c4d1ea' }}>Link a device</b> dabayein</li>
                   <li>Ye code scan karein</li>
                 </ol>
-                <p style={{ fontSize: 10.5, color: '#64748b', marginTop: 12, lineHeight: 1.5 }}>
+                <p style={{ fontSize: 10.5, color: '#5d7196', marginTop: 12, lineHeight: 1.5 }}>
                   Scan hote hi ye screen apne aap badal jayegi. Doosre phone ya computer ki zaroorat
                   padegi — jis phone par WhatsApp hai, wahi screen scan nahi kar sakta.
                 </p>
@@ -376,8 +376,8 @@ export function MyWhatsApp({ variant = 'menu' }) {
                     <p style={{ fontSize: 12.5, color: '#7dd3fc', fontWeight: 700, marginBottom: 8 }}>
                       Code banaya ja raha hai…
                     </p>
-                    <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
-                      WhatsApp se code mangwa rahe hain. Isme aam taur par <b style={{ color: '#cbd5e1' }}>15–30 second</b> lagte
+                    <p style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.55 }}>
+                      WhatsApp se code mangwa rahe hain. Isme aam taur par <b style={{ color: '#c4d1ea' }}>15–30 second</b> lagte
                       hain — ye screen khuli rehne dein, code aate hi apne aap dikh jayega.
                     </p>
                   </>
@@ -392,11 +392,11 @@ export function MyWhatsApp({ variant = 'menu' }) {
                 <p style={{ fontSize: 12.5, color: '#fcd34d', fontWeight: 700, marginBottom: 8 }}>
                   Engine abhi purana version chala raha hai
                 </p>
-                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55 }}>
+                <p style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.55 }}>
                   Per-user WhatsApp ka code server par pahunch chuka hai, par WhatsApp engine ka process
                   restart nahi hua — isliye woh abhi bhi sirf company number jaanta hai.
                 </p>
-                <pre style={{ fontSize: 11, color: '#7dd3fc', background: '#020617', border: '1px solid #1e293b',
+                <pre style={{ fontSize: 11, color: '#7dd3fc', background: '#0a1024', border: '1px solid #18244a',
                               borderRadius: 10, padding: 10, marginTop: 12, overflowX: 'auto' }}>
 pm2 restart prasad-wa-engine</pre>
               </>
@@ -406,7 +406,7 @@ pm2 restart prasad-wa-engine</pre>
               </p>
             ) : (
               <>
-                <p style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.55, marginBottom: 14 }}>
+                <p style={{ fontSize: 11.5, color: '#9aadd4', lineHeight: 1.55, marginBottom: 14 }}>
                   Abhi aapke messages company number se jate hain. Apna number jodein to driver ko
                   seedhe aapke naam aur number se message jayega.
                 </p>

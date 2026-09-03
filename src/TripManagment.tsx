@@ -13,10 +13,10 @@ function TripMeter({ label, used, target, unit, color }) {
   return (
     <div style={{ flex: 1, minWidth: '130px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-        <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>{label}</span>
-        <span style={{ color: over ? '#ef4444' : color, fontWeight: 'bold' }}>{unit === '₹' ? `₹${used.toLocaleString('en-IN')}/${target ? '₹' + target.toLocaleString('en-IN') : '—'}` : `${used}/${target || '—'} ${unit}`}</span>
+        <span style={{ color: '#9aadd4', fontWeight: 'bold' }}>{label}</span>
+        <span style={{ color: over ? '#ff6b81' : color, fontWeight: 'bold' }}>{unit === '₹' ? `₹${used.toLocaleString('en-IN')}/${target ? '₹' + target.toLocaleString('en-IN') : '—'}` : `${used}/${target || '—'} ${unit}`}</span>
       </div>
-      <div style={{ height: '6px', borderRadius: '3px', background: '#1e293b', overflow: 'hidden' }}>
+      <div style={{ height: '6px', borderRadius: '3px', background: '#18244a', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', borderRadius: '3px', background: over ? '#ef4444' : color, transition: 'width .3s' }} />
       </div>
     </div>
@@ -149,16 +149,16 @@ function FastagRouteMap({ origin, destination, toll }: { origin: string; destina
           const marker = new g.maps.Marker({
             position: pos, map, zIndex: 9999,
             title: `Last Toll: ${toll.plaza || 'Toll Plaza'}`,
-            icon: { path: g.maps.SymbolPath.CIRCLE, scale: 12, fillColor: '#f59e0b', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 },
+            icon: { path: g.maps.SymbolPath.CIRCLE, scale: 12, fillColor: '#ffb224', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 },
             label: { text: '🛣️', fontSize: '13px' },
             animation: g.maps.Animation.DROP,
           });
           const iw = new g.maps.InfoWindow({
-            content: `<div style="color:#0f172a;font-family:sans-serif;max-width:230px">
+            content: `<div style="color:#121c38;font-family:sans-serif;max-width:230px">
               <div style="font-weight:800;font-size:13px">🛣️ ${escapeHtml(toll.plaza || 'Toll Plaza')}</div>
               <div style="font-size:12px;margin-top:2px">Crossed at <b>${escapeHtml(fmtToll(toll.datetime))}</b></div>
               ${toll.amount ? `<div style="font-size:12px;color:#b45309">Toll ₹${toll.amount}</div>` : ''}
-              ${toll.vehicle ? `<div style="font-size:11px;color:#475569">${escapeHtml(toll.vehicle)}</div>` : ''}
+              ${toll.vehicle ? `<div style="font-size:11px;color:#3d548a">${escapeHtml(toll.vehicle)}</div>` : ''}
             </div>`,
           });
           marker.addListener('click', () => iw.open(map, marker));
@@ -170,7 +170,7 @@ function FastagRouteMap({ origin, destination, toll }: { origin: string; destina
         // 🛣️ Origin → Destination route
         if (origin && destination) {
           const ds = new g.maps.DirectionsService();
-          const dr = new g.maps.DirectionsRenderer({ map, preserveViewport: true, polylineOptions: { strokeColor: '#38bdf8', strokeWeight: 5, strokeOpacity: 0.9 } });
+          const dr = new g.maps.DirectionsRenderer({ map, preserveViewport: true, polylineOptions: { strokeColor: '#22d3ee', strokeWeight: 5, strokeOpacity: 0.9 } });
           cleanups.push(() => dr.setMap(null));
           ds.route({ origin, destination, travelMode: g.maps.TravelMode.DRIVING, region: 'in' }, (res: any, st: string) => {
             if (cancelled || !map) return;
@@ -928,18 +928,18 @@ export default function TripManagment() {
   };
   const RtkmBadge = ({ t }: any) => {
     const km = tripRtkm(t);
-    return km > 0 ? <span style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '11px' }}> · 📏 {km} km</span> : null;
+    return km > 0 ? <span style={{ color: '#ffb224', fontWeight: 'bold', fontSize: '11px' }}> · 📏 {km} km</span> : null;
   };
 
   // 🛣️ Last-passed-toll indicator for the Live Tracking list (card + table).
   const LastTollBadge = ({ tripId }: { tripId: string }) => {
-    if (!tollLoaded) return <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>🛣️ checking tolls…</div>;
+    if (!tollLoaded) return <div style={{ fontSize: '11px', color: '#5d7196', marginTop: '4px' }}>🛣️ checking tolls…</div>;
     const toll = tollByTrip[tripId];
-    if (!toll) return <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>🛣️ No tolls crossed yet</div>;
+    if (!toll) return <div style={{ fontSize: '11px', color: '#5d7196', marginTop: '4px' }}>🛣️ No tolls crossed yet</div>;
     return (
       <div style={{ fontSize: '11px', marginTop: '4px', fontWeight: 'bold' }} title={`Crossed at ${fmtToll(toll.datetime)}`}>
-        🛣️ <span style={{ color: '#94a3b8' }}>Last Toll:</span> <span style={{ color: '#fbbf24' }}>{toll.plaza}</span>
-        <span style={{ color: '#94a3b8', fontWeight: 'normal' }}> · {timeAgo(toll.datetime) || 'recently'}</span>
+        🛣️ <span style={{ color: '#9aadd4' }}>Last Toll:</span> <span style={{ color: '#fbbf24' }}>{toll.plaza}</span>
+        <span style={{ color: '#9aadd4', fontWeight: 'normal' }}> · {timeAgo(toll.datetime) || 'recently'}</span>
       </div>
     );
   };
@@ -1009,15 +1009,15 @@ export default function TripManagment() {
   const payModalCashBal = payModalCashTarget - payModalCashIssued;
 
   const styles = {
-    container: { padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', fontFamily: "'Inter', sans-serif", color: 'white' },
-    glassCard: { background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '25px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', overflowX: 'auto' as const },
-    input: { background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(51, 65, 85, 0.8)', borderRadius: '8px', color: 'white', padding: '12px', width: '100%', boxSizing: 'border-box', outline: 'none', colorScheme: 'dark' },
+    container: { padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif", color: 'white' },
+    glassCard: { background: 'rgba(24, 36, 74, 0.4)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '25px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', overflowX: 'auto' as const },
+    input: { background: 'rgba(18, 28, 56, 0.6)', border: '1px solid rgba(39, 57, 95, 0.8)', borderRadius: '8px', color: 'white', padding: '12px', width: '100%', boxSizing: 'border-box', outline: 'none', colorScheme: 'dark' },
     modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
-    modalContent: { background: '#0f172a', padding: '30px', borderRadius: '12px', border: '1px solid #334155', width: '800px', maxHeight: '90vh', overflowY: 'auto' as const, boxShadow: '0 10px 30px rgba(0,0,0,0.8)' },
+    modalContent: { background: '#121c38', padding: '30px', borderRadius: '12px', border: '1px solid #27395f', width: '800px', maxHeight: '90vh', overflowY: 'auto' as const, boxShadow: '0 10px 30px rgba(0,0,0,0.8)' },
     modalSm: { width: '450px' },
-    table: { width: '100%', borderCollapse: 'collapse', marginTop: '10px', color: '#cbd5e1', fontSize: '12px', textAlign: 'left' as const, minWidth: '800px' },
-    th: { padding: '12px', borderBottom: '2px solid #334155', color: '#38bdf8', textTransform: 'uppercase' as const },
-    td: { padding: '12px', borderBottom: '1px solid #1e293b' },
+    table: { width: '100%', borderCollapse: 'collapse', marginTop: '10px', color: '#c4d1ea', fontSize: '12px', textAlign: 'left' as const, minWidth: '800px' },
+    th: { padding: '12px', borderBottom: '2px solid #27395f', color: '#22d3ee', textTransform: 'uppercase' as const },
+    td: { padding: '12px', borderBottom: '1px solid #18244a' },
     btn: { padding: '6px 12px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', border: 'none', color: 'white' }
   };
 
@@ -1025,32 +1025,32 @@ export default function TripManagment() {
     <div style={styles.container}>
       
       {/* MODALS */}
-      <BottomSheet open={!!(showTrackModal && activeTrip)} onClose={() => setShowTrackModal(false)} title={`📍 Route Tracking: ${activeTrip?.vehicle_no || activeTrip?.Vehical_No || ''}`} accent="#38bdf8" maxWidth={860}>
+      <BottomSheet open={!!(showTrackModal && activeTrip)} onClose={() => setShowTrackModal(false)} title={`📍 Route Tracking: ${activeTrip?.vehicle_no || activeTrip?.Vehical_No || ''}`} accent="#22d3ee" maxWidth={860}>
         {activeTrip && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '68dvh' }}>
             <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
-              <button onClick={() => setTrackMode('ROUTE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #38bdf8', cursor: 'pointer', background: trackMode === 'ROUTE' ? '#38bdf8' : '#1e293b', color: trackMode === 'ROUTE' ? '#0f172a' : '#38bdf8' }}>🛣️ Full Route Plan</button>
-              <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #10b981', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#1e293b', color: trackMode === 'GPRS' ? '#0f172a' : '#10b981' }}>📡 Live GPS (Driver App)</button>
-              <button onClick={() => setTrackMode('MOBILE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #f59e0b', cursor: 'pointer', background: trackMode === 'MOBILE' ? '#f59e0b' : '#1e293b', color: trackMode === 'MOBILE' ? '#0f172a' : '#f59e0b' }}>📱 Driver Mobile (Live)</button>
-              <button onClick={() => setTrackMode('FASTAG')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #a78bfa', cursor: 'pointer', background: trackMode === 'FASTAG' ? '#a78bfa' : '#1e293b', color: trackMode === 'FASTAG' ? '#0f172a' : '#a78bfa' }}>🛣️ FASTag Toll</button>
+              <button onClick={() => setTrackMode('ROUTE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #22d3ee', cursor: 'pointer', background: trackMode === 'ROUTE' ? '#38bdf8' : '#18244a', color: trackMode === 'ROUTE' ? '#121c38' : '#22d3ee' }}>🛣️ Full Route Plan</button>
+              <button onClick={() => setTrackMode('GPRS')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #2fe39b', cursor: 'pointer', background: trackMode === 'GPRS' ? '#10b981' : '#18244a', color: trackMode === 'GPRS' ? '#121c38' : '#2fe39b' }}>📡 Live GPS (Driver App)</button>
+              <button onClick={() => setTrackMode('MOBILE')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #ffb224', cursor: 'pointer', background: trackMode === 'MOBILE' ? '#f59e0b' : '#18244a', color: trackMode === 'MOBILE' ? '#121c38' : '#ffb224' }}>📱 Driver Mobile (Live)</button>
+              <button onClick={() => setTrackMode('FASTAG')} style={{ flex: 1, padding: '10px', borderRadius: '6px', fontWeight: 'bold', border: '1px solid #a78bfa', cursor: 'pointer', background: trackMode === 'FASTAG' ? '#a78bfa' : '#18244a', color: trackMode === 'FASTAG' ? '#121c38' : '#a78bfa' }}>🛣️ FASTag Toll</button>
             </div>
 
             {/* 🛣️ Last-passed-toll summary — visible on every tab */}
-            <div style={{ marginBottom: '12px', padding: '8px 12px', borderRadius: '8px', background: modalToll ? 'rgba(245,158,11,0.08)' : 'rgba(100,116,139,0.08)', border: `1px solid ${modalToll ? 'rgba(245,158,11,0.35)' : '#334155'}`, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ marginBottom: '12px', padding: '8px 12px', borderRadius: '8px', background: modalToll ? 'rgba(255, 178, 36,0.08)' : 'rgba(100,116,139,0.08)', border: `1px solid ${modalToll ? 'rgba(255, 178, 36,0.35)' : '#27395f'}`, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               {modalToll === undefined ? (
-                <span style={{ color: '#94a3b8' }}>🛣️ Checking FASTag tolls…</span>
+                <span style={{ color: '#9aadd4' }}>🛣️ Checking FASTag tolls…</span>
               ) : modalToll ? (
                 <>
-                  <span style={{ color: '#f59e0b', fontWeight: 'bold' }}>🛣️ Last Toll: {modalToll.plaza}</span>
-                  <span style={{ color: '#cbd5e1' }}>· {fmtToll(modalToll.datetime)} ({timeAgo(modalToll.datetime) || 'recently'})</span>
-                  {tollHasCoords(modalToll) && <button onClick={() => setTrackMode('FASTAG')} style={{ marginLeft: 'auto', background: '#a78bfa', color: '#0f172a', border: 'none', borderRadius: '6px', padding: '4px 10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>📍 Show on Map</button>}
+                  <span style={{ color: '#ffb224', fontWeight: 'bold' }}>🛣️ Last Toll: {modalToll.plaza}</span>
+                  <span style={{ color: '#c4d1ea' }}>· {fmtToll(modalToll.datetime)} ({timeAgo(modalToll.datetime) || 'recently'})</span>
+                  {tollHasCoords(modalToll) && <button onClick={() => setTrackMode('FASTAG')} style={{ marginLeft: 'auto', background: '#a78bfa', color: '#121c38', border: 'none', borderRadius: '6px', padding: '4px 10px', fontWeight: 'bold', cursor: 'pointer', fontSize: '11px' }}>📍 Show on Map</button>}
                 </>
               ) : (
-                <span style={{ color: '#94a3b8' }}>🛣️ No FASTag toll crossed yet on this trip.</span>
+                <span style={{ color: '#9aadd4' }}>🛣️ No FASTag toll crossed yet on this trip.</span>
               )}
             </div>
 
-            <div style={{ flex: 1, background: '#1e293b', borderRadius: '12px', overflow: 'hidden', border: '1px solid #334155', position: 'relative' }}>
+            <div style={{ flex: 1, background: '#18244a', borderRadius: '12px', overflow: 'hidden', border: '1px solid #27395f', position: 'relative' }}>
               {/* ── THE ROUTE MAP ────────────────────────────────────────────
                   This used to interpolate loading_point straight into saddr.
                   On every IOCL-imported trip that value is the literal "7T04",
@@ -1076,12 +1076,12 @@ export default function TripManagment() {
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '10px', padding: '24px', textAlign: 'center' }}>
                     <div style={{ fontSize: '34px' }}>🗺️</div>
-                    <div style={{ color: '#f59e0b', fontWeight: 'bold', fontSize: '15px' }}>
+                    <div style={{ color: '#ffb224', fontWeight: 'bold', fontSize: '15px' }}>
                       Is trip ka route map par nahi dikha sakte
                     </div>
-                    <div style={{ color: '#94a3b8', fontSize: '13px', lineHeight: 1.6, maxWidth: '440px' }}>
-                      {a.unresolved && <>Loading point <b style={{ color: '#e2e8f0' }}>{a.label}</b> ek IOCL code hai jiska naam system mein kahin nahi hai.<br /></>}
-                      {b.unresolved && <>Destination <b style={{ color: '#e2e8f0' }}>{b.label}</b> ka naam system mein nahi hai.<br /></>}
+                    <div style={{ color: '#9aadd4', fontSize: '13px', lineHeight: 1.6, maxWidth: '440px' }}>
+                      {a.unresolved && <>Loading point <b style={{ color: '#dde5f4' }}>{a.label}</b> ek IOCL code hai jiska naam system mein kahin nahi hai.<br /></>}
+                      {b.unresolved && <>Destination <b style={{ color: '#dde5f4' }}>{b.label}</b> ka naam system mein nahi hai.<br /></>}
                       {!a.unresolved && !b.unresolved && <>Is trip par loading ya unloading ki jagah bhari hi nahi gayi.<br /></>}
                       Galat jagah ka pin dikhane se behtar hai ki kuch na dikhayein — naam bharte hi map apne aap aa jayega.
                     </div>
@@ -1090,34 +1090,34 @@ export default function TripManagment() {
               })()}
               {trackMode === 'GPRS' && (activeTrip.liveLocation?.lat ? (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', background: 'rgba(16,185,129,0.1)', borderBottom: '1px solid #334155', gap: '10px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', background: 'rgba(47, 227, 155,0.1)', borderBottom: '1px solid #27395f', gap: '10px', flexWrap: 'wrap' }}>
                     {(() => { const age = gpsAgeMinutes(activeTrip.liveLocation); const stale = age === null || age > 15; return (
-                      <span style={{ color: stale ? '#f59e0b' : '#10b981', fontWeight: 'bold', fontSize: '13px' }}>
+                      <span style={{ color: stale ? '#ffb224' : '#2fe39b', fontWeight: 'bold', fontSize: '13px' }}>
                         📡 {age === null ? 'Driver app se live ping' : age < 1 ? 'Updated just now' : `Updated ${age} min ago`}{stale ? ' ⚠️ (purana ho sakta hai)' : ''}
                       </span>
                     ); })()}
-                    <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ background: '#10b981', color: '#0f172a', border: 'none', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛' : '🔄 Refresh'}</button>
+                    <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ background: '#10b981', color: '#121c38', border: 'none', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛' : '🔄 Refresh'}</button>
                   </div>
                   <iframe
                     width="100%" style={{ border: 0, flex: 1 }} frameBorder="0"
                     src={`https://maps.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}&z=13&output=embed`}
                     allowFullScreen>
                   </iframe>
-                  <a href={`https://www.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}`} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center', padding: '10px', background: '#1e293b', color: '#38bdf8', textDecoration: 'none', fontWeight: 'bold', fontSize: '13px' }}>🗺️ Open exact position in Google Maps</a>
+                  <a href={`https://www.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}`} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center', padding: '10px', background: '#18244a', color: '#22d3ee', textDecoration: 'none', fontWeight: 'bold', fontSize: '13px' }}>🗺️ Open exact position in Google Maps</a>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign:'center', padding: '20px' }}>
                   <span style={{ fontSize: '50px' }}>📡</span>
-                  <h2 style={{ color: '#10b981', margin:'10px 0' }}>No GPS Ping Yet</h2>
-                  <p style={{color:'#94a3b8'}}>Driver app khula rahega to location apne aap yahan aayegi.<br/>Ask the driver to open the Driver App — it shares live GPS automatically for the active trip.</p>
-                  <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ marginTop: '15px', background: '#10b981', color: '#0f172a', border: 'none', padding: '10px 25px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛ Checking...' : '🔄 Check Again'}</button>
+                  <h2 style={{ color: '#2fe39b', margin:'10px 0' }}>No GPS Ping Yet</h2>
+                  <p style={{color:'#9aadd4'}}>Driver app khula rahega to location apne aap yahan aayegi.<br/>Ask the driver to open the Driver App — it shares live GPS automatically for the active trip.</p>
+                  <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ marginTop: '15px', background: '#10b981', color: '#121c38', border: 'none', padding: '10px 25px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛ Checking...' : '🔄 Check Again'}</button>
                 </div>
               ))}
               {trackMode === 'MOBILE' && (
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign: 'center', padding:'20px' }}>
                   <span style={{ fontSize: '50px' }}>📱</span>
-                  <h2 style={{ color: '#f59e0b', margin:'10px 0' }}>Track via Driver's Mobile</h2>
-                  <p style={{color:'#94a3b8', marginBottom:'20px'}}>Since hardware GPS is not active, you can request the driver to share their Live Location via WhatsApp.</p>
+                  <h2 style={{ color: '#ffb224', margin:'10px 0' }}>Track via Driver's Mobile</h2>
+                  <p style={{color:'#9aadd4', marginBottom:'20px'}}>Since hardware GPS is not active, you can request the driver to share their Live Location via WhatsApp.</p>
                   <button onClick={requestLiveLocation} style={{ background: '#25d366', color: 'white', padding: '15px 30px', borderRadius: '8px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
                     Send WhatsApp Request to Driver
@@ -1159,8 +1159,8 @@ export default function TripManagment() {
                       the office talks about these depots; the names are what a
                       map can find — showing both is what makes a wrong pin
                       obvious instead of mysterious. */}
-                  <div style={{ marginTop: '8px', color: '#64748b', fontSize: '12px' }}>
-                    {a.label} <span style={{ color: '#38bdf8' }}>→</span> {b.label}
+                  <div style={{ marginTop: '8px', color: '#5d7196', fontSize: '12px' }}>
+                    {a.label} <span style={{ color: '#22d3ee' }}>→</span> {b.label}
                   </div>
                 </div>
               );
@@ -1171,17 +1171,17 @@ export default function TripManagment() {
 
       <BottomSheet open={!!(showPaymentModal && activeTrip)} onClose={() => setShowPaymentModal(false)} title={`💸 Pay to Driver (${activeTrip?.driver_name || activeTrip?.Driver_Name || ''})`} accent="#8b5cf6" maxWidth={480}>
         {activeTrip && (<>
-            <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(245, 158, 11, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b', marginBottom: '15px' }}>
-               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#94a3b8'}}>Cash Target</span><br/><b style={{color:'#f59e0b'}}>₹{payModalCashTarget}</b></div>
-               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#94a3b8'}}>Total Paid</span><br/><b style={{color:'#f59e0b'}}>₹{payModalCashIssued}</b></div>
-               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#94a3b8'}}>Remaining</span><br/><b style={{color: payModalCashBal < 0 ? '#ef4444' : '#10b981', fontSize:'14px'}}>₹{payModalCashBal}</b></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(255, 178, 36, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #ffb224', marginBottom: '15px' }}>
+               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#9aadd4'}}>Cash Target</span><br/><b style={{color:'#ffb224'}}>₹{payModalCashTarget}</b></div>
+               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#9aadd4'}}>Total Paid</span><br/><b style={{color:'#ffb224'}}>₹{payModalCashIssued}</b></div>
+               <div style={{textAlign: 'center'}}><span style={{fontSize:'11px', color:'#9aadd4'}}>Remaining</span><br/><b style={{color: payModalCashBal < 0 ? '#ff6b81' : '#2fe39b', fontSize:'14px'}}>₹{payModalCashBal}</b></div>
             </div>
 
             {activeDriverInfo && (
-              <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #10b981', marginBottom: '15px' }}>
-                <p style={{ margin: '0 0 5px 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold' }}>🏦 Driver Bank Details</p>
-                <p style={{ margin: '0 0 4px 0', color: '#cbd5e1', fontSize: '13px' }}><b>A/C No:</b> {getVal(activeDriverInfo, ['accountno', 'accountnumber', 'bankaccount', 'account', 'acno']) || 'Not Updated'}</p>
-                <p style={{ margin: '0', color: '#cbd5e1', fontSize: '13px' }}><b>IFSC:</b> {getVal(activeDriverInfo, ['ifsccode', 'ifsc']) || 'Not Updated'}</p>
+              <div style={{ background: 'rgba(47, 227, 155, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #2fe39b', marginBottom: '15px' }}>
+                <p style={{ margin: '0 0 5px 0', color: '#2fe39b', fontSize: '13px', fontWeight: 'bold' }}>🏦 Driver Bank Details</p>
+                <p style={{ margin: '0 0 4px 0', color: '#c4d1ea', fontSize: '13px' }}><b>A/C No:</b> {getVal(activeDriverInfo, ['accountno', 'accountnumber', 'bankaccount', 'account', 'acno']) || 'Not Updated'}</p>
+                <p style={{ margin: '0', color: '#c4d1ea', fontSize: '13px' }}><b>IFSC:</b> {getVal(activeDriverInfo, ['ifsccode', 'ifsc']) || 'Not Updated'}</p>
               </div>
             )}
 
@@ -1196,86 +1196,86 @@ export default function TripManagment() {
               <input type="number" style={styles.input} placeholder="Amount (₹)" value={paymentData.amount} onChange={e=>setPaymentData({...paymentData, amount: e.target.value})} />
               <input type="text" style={styles.input} placeholder="Remarks / Ref No." value={paymentData.remarks} onChange={e=>setPaymentData({...paymentData, remarks: e.target.value})} />
               <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                <button onClick={()=>setShowPaymentModal(false)} style={{ flex: 1, background: '#334155', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
-                <button onClick={handleDriverPayment} disabled={savingPayment} style={{ flex: 1, background: savingPayment ? '#64748b' : '#8b5cf6', color: 'white', padding: '14px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', minHeight: '48px' }}>{savingPayment ? '⌛ Paying...' : 'Confirm Payment'}</button>
+                <button onClick={()=>setShowPaymentModal(false)} style={{ flex: 1, background: '#27395f', color: 'white', padding: '10px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={handleDriverPayment} disabled={savingPayment} style={{ flex: 1, background: savingPayment ? '#5d7196' : '#8b5cf6', color: 'white', padding: '14px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', minHeight: '48px' }}>{savingPayment ? '⌛ Paying...' : 'Confirm Payment'}</button>
               </div>
             </div>
         </>)}
       </BottomSheet>
 
-      <BottomSheet open={!!(showFuelModal && activeTrip)} onClose={() => setShowFuelModal(false)} title="⛽ Issue Trip Fuel/Cash Memo" accent="#f59e0b" maxWidth={880}>
+      <BottomSheet open={!!(showFuelModal && activeTrip)} onClose={() => setShowFuelModal(false)} title="⛽ Issue Trip Fuel/Cash Memo" accent="#ffb224" maxWidth={880}>
         {activeTrip && (<>
             {generatedMemos.length > 0 ? (
               <div style={{ textAlign: 'center', padding: '20px' }}>
-                <h2 style={{ color: '#10b981' }}>✅ Memos Generated!</h2>
+                <h2 style={{ color: '#2fe39b' }}>✅ Memos Generated!</h2>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', alignItems: 'center' }}>
                   {generatedMemos.map((slip, i) => (
                     <button key={i} onClick={() => sendFuelMemoWhatsApp(slip)} style={{ background: '#22c55e', color: 'white', padding: '10px 15px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', border: 'none' }}>💬 Send WhatsApp to {slip.vendor_name}</button>
                   ))}
                 </div>
-                <button onClick={() => setShowFuelModal(false)} style={{ marginTop: '30px', background: '#334155', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>Close Window</button>
+                <button onClick={() => setShowFuelModal(false)} style={{ marginTop: '30px', background: '#27395f', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>Close Window</button>
               </div>
             ) : (
               <>
                 <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '8px', flexWrap: 'wrap' }}>
-                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Vehicle</label><input style={styles.input} value={activeTrip.vehicle_no || activeTrip.Vehical_No} readOnly /></div>
-                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Driver</label><input style={styles.input} value={activeTrip.driver_name || activeTrip.Driver_Name} readOnly /></div>
-                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile</label><input style={styles.input} value={memoData.driver_mobile} readOnly /></div>
-                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#f59e0b', fontWeight: 'bold' }}>📅 Transaction / Issue Date *</label><input type="date" style={{...styles.input, colorScheme: 'dark', borderColor: '#f59e0b'}} value={memoData.date} onChange={e=>setMemoData({...memoData, date: e.target.value})} /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#9aadd4' }}>Vehicle</label><input style={styles.input} value={activeTrip.vehicle_no || activeTrip.Vehical_No} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#9aadd4' }}>Driver</label><input style={styles.input} value={activeTrip.driver_name || activeTrip.Driver_Name} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#9aadd4' }}>Mobile</label><input style={styles.input} value={memoData.driver_mobile} readOnly /></div>
+                  <div style={{flex: 1, minWidth: 'min(100%, 160px)'}}><label style={{ fontSize:'11px', color:'#ffb224', fontWeight: 'bold' }}>📅 Transaction / Issue Date *</label><input type="date" style={{...styles.input, colorScheme: 'dark', borderColor: '#ffb224'}} value={memoData.date} onChange={e=>setMemoData({...memoData, date: e.target.value})} /></div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(56, 189, 248, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(56, 189, 248, 0.3)'}}>
-                    <h4 style={{margin: '0 0 10px 0', color: '#38bdf8'}}>💧 HSD Calculation</h4>
+                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(34, 211, 238, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(34, 211, 238, 0.3)'}}>
+                    <h4 style={{margin: '0 0 10px 0', color: '#22d3ee'}}>💧 HSD Calculation</h4>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#38bdf8' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#38bdf8'}} value={memoData.fixed_hsd} onChange={e=>setMemoData({...memoData, fixed_hsd: e.target.value})} /></div>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Issued</label><input style={styles.input} value={memoData.hsd_issued} readOnly /></div>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color: (memoData.fixed_hsd - memoData.hsd_issued) < 0 ? '#ef4444' : '#10b981' }}>Balance</label><input style={{...styles.input, fontWeight: 'bold', color: (memoData.fixed_hsd - memoData.hsd_issued) < 0 ? '#ef4444' : '#10b981'}} value={(memoData.fixed_hsd || 0) - (memoData.hsd_issued || 0)} readOnly /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#22d3ee' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#22d3ee'}} value={memoData.fixed_hsd} onChange={e=>setMemoData({...memoData, fixed_hsd: e.target.value})} /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#9aadd4' }}>Issued</label><input style={styles.input} value={memoData.hsd_issued} readOnly /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color: (memoData.fixed_hsd - memoData.hsd_issued) < 0 ? '#ff6b81' : '#2fe39b' }}>Balance</label><input style={{...styles.input, fontWeight: 'bold', color: (memoData.fixed_hsd - memoData.hsd_issued) < 0 ? '#ff6b81' : '#2fe39b'}} value={(memoData.fixed_hsd || 0) - (memoData.hsd_issued || 0)} readOnly /></div>
                     </div>
                   </div>
 
-                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(16, 185, 129, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(16, 185, 129, 0.3)'}}>
-                    <h4 style={{margin: '0 0 10px 0', color: '#10b981'}}>💵 Cash Calculation</h4>
+                  <div style={{flex: 1, minWidth: 'min(100%, 300px)', background: 'rgba(47, 227, 155, 0.05)', padding: '15px', borderRadius: '8px', border: '1px solid rgba(47, 227, 155, 0.3)'}}>
+                    <h4 style={{margin: '0 0 10px 0', color: '#2fe39b'}}>💵 Cash Calculation</h4>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#10b981' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#10b981'}} value={memoData.fixed_cash} onChange={e=>setMemoData({...memoData, fixed_cash: e.target.value})} /></div>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#94a3b8' }}>Paid</label><input style={styles.input} value={memoData.cash_issued} readOnly /></div>
-                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color: (memoData.fixed_cash - memoData.cash_issued) < 0 ? '#ef4444' : '#10b981' }}>Balance</label><input style={{...styles.input, fontWeight: 'bold', color: (memoData.fixed_cash - memoData.cash_issued) < 0 ? '#ef4444' : '#10b981'}} value={(memoData.fixed_cash || 0) - (memoData.cash_issued || 0)} readOnly /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#2fe39b' }}>Target (Edit)</label><input type="number" style={{...styles.input, borderColor: '#2fe39b'}} value={memoData.fixed_cash} onChange={e=>setMemoData({...memoData, fixed_cash: e.target.value})} /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color:'#9aadd4' }}>Paid</label><input style={styles.input} value={memoData.cash_issued} readOnly /></div>
+                      <div style={{flex: 1}}><label style={{ fontSize:'11px', color: (memoData.fixed_cash - memoData.cash_issued) < 0 ? '#ff6b81' : '#2fe39b' }}>Balance</label><input style={{...styles.input, fontWeight: 'bold', color: (memoData.fixed_cash - memoData.cash_issued) < 0 ? '#ff6b81' : '#2fe39b'}} value={(memoData.fixed_cash || 0) - (memoData.cash_issued || 0)} readOnly /></div>
                     </div>
                   </div>
                 </div>
 
-                <h4 style={{ color: '#f59e0b', marginBottom: '10px' }}>⛽ Issue New Fuel / Cash</h4>
+                <h4 style={{ color: '#ffb224', marginBottom: '10px' }}>⛽ Issue New Fuel / Cash</h4>
                 {pumps.map((pump) => (
                   <div key={pump.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', background: 'rgba(255,255,255,0.02)', padding: '15px', borderRadius: '8px', marginBottom: '15px', flexWrap: 'wrap' }}>
                     <select style={{...styles.input, flex: 1.5, minWidth: 'min(100%, 180px)'}} value={pump.vendor_id} onChange={e=>handlePumpChange(pump.id, 'vendor_id', e.target.value)}><option value="">-- Petrol Pump --</option>{fuelVendors.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}</select>
                     <select style={{...styles.input, flex: 1, minWidth: '110px'}} value={pump.fuel_type} onChange={e=>handlePumpChange(pump.id, 'fuel_type', e.target.value)}><option value="FIXED">Fixed</option><option value="ADVANCE">Advance</option></select>
                     <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Liters (New)" value={pump.qty} onChange={e=>handlePumpChange(pump.id, 'qty', e.target.value)} />
-                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px', borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ef4444' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
-                    <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}><span style={{fontSize:'10px', color:'#94a3b8', display:'block'}}>Amount</span><b style={{color:'#f59e0b'}}>₹{pump.amount || '0.00'}</b></div>
+                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px', borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ff6b81' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
+                    <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}><span style={{fontSize:'10px', color:'#9aadd4', display:'block'}}>Amount</span><b style={{color:'#ffb224'}}>₹{pump.amount || '0.00'}</b></div>
                     <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Cash (New)" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} />
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-                  <button onClick={() => setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }])} style={{ background: 'transparent', color: '#38bdf8', border: '1px dashed #38bdf8', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>+ Add Pump</button>
-                  <button onClick={handleSaveFuelMemo} disabled={savingMemo} style={{ padding: '12px 30px', background: savingMemo ? '#64748b' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>{savingMemo ? '⌛ Saving...' : '🚀 Save & Generate WA Slip'}</button>
+                  <button onClick={() => setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }])} style={{ background: 'transparent', color: '#22d3ee', border: '1px dashed #22d3ee', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>+ Add Pump</button>
+                  <button onClick={handleSaveFuelMemo} disabled={savingMemo} style={{ padding: '12px 30px', background: savingMemo ? '#5d7196' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>{savingMemo ? '⌛ Saving...' : '🚀 Save & Generate WA Slip'}</button>
                 </div>
               </>
             )}
         </>)}
       </BottomSheet>
 
-      <BottomSheet open={!!(showUnloadModal && activeTrip)} onClose={() => setShowUnloadModal(false)} title="📦 Final Unloading" accent="#10b981" maxWidth={480}>
+      <BottomSheet open={!!(showUnloadModal && activeTrip)} onClose={() => setShowUnloadModal(false)} title="📦 Final Unloading" accent="#2fe39b" maxWidth={480}>
         {activeTrip && (<>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: '15px', marginBottom: '20px' }}>
               <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#fff', fontSize: '12px' }}>Date</label><input type="date" style={styles.input} value={unloadData.unloading_date} onChange={e=>recalcUnload({ unloading_date: e.target.value })} /></div>
-              <div><label style={{ color: '#38bdf8', fontSize: '12px' }}>Loaded Qty (Auto)</label><input type="number" style={{...styles.input, color: '#38bdf8'}} value={unloadData.loaded_qty} onChange={e=>recalcUnload({ loaded_qty: e.target.value })} /></div>
-              <div><label style={{ color: '#10b981', fontSize: '12px' }}>Unloaded Qty *</label><input type="number" style={{...styles.input, borderColor: '#10b981'}} value={unloadData.unloaded_qty} onChange={e=>recalcUnload({ unloaded_qty: e.target.value })} placeholder="Enter received qty" /></div>
-              <div><label style={{ color: '#ef4444', fontSize: '12px' }}>Shortage (Auto)</label><input type="number" style={{...styles.input, borderColor: '#ef4444', color: '#ef4444', fontWeight: 'bold'}} value={unloadData.shortage_qty} readOnly /></div>
-              <div><label style={{ color: '#f59e0b', fontSize: '12px' }}>Penalty Rate (₹/unit)</label><input type="number" style={{...styles.input, borderColor: '#f59e0b'}} value={unloadData.penalty_rate} onChange={e=>recalcUnload({ penalty_rate: e.target.value })} placeholder="e.g. 50" /></div>
-              <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#ef4444', fontSize: '12px' }}>Penalty ₹ (Auto, editable)</label><input type="number" style={{...styles.input, borderColor: '#ef4444'}} value={unloadData.shortage_penalty} onChange={e=>recalcUnload({ shortage_penalty: e.target.value })} /></div>
+              <div><label style={{ color: '#22d3ee', fontSize: '12px' }}>Loaded Qty (Auto)</label><input type="number" style={{...styles.input, color: '#22d3ee'}} value={unloadData.loaded_qty} onChange={e=>recalcUnload({ loaded_qty: e.target.value })} /></div>
+              <div><label style={{ color: '#2fe39b', fontSize: '12px' }}>Unloaded Qty *</label><input type="number" style={{...styles.input, borderColor: '#2fe39b'}} value={unloadData.unloaded_qty} onChange={e=>recalcUnload({ unloaded_qty: e.target.value })} placeholder="Enter received qty" /></div>
+              <div><label style={{ color: '#ff6b81', fontSize: '12px' }}>Shortage (Auto)</label><input type="number" style={{...styles.input, borderColor: '#ff6b81', color: '#ff6b81', fontWeight: 'bold'}} value={unloadData.shortage_qty} readOnly /></div>
+              <div><label style={{ color: '#ffb224', fontSize: '12px' }}>Penalty Rate (₹/unit)</label><input type="number" style={{...styles.input, borderColor: '#ffb224'}} value={unloadData.penalty_rate} onChange={e=>recalcUnload({ penalty_rate: e.target.value })} placeholder="e.g. 50" /></div>
+              <div style={{ gridColumn: 'span 2' }}><label style={{ color: '#ff6b81', fontSize: '12px' }}>Penalty ₹ (Auto, editable)</label><input type="number" style={{...styles.input, borderColor: '#ff6b81'}} value={unloadData.shortage_penalty} onChange={e=>recalcUnload({ shortage_penalty: e.target.value })} /></div>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setShowUnloadModal(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => setShowUnloadModal(false)} style={{ flex: 1, padding: '12px', background: '#27395f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleCompleteTrip} style={{ flex: 1, padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', minHeight: '48px' }}>✅ Complete Trip</button>
             </div>
         </>)}
@@ -1285,7 +1285,7 @@ export default function TripManagment() {
       <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '32px', fontWeight: '900', color: 'white' }}>🚛 Trip Command Center</h1>
-          <p style={{ margin: '4px 0 0', color: '#94a3b8', fontSize: '13px' }}>
+          <p style={{ margin: '4px 0 0', color: '#9aadd4', fontSize: '13px' }}>
             Live PostgreSQL · advances, fuel slips and trip closure post through the ledger
           </p>
         </div>
@@ -1296,50 +1296,50 @@ export default function TripManagment() {
       </div>
 
       {err && (
-        <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid #ef4444', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
+        <div style={{ background: 'rgba(255, 107, 129,0.1)', border: '1px solid #ff6b81', color: '#fca5a5', padding: '14px 18px', borderRadius: 12, marginBottom: 18, fontSize: 14 }}>
           ⚠️ {err}
-          <div style={{ color: '#94a3b8', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}/trips</code>. Check that the ERP API is running.</div>
+          <div style={{ color: '#9aadd4', marginTop: 6, fontSize: 12 }}>Reads <code>{OPS}/trips</code>. Check that the ERP API is running.</div>
         </div>
       )}
 
       {/* 💰 BULK FREIGHT TOOL — fills missing freight so Accounts Revenue flows */}
-      <BottomSheet open={showFreightTool} onClose={() => setShowFreightTool(false)} title="💰 Set Freight (Bulk)" accent="#c084fc" maxWidth={480}>
-            <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: 0 }}>Customer chuno + freight ₹ daalo. Sirf un trips mein lagega jinme abhi freight nahi hai (add-only). Phir Revenue journal mein flow karega.</p>
-            <label style={{ fontSize: '12px', color: '#38bdf8' }}>Customer</label>
+      <BottomSheet open={showFreightTool} onClose={() => setShowFreightTool(false)} title="💰 Set Freight (Bulk)" accent="#a78bfa" maxWidth={480}>
+            <p style={{ color: '#9aadd4', fontSize: '13px', marginTop: 0 }}>Customer chuno + freight ₹ daalo. Sirf un trips mein lagega jinme abhi freight nahi hai (add-only). Phir Revenue journal mein flow karega.</p>
+            <label style={{ fontSize: '12px', color: '#22d3ee' }}>Customer</label>
             <select style={styles.input} value={freightCust} onChange={e => setFreightCust(e.target.value)}>
               <option value="">-- Choose customer --</option>
               {Array.from(new Set(trips.map(tripCust).filter(Boolean))).sort().map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <label style={{ fontSize: '12px', color: '#10b981', marginTop: '10px', display: 'block' }}>Freight per trip (₹)</label>
+            <label style={{ fontSize: '12px', color: '#2fe39b', marginTop: '10px', display: 'block' }}>Freight per trip (₹)</label>
             <input type="number" style={styles.input} value={freightRate} onChange={e => setFreightRate(e.target.value)} placeholder="e.g. 25000" />
-            <div style={{ margin: '12px 0', fontSize: '13px', color: '#f59e0b' }}>
+            <div style={{ margin: '12px 0', fontSize: '13px', color: '#ffb224' }}>
               {freightCust ? `${freightTargets.length} trips ko freight milega (jinme abhi nahi hai).` : 'Customer chuno preview ke liye.'}
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => setShowFreightTool(false)} style={{ flex: 1, padding: '12px', background: '#334155', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => setShowFreightTool(false)} style={{ flex: 1, padding: '12px', background: '#27395f', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Cancel</button>
               <button onClick={applyBulkFreight} disabled={freightBusy} className={`pt-btn pt-btn--success ${freightBusy ? 'is-loading' : ''}`} style={{ flex: 1 }}>{freightBusy ? 'Applying…' : '✅ Apply Freight'}</button>
             </div>
       </BottomSheet>
 
       {/* 🌟 GLOBAL SEARCH BAR & FILTERS — sticky so it never scrolls away */}
-      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 30, background: '#0f172a', padding: '10px 0', margin: '0 0 20px 0' }}>
+      <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 30, background: '#121c38', padding: '10px 0', margin: '0 0 20px 0' }}>
         <input 
           type="text" 
           placeholder="🔍 Global Search: Vehicle, Route, Driver, Trip ID, Challan, Company..." 
           value={globalSearch}
           onChange={(e) => setGlobalSearch(e.target.value)}
-          style={{...styles.input, borderColor: '#64748b', fontSize: '15px', background: '#1e293b', flex: 2}}
+          style={{...styles.input, borderColor: '#5d7196', fontSize: '15px', background: '#18244a', flex: 2}}
         />
         
         {/* Date Filters ONLY for History Tab */}
         {activeTab === 'COMPLETED' && (
           <>
             <div style={{ flex: 1, position: 'relative' }}>
-              <label style={{ position: 'absolute', top: '-8px', left: '10px', background: '#0f172a', padding: '0 5px', fontSize: '11px', color: '#f59e0b' }}>From Date</label>
+              <label style={{ position: 'absolute', top: '-8px', left: '10px', background: '#121c38', padding: '0 5px', fontSize: '11px', color: '#ffb224' }}>From Date</label>
               <input type="date" style={styles.input} value={historyFromDate} onChange={e=>setHistoryFromDate(e.target.value)} />
             </div>
             <div style={{ flex: 1, position: 'relative' }}>
-              <label style={{ position: 'absolute', top: '-8px', left: '10px', background: '#0f172a', padding: '0 5px', fontSize: '11px', color: '#f59e0b' }}>To Date</label>
+              <label style={{ position: 'absolute', top: '-8px', left: '10px', background: '#121c38', padding: '0 5px', fontSize: '11px', color: '#ffb224' }}>To Date</label>
               <input type="date" style={styles.input} value={historyToDate} onChange={e=>setHistoryToDate(e.target.value)} />
             </div>
             {(historyFromDate || historyToDate) && (
@@ -1349,16 +1349,16 @@ export default function TripManagment() {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #334155' }}>
-        <button onClick={() => {setActiveTab('ACTIVE'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'ACTIVE' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'ACTIVE' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'ACTIVE' ? '3px solid #38bdf8' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>🟢 LIVE TRACKING</button>
-        <button onClick={() => setActiveTab('NEW')} style={{ padding: '12px 25px', background: activeTab === 'NEW' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'NEW' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'NEW' ? '3px solid #38bdf8' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', borderBottom: '1px solid #27395f' }}>
+        <button onClick={() => {setActiveTab('ACTIVE'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'ACTIVE' ? 'rgba(34, 211, 238, 0.1)' : 'transparent', color: activeTab === 'ACTIVE' ? '#22d3ee' : '#9aadd4', border: 'none', borderBottom: activeTab === 'ACTIVE' ? '3px solid #22d3ee' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>🟢 LIVE TRACKING</button>
+        <button onClick={() => setActiveTab('NEW')} style={{ padding: '12px 25px', background: activeTab === 'NEW' ? 'rgba(34, 211, 238, 0.1)' : 'transparent', color: activeTab === 'NEW' ? '#22d3ee' : '#9aadd4', border: 'none', borderBottom: activeTab === 'NEW' ? '3px solid #22d3ee' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>
            {editingTripId ? '✏️ EDIT TRIP' : '➕ START NEW TRIP'}
         </button>
-        <button onClick={() => {setActiveTab('COMPLETED'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'COMPLETED' ? 'rgba(56, 189, 248, 0.1)' : 'transparent', color: activeTab === 'COMPLETED' ? '#38bdf8' : '#94a3b8', border: 'none', borderBottom: activeTab === 'COMPLETED' ? '3px solid #38bdf8' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>✅ TRIP HISTORY</button>
+        <button onClick={() => {setActiveTab('COMPLETED'); setEditingTripId('');}} style={{ padding: '12px 25px', background: activeTab === 'COMPLETED' ? 'rgba(34, 211, 238, 0.1)' : 'transparent', color: activeTab === 'COMPLETED' ? '#22d3ee' : '#9aadd4', border: 'none', borderBottom: activeTab === 'COMPLETED' ? '3px solid #22d3ee' : '3px solid transparent', cursor: 'pointer', fontWeight: 'bold', borderRadius: '8px 8px 0 0' }}>✅ TRIP HISTORY</button>
       </div>
 
       {activeTab === 'NEW' && (
-        <div style={{...styles.glassCard, borderTop: '4px solid #38bdf8'}}>
+        <div style={{...styles.glassCard, borderTop: '4px solid #22d3ee'}}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3 style={{color: '#fff', margin: 0}}>{editingTripId ? `✏️ Edit Trip: ${formData.trip_id}` : '➕ New Quick Trip'}</h3>
             {editingTripId && <button onClick={cancelEdit} style={{...styles.btn, background: '#ef4444'}}>✕ Cancel Edit</button>}
@@ -1367,35 +1367,35 @@ export default function TripManagment() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
             {/* 🌟 NEW FIELDS ADDED HERE */}
             <div><label style={{ fontSize: '12px' }}>Loading Date *</label><input type="date" style={styles.input} value={formData.start_date} onChange={e=>setFormData({...formData, start_date: e.target.value})} /></div>
-            <div><label style={{ fontSize: '12px' }}>Trip ID / LR No</label><input type="text" style={{...styles.input, color:'#f59e0b'}} value={formData.trip_id} readOnly /></div>
+            <div><label style={{ fontSize: '12px' }}>Trip ID / LR No</label><input type="text" style={{...styles.input, color:'#ffb224'}} value={formData.trip_id} readOnly /></div>
             <div><label style={{ fontSize: '12px' }}>Challan / Invoice No *</label><input type="text" style={styles.input} value={formData.challan_no} onChange={e=>setFormData({...formData, challan_no: e.target.value})} placeholder="Enter Challan" /></div>
             
             <div><label style={{ fontSize: '12px' }}>Vehicle No *</label><select style={styles.input} value={formData.vehicle_no} onChange={e=>handleVehicleChange(e.target.value)}><option value="">-- Choose --</option>{vehicles.map(v => <option key={v.id} value={v.vehical_no || v.vehicle_no || v.registration_no}>{v.vehical_no || v.vehicle_no || v.registration_no}</option>)}</select></div>
-            <div><label style={{ fontSize: '12px', color: '#f59e0b' }}>Operating Company (Auto)</label><input style={{...styles.input, color: '#f59e0b'}} value={formData.operating_company} onChange={e=>setFormData({...formData, operating_company: e.target.value})} placeholder="Follows vehicle" /></div>
+            <div><label style={{ fontSize: '12px', color: '#ffb224' }}>Operating Company (Auto)</label><input style={{...styles.input, color: '#ffb224'}} value={formData.operating_company} onChange={e=>setFormData({...formData, operating_company: e.target.value})} placeholder="Follows vehicle" /></div>
             <div>
               <label style={{ fontSize: '12px' }}>Customer Name (Billed To)</label>
               <input type="text" style={styles.input} value={formData.customer_name} onChange={e=>setFormData({...formData, customer_name: e.target.value})} placeholder="Enter Customer" />
               {(() => { const r = getLastCustomerRate(formData.customer_name); return (r && !formData.gross_freight) ? (
-                <div style={{ marginTop: '5px', fontSize: '11px', color: '#c084fc' }}>
+                <div style={{ marginTop: '5px', fontSize: '11px', color: '#a78bfa' }}>
                   💡 Last freight: ₹{r.rate}
-                  <button type="button" onClick={() => setFormData(p => ({ ...p, gross_freight: r.rate }))} style={{ marginLeft: '6px', background: 'rgba(192,132,252,0.15)', color: '#c084fc', border: '1px solid #c084fc', borderRadius: '6px', padding: '1px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>Use</button>
+                  <button type="button" onClick={() => setFormData(p => ({ ...p, gross_freight: r.rate }))} style={{ marginLeft: '6px', background: 'rgba(167, 139, 250,0.15)', color: '#a78bfa', border: '1px solid #a78bfa', borderRadius: '6px', padding: '1px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}>Use</button>
                 </div>
               ) : null; })()}
             </div>
-            <div><label style={{ color: '#38bdf8', fontSize: '12px', fontWeight: 'bold' }}>Consignee / Route *</label><input list="route-list" style={{...styles.input, borderColor: '#38bdf8', background: 'rgba(56, 189, 248, 0.05)'}} placeholder="Select Route to Auto-Fill..." value={formData.consignee_name} onChange={e=>handleConsigneeChange(e.target.value)} /><datalist id="route-list">{rtkmMaster.map(m => <option key={m.id} value={m.Consignee_Name || m.unloading_point || m.Destination} />)}</datalist></div>
+            <div><label style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold' }}>Consignee / Route *</label><input list="route-list" style={{...styles.input, borderColor: '#22d3ee', background: 'rgba(34, 211, 238, 0.05)'}} placeholder="Select Route to Auto-Fill..." value={formData.consignee_name} onChange={e=>handleConsigneeChange(e.target.value)} /><datalist id="route-list">{rtkmMaster.map(m => <option key={m.id} value={m.Consignee_Name || m.unloading_point || m.Destination} />)}</datalist></div>
             
             <div><label style={{ fontSize: '12px' }}>Driver</label><select style={styles.input} value={formData.driver_name} onChange={handleDriverSelect}><option value="">-- Choose --</option>{drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
             <div><label style={{ fontSize: '12px' }}>Driver Mobile *</label><input type="text" style={styles.input} value={formData.driver_mobil_no} onChange={e=>setFormData({...formData, driver_mobil_no: e.target.value})} placeholder="Driver Mobile" /></div>
             
-            <div><label style={{ fontSize: '12px' }}>Loading Point (Auto)</label><input style={{...styles.input, color: '#94a3b8'}} value={formData.loading_point} onChange={e=>setFormData({...formData, loading_point: e.target.value})} /></div>
-            <div><label style={{ fontSize: '12px' }}>RTKM (Auto)</label><input style={{...styles.input, color: '#94a3b8'}} value={formData.rtkm} onChange={e=>setFormData({...formData, rtkm: e.target.value})} /></div>
-            <div><label style={{ color: '#10b981', fontSize: '12px' }}>Fix HSD (Auto)</label><input style={{...styles.input, borderColor: 'rgba(16, 185, 129, 0.3)', color: '#10b981'}} value={formData.fixed_hsd} onChange={e=>setFormData({...formData, fixed_hsd: e.target.value})} /></div>
-            <div><label style={{ color: '#10b981', fontSize: '12px' }}>Fix Cash (Auto)</label><input style={{...styles.input, borderColor: 'rgba(16, 185, 129, 0.3)', color: '#10b981'}} value={formData.fixed_cash} onChange={e=>setFormData({...formData, fixed_cash: e.target.value})} /></div>
+            <div><label style={{ fontSize: '12px' }}>Loading Point (Auto)</label><input style={{...styles.input, color: '#9aadd4'}} value={formData.loading_point} onChange={e=>setFormData({...formData, loading_point: e.target.value})} /></div>
+            <div><label style={{ fontSize: '12px' }}>RTKM (Auto)</label><input style={{...styles.input, color: '#9aadd4'}} value={formData.rtkm} onChange={e=>setFormData({...formData, rtkm: e.target.value})} /></div>
+            <div><label style={{ color: '#2fe39b', fontSize: '12px' }}>Fix HSD (Auto)</label><input style={{...styles.input, borderColor: 'rgba(47, 227, 155, 0.3)', color: '#2fe39b'}} value={formData.fixed_hsd} onChange={e=>setFormData({...formData, fixed_hsd: e.target.value})} /></div>
+            <div><label style={{ color: '#2fe39b', fontSize: '12px' }}>Fix Cash (Auto)</label><input style={{...styles.input, borderColor: 'rgba(47, 227, 155, 0.3)', color: '#2fe39b'}} value={formData.fixed_cash} onChange={e=>setFormData({...formData, fixed_cash: e.target.value})} /></div>
             <div><label style={{ fontSize: '12px' }}>Freight (₹)</label><input type="number" style={styles.input} value={formData.gross_freight} onChange={e=>setFormData({...formData, gross_freight: e.target.value})} placeholder="Enter Amount" /></div>
           </div>
 
           {/* 🗺️ Off-master route: auto-calc RTKM via Google Maps (only external API) */}
-          <div style={{ marginTop: '14px', padding: '12px 14px', background: 'rgba(56,189,248,0.05)', border: '1px dashed #334155', borderRadius: '10px' }}>
+          <div style={{ marginTop: '14px', padding: '12px 14px', background: 'rgba(34, 211, 238,0.05)', border: '1px dashed #27395f', borderRadius: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               <button
                 onClick={calcRouteViaMaps}
@@ -1404,15 +1404,15 @@ export default function TripManagment() {
               >
                 {mapsCalc.loading ? 'Calculating…' : '🗺️ Calculate RTKM via Google Maps'}
               </button>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>
+              <span style={{ fontSize: '11px', color: '#5d7196' }}>
                 Route master mein nahi hai? Loading Point + Consignee bhar kar yeh dabaayein.
               </span>
             </div>
-            {mapsCalc.info && <div style={{ marginTop: '8px', fontSize: '12px', color: '#10b981' }}>✅ {mapsCalc.info}</div>}
-            {mapsCalc.error && <div style={{ marginTop: '8px', fontSize: '12px', color: '#ef4444' }}>⚠️ {mapsCalc.error}</div>}
+            {mapsCalc.info && <div style={{ marginTop: '8px', fontSize: '12px', color: '#2fe39b' }}>✅ {mapsCalc.info}</div>}
+            {mapsCalc.error && <div style={{ marginTop: '8px', fontSize: '12px', color: '#ff6b81' }}>⚠️ {mapsCalc.error}</div>}
           </div>
 
-          <button onClick={handleSaveTrip} style={{ marginTop: '20px', width: '100%', background: '#38bdf8', color: '#0f172a', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
+          <button onClick={handleSaveTrip} style={{ marginTop: '20px', width: '100%', background: '#38bdf8', color: '#121c38', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
              {editingTripId ? '💾 Save Changes' : '🚀 Start Trip Manually'}
           </button>
         </div>
@@ -1421,7 +1421,7 @@ export default function TripManagment() {
       {/* 📱 MOBILE: touch-first trip cards with HSD/Cash meters */}
       {activeTab === 'ACTIVE' && isMobile && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {activeTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching active trips found.</div> :
+          {activeTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#5d7196' }}>No matching active trips found.</div> :
            pgActiveTrips.slice.map(t => {
             const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
             let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
@@ -1433,29 +1433,29 @@ export default function TripManagment() {
             const pill = tripStatusPill(t.trip_status);
             const phone = t.driver_mobil_no || t.driver_mobile || '';
             return (
-              <div key={t.id} style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
+              <div key={t.id} style={{ background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                   <b style={{ fontSize: '17px', color: '#fff' }}>{t.vehicle_no || t.Vehical_No}</b>
                   <span className={`pt-pill ${pill.cls}`}>{pill.label}</span>
                 </div>
-                <div style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold', margin: '3px 0' }}>{t.trip_id || t.Trip_ID}</div>
-                <div style={{ fontSize: '13px', color: '#cbd5e1', margin: '4px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: '12px', color: '#22d3ee', fontWeight: 'bold', margin: '3px 0' }}>{t.trip_id || t.Trip_ID}</div>
+                <div style={{ fontSize: '13px', color: '#c4d1ea', margin: '4px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                 </div>
                 <div style={{ marginBottom: '8px' }}><LastTollBadge tripId={t.id} /></div>
                 <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '10px' }}>
-                  <TripMeter label="⛽ HSD" used={hsdIssued} target={hTarget} unit="L" color="#10b981" />
-                  <TripMeter label="💵 Cash" used={paidCash} target={cTarget} unit="₹" color="#f59e0b" />
+                  <TripMeter label="⛽ HSD" used={hsdIssued} target={hTarget} unit="L" color="#2fe39b" />
+                  <TripMeter label="💵 Cash" used={paidCash} target={cTarget} unit="₹" color="#ffb224" />
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#94a3b8', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#9aadd4', marginBottom: '10px' }}>
                   <span>👨‍✈️ {t.driver_name || t.Driver_Name || '—'}</span>
-                  {phone && <a href={`tel:${phone}`} style={{ color: '#10b981', fontWeight: 'bold', textDecoration: 'none', padding: '6px 12px', border: '1px solid #10b981', borderRadius: '8px' }}>📞 Call</a>}
+                  {phone && <a href={`tel:${phone}`} style={{ color: '#2fe39b', fontWeight: 'bold', textDecoration: 'none', padding: '6px 12px', border: '1px solid #2fe39b', borderRadius: '8px' }}>📞 Call</a>}
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={() => openPaymentModal(t)} style={{ flex: 1, minHeight: '48px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💸 Pay</button>
                   <button onClick={() => openFuelModal(t)} style={{ flex: 1, minHeight: '48px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>⛽ Fuel</button>
                   <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Unload</button>
-                  <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
+                  <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
                 </div>
               </div>
             );
@@ -1466,9 +1466,9 @@ export default function TripManagment() {
       {activeTab === 'ACTIVE' && !isMobile && (
         <div style={styles.glassCard}>
           <table style={styles.table}>
-            <thead><tr><th style={styles.th}>Vehicle / Driver</th><th style={styles.th}>Route</th><th style={{...styles.th, color: '#10b981'}}>HSD Balance</th><th style={{...styles.th, color: '#f59e0b'}}>Cash Balance</th><th style={{...styles.th, textAlign: 'center'}}>Track</th><th style={{...styles.th, textAlign: 'center'}}>Action</th></tr></thead>
+            <thead><tr><th style={styles.th}>Vehicle / Driver</th><th style={styles.th}>Route</th><th style={{...styles.th, color: '#2fe39b'}}>HSD Balance</th><th style={{...styles.th, color: '#ffb224'}}>Cash Balance</th><th style={{...styles.th, textAlign: 'center'}}>Track</th><th style={{...styles.th, textAlign: 'center'}}>Action</th></tr></thead>
             <tbody>
-              {activeTrips.length === 0 ? <tr><td colSpan={6} style={{padding: '20px', textAlign: 'center', color: '#64748b'}}>No matching active trips found.</td></tr> : 
+              {activeTrips.length === 0 ? <tr><td colSpan={6} style={{padding: '20px', textAlign: 'center', color: '#5d7196'}}>No matching active trips found.</td></tr> : 
                activeTrips.map(t => {
                 const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
                 
@@ -1485,26 +1485,26 @@ export default function TripManagment() {
                 <tr key={t.id}>
                   <td style={styles.td}>
                      <b style={{fontSize:'14px', color:'#fff'}}>{t.vehicle_no || t.Vehical_No}</b><br/>
-                     <span style={{fontSize:'11px', color:'#94a3b8'}}>{t.driver_name || t.Driver_Name}</span><br/>
-                     <span style={{fontSize:'10px', color:'#f59e0b', fontWeight:'bold'}}>{t.Operating_Company || t.operating_company || 'PRASAD TRANSPORT'}</span>
+                     <span style={{fontSize:'11px', color:'#9aadd4'}}>{t.driver_name || t.Driver_Name}</span><br/>
+                     <span style={{fontSize:'10px', color:'#ffb224', fontWeight:'bold'}}>{t.Operating_Company || t.operating_company || 'PRASAD TRANSPORT'}</span>
                      
                      {/* 🌟 EXTRA INFO ADDED IN LIVE TRACKING */}
-                     <div style={{marginTop:'5px', fontSize:'10px', color:'#cbd5e1'}}>
+                     <div style={{marginTop:'5px', fontSize:'10px', color:'#c4d1ea'}}>
                         Ld: {t.start_date || t.Loading_Date || t.loading_date || '-'}<br/>
                         Ch: {t.challan_no || t.Challan_No || '-'}<br/>
                         Ph: {t.driver_mobil_no || t.driver_mobile || '-'}
                      </div>
                   </td>
                   <td style={styles.td}>
-                     <span style={{fontSize:'11px', color:'#38bdf8', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span>
+                     <span style={{fontSize:'11px', color:'#22d3ee', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span>
                      {(() => { const p = tripStatusPill(t.trip_status); return <span className={`pt-pill ${p.cls}`} style={{marginLeft:'8px'}}>{p.label}</span>; })()}
                      <br/>
                      {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                      <LastTollBadge tripId={t.id} />
                   </td>
-                  <td style={{...styles.td, color: '#10b981'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
-                  <td style={{...styles.td, color: '#f59e0b'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>
-                  <td style={{...styles.td, textAlign: 'center'}}><button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{...styles.btn, background: '#1e293b', color: '#38bdf8', border: '1px solid #38bdf8'}}>📍 Map</button></td>
+                  <td style={{...styles.td, color: '#2fe39b'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
+                  <td style={{...styles.td, color: '#ffb224'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>
+                  <td style={{...styles.td, textAlign: 'center'}}><button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{...styles.btn, background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee'}}>📍 Map</button></td>
                   <td style={{...styles.td, textAlign: 'center'}}>
                     <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
                     <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
@@ -1521,29 +1521,29 @@ export default function TripManagment() {
       {/* 📱 MOBILE: history as cards */}
       {activeTab === 'COMPLETED' && isMobile && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {completedTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>No matching completed trips found.</div> :
+          {completedTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#5d7196' }}>No matching completed trips found.</div> :
            pgCompletedTrips.slice.map(t => (
-            <div key={t.id} style={{ background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
+            <div key={t.id} style={{ background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '14px', padding: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <b style={{ fontSize: '16px', color: '#38bdf8' }}>{t.vehicle_no || t.Vehical_No}</b>
-                <span style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 'bold' }}>{t.trip_id || t.Trip_ID}</span>
+                <b style={{ fontSize: '16px', color: '#22d3ee' }}>{t.vehicle_no || t.Vehical_No}</b>
+                <span style={{ fontSize: '11px', color: '#ffb224', fontWeight: 'bold' }}>{t.trip_id || t.Trip_ID}</span>
               </div>
-              <div style={{ fontSize: '12px', color: '#cbd5e1', margin: '6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: '12px', color: '#c4d1ea', margin: '6px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
               </div>
-              <div style={{ fontSize: '11px', color: '#94a3b8' }}>Ld: {t.start_date || t.Loading_Date || '-'} · Un: {t.unloading_date || '-'} · {t.driver_name || t.Driver_Name || '—'}</div>
+              <div style={{ fontSize: '11px', color: '#9aadd4' }}>Ld: {t.start_date || t.Loading_Date || '-'} · Un: {t.unloading_date || '-'} · {t.driver_name || t.Driver_Name || '—'}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', gap: '8px' }}>
                 <div style={{ fontSize: '12px' }}>
-                  <span style={{ color: '#94a3b8' }}>Gross ₹{(parseFloat(t.gross_freight || t.Gross_Freight) || 0).toLocaleString('en-IN')}</span>
-                  <span style={{ color: '#ef4444', marginLeft: '8px' }}>Exp ₹{(parseFloat(t.total_expense) || 0).toLocaleString('en-IN')}</span>
-                  <b style={{ color: '#10b981', marginLeft: '8px' }}>Bal ₹{(parseFloat(t.final_balance) || 0).toLocaleString('en-IN')}</b>
+                  <span style={{ color: '#9aadd4' }}>Gross ₹{(parseFloat(t.gross_freight || t.Gross_Freight) || 0).toLocaleString('en-IN')}</span>
+                  <span style={{ color: '#ff6b81', marginLeft: '8px' }}>Exp ₹{(parseFloat(t.total_expense) || 0).toLocaleString('en-IN')}</span>
+                  <b style={{ color: '#2fe39b', marginLeft: '8px' }}>Bal ₹{(parseFloat(t.final_balance) || 0).toLocaleString('en-IN')}</b>
                 </div>
-                <button onClick={() => handleEditCompletedTrip(t)} style={{ minHeight: '44px', padding: '0 16px', background: 'rgba(56,189,248,0.15)', color: '#38bdf8', border: '1px solid #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✏️ Edit</button>
+                <button onClick={() => handleEditCompletedTrip(t)} style={{ minHeight: '44px', padding: '0 16px', background: 'rgba(34, 211, 238,0.15)', color: '#22d3ee', border: '1px solid #22d3ee', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✏️ Edit</button>
               </div>
             </div>
           ))}
           {!historyDone && !debouncedSearch && (
-            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ minHeight: '52px', background: loadingMore ? '#475569' : '#1e293b', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
+            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ minHeight: '52px', background: loadingMore ? '#3d548a' : '#18244a', color: '#22d3ee', border: '1px dashed #22d3ee', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer' }}>
               {loadingMore ? '⌛ Loading…' : `⬇️ Aur purani trips dikhao (${HISTORY_PAGE} aur)`}
             </button>
           )}
@@ -1563,30 +1563,30 @@ export default function TripManagment() {
                </tr>
             </thead>
             <tbody>
-              {completedTrips.length === 0 ? <tr><td colSpan={5} style={{padding: '20px', textAlign: 'center', color: '#64748b'}}>No matching completed trips found.</td></tr> :
+              {completedTrips.length === 0 ? <tr><td colSpan={5} style={{padding: '20px', textAlign: 'center', color: '#5d7196'}}>No matching completed trips found.</td></tr> :
                completedTrips.map(t => (
                 <tr key={t.id}>
                   <td style={styles.td}>
-                    <div style={{fontSize:'11px', color:'#94a3b8'}}>Ld: {t.start_date || t.Loading_Date || t.loading_date || '-'}</div>
+                    <div style={{fontSize:'11px', color:'#9aadd4'}}>Ld: {t.start_date || t.Loading_Date || t.loading_date || '-'}</div>
                     <div style={{fontSize:'12px', fontWeight:'bold', color:'#fff'}}>Un: {t.unloading_date || '-'}</div>
                   </td>
                   <td style={styles.td}>
-                    <b style={{fontSize:'14px', color:'#38bdf8'}}>{t.vehicle_no || t.Vehical_No}</b><br/>
+                    <b style={{fontSize:'14px', color:'#22d3ee'}}>{t.vehicle_no || t.Vehical_No}</b><br/>
                     <span style={{fontSize:'11px'}}>{t.driver_name || t.Driver_Name || 'No Driver'}</span><br/>
-                    <span style={{fontSize:'10px', color:'#94a3b8'}}>Ph: {t.driver_mobil_no || t.driver_mobile || '-'}</span>
+                    <span style={{fontSize:'10px', color:'#9aadd4'}}>Ph: {t.driver_mobil_no || t.driver_mobile || '-'}</span>
                   </td>
                   <td style={styles.td}>
-                    <span style={{fontSize:'11px', color:'#f59e0b', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span> | <span style={{fontSize:'11px', color:'#cbd5e1'}}>Ch: {t.challan_no || t.Challan_No || '-'}</span><br/>
+                    <span style={{fontSize:'11px', color:'#ffb224', fontWeight:'bold'}}>{t.trip_id || t.Trip_ID}</span> | <span style={{fontSize:'11px', color:'#c4d1ea'}}>Ch: {t.challan_no || t.Challan_No || '-'}</span><br/>
                     {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} /><br/>
-                    <span style={{fontSize:'10px', color:'#10b981', fontWeight:'bold'}}>{t.Operating_Company || t.operating_company || 'PRASAD TRANSPORT'}</span> | <span style={{fontSize:'10px', color:'#94a3b8'}}>{t.customer_name || t.Customer || t.Registered_Assessee || ''}</span>
+                    <span style={{fontSize:'10px', color:'#2fe39b', fontWeight:'bold'}}>{t.Operating_Company || t.operating_company || 'PRASAD TRANSPORT'}</span> | <span style={{fontSize:'10px', color:'#9aadd4'}}>{t.customer_name || t.Customer || t.Registered_Assessee || ''}</span>
                   </td>
                   <td style={styles.td}>
-                     <div style={{fontSize:'11px', color:'#94a3b8'}}>Gross: ₹{t.gross_freight || t.Gross_Freight || 0}</div>
-                     <div style={{fontSize:'11px', color:'#ef4444'}}>Exp: ₹{t.total_expense || 0}</div>
-                     <div style={{fontSize:'13px', color:'#10b981', fontWeight:'bold'}}>Bal: ₹{t.final_balance || 0}</div>
+                     <div style={{fontSize:'11px', color:'#9aadd4'}}>Gross: ₹{t.gross_freight || t.Gross_Freight || 0}</div>
+                     <div style={{fontSize:'11px', color:'#ff6b81'}}>Exp: ₹{t.total_expense || 0}</div>
+                     <div style={{fontSize:'13px', color:'#2fe39b', fontWeight:'bold'}}>Bal: ₹{t.final_balance || 0}</div>
                   </td>
                   <td style={{...styles.td, textAlign: 'center'}}>
-                     <button onClick={() => handleEditCompletedTrip(t)} style={{...styles.btn, background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid #38bdf8'}}>✏️ Edit</button>
+                     <button onClick={() => handleEditCompletedTrip(t)} style={{...styles.btn, background: 'rgba(34, 211, 238, 0.2)', color: '#22d3ee', border: '1px solid #22d3ee'}}>✏️ Edit</button>
                   </td>
                 </tr>
               ))}
@@ -1594,14 +1594,14 @@ export default function TripManagment() {
           </table>
             <GlobalPagination {...pgCompletedTrips} />
           {!historyDone && !debouncedSearch && (
-            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ width: '100%', marginTop: '14px', minHeight: '48px', background: loadingMore ? '#475569' : 'transparent', color: '#38bdf8', border: '1px dashed #38bdf8', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+            <button onClick={loadMoreHistory} disabled={loadingMore} style={{ width: '100%', marginTop: '14px', minHeight: '48px', background: loadingMore ? '#3d548a' : 'transparent', color: '#22d3ee', border: '1px dashed #22d3ee', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
               {loadingMore ? '⌛ Loading…' : `⬇️ Load ${HISTORY_PAGE} more completed trips`}
             </button>
           )}
         </div>
       )}
       {activeTab === 'COMPLETED' && (debouncedSearch || historyFromDate || historyToDate) && !historyDone && (
-        <p style={{ fontSize: '12px', color: '#f59e0b', marginTop: '10px' }}>⚠️ Search/date filter sirf loaded trips ({trips.filter(t => t.trip_status === 'COMPLETED').length}) me chal raha hai — puri history ke liye "Load more" karte jaayein.</p>
+        <p style={{ fontSize: '12px', color: '#ffb224', marginTop: '10px' }}>⚠️ Search/date filter sirf loaded trips ({trips.filter(t => t.trip_status === 'COMPLETED').length}) me chal raha hai — puri history ke liye "Load more" karte jaayein.</p>
       )}
     </div>
   );

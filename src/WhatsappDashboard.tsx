@@ -117,7 +117,7 @@ const WhatsappDashboard = () => {
   const [qrGen, setQrGen] = useState({ phone: '91', text: 'Hi Prasad Transport, I want to connect.' });
 
   // 🎨 THEME
-  const theme = { bg: '#020617', card: '#0F172A', inputBg: '#1E293B', border: '#334155', wa: '#10B981', sub: '#94A3B8', danger: '#F43F5E', accent: '#38bdf8', ai: '#c084fc' };
+  const theme = { bg: '#0a1024', card: '#121c38', inputBg: '#18244a', border: '#27395f', wa: '#2fe39b', sub: '#9aadd4', danger: '#F43F5E', accent: '#22d3ee', ai: '#a78bfa' };
 
   // 🔔 HELPER FUNCTIONS
   const showToast = (text, type = 'success') => { 
@@ -376,7 +376,7 @@ const WhatsappDashboard = () => {
 
         <div style={{ flex: isMobile ? '0 0 auto' : 1, overflowX: isMobile ? 'auto' : 'visible', overflowY: isMobile ? 'visible' : 'auto', display: 'flex', flexDirection: isMobile ? 'row' : 'column', gap: isMobile ? '6px' : '0', WebkitOverflowScrolling: 'touch' }} className="hide-scrollbar">
             {['MAMTA AI', 'DASHBOARD', 'CONNECT', 'TRIP CHAT', 'BROADCAST', 'KANBAN', 'CHATBOT', 'SCHEDULE', 'CONTACTS', 'QR GENERATOR', 'SYSTEM LOGS'].map(m => (
-              <div key={m} onClick={() => setTab(m)} style={{ padding: isMobile ? '8px 12px' : '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: isMobile ? '0' : '8px', background: tab === m ? 'rgba(16,185,129,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s', whiteSpace: 'nowrap', fontSize: isMobile ? '13px' : '15px', flexShrink: 0 }}>
+              <div key={m} onClick={() => setTab(m)} style={{ padding: isMobile ? '8px 12px' : '13px', cursor: 'pointer', borderRadius: '12px', marginBottom: isMobile ? '0' : '8px', background: tab === m ? 'rgba(47, 227, 155,0.15)' : 'transparent', color: tab === m ? theme.wa : theme.sub, fontWeight: tab === m ? 'bold' : 'normal', transition: '0.3s', whiteSpace: 'nowrap', fontSize: isMobile ? '13px' : '15px', flexShrink: 0 }}>
                 {m === 'MAMTA AI' ? '🤖 MAMTA AI' : m === 'CONNECT' ? '🔗 Link WhatsApp' : m === 'DASHBOARD' ? '📊 AI Dashboard' : m === 'TRIP CHAT' ? '💬 Trip Manager' : m === 'KANBAN' ? '📋 Kanban Leads' : m === 'CHATBOT' ? '🤖 AI Chatbot' : m === 'SCHEDULE' ? '⏳ Scheduler' : m === 'QR GENERATOR' ? '📱 Public QR Code' : m === 'SYSTEM LOGS' ? '📝 System Logs' : m}
               </div>
             ))}
@@ -417,8 +417,8 @@ const WhatsappDashboard = () => {
             <div style={{ textAlign:'center', paddingTop:'40px' }}>
               <h2 style={{fontSize:'28px', marginBottom:'10px'}}>Personal WhatsApp Link</h2>
               <p style={{color:theme.sub, marginBottom:'40px'}}>Hello <b>{activeUser}</b>, अपना मोबाइल स्कैन करें।</p>
-              {isWa ? ( <div style={{background:'rgba(16,185,129,0.1)', padding:'40px', borderRadius:'20px', border:`1px solid ${theme.wa}`, display:'inline-block'}}> <h2 style={{color:theme.wa}}>✅ Connected Successfully!</h2> </div>
-              ) : qr ? ( <div style={{background:'white', padding:'25px', borderRadius:'20px', display:'inline-block'}}><QRCodeSVG value={qr} size={250} /><p style={{color:'#020617', marginTop:'15px', fontWeight:'bold', fontSize:'18px'}}>Scan with WhatsApp</p></div>
+              {isWa ? ( <div style={{background:'rgba(47, 227, 155,0.1)', padding:'40px', borderRadius:'20px', border:`1px solid ${theme.wa}`, display:'inline-block'}}> <h2 style={{color:theme.wa}}>✅ Connected Successfully!</h2> </div>
+              ) : qr ? ( <div style={{background:'white', padding:'25px', borderRadius:'20px', display:'inline-block'}}><QRCodeSVG value={qr} size={250} /><p style={{color:'#0a1024', marginTop:'15px', fontWeight:'bold', fontSize:'18px'}}>Scan with WhatsApp</p></div>
               ) : <div style={{color:theme.accent, fontSize:'18px'}}>⏳ {engStatus === 'STARTING' ? 'इंजन चालू हो रहा है...' : 'सर्वर कनेक्ट हो रहा है...'}</div>}
             </div>
           )}
@@ -455,9 +455,9 @@ const WhatsappDashboard = () => {
                         if (shown.length === 0 && liveTrips.length > 0) {
                           return <div style={{textAlign:'center', color:theme.sub, marginTop:'30px', fontSize:'13px'}}>No trip matches “{tripQ}”.</div>;
                         }
-                        const TONE = { IN_TRANSIT:'#38BDF8', LOADED:'#FACC15', LOADING:'#FACC15', UNLOADING:'#A78BFA', DISPUTED:'#F43F5E' };
+                        const TONE = { IN_TRANSIT:'#22d3ee', LOADED:'#FACC15', LOADING:'#FACC15', UNLOADING:'#A78BFA', DISPUTED:'#F43F5E' };
                         return shown.map(t => (
-                          <div key={t.id} onClick={() => setActiveTrip(t)} style={{padding:'15px', background:activeTrip?.id === t.id ? 'rgba(56,189,248,0.1)' : 'transparent', borderRadius:'12px', cursor:'pointer', borderBottom:`1px solid ${theme.border}`, transition:'0.2s', borderLeft: activeTrip?.id === t.id ? `4px solid ${theme.accent}` : '4px solid transparent'}}>
+                          <div key={t.id} onClick={() => setActiveTrip(t)} style={{padding:'15px', background:activeTrip?.id === t.id ? 'rgba(34, 211, 238,0.1)' : 'transparent', borderRadius:'12px', cursor:'pointer', borderBottom:`1px solid ${theme.border}`, transition:'0.2s', borderLeft: activeTrip?.id === t.id ? `4px solid ${theme.accent}` : '4px solid transparent'}}>
                              <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', gap:'8px'}}>
                                <span style={{fontWeight:'bold', fontSize:'15px', color:theme.accent}}>{t.trip_code || '(no code)'}</span>
                                {t.status && (
@@ -482,8 +482,8 @@ const WhatsappDashboard = () => {
                                  that quietly invents one is how a wrong
                                  consignee ends up on a bill. */}
                              <div style={{fontSize:'11px', color:theme.sub, marginTop:'3px'}}>
-                               Driver: {t.driver_name || <i style={{color:'#64748b'}}>darj nahi</i>}<br/>
-                               Cust: {t.consignee_name || t.customer_name || <i style={{color:'#64748b'}}>darj nahi</i>}
+                               Driver: {t.driver_name || <i style={{color:'#5d7196'}}>darj nahi</i>}<br/>
+                               Cust: {t.consignee_name || t.customer_name || <i style={{color:'#5d7196'}}>darj nahi</i>}
                              </div>
                           </div>
                         ));
@@ -505,7 +505,7 @@ const WhatsappDashboard = () => {
                               </div>
                           </div>
 
-                          <div style={{flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:'15px', backgroundImage:'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundBlendMode:'overlay', backgroundColor:'rgba(2, 6, 23, 0.95)'}}>
+                          <div style={{flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:'15px', backgroundImage:'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundBlendMode:'overlay', backgroundColor:'rgba(10, 16, 36, 0.95)'}}>
                               {(!activePhoneToView) && <div style={{background:'rgba(244,63,94,0.2)', padding:'15px', borderRadius:'10px', color:theme.danger, textAlign:'center', border:`1px solid ${theme.danger}`}}>⚠️ {chatRole} का मोबाइल नंबर Master Directory में सेव नहीं है! कृपया पहले नंबर सेव करें।</div>}
                               
                               {currentChatHistory.length === 0 && activePhoneToView && <div style={{textAlign:'center', color:theme.sub, marginTop:'50px'}}>यहाँ मैसेज टाइप करें। यह सीधे {chatRole} ({activePhoneToView}) के WhatsApp पर जाएगा!</div>}
@@ -551,9 +551,9 @@ const WhatsappDashboard = () => {
                  <button onClick={handleSmartSelectAll} style={{ background: 'transparent', border: `1px solid ${theme.accent}`, color: theme.accent, fontSize: '12px', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}> {filteredContacts.length > 0 && filteredContacts.every(c => selPhones.includes(c.phone)) ? 'Unselect All Displayed' : 'Select All Displayed'} </button>
               </div>
               <input value={searchContact} onChange={e=>setSearchContact(e.target.value)} placeholder="🔍 नाम या नंबर से सर्च करें..." style={{width:'100%', background:theme.inputBg, border:`1px solid ${theme.border}`, padding:'15px', borderRadius:'12px', color:'white', marginBottom:'20px', outline:'none'}} />
-              <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:'15px', maxHeight:'300px', overflowY:'auto', background:'#020617', padding:'20px', borderRadius:'15px', border:`1px solid ${theme.border}`}}>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px, 1fr))', gap:'15px', maxHeight:'300px', overflowY:'auto', background:'#0a1024', padding:'20px', borderRadius:'15px', border:`1px solid ${theme.border}`}}>
                 {filteredContacts.map(c => (
-                  <div key={c.id} onClick={() => selPhones.includes(c.phone) ? setSelPhones(selPhones.filter(p=>p!==c.phone)) : setSelPhones([...selPhones, c.phone])} style={{padding:'15px', background:selPhones.includes(c.phone)?'rgba(16,185,129,0.15)':theme.inputBg, borderRadius:'12px', cursor:'pointer', border:`1px solid ${selPhones.includes(c.phone)?theme.wa:theme.border}`}}>
+                  <div key={c.id} onClick={() => selPhones.includes(c.phone) ? setSelPhones(selPhones.filter(p=>p!==c.phone)) : setSelPhones([...selPhones, c.phone])} style={{padding:'15px', background:selPhones.includes(c.phone)?'rgba(47, 227, 155,0.15)':theme.inputBg, borderRadius:'12px', cursor:'pointer', border:`1px solid ${selPhones.includes(c.phone)?theme.wa:theme.border}`}}>
                     <div style={{fontWeight:'bold', fontSize:'15px'}}>{c.name} {c.isSystem && <span style={{fontSize:'10px', color:theme.accent, border:'1px solid', padding:'2px 5px', borderRadius:'5px', marginLeft:'8px'}}>ERP</span>}</div>
                     <div style={{fontSize:'12px', color:theme.sub, marginTop:'5px'}}>📞 {c.phone} | <span style={{color:theme.accent}}>{c.category}</span></div>
                   </div>
@@ -577,7 +577,7 @@ const WhatsappDashboard = () => {
               </div>
               <div style={{ display: 'flex', gap: '20px', overflowX: 'auto', paddingBottom: '20px', minHeight: '60vh' }}>
                 {['NEW LEAD', 'IN CONVERSATION', 'QUOTE SENT', 'CLOSED'].map(colStatus => (
-                  <div key={colStatus} onDragOver={(e) => e.preventDefault()} onDrop={async (e) => { e.preventDefault(); const id = e.dataTransfer.getData("leadId"); if(id) { try { await erp(`/crm/leads/${id}`, { method: 'PATCH', body: JSON.stringify({ status: colStatus }) }); logActivity(`Moved Kanban Lead to ${colStatus}`); showToast(`Moved to ${colStatus}`); } catch(err) { showToast("❌ " + (err?.message || ''), "error"); } } }} style={{ minWidth: '300px', background: '#020617', padding: '20px', borderRadius: '15px', border: `1px dashed ${theme.border}`, display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  <div key={colStatus} onDragOver={(e) => e.preventDefault()} onDrop={async (e) => { e.preventDefault(); const id = e.dataTransfer.getData("leadId"); if(id) { try { await erp(`/crm/leads/${id}`, { method: 'PATCH', body: JSON.stringify({ status: colStatus }) }); logActivity(`Moved Kanban Lead to ${colStatus}`); showToast(`Moved to ${colStatus}`); } catch(err) { showToast("❌ " + (err?.message || ''), "error"); } } }} style={{ minWidth: '300px', background: '#0a1024', padding: '20px', borderRadius: '15px', border: `1px dashed ${theme.border}`, display: 'flex', flexDirection: 'column', gap: '15px' }}>
                     <h4 style={{ color: colStatus === 'CLOSED' ? theme.wa : theme.accent, borderBottom: `1px solid ${theme.border}`, paddingBottom: '10px' }}>{colStatus} ({leads.filter(l => l.status === colStatus).length})</h4>
                     {leads.filter(l => l.status === colStatus).map(lead => (
                       <div key={lead.id} draggable onDragStart={(e) => e.dataTransfer.setData("leadId", lead.id)} style={{ background: theme.inputBg, padding: '15px', borderRadius: '10px', borderLeft: `4px solid ${theme.accent}`, cursor: 'grab' }}>
@@ -637,7 +637,7 @@ const WhatsappDashboard = () => {
               </div>
               <div style={{background:theme.inputBg, borderRadius:'15px', overflow:'hidden', border:`1px solid ${theme.border}`}}>
                 <table style={{width:'100%', textAlign:'left', borderCollapse:'collapse'}}><thead style={{background:'rgba(255,255,255,0.05)'}}><tr style={{color:theme.sub, borderBottom:`1px solid ${theme.border}`}}><th style={{padding:'15px'}}>NAME</th><th>CONTACT</th><th>CATEGORY</th><th style={{textAlign:'center'}}>ACTION</th></tr></thead><tbody>
-                    {contacts.map(c => (<tr key={c.id} style={{borderBottom:`1px solid ${theme.border}`}}><td style={{padding:'15px', fontSize:'15px'}}><b>{c.name}</b></td><td style={{color:theme.sub}}>{c.phone}</td><td><span style={{background:'rgba(56,189,248,0.1)', color:theme.accent, padding:'5px 12px', borderRadius:'6px', fontSize:'12px', fontWeight:'bold'}}>{c.category}</span></td><td style={{textAlign:'center'}}>{c.isSystem ? <span style={{color:theme.wa, fontSize:'11px', fontWeight:'bold'}}>🔒 ERP Sync</span> : <button onClick={()=>del('WA_CONTACTS', c.id)} style={{color:theme.danger, background:'none', border:'none', cursor:'pointer', fontWeight:'bold'}}>Delete</button>}</td></tr>))}
+                    {contacts.map(c => (<tr key={c.id} style={{borderBottom:`1px solid ${theme.border}`}}><td style={{padding:'15px', fontSize:'15px'}}><b>{c.name}</b></td><td style={{color:theme.sub}}>{c.phone}</td><td><span style={{background:'rgba(34, 211, 238,0.1)', color:theme.accent, padding:'5px 12px', borderRadius:'6px', fontSize:'12px', fontWeight:'bold'}}>{c.category}</span></td><td style={{textAlign:'center'}}>{c.isSystem ? <span style={{color:theme.wa, fontSize:'11px', fontWeight:'bold'}}>🔒 ERP Sync</span> : <button onClick={()=>del('WA_CONTACTS', c.id)} style={{color:theme.danger, background:'none', border:'none', cursor:'pointer', fontWeight:'bold'}}>Delete</button>}</td></tr>))}
                   </tbody></table>
               </div>
             </div>
@@ -653,7 +653,7 @@ const WhatsappDashboard = () => {
                   <div><label style={{fontSize:'12px', color:theme.sub, display:'block', marginBottom:'5px'}}>Auto-Message</label><textarea value={qrGen.text} onChange={e=>setQrGen({...qrGen, text:e.target.value})} style={{width:'100%', background:theme.bg, border:`1px solid ${theme.border}`, color:'white', padding:'12px', borderRadius:'8px', height:'100px', outline:'none', resize:'none'}} /></div>
                 </div>
                 <div style={{width:'300px', background:'white', padding:'25px', borderRadius:'15px', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
-                   <QRCodeSVG value={`https://wa.me/${qrGen.phone.replace(/\D/g, '')}?text=${encodeURIComponent(qrGen.text)}`} size={220} /><p style={{color:'#020617', fontWeight:'bold', marginTop:'20px', textAlign:'center'}}>Scan to Contact Us</p>
+                   <QRCodeSVG value={`https://wa.me/${qrGen.phone.replace(/\D/g, '')}?text=${encodeURIComponent(qrGen.text)}`} size={220} /><p style={{color:'#0a1024', fontWeight:'bold', marginTop:'20px', textAlign:'center'}}>Scan to Contact Us</p>
                 </div>
               </div>
             </div>
