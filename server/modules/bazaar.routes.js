@@ -19,12 +19,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
-import { requireAdminRole } from './auth.routes.js';
+import { requireAdminRole, requireAuth } from './auth.routes.js';
 import { hashPassword, verifyCode, ALGO } from '../lib/auth.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { checkParty, last10, upper, trimOrNull } from '../lib/partyFormats.js';
 import { asSystem } from '../lib/staging.js';
+import { laneEconomics } from '../lib/laneEconomics.js';
 
 // The trades a service vendor can apply in (owner, 3-Sep). A list rather than
 // free text so the master stays filterable: these strings become
@@ -1063,6 +1064,193 @@ export async function registerBazaarRoutes(app) {
       [req.params.id, reason, req.body?.decided_by ?? req.user?.name ?? req.user?.sub ?? null]);
     if (!rows.length) return reply.code(409).send({ error: 'NOT_PENDING', detail: 'no pending request with that id' });
     return { request: rows[0] };
+  });
+
+  // ═══ THE MARGIN DESK ══════════════════════════════════════════════════════
+  //
+  // Owner directive, 3-Sep-2026. The office sits between two parties who must
+  // never see each other's number: the customer's landed freight and the
+  // partner's winning bid. The difference is the company's margin, and this is
+  // the one screen where both sides are visible at once.
+  //
+  //   · MARGIN IS 100% INTERNAL. Nothing here is reachable by a portal token —
+  //     the guard below is staff-only, and the portal routes select their
+  //     columns by name and have never included these.
+  //   · ADMIN **AND DISPATCH** MAY LOCK (owner). Money decisions elsewhere are
+  //     admin-only; this one is not, because a dispatcher who cannot close a
+  //     deal at 9 p.m. closes it on WhatsApp instead and the desk learns about
+  //     it the next morning.
+  //   · A SOFT FLOOR AT 8%. Below it the lock is refused ONCE, with the number,
+  //     and goes through when the caller confirms. A hard block would be a rule
+  //     people route around; a number said out loud is one they answer for.
+  //   · A LOSS NEEDS A TYPED REASON. Enforced here for a good message and by a
+  //     CHECK constraint in migration 141 so no other path can skip it.
+  const MARGIN_FLOOR_PCT = 8;
+
+  const requireDeskRole = async (req, reply) => {
+    const done = await requireAuth(req, reply);
+    if (done !== undefined) return done;
+    if (!['SUPER_ADMIN', 'ADMIN', 'DISPATCH'].includes(req.user.role)) {
+      return reply.code(403).send({ error: 'FORBIDDEN', detail: 'margin desk is for office staff' });
+    }
+  };
+
+  /** Every load waiting on a decision, with both sides of the money.
+   *  MARKET loads only — a contract load never reaches a bid board. */
+  app.get('/margin-desk', { preHandler: requireDeskRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: loads } = await query(`
+      SELECT l.*, c.customer_name AS customer, c.mobile_no AS customer_mobile,
+             co.company_name,
+             (SELECT count(*) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING')::int AS bid_count
+        FROM bazaar_loads l
+        LEFT JOIN customers c ON c.id = l.customer_id
+        LEFT JOIN companies co ON co.id = l.company_id
+       WHERE l.load_kind = 'MARKET'
+         AND l.status IN ('OPEN', 'AWARD_REQUESTED')
+       ORDER BY (l.status = 'AWARD_REQUESTED') DESC, l.loading_date ASC NULLS LAST, l.created_at DESC
+       LIMIT 60`);
+
+    const out = [];
+    for (const l of loads) {
+      const { rows: bids } = await query(`
+        SELECT b.id, b.vendor_id, b.vendor_name, b.bid_amount, b.remarks, b.created_at,
+               (SELECT count(*) FROM bazaar_settlements s
+                 WHERE s.vendor_id = b.vendor_id AND s.status = 'SETTLED')::int AS trips_done,
+               v.is_approved_for_portal
+          FROM bazaar_bids b
+          LEFT JOIN vendors v ON v.id = b.vendor_id
+         WHERE b.load_id = $1 AND b.status = 'PENDING'
+         ORDER BY b.bid_amount ASC`, [l.load_id]);
+
+      // The margin PER BID, computed here so the desk never does it in its head.
+      const target = Number(l.target_rate) || 0;
+      const priced = bids.map((b, i) => {
+        const amount = Number(b.bid_amount) || 0;
+        const margin = target ? target - amount : null;
+        return {
+          ...b,
+          l_rank: i + 1,
+          margin_amount: margin,
+          margin_pct: margin != null && target ? Number(((margin / target) * 100).toFixed(2)) : null,
+          below_floor: margin != null && target ? ((margin / target) * 100) < MARGIN_FLOOR_PCT : null,
+        };
+      });
+
+      out.push({
+        ...l,
+        bids: priced,
+        // Distance, and the toll we have actually paid on this lane before.
+        lane: await laneEconomics(l.origin, l.destination).catch(() => null),
+        requested_bid_id: l.award_requested_bid_id ?? null,
+      });
+    }
+    return { count: out.length, floor_pct: MARGIN_FLOOR_PCT, loads: out };
+  });
+
+  /** Lock the deal: fix both rates, award the bid, open the settlement.
+   *
+   *  ONE TRANSACTION. The award, the customer's rate, the partner's rate and the
+   *  margin are one decision; splitting them would let a crash leave a load
+   *  awarded at a rate nobody agreed to. */
+  app.post('/loads/:loadId/lock', { preHandler: requireDeskRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const bidId = String(b.bid_id ?? '');
+    if (!UUID_RE.test(bidId)) return reply.code(400).send({ error: 'BAD_BID', detail: 'bid_id is required' });
+
+    const customerRate = Number(b.customer_rate);
+    const partnerRate = Number(b.partner_rate);
+    if (!(customerRate > 0)) return reply.code(400).send({ error: 'BAD_CUSTOMER_RATE', detail: 'what the customer pays is required' });
+    if (!(partnerRate > 0)) return reply.code(400).send({ error: 'BAD_PARTNER_RATE', detail: 'what the partner gets is required' });
+
+    const margin = Number((customerRate - partnerRate).toFixed(2));
+    const marginPct = Number(((margin / customerRate) * 100).toFixed(2));
+    const reason = trimOrNull(b.margin_reason);
+
+    if (margin < 0 && (!reason || reason.length < 5)) {
+      return reply.code(400).send({
+        error: 'REASON_REQUIRED',
+        detail: `this deal loses ₹${Math.abs(margin).toFixed(0)} — say why (client retention, repositioning, …) to lock it`,
+        margin_amount: margin, margin_pct: marginPct,
+      });
+    }
+    // The soft floor: refuse once, with the number, then take the confirmation.
+    if (marginPct < MARGIN_FLOOR_PCT && margin >= 0 && !b.confirm_below_floor) {
+      return reply.code(409).send({
+        error: 'BELOW_MARGIN_FLOOR',
+        detail: `margin is ${marginPct}% — below the ${MARGIN_FLOOR_PCT}% floor. Confirm to lock it anyway.`,
+        margin_amount: margin, margin_pct: marginPct, floor_pct: MARGIN_FLOOR_PCT,
+      });
+    }
+
+    try {
+      const out = await withTransaction(async (c) => {
+        const { rows: L } = await c.query(
+          `SELECT * FROM bazaar_loads WHERE load_id = $1 FOR UPDATE`, [req.params.loadId]);
+        const load = L[0];
+        if (!load) return { code: 404, body: { error: 'NOT_FOUND', detail: 'no such load' } };
+        if (load.load_kind !== 'MARKET') {
+          return { code: 409, body: { error: 'NOT_A_MARKET_LOAD', detail: 'a contract load is allocated directly, not bid on' } };
+        }
+        if (!['OPEN', 'AWARD_REQUESTED'].includes(load.status)) {
+          return { code: 409, body: { error: 'LOAD_NOT_OPEN', detail: `load is ${load.status}` } };
+        }
+
+        const { rows: B } = await c.query(
+          `SELECT * FROM bazaar_bids WHERE id = $1::uuid AND load_id = $2 FOR UPDATE`, [bidId, load.load_id]);
+        const bid = B[0];
+        if (!bid) return { code: 404, body: { error: 'NO_SUCH_BID', detail: 'that bid is not on this load' } };
+        if (bid.status !== 'PENDING') return { code: 409, body: { error: 'BID_DECIDED', detail: `bid is ${bid.status}` } };
+
+        // The partner is paid what the desk locked, which may differ from the
+        // bid after a counter-offer. The bid row records what was agreed.
+        await c.query(
+          `UPDATE bazaar_bids SET status = 'ACCEPTED', bid_amount = $2, updated_at = now() WHERE id = $1::uuid`,
+          [bid.id, partnerRate]);
+        await c.query(
+          `UPDATE bazaar_bids SET status = 'REJECTED', updated_at = now()
+            WHERE load_id = $1 AND id <> $2::uuid AND status = 'PENDING'`, [load.load_id, bid.id]);
+        // approved_by / award_reviewed_by are UUID columns in this schema, not
+        // names — passing a display name is a 22P02 that kills the transaction.
+        // (`award_requested_by` next to them is text; the pair is not uniform.)
+        await c.query(
+          `UPDATE bazaar_loads SET status = 'AWARDED', approved_by = $2::uuid, approved_at = now(),
+                  award_reviewed_by = $2::uuid, award_reviewed_at = now(), updated_at = now()
+            WHERE load_id = $1`, [load.load_id, req.user?.sub ?? null]);
+
+        const settlement = await openSettlementInTx(c, load, { ...bid, bid_amount: partnerRate });
+        if (!settlement) return { code: 400, body: { error: 'NO_SETTLEMENT', detail: 'a zero award has no money lifecycle' } };
+
+        const { rows: S } = await c.query(`
+          UPDATE bazaar_settlements
+             SET customer_rate = $2, margin_amount = $3, margin_pct = $4, margin_reason = $5,
+                 locked_by = $6::uuid, locked_at = now(), company_id = COALESCE($7::uuid, company_id),
+                 updated_at = now()
+           WHERE id = $1::uuid RETURNING *`,
+          [settlement.id, customerRate, margin, marginPct, reason,
+           req.user?.sub ?? null, b.company_id ?? load.company_id ?? null]);
+
+        return { code: 200, body: { locked: true, settlement: S[0], margin_amount: margin, margin_pct: marginPct } };
+      });
+      if (out.code !== 200) return reply.code(out.code).send(out.body);
+
+      // After commit — telling either party is not part of the money decision.
+      const s = out.body.settlement;
+      const { rows: who } = await query(
+        `SELECT v.mobile_no AS vendor_mobile, v.vendor_name, c.mobile_no AS customer_mobile
+           FROM bazaar_settlements s
+           LEFT JOIN vendors v ON v.id = s.vendor_id
+           LEFT JOIN customers c ON c.id = s.customer_id
+          WHERE s.id = $1::uuid`, [s.id]);
+      if (who[0]?.vendor_mobile) {
+        // The partner is told THEIR number and only theirs.
+        notifyWhatsApp(who[0].vendor_mobile,
+          `✅ Load ${s.load_id} aapko mila hai — ₹${Number(s.awarded_amount).toLocaleString('en-IN')}. `
+          + 'App me jaakar confirm karein aur gaadi lagayein.');
+      }
+      return out.body;
+    } catch (e) { return pgErr(reply, e); }
   });
 
   // ═══ MARKET DRIVERS — APPROVAL ════════════════════════════════════════════

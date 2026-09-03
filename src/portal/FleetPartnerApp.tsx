@@ -130,6 +130,11 @@ const T = {
     editTruck: 'गाड़ी की जानकारी बदलो', saved: 'बदलाव सेव हो गया',
     detailsNote: 'ये जानकारी सीधे बदल जाती है। गाड़ी नंबर नहीं बदल सकता — उसके लिए ऑफिस से बात करें।',
     docHistory: 'भेजे हुए कागज़', noDocs: 'अभी कोई कागज़ नहीं भेजा।', view: 'देखो',
+    bidNote: 'बोली लगाना = ऑफर देना। ऑफिस तय करेगा और आपको बताएगा — गाड़ी तभी लगानी है।',
+    noLoads: 'अभी कोई खुला लोड नहीं', noLoadsSub: 'नया लोड आते ही यहाँ दिखेगा।',
+    bidsWord: 'बोली', myBid: 'आपकी बोली', withOffice: 'ऑफिस के पास', placeBid: 'बोली लगाओ',
+    bidTitle: 'बोली लगाओ', bidAmt: 'आपका भाड़ा (₹)', bidSend: 'बोली भेजो',
+    bidSentMsg: 'बोली ऑफिस को चली गई',
     loadsSoon: 'लोड बाज़ार जल्द आ रहा है',
     loadsSoonSub: 'बोली लगाने वाला हिस्सा ऑफिस ने अभी बंद रखा है। आपकी चल रही ट्रिप और पैसा वैसे ही चलता रहेगा — ऑफिस लोड देगा तो होम पर दिखेगा।',
     logout: 'साइन आउट', language: 'भाषा', call: `ऑफिस — ${DISPATCH_DISPLAY}`,
@@ -182,6 +187,11 @@ const T = {
     editTruck: 'Edit truck details', saved: 'Saved',
     detailsNote: 'These change straight away. The registration number cannot change — call the office for that.',
     docHistory: 'Papers sent', noDocs: 'No paper sent yet.', view: 'View',
+    bidNote: 'A bid is an OFFER, not a booking. The office decides and tells you — send a truck only then.',
+    noLoads: 'No open load right now', noLoadsSub: 'A new load appears here as soon as it is posted.',
+    bidsWord: 'bids', myBid: 'Your bid', withOffice: 'with the office', placeBid: 'Place a bid',
+    bidTitle: 'Place a bid', bidAmt: 'Your freight (₹)', bidSend: 'Send the bid',
+    bidSentMsg: 'Your bid is with the office',
     loadsSoon: 'Load Bazaar is coming soon',
     loadsSoonSub: 'The bidding side is switched off by the office for now. Your running trips and your money are unaffected — a load the office gives you appears on Home.',
     logout: 'Sign out', language: 'Language', call: `Office — ${DISPATCH_DISPLAY}`,
@@ -233,6 +243,7 @@ export default function FleetPartnerApp() {
   const [earn, setEarn] = useState(null);
   const [setts, setSetts] = useState([]);
   const [fleet, setFleet] = useState({ vehicles: [], drivers: [], pending: 0 });
+  const [openLoads, setOpenLoads] = useState([]);
 
   const [tab, setTab] = useState('home');
   const [view, setView] = useState({ k: 'tabs' });
@@ -245,14 +256,18 @@ export default function FleetPartnerApp() {
   const showMoney = !!vis['vend.bills'];
 
   const loadAll = useCallback(async (v) => {
-    const [e, s, f] = await Promise.all([
+    const [e, s, f, lo] = await Promise.all([
       api('/portal/vendor/earnings'),
       api('/portal/vendor/settlements'),
       v['vend.vehicles'] ? api('/portal/vendor/fleet') : Promise.resolve({ ok: false }),
+      // The blind board: no target rate, no other partner's amount — the view
+      // behind this route carries neither (v_bazaar_load_feed).
+      v['vend.bazaar'] ? api('/portal/vendor/loads') : Promise.resolve({ ok: false }),
     ]);
     if (e.ok) setEarn(e.body);
     if (s.ok) setSetts(s.body?.settlements ?? []);
     if (f.ok) setFleet(f.body ?? { vehicles: [], drivers: [], pending: 0 });
+    if (lo.ok) setOpenLoads(lo.body?.loads ?? []);
   }, []);
 
   useEffect(() => {
@@ -355,6 +370,7 @@ export default function FleetPartnerApp() {
   if (view.k === 'trip') return <TripDetail id={view.id} />;
   if (view.k === 'assign') return <AssignScreen id={view.id} />;
   if (view.k === 'pod') return <PodScreen id={view.id} />;
+  if (view.k === 'bid') return <BidScreen id={view.id} />;
   if (view.k === 'truck') return <TruckDetail id={view.id} />;
   if (view.k === 'renew') return <RenewScreen id={view.id} docType={view.docType} />;
   if (view.k === 'editTruck') return <EditTruck id={view.id} />;
@@ -434,6 +450,57 @@ export default function FleetPartnerApp() {
               <div className="text-[15px] font-extrabold text-slate-700">{wait ?? '—'}</div>
             </div>
           )}
+        </div>
+        {toast && <Toast />}
+      </div>
+    );
+  }
+
+  /** One bid on one load. Deliberately plain: an amount and a send button.
+   *  The partner is never shown the customer's target or anyone else's number —
+   *  not because the screen hides them, but because the server never sends
+   *  them (v_bazaar_load_feed carries no rates at all). */
+  function BidScreen({ id }) {
+    const l = openLoads.find((x) => x.load_id === id);
+    const [amount, setAmount] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    if (!l) { setView({ k: 'tabs' }); return null; }
+
+    const send = async () => {
+      const amt = Number(amount);
+      if (!(amt > 0)) { setErr(t.bidAmt); return; }
+      setBusy(true); setErr('');
+      const r = await api(`/portal/vendor/loads/${l.load_id}/bid`, {
+        method: 'POST', body: JSON.stringify({ bid_amount: amt }),
+      });
+      setBusy(false);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.bidSentMsg); setView({ k: 'tabs' });
+    };
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="bid">
+        <Bar title={t.bidTitle} sub={`${l.origin} → ${l.destination}`} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className={CARD}>
+            <KV rows={[
+              [t.route, `${l.origin} → ${l.destination}`],
+              [t.material, [l.material, l.weight ? `${l.weight} T` : null].filter(Boolean).join(' · ') || '—'],
+              [t.loadDate, dmy(l.loading_date)],
+              [t.bidsWord, String(l.bid_count ?? 0)],
+            ]} />
+          </div>
+          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bidNote}</div>
+          <div>
+            <Lbl>{t.bidAmt}</Lbl>
+            <Inp inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value.replace(/[^0-9.]/g, '')); setErr(''); }}
+              placeholder="₹" className="font-mono text-[20px]" data-bid-amount />
+          </div>
+          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-bid-send>
+            {busy ? t.sending : `💰 ${t.bidSend}`}
+          </button>
         </div>
         {toast && <Toast />}
       </div>
@@ -944,7 +1011,7 @@ export default function FleetPartnerApp() {
   const Nav = () => {
     const items = [
       ['home', '🏠', t.home, mine.length],
-      ['loads', '📦', t.loads, 0],
+      ['loads', '📦', t.loads, openLoads.filter((l) => !l.my_bid_amount).length],
       ['trips', '🚛', t.trips, 0],
       ['money', '💰', t.money, 0],
       ['fleet', '🔧', t.fleet, (fleet.pending ?? 0) + paperAlerts],
@@ -953,7 +1020,7 @@ export default function FleetPartnerApp() {
       <nav className="fixed bottom-0 left-1/2 z-40 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white px-1 pb-2.5 pt-1.5">
         {items.map(([k, i, l, n]) => (
           <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }}
-            className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : k === 'loads' ? 'text-slate-300' : 'text-slate-500'}`}
+            className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}
             data-nav={k}>
             <span className="text-[22px] leading-none">{i}</span>{l}
             {n > 0 && <span className="absolute right-[18%] top-0 rounded-full bg-red-500 px-1.5 text-[10px] font-extrabold text-white">{n}</span>}
@@ -1016,13 +1083,50 @@ export default function FleetPartnerApp() {
           </>
         )}
 
+        {/* THE LOAD BOARD — switched back on 3-Sep at the owner's word, with the
+            margin desk behind it. A bid here is an OFFER, not a booking: the
+            office decides, and the screen says so rather than letting a partner
+            plan a week around a lorry they have not been given. */}
         {tab === 'loads' && (
-          <div className={`${CARD} px-4 py-8 text-center`} data-screen="loads-soon">
-            <div className="text-5xl">🚧</div>
-            <div className="mt-3 text-[18px] font-extrabold text-slate-800">{t.loadsSoon}</div>
-            <div className="mt-2 text-[13px] font-semibold leading-relaxed text-slate-600">{t.loadsSoonSub}</div>
-            <button onClick={() => setTab('home')} className="mt-5 min-h-[46px] w-full rounded-xl bg-blue-600 text-[15px] font-extrabold text-white">‹ {t.home}</button>
-          </div>
+          <>
+            <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bidNote}</div>
+            {openLoads.length === 0 ? (
+              <div className={`${CARD} px-3 py-6 text-center`} data-screen="loads">
+                <div className="text-4xl">📦</div>
+                <div className="mt-2 text-[14px] font-extrabold text-slate-700">{t.noLoads}</div>
+                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-500">{t.noLoadsSub}</div>
+              </div>
+            ) : openLoads.map((l) => (
+              <div key={l.load_id} className={CARD} data-load={l.load_id}>
+                <div className="flex items-start gap-2 px-3 py-2.5">
+                  <span className="text-[22px] leading-none">📦</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14.5px] font-extrabold">{l.origin} → {l.destination}</div>
+                    <div className="truncate text-[11.5px] font-semibold text-slate-500">
+                      {l.load_id}{l.material ? ` · ${l.material}` : ''}{l.weight ? ` · ${l.weight} T` : ''}{l.loading_date ? ` · ${dmy(l.loading_date)}` : ''}
+                    </div>
+                  </div>
+                  {/* How many others are interested is fair to say; by how much
+                      is not, and the server never sends it. */}
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10.5px] font-extrabold text-slate-600">
+                    {l.bid_count ?? 0} {t.bidsWord}
+                  </span>
+                </div>
+                {l.my_bid_amount ? (
+                  <div className="mx-3 mb-2.5 rounded-xl bg-green-50 px-3 py-2 text-[12.5px] font-extrabold text-green-800">
+                    ✅ {t.myBid} ₹{Number(l.my_bid_amount).toLocaleString('en-IN')} · {t.withOffice}
+                  </div>
+                ) : (
+                  <div className="px-3 pb-3">
+                    <button onClick={() => setView({ k: 'bid', id: l.load_id })} disabled={viewAs}
+                      className="min-h-[50px] w-full rounded-xl bg-blue-600 text-[16px] font-extrabold text-white disabled:opacity-50" data-bid-open={l.load_id}>
+                      💰 {t.placeBid}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
         )}
 
         {tab === 'trips' && (

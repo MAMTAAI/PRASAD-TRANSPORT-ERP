@@ -28,11 +28,23 @@ export default function BazaarAdmin() {
   const [activeTab, setActiveTab] = useState('LIVE_BOARD'); 
   const [loading, setLoading] = useState(false);
   const [loads, setLoads] = useState([]);
+  // THE MARGIN DESK (owner, 3-Sep). Both sides of every open market deal, with
+  // the spread computed per bid by the server so nobody does it in their head.
+  const [desk, setDesk] = useState({ loads: [], floor_pct: 8 });
+  const [deskBusy, setDeskBusy] = useState('');
+  const [deal, setDeal] = useState({});      // per-load: { bid_id, customer_rate, partner_rate, margin_reason }
+  // CONTRACT vs MARKET (owner, 3-Sep): one board, two engines, never mixed.
+  const [boardKind, setBoardKind] = useState('MARKET');
   const [bids, setBids] = useState([]);
   
   const [marketTrucks, setMarketTrucks] = useState([]);
   const [mapStateFilter, setMapStateFilter] = useState('ALL');
   const [mapCityFilter, setMapCityFilter] = useState('');
+
+  const loadDesk = async () => {
+    try { setDesk(await fetchJson(`${BAZAAR}/margin-desk`)); }
+    catch (e) { console.error(e); }
+  };
 
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [customVehicleType, setCustomVehicleType] = useState(''); 
@@ -48,6 +60,7 @@ export default function BazaarAdmin() {
   useEffect(() => {
     fetchLoadsAndBids();
     fetchMarketTrucks();
+    loadDesk();
   }, []);
 
   const fetchLoadsAndBids = async () => {
@@ -295,6 +308,7 @@ export default function BazaarAdmin() {
           <p style={{ color: '#94a3b8', margin: '5px 0 15px 0', fontSize: '13px' }}>Manage live bids, active loads, and locate available fleet via Radar.</p>
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => setActiveTab('LIVE_BOARD')} style={{ background: activeTab === 'LIVE_BOARD' ? '#3b82f6' : '#1e293b', color: activeTab === 'LIVE_BOARD' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>📦 Live Load Board</button>
+            <button onClick={() => { setActiveTab('MARGIN'); loadDesk(); }} style={{ background: activeTab === 'MARGIN' ? '#7c3aed' : '#1e293b', color: activeTab === 'MARGIN' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>⚖️ Margin Desk{desk.loads?.length ? ` (${desk.loads.length})` : ''}</button>
             <button onClick={() => setActiveTab('RADAR_MAP')} style={{ background: activeTab === 'RADAR_MAP' ? '#10b981' : '#1e293b', color: activeTab === 'RADAR_MAP' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>📡 Fleet Radar (Map)</button>
             <button onClick={() => setActiveTab('ESCROW')} style={{ background: activeTab === 'ESCROW' ? '#f59e0b' : '#1e293b', color: activeTab === 'ESCROW' ? 'white' : '#94a3b8', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>💰 Settlements & Finance</button>
           </div>
@@ -306,6 +320,143 @@ export default function BazaarAdmin() {
            </button>
         )}
       </div>
+
+      {/* TAB: MARGIN DESK — the office sits between two parties who never see
+          each other's number. The spread is computed per bid by the server so
+          nobody does it in their head at 9 p.m.; the desk may edit either side
+          and locks what it can defend. */}
+      {activeTab === 'MARGIN' && (
+        <div style={{ display: 'grid', gap: '18px' }}>
+          {(desk.loads ?? []).length === 0 && (
+            <div style={{ background: 'rgba(30,41,59,0.5)', borderRadius: '14px', padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+              No market load is waiting on a decision. One appears here the moment a customer posts a load.
+            </div>
+          )}
+          {(desk.loads ?? []).map((l) => {
+            const d = deal[l.load_id] ?? {};
+            const chosen = (l.bids ?? []).find((b) => b.id === d.bid_id) ?? null;
+            const cust = Number(d.customer_rate ?? l.target_rate ?? 0);
+            const part = Number(d.partner_rate ?? chosen?.bid_amount ?? 0);
+            const margin = cust && part ? cust - part : null;
+            const pct = margin != null && cust ? Number(((margin / cust) * 100).toFixed(2)) : null;
+            const set = (k, v) => setDeal((m) => ({ ...m, [l.load_id]: { ...(m[l.load_id] ?? {}), [k]: v } }));
+            const lock = async (confirmFloor) => {
+              if (!d.bid_id) return alert('Pehle ek bid chunein.');
+              setDeskBusy(l.load_id);
+              try {
+                await fetchJson(`${BAZAAR}/loads/${l.load_id}/lock`, {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    bid_id: d.bid_id, customer_rate: cust, partner_rate: part,
+                    margin_reason: d.margin_reason || null, confirm_below_floor: !!confirmFloor,
+                  }),
+                });
+                alert(`🔒 Deal locked — margin ₹${Number(margin).toLocaleString('en-IN')} (${pct}%)`);
+                await Promise.all([loadDesk(), fetchLoadsAndBids()]);
+              } catch (e) {
+                // The floor is a question, not a wall: asked once, then obeyed.
+                if (e.code === 'BELOW_MARGIN_FLOOR' && window.confirm(`${e.message}\n\nLock it anyway?`)) {
+                  setDeskBusy('');
+                  return lock(true);
+                }
+                alert('❌ ' + e.message);
+              }
+              setDeskBusy('');
+            };
+            return (
+              <div key={l.load_id} style={{ background: 'rgba(15,23,42,0.75)', border: '1px solid #1e293b', borderRadius: '16px', padding: '18px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <div style={{ fontSize: '19px', fontWeight: 800 }}>{l.origin} → {l.destination}</div>
+                    <div style={{ color: '#94a3b8', fontSize: '13px' }}>
+                      {l.load_id} · {l.material ?? '—'} · {l.weight ?? '—'} T · load {String(l.loading_date ?? '').slice(0, 10)} · {l.customer ?? l.customer_name}
+                    </div>
+                  </div>
+                  <span style={{ background: 'rgba(59,130,246,.15)', color: '#93c5fd', border: '1px solid #3b82f6', borderRadius: '999px', padding: '4px 12px', fontSize: '12px', fontWeight: 800, height: 'fit-content' }}>
+                    {l.bid_count} BID{l.bid_count === 1 ? '' : 'S'} IN
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: '10px', marginTop: '14px' }}>
+                  <div style={{ background: '#111c33', borderRadius: '12px', padding: '11px' }}>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>CUSTOMER TARGET</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: '21px', fontWeight: 800 }}>₹{Number(l.target_rate ?? 0).toLocaleString('en-IN')}</div>
+                    <div style={{ color: '#64748b', fontSize: '12px' }}>what they said they would pay</div>
+                  </div>
+                  <div style={{ background: '#111c33', borderRadius: '12px', padding: '11px' }}>
+                    <div style={{ color: '#94a3b8', fontSize: '12px' }}>ROUTE · TOLL</div>
+                    <div style={{ fontFamily: 'monospace', fontSize: '17px', fontWeight: 800 }}>
+                      {l.lane?.km ? `${l.lane.km} km` : '— km'} · {l.lane?.toll != null ? `₹${Number(l.lane.toll).toLocaleString('en-IN')}` : '—'}
+                    </div>
+                    {/* The source is not decoration: a measured toll and an
+                        estimate must not read the same on a money screen. */}
+                    <div style={{ color: l.lane?.toll_source === 'OUR_TRIPS' ? '#4ade80' : '#f59e0b', fontSize: '12px' }}>{l.lane?.toll_label ?? '—'}</div>
+                  </div>
+                </div>
+
+                <div style={{ color: '#38bdf8', fontWeight: 800, fontSize: '14px', margin: '16px 0 8px' }}>Partner bids — blind to each other</div>
+                {(l.bids ?? []).length === 0 && <div style={{ color: '#64748b', fontSize: '13px' }}>No bids yet.</div>}
+                {(l.bids ?? []).map((b) => {
+                  const on = d.bid_id === b.id;
+                  return (
+                    <div key={b.id} onClick={() => { set('bid_id', b.id); set('partner_rate', b.bid_amount); }}
+                      data-bid={b.id}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', cursor: 'pointer',
+                               background: on ? '#0d2018' : '#111c33', border: `1px solid ${on ? '#16a34a' : '#24344f'}`,
+                               borderRadius: '10px', padding: '10px 13px', marginTop: '7px' }}>
+                      <div>
+                        <b>{on ? '🔘' : '⚪'} {b.vendor_name}</b>
+                        <div style={{ color: '#94a3b8', fontSize: '12px' }}>
+                          L{b.l_rank} · {b.trips_done} trip{b.trips_done === 1 ? '' : 's'} done{b.is_approved_for_portal ? '' : ' · portal not open'}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontFamily: 'monospace', fontWeight: 800 }}>₹{Number(b.bid_amount).toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize: '12px', color: b.margin_amount < 0 ? '#f87171' : b.below_floor ? '#fbbf24' : '#4ade80' }}>
+                          margin ₹{Number(b.margin_amount ?? 0).toLocaleString('en-IN')} ({b.margin_pct ?? '—'}%){b.below_floor && b.margin_amount >= 0 ? ' ⚠' : ''}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div style={{ background: margin != null && margin < 0 ? '#2a1215' : '#0d2018',
+                              border: `1px solid ${margin != null && margin < 0 ? '#ef4444' : '#16a34a'}`,
+                              borderRadius: '12px', padding: '13px', marginTop: '14px', display: 'grid', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <span>Customer pays</span>
+                    <input type="number" value={d.customer_rate ?? l.target_rate ?? ''} data-cust={l.load_id}
+                      onChange={(e) => set('customer_rate', e.target.value)}
+                      style={{ width: '150px', textAlign: 'right', fontFamily: 'monospace', background: '#020617', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '8px', padding: '7px 10px' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+                    <span>Partner gets</span>
+                    <input type="number" value={d.partner_rate ?? chosen?.bid_amount ?? ''} data-part={l.load_id}
+                      onChange={(e) => set('partner_rate', e.target.value)}
+                      style={{ width: '150px', textAlign: 'right', fontFamily: 'monospace', background: '#020617', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '8px', padding: '7px 10px' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #1e4d33', paddingTop: '8px' }}>
+                    <b>Company margin</b>
+                    <b style={{ fontFamily: 'monospace', color: margin == null ? '#94a3b8' : margin < 0 ? '#f87171' : '#4ade80' }}>
+                      {margin == null ? '—' : `₹${margin.toLocaleString('en-IN')} · ${pct}%`}
+                    </b>
+                  </div>
+                  {margin != null && margin < 0 && (
+                    <input placeholder="Ghata kyun? (client retention / repositioning) — zaroori hai" data-reason={l.load_id}
+                      value={d.margin_reason ?? ''} onChange={(e) => set('margin_reason', e.target.value)}
+                      style={{ background: '#020617', color: '#e2e8f0', border: '1px solid #ef4444', borderRadius: '8px', padding: '9px 11px' }} />
+                  )}
+                </div>
+
+                <button onClick={() => lock(false)} disabled={!d.bid_id || deskBusy === l.load_id} data-lock={l.load_id}
+                  style={{ width: '100%', marginTop: '13px', background: !d.bid_id ? '#334155' : 'linear-gradient(135deg,#16a34a,#15803d)', color: '#fff', border: 'none', borderRadius: '10px', padding: '13px', fontWeight: 800, cursor: d.bid_id ? 'pointer' : 'default' }}>
+                  {deskBusy === l.load_id ? 'Locking…' : '🔒 Lock deal & award'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* TAB 1: LIVE LOAD BOARD & BIDS */}
       {activeTab === 'LIVE_BOARD' && (
