@@ -22,10 +22,23 @@ import { getRoute, geocode, getDistanceMatrix } from '../lib/googleMaps.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { checkParty } from '../lib/partyFormats.js';
+import { laneEconomics } from '../lib/laneEconomics.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A coordinate or a place id that came off a form: empty string, "undefined"
+// and NaN all have to become NULL, or a numeric column takes them as 0,0 —
+// a pin in the Gulf of Guinea.
+// null and undefined must stay null. Number(null) is 0, and a toll stored as
+// ₹0.00 reads as "this lane is toll-free" — a lie the desk would price against.
+const num = (v) => {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const trim = (v) => (v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, 200));
 
 const customerOnly = async (req, reply) => {
   const done = await resolveParty(req, reply);
@@ -37,6 +50,42 @@ const customerOnly = async (req, reply) => {
 
 export function registerCustomerPortalRoutes(app) {
   // ═══ MY LOADS ═════════════════════════════════════════════════════════════
+
+  /** What a lane costs, before anybody commits to it.
+   *
+   *  Owner, 3-Sep: the customer must see the distance and the estimated toll
+   *  as they choose the two ends. Distance comes from Google (cached per lane);
+   *  the toll comes from OUR OWN FASTag history when we have run the lane, and
+   *  says so — a measured number and a guess must not read the same.
+   *
+   *  Also geocodes the two ends so the load carries a pin, not just a name.
+   *  Geocoding is best-effort: a depot Google has never heard of still posts,
+   *  because the text is what this business actually runs on. */
+  app.get('/portal/customer/lane', { preHandler: needsModule('cust.place_order') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const origin = String(req.query?.origin ?? '').trim();
+    const destination = String(req.query?.destination ?? '').trim();
+    if (!origin || !destination) {
+      return reply.code(400).send({ error: 'BAD_INPUT', detail: 'origin and destination are both required' });
+    }
+    const econ = await laneEconomics(origin, destination).catch(() => null);
+    const [o, d] = await Promise.all([
+      geocode(origin).catch(() => null),
+      geocode(destination).catch(() => null),
+    ]);
+    return {
+      origin, destination,
+      km: econ?.km ?? null,
+      duration_s: econ?.duration_s ?? null,
+      toll: econ?.toll ?? null,
+      toll_source: econ?.toll_source ?? null,
+      toll_label: econ?.toll_label ?? null,
+      // Nulls when Google cannot place the name. The screen shows the lane
+      // without a map rather than refusing the booking.
+      origin_point: o?.ok ? { lat: o.lat, lng: o.lng } : null,
+      dest_point: d?.ok ? { lat: d.lat, lng: d.lng } : null,
+    };
+  });
 
   app.get('/portal/customer/loads', { preHandler: needsModule('cust.place_order') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -88,15 +137,31 @@ export function registerCustomerPortalRoutes(app) {
         const { rows } = await c.query(`
           INSERT INTO bazaar_loads (load_id, customer_name, customer_id, origin, destination,
             distance_km, material, weight, target_rate, loading_date, vehicle_type, rate_type,
-            status, posted_by, book_now_rate, bid_close_at)
+            status, posted_by, book_now_rate, bid_close_at,
+            origin_lat, origin_lng, origin_place_id, dest_lat, dest_lng, dest_place_id,
+            est_distance_km, est_toll, est_toll_source)
           VALUES ($1,$2,$3::uuid,$4,$5,$6,$7,$8,COALESCE($9,0),$10,$11,$12,'PENDING_REVIEW','CUSTOMER_PORTAL',
                   $13, CASE WHEN $14::numeric IS NULL THEN NULL
-                            ELSE now() + ($14::numeric * interval '1 hour') END)
+                            ELSE now() + ($14::numeric * interval '1 hour') END,
+                  $15,$16,$17,$18,$19,$20,$21,$22,$23)
           RETURNING *`,
           [loadId, me[0]?.customer_name ?? 'CUSTOMER', req.party.customerId,
            b.origin, b.destination, b.distance_km ?? null, b.material ?? null, b.weight ?? null,
            b.target_rate ?? null, b.loading_date || null, b.vehicle_type ?? null, b.rate_type ?? null,
-           bookNow, closeHours]);
+           bookNow, closeHours,
+           // The pin, when Google could place the name. A depot it has never
+           // heard of posts with nulls here and works exactly as before.
+           num(b.origin_lat), num(b.origin_lng), trim(b.origin_place_id),
+           num(b.dest_lat), num(b.dest_lng), trim(b.dest_place_id),
+           // What the engine said at posting time, and on whose authority — so
+           // "why did we quote this?" has an answer a month later. The source is
+           // taken from the server's own lookup, never from the client.
+           b.est_distance_km == null ? null : Math.round(Number(b.est_distance_km)),
+           // A toll with no recognised source is dropped, not stored bare. An
+           // unsourced number on a money screen is the exact thing this design
+           // exists to prevent — it would read like a measured toll.
+           ['OUR_TRIPS', 'GOOGLE', 'MANUAL'].includes(b.est_toll_source) ? num(b.est_toll) : null,
+           ['OUR_TRIPS', 'GOOGLE', 'MANUAL'].includes(b.est_toll_source) ? b.est_toll_source : null]);
         return rows[0];
       });
       // Maker-checker (2026-08-31): a customer load opens for bidding only

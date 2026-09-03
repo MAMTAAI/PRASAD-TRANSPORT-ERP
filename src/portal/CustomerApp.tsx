@@ -32,6 +32,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
 import RouteMap from '../lib/RouteMap';
+import PlaceInput from '../lib/PlaceInput';
 import { DISPATCH_TEL, DISPATCH_DISPLAY } from '../lib/dispatchContact';
 
 const API = API_BASE;
@@ -121,6 +122,9 @@ const T = {
     podPending: 'Delivered — the paper is with the office. It appears here the moment it is verified.',
     podView: 'POD', verified: 'verified', receivedBy: 'Received by', loadedUnloaded: 'Loaded / Unloaded', openFail: 'Could not open this file. Call the office.',
     account: 'Account', readonly: 'read-only', billsHead: 'Bills', billed: 'Billed', received: 'Received', outstanding: 'Outstanding',
+    laneKm: 'Distance', laneToll: 'Estimated toll', laneLooking: 'Checking the route…',
+    laneMeasured: 'from our own past runs on this lane', laneNoData: 'no past run — the office will confirm the toll',
+    pinOk: 'pin set', pinNone: 'no pin — the name is enough',
     bankHead: 'Bank account', bankNone: 'No bank account on file with the office.',
     bankUpdate: 'Update bank details', bankName: 'Bank name', bankAcct: 'Account number', bankIfsc: 'IFSC code',
     bankWait: 'With the office', bankWaitSub: 'The office is checking the account you sent. Your details change only after they approve it.',
@@ -170,6 +174,9 @@ const T = {
     podPending: 'डिलीवर हो गई — कागज़ ऑफिस के पास है। जाँच होते ही यहाँ दिखेगा।',
     podView: 'POD', verified: 'जाँचा', receivedBy: 'प्राप्तकर्ता', loadedUnloaded: 'लोड / खाली', openFail: 'फाइल नहीं खुली। ऑफिस को कॉल करो।',
     account: 'खाता', readonly: 'सिर्फ़ देखने के लिए', billsHead: 'बिल', billed: 'बिल बना', received: 'भुगतान मिला', outstanding: 'बकाया',
+    laneKm: 'दूरी', laneToll: 'अनुमानित टोल', laneLooking: 'रास्ता देख रहे हैं…',
+    laneMeasured: 'हमारी पिछली ट्रिप से', laneNoData: 'इस रास्ते पर पहले नहीं गए — ऑफिस टोल बताएगा',
+    pinOk: 'जगह पक्की', pinNone: 'पिन नहीं — नाम काफ़ी है',
     bankHead: 'बैंक खाता', bankNone: 'ऑफिस के पास आपका बैंक खाता दर्ज नहीं है।',
     bankUpdate: 'बैंक की जानकारी बदलो', bankName: 'बैंक का नाम', bankAcct: 'खाता नंबर', bankIfsc: 'IFSC कोड',
     bankWait: 'ऑफिस के पास है', bankWaitSub: 'ऑफिस आपका भेजा खाता जाँच रहा है। मंज़ूरी के बाद ही बदलेगा।',
@@ -1061,6 +1068,23 @@ export default function CustomerApp() {
       material: '', weight: '', loading_date: today(), vehicle_type: '', target_rate: '',
     }));
     const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+    // What this lane costs, looked up as soon as both ends are named. Debounced,
+    // because PlaceInput fires on every keystroke and each miss is a paid call.
+    const [lane, setLane] = useState(null);
+    const [laneBusy, setLaneBusy] = useState(false);
+    useEffect(() => {
+      const o = f.origin?.trim(), d = f.destination?.trim();
+      if (!o || !d || o.length < 3 || d.length < 3) { setLane(null); return; }
+      let dead = false;
+      setLaneBusy(true);
+      const timer = setTimeout(async () => {
+        const r = await api(`/portal/customer/lane?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}`);
+        if (dead) return;
+        setLaneBusy(false);
+        setLane(r.ok ? r.body : null);
+      }, 700);
+      return () => { dead = true; clearTimeout(timer); setLaneBusy(false); };
+    }, [f.origin, f.destination]);
     const MATERIALS = ['Cement', 'Steel', 'Tea', 'HSD', 'MS', 'Other'];
     const VTYPES = ['Open 10-wheel', 'Trailer', 'Container', 'Tanker'];
     const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
@@ -1078,6 +1102,19 @@ export default function CustomerApp() {
           material: f.material || null, weight: f.weight === '' ? null : Number(f.weight),
           loading_date: f.loading_date || null, vehicle_type: f.vehicle_type || null,
           target_rate: f.target_rate === '' ? null : Number(f.target_rate),
+          // The pin and the priced lane, exactly as the server computed them a
+          // moment ago — so the load records where it was going and what we
+          // thought it would cost, not a number typed from memory.
+          origin_place_id: f.origin_place_id || null,
+          dest_place_id: f.dest_place_id || null,
+          origin_lat: lane?.origin_point?.lat ?? null,
+          origin_lng: lane?.origin_point?.lng ?? null,
+          dest_lat: lane?.dest_point?.lat ?? null,
+          dest_lng: lane?.dest_point?.lng ?? null,
+          est_distance_km: lane?.km ?? null,
+          est_toll: lane?.toll ?? null,
+          est_toll_source: lane?.toll_source ?? null,
+          distance_km: lane?.km ?? null,
         }),
       });
       setSendBusy(false);
@@ -1105,10 +1142,53 @@ export default function CustomerApp() {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <div><Lbl>{t.fromLbl}</Lbl><Inp value={f.origin} onChange={(e) => set('origin', e.target.value)} placeholder="Guwahati" data-origin /></div>
-              <div><Lbl>{t.toLbl}</Lbl><Inp value={f.destination} onChange={(e) => set('destination', e.target.value)} placeholder="Agartala" data-destination /></div>
+            {/* PIN-POINT (owner, 3-Sep). PlaceInput is Google Places with session
+                tokens, and it accepts free text when Google has never heard of
+                the depot — which is half these lanes. The pin is an
+                accelerator, never a gate. */}
+            <div>
+              <Lbl>{t.fromLbl}</Lbl>
+              <PlaceInput value={f.origin} onChange={(v) => set('origin', v)} placeholder="Guwahati"
+                onResolved={(p) => set('origin_place_id', p?.place_id ?? '')}
+                className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500"
+                id="lane-origin" />
+              <input type="hidden" value={f.origin} data-origin readOnly />
             </div>
+            <div>
+              <Lbl>{t.toLbl}</Lbl>
+              <PlaceInput value={f.destination} onChange={(v) => set('destination', v)} placeholder="Agartala"
+                onResolved={(p) => set('dest_place_id', p?.place_id ?? '')}
+                className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500"
+                id="lane-dest" />
+              <input type="hidden" value={f.destination} data-destination readOnly />
+            </div>
+
+            {/* Distance and the toll, the moment both ends are named. The
+                SOURCE is said out loud: a toll measured from our own FASTag
+                runs and one nobody has checked must not read the same. */}
+            {(laneBusy || lane) && (
+              <div className={`${CARD} px-3 py-2.5`} data-lane>
+                {laneBusy && !lane && <div className="text-[12.5px] font-semibold text-slate-500">{t.laneLooking}</div>}
+                {lane && (
+                  <>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="text-[12px] font-semibold text-slate-500">{t.laneKm}</span>
+                      <span className="text-[15px] font-extrabold">{lane.km ? `${lane.km} km` : '—'}</span>
+                    </div>
+                    <div className="mt-1 flex items-baseline justify-between gap-3">
+                      <span className="text-[12px] font-semibold text-slate-500">{t.laneToll}</span>
+                      <span className="text-[15px] font-extrabold">{lane.toll != null ? inr(lane.toll) : '—'}</span>
+                    </div>
+                    <div className={`mt-1 text-[11.5px] font-bold ${lane.toll_source === 'OUR_TRIPS' ? 'text-green-700' : 'text-amber-700'}`}>
+                      {lane.toll_source === 'OUR_TRIPS' ? `✓ ${t.laneMeasured}` : t.laneNoData}
+                    </div>
+                    <div className="mt-1 text-[11px] font-semibold text-slate-400">
+                      📍 {lane.origin_point && lane.dest_point ? t.pinOk : t.pinNone}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <div>
               <Lbl>{t.material}</Lbl>
               <div className="flex flex-wrap gap-1.5">{MATERIALS.map((m) => <Chip key={m} on={f.material === m} onClick={() => set('material', m)}>{m}</Chip>)}</div>
