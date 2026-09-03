@@ -15,7 +15,6 @@ import ProtectedRoute from './auth/ProtectedRoute';
 import UniversalLogin from './UniversalLogin';
 
 // Role-isolated bundles — one chunk per environment.
-const OfficeStaffConsole = lazy(() => import('./OfficeStaffConsole'));
 // THE ARCHITECTURAL LOCK (owner, 2026-09-02): the gateway routes an outside
 // party to its REAL workspace — the same apps the staff previews show — never
 // to a mobile-suite stand-in. One login, four isolated portals:
@@ -62,7 +61,8 @@ function Router() {
   }, [logout, refresh]);
   useEffect(() => { /* keeps the handoff in step with a token refresh */ }, [token, role]);
 
-  if (!isAuthenticated) return <UniversalLogin onAuthenticated={refresh} />;
+  // Gate 2 paints its own full light screen; undo the shell's dark padding.
+  if (!isAuthenticated) return <div className="-m-3 sm:-m-5"><UniversalLogin onAuthenticated={refresh} /></div>;
 
   const exit = (
     <button onClick={signOut} title="Sign out of this workspace"
@@ -73,10 +73,20 @@ function Router() {
 
   return (
     <Suspense fallback={<EnvLoader />}>
+      {/* STRICT SEPARATION (owner, 2026-09-03): the mobile gateway never opens
+          a staff workspace. The server already refuses a staff number at
+          /otp/verify (external_only); this is the belt to that brace, for a
+          staff session that arrived here by any other path. */}
       {(role === 'ADMIN' || role === 'OFFICE_STAFF') && (
-        <ProtectedRoute allowedRoles={['ADMIN', 'OFFICE_STAFF']} onDenied={refresh}>
-          <OfficeStaffConsole />
-        </ProtectedRoute>
+        <div className="grid min-h-screen place-items-center p-6 text-center">
+          <div className="w-full max-w-sm rounded-3xl border border-cyan-500/40 bg-cyan-500/10 p-6">
+            <p className="text-3xl">🏢</p>
+            <h2 className="mt-2 text-[17px] font-black text-white">Office staff sign in on the desktop ERP</h2>
+            <p className="mt-2 text-[13px] leading-relaxed text-slate-300">This mobile gateway is for drivers, vendors, customers and fleet partners only. No workspace was opened for this session.</p>
+            <a href="/login" className="mt-4 block rounded-xl bg-cyan-400 px-4 py-3 text-[13px] font-black text-[#02131a]">Open the office login →</a>
+            <button onClick={signOut} className="mt-2 w-full rounded-xl border border-slate-700 px-4 py-3 text-[13px] font-bold text-slate-300">Sign out</button>
+          </div>
+        </div>
       )}
       {role === 'DRIVER' && (
         <ProtectedRoute allowedRoles={['DRIVER']} onDenied={refresh}>

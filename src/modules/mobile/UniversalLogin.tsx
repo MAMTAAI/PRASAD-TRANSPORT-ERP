@@ -1,243 +1,233 @@
 // @ts-nocheck
 // ============================================================================
-// <UniversalLogin /> — the one door for all 5 roles.
+// GATE 2 — SUPER-APP GATEWAY (mobile-first, external parties only)
 //
-// Step 1: mobile number or email. An email routes to the password lane
-//         (staff/admin); a 10-digit mobile routes to the WhatsApp-OTP lane
-//         (staff, drivers, customers, vendors — the API resolves who you are).
-// Step 2: 6-digit OTP boxes (auto-advance, paste-aware) or password.
-// On success the API's role decides which isolated environment loads —
-// the client never picks its own privileges.
+// Owner, 2026-09-03: "Simple mobile login asking ONLY for a Mobile Number for
+// OTP. Target: Drivers, Vendors, Customers, Fleet Partners. Upon OTP
+// verification, the backend auto-routes the user directly to their isolated
+// mobile portal. They never see the Admin dashboard."
+//
+// So this screen has exactly one field. No email lane, no password lane, no
+// role picker: the server looks the number up on the masters and answers with
+// the one role it belongs to, and <MobileSuiteApp> mounts that portal and
+// nothing else. A staff number is refused here (403 STAFF_USE_DESKTOP) and
+// pointed at the office door, Gate 1 (/login). A number on no master gets the
+// "get registered by the office" screen — the OTP still verified, so the
+// person knows the phone and the code work and only the registration is
+// missing.
+//
+// Hindi first, English under it, buttons a thumb can hit in a moving cab.
 // ============================================================================
-import React, { useMemo, useRef, useState } from 'react';
-import { Hexagon, Smartphone, KeyRound, ArrowRight, ArrowLeft, MessageCircle, ShieldCheck, Loader2 } from 'lucide-react';
-import { useAuth, ROLES } from './auth/AuthProvider';
+import React, { useEffect, useRef, useState } from 'react';
+import { useAuth } from './auth/AuthProvider';
 
-const ROLE_BADGES = {
-  ADMIN: 'text-red-300 border-red-500/40', OFFICE_STAFF: 'text-cyan-300 border-cyan-500/40',
-  CUSTOMER: 'text-emerald-300 border-emerald-500/40', VENDOR: 'text-amber-300 border-amber-500/40',
-  DRIVER: 'text-violet-300 border-violet-500/40',
-};
+const GATE1_URL = '/login';
+const DISPATCH_MOBILE = String(import.meta.env?.VITE_DISPATCH_MOBILE || '').replace(/\D/g, '');
+
+const EMPTY = ['', '', '', '', '', ''];
 
 export default function UniversalLogin({ onAuthenticated }) {
-  const { requestOtp, verifyOtp, loginPassword, verifyLogin2fa } = useAuth();
-  const [step, setStep] = useState(1);   // 3 = staff 2FA code after the password
-  const [identifier, setIdentifier] = useState('');
-  const [password, setPassword] = useState('');
-  const [digits, setDigits] = useState(['', '', '', '', '', '']);
+  const { requestOtp, verifyOtp } = useAuth();
+  // NUMBER → OTP → ROUTING, or one of the three dead ends.
+  const [step, setStep] = useState('NUMBER');
+  const [mobile, setMobile] = useState('');
+  const [digits, setDigits] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [channelNote, setChannelNote] = useState('');
+  const [channel, setChannel] = useState('');
+  const [ttl, setTtl] = useState(5);
   const boxes = useRef([]);
 
-  const isEmail = useMemo(() => identifier.includes('@'), [identifier]);
-  const mobile = useMemo(() => identifier.replace(/\D/g, '').slice(-10), [identifier]);
+  const clean = mobile.replace(/\D/g, '').replace(/^91(?=[6-9]\d{9}$)/, '').slice(-10);
+  const valid = /^[6-9]\d{9}$/.test(clean);
+  const pretty = clean ? `${clean.slice(0, 5)} ${clean.slice(5)}` : '';
 
-  const begin = async () => {
+  const send = async () => {
     setError('');
-    if (isEmail) { setStep(2); return; }
-    if (mobile.length !== 10) { setError('Enter a 10-digit mobile number or an email.'); return; }
+    if (!valid) { setError('10 अंकों का मोबाइल नंबर डालो'); return; }
     setBusy(true);
-    const r = await requestOtp(mobile);
+    const r = await requestOtp(clean);
     setBusy(false);
-    if (!r.ok) { setError(r.detail || r.error || 'Could not send OTP'); return; }
-    setChannelNote(r.demo ? 'DEMO MODE — backend offline, OTP is 123456' : `OTP sent on ${r.channel} · valid ${r.ttl} min`);
-    setStep(2);
+    if (!r.ok) {
+      if (r.error === 'OTP_CHANNEL_UNAVAILABLE' || r.error === 'OTP_SEND_FAILED') { setStep('DOWN'); return; }
+      setError(r.error === 'NETWORK' ? 'इंटरनेट नहीं है — दोबारा कोशिश करो' : 'OTP नहीं भेज पाए — नंबर चेक करो');
+      return;
+    }
+    setChannel(r.channel === 'whatsapp' ? 'WhatsApp' : r.channel === 'sms' ? 'SMS' : r.channel === 'dev' ? 'test' : String(r.channel || ''));
+    setTtl(r.ttl || 5);
+    setDigits(EMPTY);
+    setStep('OTP');
     setTimeout(() => boxes.current[0]?.focus(), 60);
   };
 
-  const submitOtp = async (code) => {
+  const verify = async (code) => {
     setBusy(true); setError('');
-    const r = await verifyOtp(mobile, code);
+    const r = await verifyOtp(clean, code);
     setBusy(false);
-    if (!r.ok) { setError(r.error || 'Invalid code'); setDigits(['', '', '', '', '', '']); boxes.current[0]?.focus(); return; }
-    onAuthenticated?.(r.role);
-  };
-
-  const submitPassword = async () => {
-    setBusy(true); setError('');
-    const r = await loginPassword(identifier.trim().toLowerCase(), password);
-    setBusy(false);
-    if (!r.ok) { setError(r.error || 'Login failed'); return; }
-    // 2026-08-31 mandate: the password was right but the session is being held
-    // back until the code that went to the registered mobile comes back.
-    if (r.otpRequired) {
-      setChannelNote(`Password sahi — OTP sent to ${r.mobile} · valid ${r.ttl} min`);
-      setDigits(['', '', '', '', '', '']);
-      setStep(3);
-      setTimeout(() => boxes.current[0]?.focus(), 60);
+    if (r.ok) {
+      // The role is the server's word. A short "opening your portal" beat so the
+      // switch to the portal is not a flash.
+      setStep('ROUTING');
+      setTimeout(() => onAuthenticated?.(r.role), 900);
       return;
     }
-    onAuthenticated?.(r.role);
+    setDigits(EMPTY);
+    if (r.error === 'NO_ACCOUNT') { setStep('NO_ACCOUNT'); return; }
+    if (r.error === 'STAFF_USE_DESKTOP') { setStep('STAFF'); return; }
+    if (r.error === 'ACCOUNT_PENDING_APPROVAL') { setError('आपका खाता अभी ऑफिस की मंज़ूरी का इंतज़ार कर रहा है'); return; }
+    if (r.error === 'ACCOUNT_SUSPENDED') { setError('आपका खाता रोका गया है — ऑफिस से बात करो'); return; }
+    // No live code for this number. The server sends nothing to a number that
+    // is on no master (and says nothing about it, on purpose), so from the
+    // phone this looks the same as an expired code — the screen offers both
+    // ways out: send again, or get registered by the office.
+    if (r.error === 'OTP_EXPIRED') { setStep('NO_ACCOUNT'); return; }
+    if (r.error === 'OTP_ATTEMPTS_EXCEEDED') { setError('बहुत बार गलत — नया OTP मंगाओ'); return; }
+    if (r.error === 'OTP_INVALID') { setError('OTP गलत है — फिर से देखो'); boxes.current[0]?.focus(); return; }
+    setError(r.error === 'NETWORK' ? 'इंटरनेट नहीं है — दोबारा कोशिश करो' : 'कुछ गड़बड़ हुई — दोबारा कोशिश करो');
   };
-
-  const submit2fa = async (code) => {
-    setBusy(true); setError('');
-    const r = await verifyLogin2fa(identifier.trim().toLowerCase(), code);
-    setBusy(false);
-    if (!r.ok) { setError(r.error || 'Invalid code'); setDigits(['', '', '', '', '', '']); boxes.current[0]?.focus(); return; }
-    onAuthenticated?.(r.role);
-  };
-
-  // One set of boxes, two verifiers: step 2 is the mobile-OTP login, step 3 is
-  // the staff 2FA code after a correct password.
-  const submitCode = (code) => (step === 3 ? submit2fa(code) : submitOtp(code));
 
   const onDigit = (i, v) => {
     const c = v.replace(/\D/g, '');
-    if (c.length > 1) { // paste of the whole code
+    if (c.length > 1) {
       const all = c.slice(0, 6).split('');
-      setDigits([...all, '', '', '', '', '', ''].slice(0, 6));
-      if (all.length === 6) submitCode(all.join(''));
+      setDigits([...all, ...EMPTY].slice(0, 6));
+      if (all.length === 6) verify(all.join(''));
       return;
     }
     const next = [...digits]; next[i] = c; setDigits(next);
     if (c && i < 5) boxes.current[i + 1]?.focus();
-    if (next.every((d) => d) && next.join('').length === 6) submitCode(next.join(''));
+    if (next.every((d) => d) && next.join('').length === 6) verify(next.join(''));
   };
 
+  // WebOTP: on Android Chrome an SMS in the standard format fills the boxes by
+  // itself. Best effort — silent when the browser cannot do it.
+  useEffect(() => {
+    if (step !== 'OTP' || !('OTPCredential' in window)) return;
+    const ac = new AbortController();
+    navigator.credentials.get({ otp: { transport: ['sms'] }, signal: ac.signal })
+      .then((otp) => { if (otp?.code) onDigit(0, otp.code); })
+      .catch(() => {});
+    return () => ac.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const reset = () => { setStep('NUMBER'); setDigits(EMPTY); setError(''); setBusy(false); };
+
+  // ── shared bits ───────────────────────────────────────────────────────────
+  const BIG = 'w-full rounded-2xl bg-emerald-600 px-4 py-4 text-[20px] font-black text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] active:translate-y-1 active:shadow-none disabled:opacity-60';
+  const GHOST = 'w-full rounded-2xl border-2 border-slate-300 bg-white px-4 py-3.5 text-[16px] font-bold text-slate-800';
+  const Brand = ({ icon = '🚛', title = 'Prasad Transport', sub = 'App · ऐप', tone = 'from-emerald-500 to-teal-600' }) => (
+    <div className="pt-8 text-center">
+      <span className={`mx-auto grid h-16 w-16 place-items-center rounded-[18px] bg-gradient-to-br ${tone} text-[32px] shadow-[0_10px_24px_rgba(22,163,74,0.35)]`}>{icon}</span>
+      <h1 className="mt-3 text-[24px] font-black text-slate-900">{title}</h1>
+      <p className="text-[13px] font-semibold text-slate-500">{sub}</p>
+    </div>
+  );
+  const Err = error ? <p className="mt-3 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 text-center text-[14px] font-bold text-red-700">{error}</p> : null;
+
   return (
-    <div className="min-h-full w-full grid place-items-center p-4 bg-[#080c14]"
-      style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <div className="relative w-full max-w-md">
-        {/* neon glow ground */}
-        <div className="pointer-events-none absolute -top-16 -left-16 w-64 h-64 rounded-full bg-emerald-500/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-cyan-500/15 blur-3xl" />
+    <div className="min-h-screen w-full bg-[#f8fafc] text-slate-900" data-gate="2"
+      style={{ fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' }}>
+      <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-8">
 
-        <div className="relative rounded-3xl bg-slate-900/40 backdrop-blur-md border border-slate-700/50 p-6 sm:p-8 shadow-[0_8px_40px_rgba(0,0,0,0.5)]">
-          {/* brand */}
-          <div className="flex flex-col items-center text-center">
-            <span className="grid place-items-center w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-cyan-600 shadow-[0_0_28px_rgba(52,211,153,0.45)]">
-              <Hexagon size={26} className="text-white" />
-            </span>
-            <h1 className="mt-4 text-lg font-black text-white tracking-wide">PRASAD TRANSPORT</h1>
-            <p className="text-[10px] font-bold tracking-[0.3em] text-emerald-400/80 uppercase">Universal Gateway · v5.0</p>
-          </div>
+        {step === 'NUMBER' && (
+          <>
+            <Brand />
+            <label className="mt-8 block text-[16px] font-black">अपना मोबाइल नंबर डालो
+              <span className="block text-[12px] font-semibold text-slate-500">Enter your mobile number · bas itna hi</span>
+            </label>
+            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-white px-4 py-3 ${error ? 'border-red-300' : 'border-slate-300 focus-within:border-emerald-500'}`}>
+              <span className="text-[16px] font-bold text-slate-500">+91</span>
+              <input
+                type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={13} autoFocus
+                value={mobile} onChange={(e) => { setMobile(e.target.value); setError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && send()}
+                placeholder="98765 43210"
+                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-900 placeholder-slate-300 outline-none"
+              />
+            </div>
+            {Err}
+            <button onClick={send} disabled={busy} className={`${BIG} mt-4`} id="g2-send">{busy ? 'भेज रहे हैं…' : 'OTP भेजो →'}</button>
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed text-slate-500">
+              OTP WhatsApp पर आएगा · न आए तो SMS पर<br />कोई पासवर्ड नहीं · कोई फॉर्म नहीं
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-1.5">
+              {['🚚 Driver', '🔧 Vendor', '🏭 Customer', '🤝 Fleet Partner'].map((w) => (
+                <span key={w} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-extrabold text-slate-700">{w}</span>
+              ))}
+            </div>
+            <a href={GATE1_URL} className="mt-auto pt-8 text-center text-[11.5px] font-bold text-slate-400 underline decoration-dotted underline-offset-4">ऑफिस स्टाफ? Desktop login →</a>
+          </>
+        )}
 
-          {/* the 5 environments this door serves */}
-          <div className="mt-4 flex flex-wrap justify-center gap-1.5">
-            {ROLES.map((r) => (
-              <span key={r} className={`px-2 py-0.5 rounded-full border bg-white/5 text-[8px] font-black tracking-wider ${ROLE_BADGES[r]}`}>{r}</span>
-            ))}
-          </div>
-
-          {step === 1 && (
-            <div className="mt-7">
-              <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Mobile number / Email</label>
-              <div className="mt-1.5 flex items-center gap-2 rounded-2xl bg-slate-950/70 border border-slate-700/50 px-4 py-3 focus-within:border-emerald-500/60 transition-colors">
-                <Smartphone size={16} className="text-slate-500 shrink-0" />
+        {step === 'OTP' && (
+          <>
+            <Brand icon="💬" title="OTP डालो" sub={`+91 ${pretty} पर भेजा${channel ? ` · ${channel}` : ''}`} />
+            <div className="mt-8 flex justify-between gap-2">
+              {digits.map((d, i) => (
                 <input
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && begin()}
-                  placeholder="98765 43210  or  you@prasad.com"
-                  inputMode="email"
-                  className="flex-1 min-w-0 bg-transparent text-[15px] text-slate-100 placeholder-slate-600 outline-none"
-                  autoFocus
+                  key={i} ref={(el) => (boxes.current[i] = el)} value={d}
+                  onChange={(e) => onDigit(i, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) boxes.current[i - 1]?.focus(); }}
+                  inputMode="numeric" maxLength={6} autoComplete="one-time-code"
+                  className={`h-14 w-full rounded-xl border-2 bg-white text-center font-mono text-[24px] font-black text-slate-900 outline-none ${d ? 'border-emerald-500' : 'border-slate-300 focus:border-emerald-500'}`}
                 />
-              </div>
-              <button
-                onClick={begin} disabled={busy}
-                className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-600 to-cyan-600 px-4 py-3.5 text-[13px] font-black text-white shadow-[0_0_25px_rgba(52,211,153,0.35)] hover:brightness-110 transition-all disabled:opacity-60"
-              >
-                {busy ? <Loader2 size={16} className="animate-spin" /> : isEmail ? <KeyRound size={15} /> : <MessageCircle size={15} />}
-                {isEmail ? 'Continue with password' : 'Send WhatsApp OTP'}
-                <ArrowRight size={15} />
-              </button>
-              <p className="mt-3 text-center text-[10px] text-slate-600">
-                Your role is detected automatically — one app, five secure environments.
-              </p>
+              ))}
             </div>
-          )}
+            {Err}
+            <p className="mt-3 text-center text-[13px] font-semibold text-slate-500">
+              {busy ? 'चेक हो रहा है…' : `अपने आप पढ़ लेगा · ${ttl} मिनट तक चलेगा`}
+            </p>
+            <button onClick={() => verify(digits.join(''))} disabled={busy || digits.join('').length !== 6} className={`${BIG} mt-4`} id="g2-verify">✅ आगे बढ़ो</button>
+            <button onClick={send} disabled={busy} className={`${GHOST} mt-2`}>🔁 OTP दोबारा भेजो</button>
+            <button onClick={reset} className={`${GHOST} mt-2`}>‹ नंबर बदलो</button>
+          </>
+        )}
 
-          {step === 2 && !isEmail && (
-            <div className="mt-7">
-              <p className="text-center text-[12px] text-slate-400">
-                Code sent to <span className="font-black text-slate-100">+91 {mobile}</span>
-              </p>
-              {channelNote && <p className="mt-1 text-center text-[10px] font-bold text-emerald-400">{channelNote}</p>}
-              <div className="mt-4 flex justify-center gap-2">
-                {digits.map((d, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => (boxes.current[i] = el)}
-                    value={d}
-                    onChange={(e) => onDigit(i, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) boxes.current[i - 1]?.focus(); }}
-                    inputMode="numeric" maxLength={6}
-                    className="w-11 h-14 sm:w-12 rounded-xl bg-slate-950/70 border border-slate-700/50 text-center text-xl font-black text-emerald-300 outline-none focus:border-emerald-500/70 focus:shadow-[0_0_15px_rgba(52,211,153,0.25)] transition-all"
-                  />
-                ))}
-              </div>
-              {busy && <p className="mt-3 text-center text-[11px] text-cyan-400 flex items-center justify-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Verifying…</p>}
-              <button onClick={() => { setStep(1); setDigits(['', '', '', '', '', '']); setError(''); }} className="mt-4 mx-auto flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-300 transition-colors">
-                <ArrowLeft size={12} /> Change number
-              </button>
+        {step === 'ROUTING' && (
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <span className="h-14 w-14 animate-spin rounded-full border-[6px] border-slate-200 border-t-emerald-600" />
+            <p className="mt-6 text-[18px] font-black">✅ OTP सही है</p>
+            <p className="text-[16px] font-bold text-slate-700">आपका पोर्टल खुल रहा है…</p>
+            <p className="mt-2 text-[12px] font-semibold text-slate-500">server is opening the one portal this number belongs to</p>
+          </div>
+        )}
+
+        {step === 'NO_ACCOUNT' && (
+          <>
+            <Brand icon="❓" title="OTP नहीं मिला?" sub={`+91 ${pretty}`} tone="from-slate-500 to-slate-700" />
+            <div className="mt-8 rounded-2xl border-2 border-red-200 bg-red-50 p-4 text-center">
+              <p className="text-[20px] font-black text-red-800">नंबर रजिस्टर नहीं है?</p>
+              <p className="mt-1 text-[14px] font-semibold leading-relaxed text-red-900/80">OTP सिर्फ़ उन्हीं नंबरों पर जाता है जो ऑफिस में ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम दर्ज हैं। नहीं आया तो ऑफिस से रजिस्टर करवाओ — या समय निकल गया हो तो दोबारा भेजो।</p>
             </div>
-          )}
+            {DISPATCH_MOBILE && <a href={`tel:+91${DISPATCH_MOBILE}`} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
+            <button onClick={send} disabled={busy} className={`${DISPATCH_MOBILE ? GHOST : BIG} mt-2`}>🔁 OTP दोबारा भेजो</button>
+            <button onClick={reset} className={`${GHOST} mt-2`}>‹ दूसरा नंबर</button>
+          </>
+        )}
 
-          {step === 2 && isEmail && (
-            <div className="mt-7">
-              <p className="text-center text-[12px] text-slate-400">Staff login for <span className="font-black text-slate-100">{identifier}</span></p>
-              <div className="mt-4 flex items-center gap-2 rounded-2xl bg-slate-950/70 border border-slate-700/50 px-4 py-3 focus-within:border-cyan-500/60 transition-colors">
-                <KeyRound size={16} className="text-slate-500 shrink-0" />
-                <input
-                  type="password" value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && submitPassword()}
-                  placeholder="Password"
-                  className="flex-1 min-w-0 bg-transparent text-[15px] text-slate-100 placeholder-slate-600 outline-none"
-                  autoFocus
-                />
-              </div>
-              <button
-                onClick={submitPassword} disabled={busy}
-                className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-3.5 text-[13px] font-black text-white shadow-[0_0_25px_rgba(34,211,238,0.3)] hover:brightness-110 transition-all disabled:opacity-60"
-              >
-                {busy ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={15} />} Sign in
-              </button>
-              <button onClick={() => { setStep(1); setPassword(''); setError(''); }} className="mt-4 mx-auto flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-300 transition-colors">
-                <ArrowLeft size={12} /> Back
-              </button>
+        {step === 'STAFF' && (
+          <>
+            <Brand icon="🏢" title="ऑफिस स्टाफ" sub="यह ऐप ड्राइवर, वेंडर, कस्टमर और पार्टनर के लिए है" tone="from-cyan-500 to-blue-700" />
+            <div className="mt-8 rounded-2xl border-2 border-cyan-200 bg-cyan-50 p-4 text-center">
+              <p className="text-[18px] font-black text-cyan-900">Office staff sign in on the desktop ERP</p>
+              <p className="mt-1 text-[13px] font-semibold leading-relaxed text-cyan-900/80">Username, password and the one-time code. Nothing was opened for this number here.</p>
             </div>
-          )}
+            <a href={GATE1_URL} className={`${BIG} mt-5 block bg-cyan-500 text-center text-[#02131a]`}>Desktop login खोलो →</a>
+            <button onClick={reset} className={`${GHOST} mt-2`}>‹ दूसरा नंबर</button>
+          </>
+        )}
 
-          {step === 3 && (
-            <div className="mt-7">
-              <p className="text-center text-[12px] text-slate-400">
-                OTP verification for <span className="font-black text-slate-100">{identifier}</span>
-              </p>
-              {channelNote && <p className="mt-1 text-center text-[10px] font-bold text-emerald-400">{channelNote}</p>}
-              <div className="mt-4 flex justify-center gap-2">
-                {digits.map((d, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => (boxes.current[i] = el)}
-                    value={d}
-                    onChange={(e) => onDigit(i, e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) boxes.current[i - 1]?.focus(); }}
-                    inputMode="numeric" maxLength={6}
-                    className="w-11 h-14 sm:w-12 rounded-xl bg-slate-950/70 border border-slate-700/50 text-center text-xl font-black text-cyan-300 outline-none focus:border-cyan-500/70 focus:shadow-[0_0_15px_rgba(34,211,238,0.25)] transition-all"
-                  />
-                ))}
-              </div>
-              {busy && <p className="mt-3 text-center text-[11px] text-cyan-400 flex items-center justify-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Verifying…</p>}
-              {/* A fresh code needs the password stage again — the server retires
-                  the old one when a new login starts. */}
-              <button onClick={() => { setStep(2); setDigits(['', '', '', '', '', '']); setError(''); }} className="mt-4 mx-auto flex items-center gap-1.5 text-[11px] font-bold text-slate-500 hover:text-slate-300 transition-colors">
-                <ArrowLeft size={12} /> Code nahi mila? Password se dobara login karein
-              </button>
+        {step === 'DOWN' && (
+          <>
+            <Brand icon="📵" title="OTP अभी नहीं जा रहा" sub="WhatsApp / SMS का रास्ता बंद है" tone="from-amber-500 to-orange-600" />
+            <div className="mt-8 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-center">
+              <p className="text-[14px] font-semibold leading-relaxed text-amber-900">ऑफिस का OTP भेजने वाला सिस्टम अभी ऑफलाइन है। थोड़ी देर बाद कोशिश करो, या ऑफिस को बताओ।</p>
             </div>
-          )}
-
-          {error && (
-            <p className="mt-4 text-center text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">{error}</p>
-          )}
-        </div>
-
-        <p className="mt-4 text-center text-[9px] tracking-[0.25em] font-bold text-slate-700 uppercase">
-          JWT-secured · Role-isolated bundles · WhatsApp OTP
-        </p>
+            {DISPATCH_MOBILE && <a href={`tel:+91${DISPATCH_MOBILE}`} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
+            <button onClick={reset} className={`${GHOST} mt-2`}>🔁 फिर से कोशिश</button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -38,6 +38,10 @@ const OTP_TTL_MIN = Number.parseInt(process.env.OTP_TTL_MINUTES ?? '5', 10);
 const OTP_MAX_ATTEMPTS = 5;
 const LOCK_AFTER = 5;          // failed password attempts
 const LOCK_MINUTES = 15;
+// `users` rows that are OUTSIDE parties, not office staff: they exist for the
+// customer / vendor portals and enter through Gate 2 (mobile + OTP), never
+// through the office login. Everything else in user_role is staff.
+const EXTERNAL_USER_ROLES = new Set(['CUSTOMER', 'VENDOR', 'DRIVER']);
 
 // Never let a password field leave the process, whatever the caller asked for.
 const SAFE = 'id, legacy_id, full_name, email, mobile, role, permissions, scope, branch, city, state, status, account_status, approved_at, must_change_password, last_login_at, created_at, customer_id, vendor_id';
@@ -232,7 +236,30 @@ export async function registerAuthRoutes(app) {
     const u = rows[0];
 
     const deny = () => reply.code(401).send({ error: 'INVALID_CREDENTIALS' });
-    if (!u) return deny();
+
+    // ── GATE 1 IS THE OFFICE DOOR ONLY (owner, 2026-09-03) ──────────────────
+    // An outside party — driver, customer, vendor / fleet partner — is refused
+    // here in words, not with "invalid credentials": their number or account is
+    // recognised, and the answer is "use the mobile app". Drivers have no
+    // password at all; a customer/vendor `users` row may have one for the old
+    // portal, and it still does not open this door. Nothing is issued.
+    const externalRefusal = (kind) => reply.code(403).send({
+      error: 'EXTERNAL_PARTY', kind,
+      detail: 'This door is for office staff. Drivers, vendors, customers and fleet partners sign in on the mobile app with an OTP.',
+    });
+    if (u && EXTERNAL_USER_ROLES.has(String(u.role))) return externalRefusal(String(u.role).toLowerCase());
+    if (!u) {
+      const digits = email.replace(/\D/g, '').slice(-10);
+      if (digits.length === 10) {
+        const { rows: ext } = await query(
+          `SELECT 'driver' AS kind FROM drivers WHERE mobile = $1
+           UNION ALL
+           SELECT lower(role::text) AS kind FROM users WHERE mobile = $1 AND role::text IN ('CUSTOMER', 'VENDOR')
+           LIMIT 1`, [digits]);
+        if (ext.length) return externalRefusal(ext[0].kind);
+      }
+      return deny();
+    }
     // The approval gate, before the password is even checked. Telling a PENDING
     // user "wrong password" would send them to reset a password that is fine.
     if (u.account_status !== 'ACTIVE') return replyForStatus(reply, u.account_status);
@@ -647,6 +674,14 @@ export async function registerAuthRoutes(app) {
          FROM users WHERE mobile = $1 LIMIT 1`, [mobile]);
     if (staff.length && staff[0].account_status !== 'ACTIVE') {
       return replyForStatus(reply, staff[0].account_status);
+    }
+    // ── GATE 2 IS THE OUTSIDE PARTIES' DOOR ONLY (owner, 2026-09-03) ────────
+    // The mobile gateway sends external_only. A staff account's number is
+    // recognised — the code was right, and it is burned above like any other —
+    // but no session opens: office staff sign in on Gate 1 (desktop). A
+    // customer or vendor `users` row is an outside party and passes through.
+    if (staff.length && req.body?.external_only && !EXTERNAL_USER_ROLES.has(String(staff[0].role))) {
+      return reply.code(403).send({ error: 'STAFF_USE_DESKTOP', detail: 'Office staff sign in on the desktop ERP (username, password, one-time code).' });
     }
     if (staff.length) {
       const session = await openSession(staff[0], req);

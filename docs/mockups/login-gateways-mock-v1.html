@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Login Gateways Mock</title>
+<style>
+  :root{--ink:#0f172a;--mut:#64748b;--cy:#22d3ee;--em:#16a34a;--rd:#dc2626;--am:#f59e0b;--b:#2563eb}
+  *{box-sizing:border-box}
+  body{margin:0;background:#dfe3ea;color:var(--ink);font-family:"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif}
+  header{padding:18px 28px;background:#0f172a;color:#fff;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+  header h1{margin:0;font-size:22px}
+  header p{margin:4px 0 0;color:#cbd5e1;font-size:14px}
+  .tag{background:var(--am);color:#1f1300;font-weight:800;font-size:13px;padding:6px 12px;border-radius:999px}
+  .sec{padding:22px 28px 6px;font-size:18px;font-weight:800;display:flex;align-items:center;gap:10px}
+  .sec small{font-weight:500;color:var(--mut);font-size:14px}
+  .gate{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;color:#fff;font-weight:900}
+  .gate.s{background:#0f172a}.gate.m{background:var(--em)}
+  .wrap{padding:10px 28px 24px;display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .card{background:#fff;border-radius:16px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.1);max-width:520px;font-size:14.5px;line-height:1.5;flex:1 1 360px}
+  .card h3{margin:0 0 8px;font-size:15px}
+  .card ul,.card ol{margin:0;padding-left:20px}
+  .card li{margin:4px 0}
+  .card code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:12px}
+  .callout{background:#fffbeb;border:2px solid var(--am);border-radius:14px;padding:12px 16px;font-size:15px;font-weight:700;color:#78350f;line-height:1.5;max-width:520px}
+  .callout b{color:#1f1300}
+  .reset{font-size:13px;color:var(--b);font-weight:700;cursor:pointer;background:none;border:0;padding:6px 6px 0}
+
+  /* ---------- desktop frame ---------- */
+  .desk{width:1040px;border-radius:14px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35);background:#0b1220;flex:0 0 auto}
+  .dbar{height:34px;background:#1e293b;display:flex;align-items:center;gap:8px;padding:0 12px}
+  .dbar i{width:11px;height:11px;border-radius:50%;background:#475569}
+  .dbar i:nth-child(1){background:#ef4444}.dbar i:nth-child(2){background:#f59e0b}.dbar i:nth-child(3){background:#22c55e}
+  .url{flex:1;margin-left:10px;background:#0f172a;border-radius:8px;color:#94a3b8;font-size:12px;padding:6px 10px;font-family:ui-monospace,Consolas,monospace}
+  .url b{color:#e2e8f0;font-weight:600}
+  .dscreen{height:600px;position:relative;background:radial-gradient(900px 500px at 25% 0%,#0f2233,#020617 60%);display:grid;place-items:center;color:#e2e8f0}
+  .lcard{width:400px;background:rgba(15,23,42,.85);border:1px solid #1e293b;border-radius:20px;padding:26px 28px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .logo{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .logo .sq{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#06b6d4,#1d4ed8);display:grid;place-items:center;font-size:22px}
+  .logo b{display:block;font-size:17px;color:#fff}
+  .logo span{font-size:11.5px;color:#94a3b8}
+  .lbl{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin:10px 0 4px}
+  .inp{border:1px solid #334155;background:#0b1220;color:#fff;border-radius:10px;padding:11px 12px;font-size:14px;width:100%;font-family:inherit}
+  .inp.ro{color:#cbd5e1}
+  .pbtn{margin-top:16px;width:100%;border:0;border-radius:12px;background:var(--cy);color:#02131a;font-weight:900;font-size:14.5px;padding:12px;cursor:pointer;font-family:inherit}
+  .pbtn.dk{background:#1e293b;color:#e2e8f0;margin-top:8px}
+  .fine{margin-top:12px;font-size:11.5px;color:#64748b;line-height:1.45;text-align:center}
+  .fine a{color:#94a3b8}
+  .otpbox{display:flex;gap:8px;justify-content:space-between;margin-top:4px}
+  .otpbox span{flex:1;height:48px;border:1px solid #334155;border-radius:10px;background:#0b1220;display:grid;place-items:center;font-size:20px;font-weight:900;color:#fff;font-family:ui-monospace,Consolas,monospace}
+  .otpbox span.on{border-color:var(--cy)}
+  .step{display:none}
+  .step.on{display:block}
+  .pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:11px;font-weight:800;border:1px solid}
+  .pill.em{color:#34d399;border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1)}
+  .pill.rd{color:#f87171;border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.1)}
+  .pill.cy{color:#67e8f9;border-color:rgba(34,211,238,.5);background:rgba(34,211,238,.1)}
+  .refuse{border:1px solid rgba(248,113,113,.5);background:rgba(248,113,113,.08);border-radius:12px;padding:12px 14px;margin-top:12px;font-size:12.5px;line-height:1.5;color:#fecaca}
+  .refuse b{color:#fff;display:block;margin-bottom:2px}
+  /* fake command center after login */
+  .cc{position:absolute;inset:0;display:none;flex-direction:column;padding:18px 22px;gap:12px}
+  .cc.on{display:flex}
+  .cc h2{margin:0;font-size:20px;color:#fff}
+  .cc h2 span{color:var(--cy)}
+  .cc p{margin:0;color:#64748b;font-size:12px}
+  .ccg{display:grid;grid-template-columns:3fr 6fr 3fr;gap:12px;flex:1}
+  .ccp{background:rgba(15,23,42,.72);border:1px solid #1e293b;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .ccp b{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--cy)}
+  .ccp i{display:block;height:10px;border-radius:5px;background:#1e293b}
+  .ccp i.w{width:70%} .ccp i.s{width:45%}
+  .banner-in{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.5);border-radius:12px;padding:10px 14px;color:#d1fae5;font-size:13px;font-weight:700}
+
+  /* ---------- phones ---------- */
+  .phone{width:340px;height:660px;border-radius:40px;border:10px solid #111;background:#f8fafc;overflow:hidden;position:relative;box-shadow:0 20px 40px rgba(0,0,0,.25);flex:0 0 auto}
+  .scr{position:absolute;inset:0;display:none;flex-direction:column}
+  .scr.on{display:flex}
+  .sb{height:26px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font-size:11px;font-weight:600;color:#475569;background:#fff}
+  .mtop{padding:26px 22px 8px;text-align:center}
+  .mtop .sq{width:64px;height:64px;border-radius:18px;margin:0 auto 10px;background:linear-gradient(135deg,#16a34a,#0d9488);display:grid;place-items:center;font-size:32px;box-shadow:0 10px 24px rgba(22,163,74,.35)}
+  .mtop b{display:block;font-size:22px;font-weight:900}
+  .mtop span{color:var(--mut);font-size:13px;font-weight:600}
+  .mbody{padding:10px 22px;display:flex;flex-direction:column;gap:8px}
+  .mlbl{font-size:14px;font-weight:800;margin-top:6px}
+  .mlbl small{display:block;font-size:11.5px;color:var(--mut);font-weight:600}
+  .minp{display:flex;align-items:center;gap:8px;border:2px solid #cbd5e1;border-radius:14px;padding:12px 14px;background:#fff;font-size:22px;font-weight:800;letter-spacing:1px;font-family:ui-monospace,Consolas,monospace}
+  .minp .cc91{color:var(--mut);font-size:16px;font-weight:700;font-family:inherit}
+  .mbtn{border:0;border-radius:16px;background:var(--em);color:#fff;font-weight:900;font-size:20px;min-height:64px;cursor:pointer;box-shadow:0 6px 0 rgba(0,0,0,.18);margin-top:6px;font-family:inherit}
+  .mbtn.o{background:#fff;color:var(--ink);border:2px solid #cbd5e1;box-shadow:none;min-height:52px;font-size:16px}
+  .mnote{font-size:12.5px;color:var(--mut);font-weight:600;text-align:center;line-height:1.4;margin-top:4px}
+  .motp{display:flex;gap:8px;justify-content:space-between;margin:4px 0}
+  .motp span{flex:1;height:56px;border:2px solid #cbd5e1;border-radius:12px;background:#fff;display:grid;place-items:center;font-size:24px;font-weight:900;font-family:ui-monospace,Consolas,monospace}
+  .motp span.on{border-color:var(--em)}
+  .who{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:6px}
+  .who span{font-size:11px;font-weight:800;border:1px solid #cbd5e1;border-radius:999px;padding:4px 9px;color:#334155;background:#fff}
+  .spin{width:56px;height:56px;border:6px solid #e2e8f0;border-top-color:var(--em);border-radius:50%;margin:60px auto 16px;animation:rot 1s linear infinite}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  .route{text-align:center;padding:0 24px;font-size:15px;font-weight:800;line-height:1.5}
+  .route small{display:block;color:var(--mut);font-weight:600;font-size:12px;margin-top:6px}
+  .dest{flex:1;display:flex;flex-direction:column}
+  .dhead{padding:14px 18px;color:#fff;font-weight:900;font-size:18px}
+  .dhead small{display:block;font-size:11.5px;font-weight:600;opacity:.9}
+  .dhead.drv{background:var(--b)}.dhead.ven{background:#ea580c}.dhead.cus{background:#0891b2}.dhead.par{background:#7c3aed}.dhead.unk{background:#475569}
+  .dbody{flex:1;padding:14px 18px;display:flex;flex-direction:column;gap:8px}
+  .dbody i{display:block;height:64px;border-radius:14px;background:#e2e8f0}
+  .dbody i.h{height:120px;background:linear-gradient(135deg,#dbeafe,#e0f2fe)}
+  .dbody p{margin:0;font-size:12.5px;color:var(--mut);font-weight:600;line-height:1.4}
+  .lock{margin:auto 18px 16px;background:#ecfdf5;border:2px solid #86efac;border-radius:12px;padding:8px 10px;font-size:12px;font-weight:800;color:#166534;text-align:center}
+  .unkbox{margin:40px 22px;background:#fff7f7;border:2px solid #fca5a5;border-radius:16px;padding:16px;text-align:center}
+  .unkbox b{display:block;font-size:20px;color:#991b1b;margin-bottom:6px}
+  .unkbox p{margin:0;font-size:13.5px;color:#7f1d1d;font-weight:600;line-height:1.45}
+  .demo{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;font-size:12px;font-weight:700;color:var(--mut)}
+  .demo button{border:1px solid #cbd5e1;background:#fff;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
+  .demo button.on{border-color:var(--em);color:var(--em);background:#ecfdf5}
+
+  /* ---------- architecture ---------- */
+  .arch{background:#fff;border-radius:16px;padding:18px 22px;box-shadow:0 1px 3px rgba(0,0,0,.1);width:100%;max-width:1360px}
+  .lanes{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  .lane{border-radius:14px;padding:14px 16px;border:2px solid}
+  .lane.s{border-color:#0f172a;background:#f8fafc}
+  .lane.m{border-color:var(--em);background:#f0fdf4}
+  .lane h4{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
+  .box{border-radius:10px;padding:8px 10px;font-size:12.5px;font-weight:700;line-height:1.35;background:#fff;border:1px solid #cbd5e1;flex:1 1 120px;min-width:120px}
+  .box small{display:block;font-weight:600;color:var(--mut);font-size:11px}
+  .box.dk{background:#0f172a;color:#fff;border-color:#0f172a}
+  .box.dk small{color:#cbd5e1}
+  .box.gr{background:var(--em);color:#fff;border-color:var(--em)}
+  .box.gr small{color:#dcfce7}
+  .box.rd{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
+  .box.rd small{color:#b91c1c}
+  .arrow{align-self:center;font-size:20px;color:#94a3b8;font-weight:900}
+  .dests{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+  .dests .box{min-width:0}
+  .wall{margin:14px 0 0;text-align:center;font-size:13px;font-weight:800;color:#991b1b;background:#fef2f2;border:2px dashed #fca5a5;border-radius:12px;padding:10px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Login Gateways — two doors, no crossing</h1>
+    <p>3-Sep-2026 · Gate 1 = office staff on desktop · Gate 2 = drivers, vendors, customers, fleet partners on mobile · mock only, nothing wired, nothing shipped</p>
+  </div>
+  <span class="tag">AWAITING YOUR VISUAL CHECK</span>
+</header>
+
+<!-- ================= GATE 1 ================= -->
+<div class="sec"><span class="gate s">1</span> Gate 1 · Admin &amp; Staff login <small>desktop · username + password · then the 2-step code that is already live · lands on Command Center only</small></div>
+<div class="wrap">
+  <div>
+    <div class="desk" id="gate1">
+      <div class="dbar"><i></i><i></i><i></i><div class="url">https://<b>erp.prasadtransport.in</b>/login</div></div>
+      <div class="dscreen">
+        <div class="lcard" id="g1card">
+          <div class="logo"><div class="sq">🚛</div><div><b>Prasad Transport ERP</b><span>Office login · staff and admins only</span></div></div>
+
+          <div class="step on" id="g1s1">
+            <div class="lbl">Username</div>
+            <input class="inp ro" value="mamta" readonly>
+            <div class="lbl">Password</div>
+            <input class="inp ro" value="••••••••••" readonly>
+            <button class="pbtn" id="g1signin">Sign in →</button>
+            <p class="fine">Drivers, vendors, customers, fleet partners: this door does not open for you.<br>Use the app link you were sent, or <a href="#" id="g1external">see what happens if you try</a>.</p>
+          </div>
+
+          <div class="step" id="g1s2">
+            <span class="pill cy">🔐 Step 2 of 2 · one-time code</span>
+            <p style="margin:10px 0 4px;font-size:13px;color:#cbd5e1;line-height:1.45">Code sent to <b style="color:#fff">WhatsApp ····4410</b> and <b style="color:#fff">mamta@…</b>. Valid 5 minutes.</p>
+            <div class="lbl">Enter code</div>
+            <div class="otpbox"><span class="on">4</span><span class="on">8</span><span class="on">1</span><span>_</span><span></span><span></span></div>
+            <button class="pbtn" id="g1verify">Verify &amp; enter →</button>
+            <p class="fine">This step is already live since 31-Aug. New login screens keep it.</p>
+          </div>
+
+          <div class="step" id="g1s4">
+            <span class="pill rd">⛔ Refused · external role</span>
+            <div class="refuse">
+              <b>This door is for office staff only.</b>
+              The number <span style="font-family:ui-monospace,Consolas,monospace;color:#fff">98xxx xx521</span> belongs to a <b style="display:inline">driver</b>. Drivers, vendors, customers and fleet partners sign in on the mobile app with an OTP. Nothing was logged in.
+            </div>
+            <button class="pbtn dk" onclick="g1go(1)">← Back to staff login</button>
+            <p class="fine">Server side: the staff login route only accepts <code>users</code> rows with a staff role. A driver has no password by design.</p>
+          </div>
+        </div>
+
+        <div class="cc" id="g1cc">
+          <div class="banner-in">✅ Signed in as <b>Mamta · ADMIN</b> · 2-step verified · session expires in 12 h · you are on the staff side; external portals open only as read-only "View as"</div>
+          <div><h2>Command Center: <span>Transport Fleet Ops</span></h2><p>Own &amp; attached fleet · Bongaigaon Refinery Hub · Master Control v5.0</p></div>
+          <div class="ccg">
+            <div class="ccp"><b>KPIs · Vault · Driver Command Center</b><i class="w"></i><i></i><i class="s"></i><i></i><i class="w"></i><i class="s"></i></div>
+            <div class="ccp"><b>Live Dispatch Chat</b><i class="s"></i><i class="w"></i><i></i><i class="s"></i><i class="w"></i><i></i><i class="s"></i></div>
+            <div class="ccp"><b>Live Fleet Map · Loading</b><i></i><i class="w"></i><i class="s"></i><i></i><i class="w"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button class="reset" onclick="g1go(1)">↺ reset Gate 1</button>
+  </div>
+
+  <div class="card">
+    <h3>Gate 1 rules</h3>
+    <ul>
+      <li><b>Who:</b> office staff, admins, super-admins. Desktop first; it works on a laptop in the office or at home.</li>
+      <li><b>How:</b> username + password, then the one-time code (WhatsApp and email) that is already live for staff since 31-Aug. The mock shows the same two steps.</li>
+      <li><b>Where it lands:</b> Command Center: Transport Fleet Ops, always. No role picker, no portal chooser.</li>
+      <li><b>Who is refused:</b> any driver, vendor, customer or fleet partner. They have no password at all, so there is nothing to guess. The screen tells them to use the mobile app.</li>
+      <li><b>Session:</b> a staff token. It can open the external portals only through the read-only "View as" preview that exists today. It never becomes a driver session.</li>
+      <li><b>What changes on screen:</b> today's login page carries Customer / Partner / Driver buttons beside the staff form. In this design those buttons leave the desktop door entirely; externals only ever see Gate 2.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================= GATE 2 ================= -->
+<div class="sec"><span class="gate m">2</span> Gate 2 · Super-App gateway <small>mobile-first · mobile number only · OTP · auto-routed to the user's own portal</small></div>
+<div class="wrap">
+  <div>
+    <div class="phone" id="gate2">
+      <!-- 1 number -->
+      <div class="scr on" id="g2s1">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="mtop"><div class="sq">🚛</div><b>Prasad Transport</b><span>App · ऐप</span></div>
+        <div class="mbody">
+          <div class="mlbl">अपना मोबाइल नंबर डालो<small>Enter your mobile number · bas itna hi</small></div>
+          <div class="minp"><span class="cc91">+91</span><span id="g2num">98765 43210</span></div>
+          <button class="mbtn" id="g2send">OTP भेजो →</button>
+          <p class="mnote">OTP WhatsApp पर आएगा · न आए तो SMS पर<br>कोई पासवर्ड नहीं · कोई फॉर्म नहीं</p>
+          <div class="who"><span>🚚 Driver</span><span>🔧 Vendor</span><span>🏭 Customer</span><span>🤝 Fleet Partner</span></div>
+        </div>
+      </div>
+      <!-- 2 otp -->
+      <div class="scr" id="g2s2">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="mtop"><div class="sq">💬</div><b>OTP डालो</b><span>+91 98765 43210 पर भेजा · WhatsApp</span></div>
+        <div class="mbody">
+          <div class="motp"><span class="on">4</span><span class="on">8</span><span class="on">1</span><span class="on">9</span><span></span><span></span></div>
+          <p class="mnote">अपने आप पढ़ लेगा · 0:42 में दोबारा भेजो</p>
+          <button class="mbtn" id="g2verify">✅ आगे बढ़ो</button>
+          <button class="mbtn o" onclick="g2go(1)">‹ नंबर बदलो</button>
+        </div>
+      </div>
+      <!-- 3 routing -->
+      <div class="scr" id="g2s3">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="spin"></div>
+        <div class="route">✅ OTP सही है<br>आपका पोर्टल खुल रहा है…<small>server checks which party this number belongs to and opens only that portal</small></div>
+      </div>
+      <!-- 4 destinations -->
+      <div class="scr" id="g2d-driver">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="dest"><div class="dhead drv">🚚 Driver App<small>राम कुमार · BR 01 GX 4521 · role DRIVER</small></div>
+          <div class="dbody"><i class="h"></i><p>map · trip allowance &amp; balance · 4 buttons · digital locker (the v4 you approved)</p><i></i><i></i></div>
+          <div class="lock">🔒 only /portal/driver/* routes · admin screens do not exist for this session</div></div>
+      </div>
+      <div class="scr" id="g2d-vendor">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="dest"><div class="dhead ven">🔧 Service Vendor Portal<small>Hazaribagh Pump · role SERVICE_VENDOR</small></div>
+          <div class="dbody"><i class="h"></i><p>upload bills · see approvals · payment status</p><i></i><i></i></div>
+          <div class="lock">🔒 only /portal/vendor/* routes · writes land in the pending queue</div></div>
+      </div>
+      <div class="scr" id="g2d-customer">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="dest"><div class="dhead cus">🏭 Customer App<small>Aadhar Green · role CUSTOMER</small></div>
+          <div class="dbody"><i class="h"></i><p>post a load · bids · live tracking · bills &amp; statements</p><i></i><i></i></div>
+          <div class="lock">🔒 only /portal/customer/* routes · staging fence on every write</div></div>
+      </div>
+      <div class="scr" id="g2d-partner">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="dest"><div class="dhead par">🤝 Fleet Partner App<small>Sharma Roadlines · role FLEET_PARTNER</small></div>
+          <div class="dbody"><i class="h"></i><p>load bazaar · my lorries · settlements · POD gate</p><i></i><i></i></div>
+          <div class="lock">🔒 only /portal/partner/* routes · money gated on POD verified</div></div>
+      </div>
+      <div class="scr" id="g2d-unknown">
+        <div class="sb"><span>9:41</span><span>▂▄▆ 4G · 🔋 82%</span></div>
+        <div class="mtop"><div class="sq" style="background:#475569">❓</div><b>नंबर रजिस्टर नहीं है</b><span>+91 98765 43210</span></div>
+        <div class="unkbox"><b>ऑफिस से रजिस्टर करवाओ</b><p>यह नंबर किसी ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम नहीं है। OTP सही था, पर कोई पोर्टल नहीं खुला।</p></div>
+        <div class="mbody"><button class="mbtn">📞 ऑफिस को कॉल करो</button><button class="mbtn o" onclick="g2go(1)">‹ दूसरा नंबर</button></div>
+      </div>
+    </div>
+    <div class="demo">Demo: after OTP, route this number as
+      <button class="on" data-role="driver">Driver</button><button data-role="vendor">Vendor</button><button data-role="customer">Customer</button><button data-role="partner">Fleet Partner</button><button data-role="unknown">Unknown number</button>
+      <button class="reset" onclick="g2go(1)">↺ reset</button>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:16px;max-width:520px">
+    <div class="callout">📌 <b>Upon OTP verification, the backend auto-routes the user directly to their isolated mobile portal (e.g., Driver App). They never see the Admin dashboard.</b><br><span style="font-weight:600">The phone never asks "who are you". The server already knows the number: it is on exactly one master (driver, vendor, customer or fleet partner), and that decides the portal. Nothing to pick, nothing to get wrong.</span></div>
+    <div class="card">
+      <h3>Gate 2 rules</h3>
+      <ul>
+        <li><b>One field.</b> Mobile number. No username, no password, no role, no form. Big button, Hindi first.</li>
+        <li><b>OTP</b> comes on WhatsApp, falls back to SMS. The app reads it itself when it can. Test numbers use the dev bypass that is already on the box.</li>
+        <li><b>Routing is server-side.</b> The number is looked up on the masters; the session is issued with that one role; the phone downloads only that portal's code (the Super-App shell already splits the five portals into separate chunks).</li>
+        <li><b>Unknown number:</b> the OTP still verifies, but no portal opens. The screen says to get registered by the office, with a call button.</li>
+        <li><b>Confinement:</b> an external session can only call its own <code>/portal/…</code> routes (the API guard returns 403 elsewhere), and its writes land in the pending queues, never straight into the books.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ARCHITECTURE ================= -->
+<div class="sec">3 · How the two doors stay apart <small>what the server enforces, not just what the screens show</small></div>
+<div class="wrap">
+  <div class="arch" id="arch">
+    <div class="lanes">
+      <div class="lane s">
+        <h4><span class="gate s" style="width:26px;height:26px;font-size:13px">1</span> Office staff · desktop</h4>
+        <div class="flow">
+          <div class="box dk">Username + password<small>users table · staff roles only</small></div>
+          <div class="arrow">→</div>
+          <div class="box dk">One-time code<small>WhatsApp + email · live since 31-Aug</small></div>
+          <div class="arrow">→</div>
+          <div class="box dk">Staff token<small>role ADMIN / STAFF / SUPER_ADMIN</small></div>
+          <div class="arrow">→</div>
+          <div class="box dk">Command Center<small>Transport Fleet Ops · all staff screens</small></div>
+        </div>
+        <div class="wall">🚫 A driver, vendor, customer or partner number has no password row → refused at step 1 · nothing issued</div>
+      </div>
+      <div class="lane m">
+        <h4><span class="gate m" style="width:26px;height:26px;font-size:13px">2</span> External parties · mobile</h4>
+        <div class="flow">
+          <div class="box gr">Mobile number<small>only field on the screen</small></div>
+          <div class="arrow">→</div>
+          <div class="box gr">OTP<small>WhatsApp → SMS fallback</small></div>
+          <div class="arrow">→</div>
+          <div class="box gr">Number lookup<small>which master owns it · one role</small></div>
+          <div class="arrow">→</div>
+          <div class="box gr">Auto-route<small>that portal only · chunk-split</small></div>
+        </div>
+        <div class="dests">
+          <div class="box">🚚 Driver App<small>DRIVER</small></div>
+          <div class="box">🔧 Service Vendor Portal<small>SERVICE_VENDOR</small></div>
+          <div class="box">🏭 Customer App<small>CUSTOMER</small></div>
+          <div class="box">🤝 Fleet Partner App<small>FLEET_PARTNER</small></div>
+        </div>
+        <div class="wall">🚫 External token on a staff route → 403 from the API guard · external write to a core table → refused by the staging fence · admin screens are not even downloaded</div>
+      </div>
+    </div>
+    <p style="margin:14px 0 0;font-size:13px;color:#64748b;line-height:1.5"><b style="color:#0f172a">The one bridge, and it is one-way:</b> a staff session can open a portal as read-only "View as" (header flag, GET only, 405 on any write). A portal session can never open a staff screen. These are the guard, the fence and the View-As rules that are already in production; the two login screens above are the only new surfaces.</p>
+  </div>
+</div>
+
+<script>
+/* Gate 1 */
+function g1go(n){
+  ['g1s1','g1s2','g1s4'].forEach(id => document.getElementById(id).classList.remove('on'));
+  document.getElementById('g1card').style.display = '';
+  document.getElementById('g1cc').classList.remove('on');
+  if (n === 3) { document.getElementById('g1card').style.display = 'none'; document.getElementById('g1cc').classList.add('on'); return; }
+  document.getElementById(n === 1 ? 'g1s1' : n === 2 ? 'g1s2' : 'g1s4').classList.add('on');
+}
+document.getElementById('g1signin').addEventListener('click', () => g1go(2));
+document.getElementById('g1verify').addEventListener('click', () => g1go(3));
+document.getElementById('g1external').addEventListener('click', e => { e.preventDefault(); g1go(4); });
+
+/* Gate 2 */
+let role = 'driver';
+function g2go(n){
+  document.querySelectorAll('#gate2 .scr').forEach(s => s.classList.remove('on'));
+  const id = n === 1 ? 'g2s1' : n === 2 ? 'g2s2' : n === 3 ? 'g2s3' : 'g2d-' + role;
+  document.getElementById(id).classList.add('on');
+}
+document.getElementById('g2send').addEventListener('click', () => g2go(2));
+document.getElementById('g2verify').addEventListener('click', () => { g2go(3); setTimeout(() => g2go(4), 1200); });
+document.querySelectorAll('.demo [data-role]').forEach(b => b.addEventListener('click', () => {
+  role = b.dataset.role;
+  document.querySelectorAll('.demo [data-role]').forEach(x => x.classList.toggle('on', x === b));
+  if (document.querySelector('#gate2 .scr.on').id.startsWith('g2d-')) g2go(4);
+}));
+</script>
+</body>
+</html>

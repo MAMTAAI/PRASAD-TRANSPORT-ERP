@@ -103,7 +103,7 @@ export function AuthProvider({ children }) {
       }
       return { ok: false, error: r.error || `login failed (${r.status})` };
     } catch {
-      return demoLogin(email); // API unreachable → demo
+      return { ok: false, error: 'NETWORK' };
     }
   }, [persist]);
 
@@ -130,15 +130,18 @@ export function AuthProvider({ children }) {
       if (r.ok) return { ok: true, channel: r.channel, ttl: r.expires_in_minutes };
       return { ok: false, error: r.error, detail: r.detail };
     } catch {
-      setDemoMode(true);
-      return { ok: true, channel: 'demo', ttl: 5, demo: true }; // OTP is 123456
+      // No demo fallback (2026-09-03): a gateway that invents a session when
+      // the API is unreachable is not a gateway. The screen says "no internet".
+      return { ok: false, error: 'NETWORK' };
     }
   }, []);
 
+  // external_only: this is Gate 2, the outside parties' door. A staff number
+  // is refused by the server (403 STAFF_USE_DESKTOP) and no session opens —
+  // the office signs in on Gate 1.
   const verifyOtp = useCallback(async (mobile, code) => {
-    if (demoMode) return demoLogin(mobile, code);
     try {
-      const r = await api('/otp/verify', { mobile, code });
+      const r = await api('/otp/verify', { mobile, code, external_only: true });
       if (r.ok && r.token) {
         const source = r.user || r.driver || {};
         const usr = { ...source, role: normalizeRole(r.role || r.user?.role || 'DRIVER') };
@@ -147,29 +150,8 @@ export function AuthProvider({ children }) {
       }
       return { ok: false, error: r.error || `verify failed (${r.status})` };
     } catch {
-      return demoLogin(mobile, code);
+      return { ok: false, error: 'NETWORK' };
     }
-  }, [demoMode, persist]);
-
-  // Preview without a backend: role from the identifier's first char so every
-  // environment is reachable (1x…=DRIVER 2x…=CUSTOMER 3x…=VENDOR 4x…=STAFF
-  // anything else=ADMIN). Real API always wins when it answers.
-  const demoLogin = useCallback((id, code = '123456') => {
-    if (String(code).replace(/\D/g, '') !== '123456') return { ok: false, error: 'OTP_INVALID (demo: 123456)' };
-    const first = String(id || '')[0];
-    const role = first === '1' ? 'DRIVER' : first === '2' ? 'CUSTOMER' : first === '3' ? 'VENDOR' : first === '4' ? 'OFFICE_STAFF' : 'ADMIN';
-    // Demo staff carries realistic granular rows so the approval-mode
-    // SaveButton is visible; a real login always uses the DB's rows.
-    const permissions = role === 'OFFICE_STAFF'
-      ? [
-        { name: 'Trip Management', view: true, add: false, edit: true },
-        { name: 'Fuel & Maintenance', view: true, add: true, edit: false },
-      ]
-      : [];
-    const usr = { full_name: `Demo ${role}`, email: `${role.toLowerCase()}@demo`, role, permissions };
-    setDemoMode(true);
-    persist(`demo.${btoa(JSON.stringify({ role, exp: Math.floor(Date.now() / 1000) + 3600 }))}.x`, usr);
-    return { ok: true, role, demo: true };
   }, [persist]);
 
   const logout = useCallback(() => {

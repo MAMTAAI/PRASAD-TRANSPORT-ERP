@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Driver Control Drawer Mock</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{--bg:#020617;--panel:rgba(15,23,42,.72);--line:#1e293b;--ink:#e2e8f0;--mut:#64748b;--cy:#22d3ee;--em:#34d399;--am:#fbbf24;--rd:#f87171;--vi:#a78bfa}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0b1220;color:var(--ink);font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;font-size:13px}
+  .banner{background:#f59e0b;color:#1f1300;font-weight:800;padding:8px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  .banner small{font-weight:600}
+  .dash{position:relative;background:radial-gradient(1200px 600px at 20% 0%,#0f2233 0%,var(--bg) 55%);min-height:960px;overflow:hidden;padding:14px 18px 24px}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:12px}
+  .topbar h1{margin:0;font-size:20px;font-weight:900;letter-spacing:.2px}
+  .topbar h1 span{color:var(--cy)}
+  .topbar p{margin:2px 0 0;color:var(--mut);font-size:12px}
+  .desk{display:flex;gap:8px;align-items:center}
+  .chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:999px;padding:4px 9px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:#94a3b8}
+  .chip.cy{color:var(--cy);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+  .chip.am{color:var(--am);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+  .chip.rd{color:var(--rd);border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.08)}
+  .chip.em{color:var(--em);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+  .chip.sl{color:#94a3b8}
+  .grid{display:grid;grid-template-columns:3fr 6fr 3fr;gap:14px}
+  .col{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .kpis{display:grid;grid-template-columns:1fr;gap:10px}
+  .kpi{background:var(--panel);border:1px solid rgba(34,211,238,.25);border-radius:16px;padding:12px 14px;position:relative;overflow:hidden}
+  .kpi p{margin:0}
+  .kpi .l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8}
+  .kpi .v{font-size:26px;font-weight:900;color:#67e8f9;line-height:1.1;margin-top:3px}
+  .kpi .s{font-size:10.5px;color:var(--mut);margin-top:2px}
+  .kpi:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,#06b6d4,#67e8f9);opacity:.7}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden;backdrop-filter:blur(8px)}
+  .ph{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .ph b{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.5px}
+  .ph b.cy{color:var(--cy)} .ph b.em{color:var(--em)} .ph b.am{color:var(--am)} .ph b.vi{color:var(--vi)}
+  .ph small{color:var(--mut);font-size:10.5px;font-weight:600}
+  .rows{padding:6px 8px;display:flex;flex-direction:column;gap:3px}
+  .row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;border:1px solid transparent;font-size:11.5px}
+  .row.click{cursor:pointer}
+  .row.click:hover{border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.06)}
+  .av{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:9px;font-weight:900;border:1px solid}
+  .av.rd{color:var(--rd);border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.1)}
+  .av.am{color:var(--am);border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.1)}
+  .av.em{color:var(--em);border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.1)}
+  .row .n{flex:1;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;border:1px solid;white-space:nowrap}
+  .mini.rd{color:var(--rd);border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
+  .mini.am{color:var(--am);border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
+  .mini.em{color:var(--em);border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.08)}
+  .mini.sl{color:#94a3b8;border-color:#334155}
+  .mini.cy{color:var(--cy);border-color:rgba(34,211,238,.45);background:rgba(34,211,238,.08)}
+  /* chat */
+  .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line)}
+  .tab{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;color:#94a3b8;border:1px solid transparent}
+  .tab.on{color:var(--cy);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.08)}
+  .chat{display:grid;grid-template-columns:200px 1fr;min-height:560px}
+  .clist{border-right:1px solid var(--line);padding:6px}
+  .citem{padding:7px 8px;border-radius:9px;font-size:11px;display:flex;gap:8px;align-items:center}
+  .citem.on{background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.3)}
+  .citem .who{flex:1;min-width:0}
+  .citem .who b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .citem .who span{color:var(--mut);font-size:10px}
+  .thread{display:flex;flex-direction:column}
+  .th{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .th .name{font-weight:900;font-size:13px;cursor:pointer;color:#fff;text-decoration:underline dotted rgba(34,211,238,.6);text-underline-offset:3px}
+  .th .name:hover{color:var(--cy)}
+  .msgs{flex:1;padding:12px;display:flex;flex-direction:column;gap:8px;background:rgba(2,6,23,.35)}
+  .m{max-width:70%;border-radius:12px;padding:8px 10px;font-size:11.5px;line-height:1.4;border:1px solid var(--line);background:#0f172a}
+  .m.me{align-self:flex-end;background:rgba(34,211,238,.1);border-color:rgba(34,211,238,.3)}
+  .m small{display:block;color:var(--mut);font-size:9.5px;margin-top:3px}
+  .m .img{width:120px;height:80px;border-radius:8px;background:repeating-linear-gradient(#e2e8f0 0 10px,#cbd5e1 10px 12px);margin-bottom:4px}
+  .qa{display:flex;gap:6px;padding:8px 12px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .qa span{font-size:10px;font-weight:800;border:1px solid var(--line);border-radius:8px;padding:5px 8px;color:#94a3b8}
+  .composer{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+  .composer div{flex:1;border:1px solid var(--line);border-radius:10px;padding:8px 10px;color:var(--mut)}
+  .composer span{border-radius:10px;background:var(--cy);color:#02131a;font-weight:900;padding:8px 14px}
+  /* fleet map backdrop */
+  .fmap{height:230px;position:relative;background:radial-gradient(400px 200px at 30% 40%,#0d2a3a,#061321 70%);overflow:hidden}
+  .fmap svg{position:absolute;inset:0;width:100%;height:100%}
+  .fpin{position:absolute;display:flex;align-items:center;gap:4px;cursor:pointer;font-size:10.5px;font-weight:800;color:#fff}
+  .fpin i{width:10px;height:10px;border-radius:50%;background:var(--em);box-shadow:0 0 0 4px rgba(52,211,153,.25)}
+  .fpin.warn i{background:var(--am);box-shadow:0 0 0 4px rgba(251,191,36,.25)}
+  .fpin span{background:rgba(2,6,23,.8);border:1px solid var(--line);border-radius:6px;padding:2px 6px}
+  .fpin:hover span{border-color:var(--cy)}
+  /* entry markers */
+  .mark{position:absolute;width:26px;height:26px;border-radius:50%;background:var(--cy);color:#02131a;font-weight:900;font-size:13px;display:grid;place-items:center;box-shadow:0 0 0 0 rgba(34,211,238,.6);animation:pulse 1.6s infinite;z-index:5;cursor:pointer;border:2px solid #fff}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,211,238,.6)}100%{box-shadow:0 0 0 14px rgba(34,211,238,0)}}
+  .rel{position:relative}
+  /* drawer */
+  .scrim{position:absolute;inset:0;background:rgba(2,6,23,.55);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40}
+  .dash.open .scrim{opacity:1;pointer-events:auto}
+  .drawer{position:absolute;top:0;right:0;bottom:0;width:600px;background:#0b1424;border-left:1px solid rgba(34,211,238,.35);box-shadow:-30px 0 60px rgba(0,0,0,.6);transform:translateX(102%);transition:transform .3s cubic-bezier(.2,.8,.2,1);z-index:50;display:flex;flex-direction:column}
+  .dash.open .drawer{transform:none}
+  .dh{padding:14px 16px 10px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(34,211,238,.06),transparent)}
+  .dh-top{display:flex;align-items:flex-start;gap:12px}
+  .bigav{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;font-size:16px;font-weight:900;color:var(--cy);border:1px solid rgba(34,211,238,.5);background:rgba(34,211,238,.1)}
+  .dh h2{margin:0;font-size:19px;font-weight:900;color:#fff;line-height:1.1}
+  .dh .sub{color:#94a3b8;font-size:11.5px;margin-top:3px}
+  .dh .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .x{margin-left:auto;background:none;border:1px solid var(--line);color:#94a3b8;border-radius:8px;width:30px;height:30px;font-size:16px;cursor:pointer}
+  .x:hover{color:#fff;border-color:#fff}
+  .status{display:flex;align-items:center;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.07)}
+  .status.off{border-color:rgba(248,113,113,.45);background:rgba(248,113,113,.08)}
+  .dotp{width:10px;height:10px;border-radius:50%;background:var(--em);box-shadow:0 0 0 4px rgba(52,211,153,.25)}
+  .status.off .dotp{background:var(--rd);box-shadow:0 0 0 4px rgba(248,113,113,.25)}
+  .status b{font-size:13px;color:#fff}
+  .status small{display:block;color:#94a3b8;font-size:10.5px}
+  .btn{border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#e2e8f0;font-weight:800;font-size:11.5px;padding:8px 12px;cursor:pointer;white-space:nowrap;font-family:inherit}
+  .btn:hover{border-color:#94a3b8}
+  .btn.rd{border-color:rgba(248,113,113,.5);color:var(--rd);background:rgba(248,113,113,.08)}
+  .btn.em{border-color:rgba(52,211,153,.5);color:var(--em);background:rgba(52,211,153,.1)}
+  .btn.cy{border-color:rgba(34,211,238,.5);color:var(--cy);background:rgba(34,211,238,.1)}
+  .btn.solid{background:var(--em);color:#04160d;border-color:var(--em)}
+  .btn.solid.rd{background:#dc2626;color:#fff;border-color:#dc2626}
+  .btn.sm{padding:5px 9px;font-size:10.5px;border-radius:8px}
+  .status .btn{margin-left:auto}
+  .quick{display:flex;gap:6px;margin-top:10px}
+  .quick .btn{flex:1;text-align:center}
+  /* live strip */
+  .live{border-bottom:1px solid var(--line)}
+  .lmap{height:190px;position:relative;background:#0a1626}
+  .lmap .map{position:absolute;inset:0}
+  .lmap .leaflet-control-attribution{font-size:8px;background:rgba(0,0,0,.4);color:#94a3b8}
+  .lmap .leaflet-tile{filter:invert(1) hue-rotate(180deg) saturate(.55) brightness(.8)}
+  .lf-pin{background:none;border:0}
+  .pin{display:flex;align-items:center;gap:4px;white-space:nowrap}
+  .pe{font-size:18px;line-height:1;filter:drop-shadow(0 2px 2px rgba(0,0,0,.6))}
+  .pl{background:#0f172a;border:1px solid #334155;border-radius:6px;padding:1px 6px;font-size:10px;font-weight:800;color:#fff}
+  .pin.tk .pe{font-size:26px}
+  .pin.tk .pl{background:var(--cy);color:#02131a;border-color:var(--cy)}
+  .lbar{display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:11.5px}
+  .lbar .ping{display:flex;align-items:center;gap:6px;font-weight:800;color:var(--em)}
+  .lbar .ping i{width:8px;height:8px;border-radius:50%;background:var(--em);animation:blink 1.2s infinite}
+  @keyframes blink{50%{opacity:.3}}
+  .lbar .k{color:#94a3b8}
+  .lbar .btn{margin-left:auto}
+  /* tabs in drawer */
+  .dtabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--line)}
+  .dtab{padding:8px 12px;font-size:12px;font-weight:800;color:#94a3b8;border-bottom:2px solid transparent;cursor:pointer;background:none;border-top:0;border-left:0;border-right:0;font-family:inherit}
+  .dtab.on{color:var(--cy);border-bottom-color:var(--cy)}
+  .dtab .cnt{background:var(--am);color:#1f1300;border-radius:999px;padding:0 6px;font-size:10px;margin-left:4px}
+  .dbody{flex:1;min-height:0;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+  .dbody::-webkit-scrollbar{width:6px}.dbody::-webkit-scrollbar-thumb{background:#1e293b;border-radius:3px}
+  .pane{display:none;flex-direction:column;gap:10px}
+  .pane.on{display:flex}
+  /* doc cards */
+  .doc{border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:grid;grid-template-columns:64px 1fr;gap:12px;background:rgba(255,255,255,.02)}
+  .doc.pend{border-color:rgba(251,191,36,.45)}
+  .doc.ok{border-color:rgba(52,211,153,.35)}
+  .doc.bad{border-color:rgba(248,113,113,.45)}
+  .doc.miss{border-style:dashed}
+  .thumb{width:64px;height:80px;border-radius:8px;background:repeating-linear-gradient(#e2e8f0 0 9px,#cbd5e1 9px 11px);border:1px solid #475569;cursor:pointer;position:relative}
+  .thumb.card{background:linear-gradient(135deg,#fdf6e3,#e9dcb5)}
+  .thumb.none{background:rgba(255,255,255,.03);display:grid;place-items:center;color:var(--mut);font-size:22px}
+  .dt{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .dt b{font-size:13px;color:#fff}
+  .meta{color:#94a3b8;font-size:11px;margin-top:3px;line-height:1.4}
+  .meta em{color:#e2e8f0;font-style:normal;font-family:ui-monospace,Consolas,monospace}
+  .milan{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:800;color:var(--vi);border:1px solid rgba(167,139,250,.4);border-radius:999px;padding:2px 7px;background:rgba(167,139,250,.08)}
+  .acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .reasons{display:none;gap:6px;flex-wrap:wrap;margin-top:8px;padding:8px;border-radius:10px;border:1px dashed rgba(248,113,113,.5)}
+  .reasons.on{display:flex}
+  .reasons span{font-size:10.5px;font-weight:800;border:1px solid var(--line);border-radius:999px;padding:4px 9px;cursor:pointer;color:#e2e8f0}
+  .reasons span.on{border-color:var(--rd);color:var(--rd);background:rgba(248,113,113,.1)}
+  .reasons .btn{margin-left:auto}
+  /* profile */
+  .form{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px}
+  .f label{display:block;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:3px}
+  .f .val{border:1px solid transparent;border-radius:8px;padding:7px 9px;background:rgba(255,255,255,.03);font-size:12.5px;color:#fff;min-height:33px}
+  .form.edit .val{border-color:#475569;background:#0f172a;outline:1px solid transparent}
+  .form.edit .val.lock{opacity:.55;border-style:dashed}
+  .f.wide{grid-column:span 2}
+  .fbar{display:flex;gap:8px;align-items:center}
+  .fbar .btn{min-width:90px;text-align:center}
+  .danger{margin-top:10px;border:1px solid rgba(248,113,113,.4);border-radius:12px;padding:10px 12px;background:rgba(248,113,113,.05)}
+  .danger b{color:var(--rd);font-size:12px}
+  .danger p{margin:4px 0 8px;color:#94a3b8;font-size:11px;line-height:1.4}
+  .danger input{width:100%;border:1px solid #475569;background:#0f172a;color:#fff;border-radius:8px;padding:7px 9px;font-family:inherit;font-size:12px;margin-bottom:8px}
+  /* activity */
+  .tl{display:flex;flex-direction:column;gap:0}
+  .ev{display:grid;grid-template-columns:78px 14px 1fr;gap:8px;padding:6px 0;font-size:11.5px;align-items:start}
+  .ev .t{color:var(--mut);font-family:ui-monospace,Consolas,monospace;font-size:10.5px;padding-top:2px}
+  .ev .d{width:10px;height:10px;border-radius:50%;background:#334155;margin-top:4px}
+  .ev .d.em{background:var(--em)}.ev .d.am{background:var(--am)}.ev .d.rd{background:var(--rd)}.ev .d.cy{background:var(--cy)}
+  .ev b{color:#fff}
+  .ev small{display:block;color:#94a3b8}
+  .dfoot{border-top:1px solid var(--line);padding:8px 14px;font-size:10.5px;color:var(--mut);display:flex;justify-content:space-between}
+  .toast{position:absolute;left:50%;transform:translateX(-50%);bottom:24px;background:#fff;color:#0f172a;border-radius:12px;padding:10px 16px;font-weight:800;font-size:13px;z-index:80;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  /* notes */
+  .notes{padding:22px 18px 40px;display:flex;gap:20px;flex-wrap:wrap;background:#e5e7eb;color:#0f172a}
+  .card{background:#fff;border-radius:16px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.1);max-width:520px;font-size:14px;line-height:1.5;flex:1 1 380px}
+  .card h3{margin:0 0 8px;font-size:15px}
+  .card ul,.card ol{margin:0;padding-left:20px}
+  .card li{margin:4px 0}
+  .card code{background:#f1f5f9;border-radius:4px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="banner">
+  <div>ADMIN MOCK · Driver Control drawer on <b>Command Center: Transport Fleet Ops</b> · nothing wired, nothing shipped</div>
+  <small>Click marker ①, ② or ③ on the dashboard to open the drawer · Esc closes · drawer is a prototype: toggle, tabs, edit and reject all react</small>
+</div>
+
+<div class="dash" id="dash">
+  <div class="topbar">
+    <div>
+      <h1>Command Center: <span>Transport Fleet Ops</span></h1>
+      <p>Own &amp; attached fleet · Bongaigaon Refinery Hub · Master Control v5.0</p>
+    </div>
+    <div class="desk">
+      <span class="chip sl">Approval Desk</span>
+      <span class="chip am">🧾 Expenses 7</span>
+      <span class="chip cy">📄 Driver docs 4</span>
+      <span class="chip rd">🚚 Bazaar POD 2</span>
+      <span class="chip sl">🔔 13</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <!-- LEFT -->
+    <div class="col">
+      <div class="kpis">
+        <div class="kpi"><p class="l">Lorries on road</p><p class="v">46</p><p class="s">of 61 active · 3 in workshop</p></div>
+        <div class="kpi"><p class="l">Trips open</p><p class="v">12</p><p class="s">8 AC5 · 4 bazaar</p></div>
+        <div class="kpi"><p class="l">Drivers active</p><p class="v">54</p><p class="s">2 suspended · 6 files incomplete</p></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><b class="am">Fleet Document Vault</b><small>10-day watch</small></div>
+        <div class="rows">
+          <div class="row"><span class="av rd">BR</span><span class="n">BR 06 GA 1123</span><span class="mini rd">Fitness −4d</span></div>
+          <div class="row"><span class="av am">BR</span><span class="n">BR 01 GX 4521</span><span class="mini am">Permit 9d</span></div>
+          <div class="row"><span class="av em">JH</span><span class="n">JH 05 AB 9012</span><span class="mini em">complete</span></div>
+        </div>
+      </div>
+      <div class="panel rel">
+        <div class="ph"><b class="cy">Driver Command Center</b><small>54 active drivers</small></div>
+        <div class="rows">
+          <div class="row click" data-open="1"><span class="av am">RK</span><span class="n">Ram Kumar</span><span class="mini am">DL 9d</span><span class="mini am">2 pending</span></div>
+          <div class="row click"><span class="av rd">VS</span><span class="n">Vijay Singh</span><span class="mini rd">HZD −407d</span></div>
+          <div class="row click"><span class="av em">SY</span><span class="n">Suresh Yadav</span><span class="mini em">complete</span></div>
+          <div class="row click"><span class="av am">MP</span><span class="n">Mohan Prasad</span><span class="mini am">4 pending</span></div>
+        </div>
+        <div class="mark" data-open="1" style="left:-8px;top:38px">1</div>
+      </div>
+      <div class="panel">
+        <div class="ph"><b class="vi">Fleet Maintenance Hub</b><small>by trip rtkm</small></div>
+        <div class="rows">
+          <div class="row"><span class="av rd">BR</span><span class="n">BR 06 GA 1123 · service</span><span class="mini rd">+1,240 km</span></div>
+          <div class="row"><span class="av am">BR</span><span class="n">BR 01 GX 4521 · tyres</span><span class="mini am">due 600 km</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="col">
+      <div class="panel rel">
+        <div class="ph"><b class="em">Live Dispatch Chat</b><small>WhatsApp engine · connected</small></div>
+        <div class="tabs"><span class="tab on">All</span><span class="tab">Driver</span><span class="tab">Pump</span><span class="tab">Vendor</span><span class="tab">Customer</span></div>
+        <div class="chat">
+          <div class="clist">
+            <div class="citem on"><span class="av em">RK</span><div class="who"><b>Ram Kumar</b><span>Driver · POD photo · 2m</span></div></div>
+            <div class="citem"><span class="av am">HP</span><div class="who"><b>Hazaribagh Pump</b><span>Pump · diesel slip · 14m</span></div></div>
+            <div class="citem"><span class="av em">VS</span><div class="who"><b>Vijay Singh</b><span>Driver · "pahunch gaye" · 40m</span></div></div>
+            <div class="citem"><span class="av rd">??</span><div class="who"><b>+91 70xxx xx881</b><span>Anjaan · 1h</span></div></div>
+            <div class="citem"><span class="av em">SY</span><div class="who"><b>Suresh Yadav</b><span>Driver · 3h</span></div></div>
+          </div>
+          <div class="thread">
+            <div class="th">
+              <span class="av em">RK</span>
+              <div><span class="name" data-open="2">Ram Kumar</span><div style="color:#64748b;font-size:10.5px">Driver · BR 01 GX 4521 · PT00745 Barauni → Ranchi</div></div>
+              <span class="mini em" style="margin-left:auto">● online</span>
+              <div class="mark" data-open="2" style="position:static;margin-left:8px">2</div>
+            </div>
+            <div class="msgs">
+              <div class="m">Sir gaadi load ho gayi, Barauni se nikal rahe hain<small>09:12</small></div>
+              <div class="m me">Theek hai. Ranchi depot pe pahunch ke POD bhejna.<small>09:14 · Mamta</small></div>
+              <div class="m"><div class="img"></div>Diesel slip — Hazaribagh pump<small>11:02 · 🔗 Expense PT00745 · ⛽ 180 L</small></div>
+              <div class="m me">Slip mil gayi, expense queue mein daal di.<small>11:05 · Mamta</small></div>
+              <div class="m">Nawada cross kar liya<small>12:31 · 📍 24.88, 85.54</small></div>
+            </div>
+            <div class="qa"><span>📄 SEND LR COPY</span><span>⛽ SCAN FUEL SLIP OCR</span><span>🚚 NEW TRIP</span><span>💸 EXPENSE</span><span>📍 LOCATE</span></div>
+            <div class="composer"><div>Message Ram Kumar…</div><span>SEND</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="col">
+      <div class="panel rel">
+        <div class="ph"><b class="cy">Live Fleet Map</b><small>46 moving · 3 idle</small></div>
+        <div class="fmap">
+          <svg viewBox="0 0 300 230" preserveAspectRatio="none">
+            <path d="M20 40 C80 60 90 120 150 130 S250 200 290 210" stroke="#1e3a5f" stroke-width="10" fill="none" stroke-linecap="round"/>
+            <path d="M20 40 C80 60 90 120 150 130 S250 200 290 210" stroke="#22d3ee" stroke-width="3" fill="none" stroke-linecap="round" opacity=".8"/>
+            <path d="M40 200 C90 160 130 180 200 90 S260 40 280 30" stroke="#1e3a5f" stroke-width="8" fill="none" stroke-linecap="round"/>
+          </svg>
+          <div class="fpin" style="left:118px;top:96px" data-open="3"><i></i><span>BR 01 GX 4521 · 62 km/h</span></div>
+          <div class="fpin warn" style="left:190px;top:150px"><i></i><span>BR 06 GA 1123 · idle 40m</span></div>
+          <div class="fpin" style="left:40px;top:170px"><i></i><span>JH 05 AB 9012 · 48 km/h</span></div>
+          <div class="mark" data-open="3" style="left:96px;top:86px">3</div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><b class="em">Live Fleet Map · trip list</b><small>same component, list view</small></div>
+        <div class="rows">
+          <div class="row click" data-open="3"><span class="av em">RK</span><span class="n">PT00745 · Ram Kumar · Barauni → Ranchi</span><span class="mini cy">on road</span></div>
+          <div class="row click"><span class="av em">SY</span><span class="n">PT00744 · Suresh Yadav · Barauni → Patna</span><span class="mini am">at unloading</span></div>
+          <div class="row click"><span class="av rd">VS</span><span class="n">PT00741 · Vijay Singh · Bongaigaon → Siliguri</span><span class="mini rd">POD pending</span></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="ph"><b class="am">Aaj ki loading</b><small>IOCL AC4 · 18 loads</small></div>
+        <div class="rows">
+          <div class="row"><span class="av em">AC</span><span class="n">BR 01 GX 4521 · 12 KL HSD</span><span class="mini em">matched</span></div>
+          <div class="row"><span class="av am">AC</span><span class="n">BR 09 PA 7788 · 20 KL MS</span><span class="mini am">held</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ================= DRAWER ================= -->
+  <aside class="drawer" id="drawer" aria-label="Driver Control">
+    <div class="dh">
+      <div class="dh-top">
+        <div class="bigav">RK</div>
+        <div style="min-width:0">
+          <h2>Ram Kumar</h2>
+          <div class="sub">+91 98xxx xx521 · OWN driver · joined Mar 2023 · driver id ····0117</div>
+          <div class="chips">
+            <span class="chip cy">🚚 BR 01 GX 4521</span>
+            <span class="chip em">PT00745 · on road</span>
+            <span class="chip am">DL expires 9d</span>
+            <span class="chip sl">app v2 · last login 09:50</span>
+          </div>
+        </div>
+        <button class="x" id="closeBtn" title="Close (Esc)">✕</button>
+      </div>
+
+      <div class="status" id="status">
+        <span class="dotp"></span>
+        <div><b id="stTitle">ACTIVE · app access on</b><small id="stSub">Driver can log in, upload, see the map. Trips stay either way.</small></div>
+        <button class="btn rd" id="toggleBtn">⏻ Suspend app access</button>
+      </div>
+      <div class="reasons" id="susp" style="margin-top:6px">
+        <span>Left job</span><span>Docs expired</span><span>Absconding</span><span>Misconduct</span><span>Other</span>
+        <button class="btn sm solid rd" id="suspConfirm">Confirm suspend</button>
+      </div>
+
+      <div class="quick">
+        <button class="btn">📞 Call</button>
+        <button class="btn">💬 Open chat</button>
+        <button class="btn cy">🔗 Login link (72 h)</button>
+        <button class="btn">👁 View as driver</button>
+      </div>
+    </div>
+
+    <div class="live">
+      <div class="lmap"><div class="map" id="miniMap"></div></div>
+      <div class="lbar">
+        <span class="ping"><i></i> LIVE · 40 s ago</span>
+        <span class="k">62 km/h · heading S · near Nawada</span>
+        <span class="k">190 km left · ETA 16:10</span>
+        <button class="btn sm cy">Open on Live Fleet Map ↗</button>
+      </div>
+    </div>
+
+    <div class="dtabs">
+      <button class="dtab on" data-tab="docs">Document Locker <span class="cnt">2</span></button>
+      <button class="dtab" data-tab="profile">Profile</button>
+      <button class="dtab" data-tab="activity">Activity</button>
+    </div>
+
+    <div class="dbody">
+      <!-- DOCS -->
+      <div class="pane on" id="pane-docs">
+        <div class="doc pend" id="docDL">
+          <div class="thumb card" title="View"></div>
+          <div>
+            <div class="dt"><b>Driving Licence</b><span class="mini am" id="dlStatus">PENDING REVIEW</span><span class="milan">🤖 Milan 92%</span></div>
+            <div class="meta">Uploaded from <em>driver app</em> · 2 Sep 10:14 · OCR read: <em>BR01 20190012345</em> · valid to <em>12/2028</em> · name match ✓</div>
+            <div class="acts" id="dlActs">
+              <button class="btn solid" data-approve="dl">✓ Approve → core DB</button>
+              <button class="btn rd" data-reject="dl">↺ Resend / Reject</button>
+              <button class="btn">👁 View</button>
+            </div>
+            <div class="reasons" id="reasons-dl">
+              <span>Photo blurred</span><span>Cut off</span><span>Wrong document</span><span>Expired</span><span>Name mismatch</span>
+              <button class="btn sm solid rd" data-send="dl">Send to driver app</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="doc ok">
+          <div class="thumb card"></div>
+          <div>
+            <div class="dt"><b>Aadhaar</b><span class="mini em">APPROVED</span></div>
+            <div class="meta">Approved by <em>Mamta</em> · 28 Aug · in core DB (<em>aadhar_no</em> ····4521) · driver sees View + PDF in the app</div>
+            <div class="acts"><button class="btn">👁 View</button><button class="btn">⬇ PDF</button><button class="btn sm">Replace</button></div>
+          </div>
+        </div>
+
+        <div class="doc bad">
+          <div class="thumb"></div>
+          <div>
+            <div class="dt"><b>Bank Passbook</b><span class="mini rd">NEEDS CORRECTION</span></div>
+            <div class="meta">Rejected by <em>Mamta</em> · 1 Sep · reason: <em>photo blurred</em> · WhatsApp sent ✓ · app shows "dobara bhejo" · not re-uploaded yet</div>
+            <div class="acts"><button class="btn">👁 View</button><button class="btn cy">🔔 Remind driver</button></div>
+          </div>
+        </div>
+
+        <div class="doc miss">
+          <div class="thumb none">＋</div>
+          <div>
+            <div class="dt"><b>PAN Card</b><span class="mini sl">MISSING</span></div>
+            <div class="meta">Never uploaded. Ask the driver from here, or upload from the office if the paper is on the desk.</div>
+            <div class="acts"><button class="btn cy">🔔 Ask driver</button><button class="btn">📎 Upload from office</button></div>
+          </div>
+        </div>
+
+        <div class="doc pend">
+          <div class="thumb"></div>
+          <div>
+            <div class="dt"><b>Hazardous Certificate</b><span class="mini am">EXPIRES 9d</span></div>
+            <div class="meta">Approved 2024 · valid to <em>12 Sep 2026</em> · a lorry with an expired HZD is stopped at the first check</div>
+            <div class="acts"><button class="btn">👁 View</button><button class="btn cy">🔔 Ask for renewed copy</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROFILE -->
+      <div class="pane" id="pane-profile">
+        <div class="fbar">
+          <button class="btn cy" id="editBtn">✎ Edit</button>
+          <button class="btn solid" id="saveBtn" style="display:none">💾 Save</button>
+          <button class="btn" id="cancelBtn" style="display:none">Cancel</button>
+          <span style="margin-left:auto;color:#64748b;font-size:10.5px">Numbers approved from documents are locked — replace the document to change them.</span>
+        </div>
+        <div class="form" id="form">
+          <div class="f"><label>Name</label><div class="val" contenteditable="false">Ram Kumar</div></div>
+          <div class="f"><label>Mobile (login)</label><div class="val" contenteditable="false">98xxx xx521</div></div>
+          <div class="f"><label>Driver type</label><div class="val" contenteditable="false">OWN</div></div>
+          <div class="f"><label>Assigned lorry</label><div class="val" contenteditable="false">BR 01 GX 4521</div></div>
+          <div class="f"><label>DL number</label><div class="val lock">BR01 20190012345</div></div>
+          <div class="f"><label>DL expiry</label><div class="val lock">12/2028</div></div>
+          <div class="f"><label>Aadhaar</label><div class="val lock">···· ···· 4521</div></div>
+          <div class="f"><label>PAN</label><div class="val" contenteditable="false">—</div></div>
+          <div class="f"><label>Bank A/C</label><div class="val lock">SBI ····4521</div></div>
+          <div class="f"><label>IFSC</label><div class="val lock">SBIN0001234</div></div>
+          <div class="f"><label>Joined</label><div class="val" contenteditable="false">14 Mar 2023</div></div>
+          <div class="f"><label>Salary / trip rate</label><div class="val" contenteditable="false">₹ 18,000 + ₹ 1.10/km</div></div>
+          <div class="f wide"><label>Address</label><div class="val" contenteditable="false">Vill. Rampur, PO Begusarai, Bihar 851101</div></div>
+          <div class="f wide"><label>Emergency contact</label><div class="val" contenteditable="false">Sunita Devi (wife) · 91xxx xx004</div></div>
+        </div>
+        <div class="danger">
+          <b>Delete driver</b>
+          <p>Archives the driver: app access ends, name disappears from pickers. Trips, expenses and ledger lines stay untouched for the books. Type the name to confirm.</p>
+          <input placeholder="Type RAM KUMAR to confirm">
+          <button class="btn solid rd" id="deleteBtn">🗑 Delete (archive) driver</button>
+        </div>
+      </div>
+
+      <!-- ACTIVITY -->
+      <div class="pane" id="pane-activity">
+        <div class="tl">
+          <div class="ev"><span class="t">3 Sep 12:31</span><span class="d cy"></span><div><b>Location ping</b> · 24.88, 85.54 · 62 km/h<small>PT00745 · via driver app</small></div></div>
+          <div class="ev"><span class="t">3 Sep 11:02</span><span class="d am"></span><div><b>Diesel slip uploaded</b> · Hazaribagh pump · 180 L<small>in Expenses queue · OCR ₹ 16,380</small></div></div>
+          <div class="ev"><span class="t">3 Sep 09:50</span><span class="d em"></span><div><b>Logged in</b> · OTP via WhatsApp<small>app v2 · Android 13</small></div></div>
+          <div class="ev"><span class="t">2 Sep 10:14</span><span class="d am"></span><div><b>Driving Licence uploaded</b> · pending review<small>OCR + Milan 92%</small></div></div>
+          <div class="ev"><span class="t">1 Sep 17:40</span><span class="d rd"></span><div><b>Bank passbook rejected</b> by Mamta · photo blurred<small>driver app notified</small></div></div>
+          <div class="ev"><span class="t">1 Sep 16:05</span><span class="d em"></span><div><b>POD sent</b> · PT00744 · Ranchi depot<small>approved by desk 1 Sep 18:20</small></div></div>
+          <div class="ev"><span class="t">28 Aug 11:10</span><span class="d em"></span><div><b>Aadhaar approved</b> by Mamta → core DB<small>applyToCore · aadhar_no</small></div></div>
+          <div class="ev"><span class="t">20 Aug 09:00</span><span class="d"></span><div><b>Assigned lorry</b> BR 01 GX 4521<small>by Prasad ji</small></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dfoot"><span>Last change: Mamta · 1 Sep 17:40 · bank passbook rejected</span><span>access_hub_audit · every action here is logged</span></div>
+  </aside>
+</div>
+
+<section class="notes">
+  <div class="card">
+    <h3>What the admin gets, without leaving the screen</h3>
+    <ul>
+      <li><b>Three ways in.</b> ① a row in Driver Command Center, ② the driver's name in the dispatch chat header, ③ the truck pin on Live Fleet Map or a row in Active Trips. The dashboard stays behind, dimmed; Esc or ✕ brings it back exactly as it was.</li>
+      <li><b>Status toggle</b> at the top: Suspend asks for one reason chip (the server logs a reason) and blocks login plus kills the phone session; Re-activate is one click. Red state is unmistakable. Trips and ledger are never touched.</li>
+      <li><b>Live strip</b> right under the header: mini-map with the truck, last ping age, speed, heading, km left, ETA, and a jump to the big map.</li>
+      <li><b>Document Locker</b> is the default tab: every paper with its source (driver app or office), OCR reading, Milan score and status. Approve writes to the core DB; Resend / Reject picks a reason and pushes it to the driver's app; Ask driver pushes a request for a paper that was never sent.</li>
+      <li><b>Profile</b> tab: Edit → Save / Cancel in place. Numbers that came from an approved document are locked, so a typo cannot overwrite a verified Aadhaar. Delete is an archive with typed confirmation.</li>
+      <li><b>Activity</b> tab: one timeline of logins, uploads, decisions, pings and assignments.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>What already exists in the code (verified today; reuse, not rebuild)</h3>
+    <ul>
+      <li><b>Drawer shell:</b> the Approval Drawer is the ERP's only right-side slide-out; the new panel copies its shell. "Open from anywhere" uses the same window event the drill-down drawer already uses.</li>
+      <li><b>Entry ①</b> Driver Command Center rows already carry id, name and mobile. <b>Entry ②</b> dispatch trip-chat rows already carry driver id and phone. <b>Entry ③</b> the tracking feed carries the driver's name only, so one field (driver id) is added to it server-side.</li>
+      <li><b>Suspend / Re-activate / Delete</b> = Access Control Hub block / activate / archive, admin-only, written to <code>access_hub_audit</code>; block also deletes the phone's sessions.</li>
+      <li><b>Locker</b> = the partner-documents queue filtered to one driver. Approve runs applyToCore (DL, Aadhaar, bank) and WhatsApps the driver; Reject sets NEEDS CORRECTION and WhatsApps "dobara bhejein". PAN and HZD are not document types yet: two small additions.</li>
+      <li><b>Edit / Save</b> = the existing driver PATCH on masters (all columns). <b>Delete</b> = archive, never a hard delete while trips exist.</li>
+      <li><b>Live strip:</b> the connected-parties feed gives a driver-keyed position while the driver is logged in on an IN_TRANSIT trip; otherwise the open trip's last GPS ping; otherwise the strip says "no live fix" with the last known time.</li>
+      <li><b>Ask driver / Remind</b> = the CRM WhatsApp send route. There is no in-app push today; the app shows the status when opened.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Open points for your YES</h3>
+    <ol>
+      <li>Drawer width: 600 px as drawn, or wider so the map and locker sit side by side?</li>
+      <li>Suspend reason: pick a chip (drawn) or type free text? The server insists on a reason either way.</li>
+      <li>Reject / ask notices go by WhatsApp today. Enough, or also a banner inside the driver app on next open? That fits into the driver app build.</li>
+      <li>Staff below ADMIN: see the drawer read-only, or not at all? Today decisions are admin-only server-side.</li>
+      <li>Add PAN and HZD to the papers the driver app can send? The locker as drawn needs both.</li>
+    </ol>
+  </div>
+</section>
+
+<script>
+const dash = document.getElementById('dash');
+let mapInit = false;
+const ROUTE = [[25.47,86.03],[25.39,85.92],[25.48,85.71],[25.46,85.53],[25.20,85.52],[24.88,85.54],[24.64,85.50],[24.47,85.59],[24.30,85.42],[23.99,85.36],[23.63,85.52],[23.36,85.33]];
+const TRUCK = [24.88,85.54];
+function initMiniMap(){
+  if (mapInit || !window.L) return; mapInit = true;
+  const el = document.getElementById('miniMap');
+  const m = L.map(el, { zoomControl:false, scrollWheelZoom:false, dragging:true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:18, attribution:'© OpenStreetMap' }).addTo(m);
+  L.polyline(ROUTE, { color:'#22d3ee', weight:4, opacity:.9 }).addTo(m);
+  const pin = (ll, emoji, label, cls) => L.marker(ll, { icon: L.divIcon({ className:'lf-pin', html:`<div class="pin ${cls}"><span class="pe">${emoji}</span><span class="pl">${label}</span></div>`, iconSize:[150,30], iconAnchor:[11,15] }) }).addTo(m);
+  pin(ROUTE[0], '🟢', 'Barauni', '');
+  pin(ROUTE[ROUTE.length-1], '🔴', 'Ranchi', '');
+  pin(TRUCK, '🚚', 'BR 01 GX 4521 · 62 km/h', 'tk');
+  m.fitBounds(L.latLngBounds(ROUTE), { padding:[20,20] });
+  setTimeout(() => m.invalidateSize(), 350);
+}
+function openDrawer(){ dash.classList.add('open'); setTimeout(initMiniMap, 320); }
+function closeDrawer(){ dash.classList.remove('open'); }
+document.querySelectorAll('[data-open]').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openDrawer(); }));
+document.getElementById('scrim').addEventListener('click', closeDrawer);
+document.getElementById('closeBtn').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+function toast(msg){
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  dash.appendChild(t); setTimeout(() => t.remove(), 2400);
+}
+
+/* status toggle */
+let active = true;
+const status = document.getElementById('status'), toggleBtn = document.getElementById('toggleBtn'), susp = document.getElementById('susp');
+function setActive(on){
+  active = on;
+  status.classList.toggle('off', !active);
+  document.getElementById('stTitle').textContent = active ? 'ACTIVE · app access on' : 'SUSPENDED · app access blocked';
+  document.getElementById('stSub').textContent = active ? 'Driver can log in, upload, see the map. Trips stay either way.' : 'Login refused, phone session killed. Open trips, expenses and ledger untouched. Logged in access_hub_audit.';
+  toggleBtn.textContent = active ? '⏻ Suspend app access' : '⏻ Re-activate';
+  toggleBtn.className = 'btn ' + (active ? 'rd' : 'em');
+  susp.classList.remove('on');
+  toast(active ? '✅ Ram Kumar re-activated — app login works again' : '⛔ Ram Kumar suspended — app login blocked, session killed');
+}
+toggleBtn.addEventListener('click', () => { if (active) susp.classList.toggle('on'); else setActive(true); });
+document.getElementById('suspConfirm').addEventListener('click', () => setActive(false));
+
+/* tabs */
+document.querySelectorAll('.dtab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.dtab').forEach(x => x.classList.toggle('on', x === t));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + t.dataset.tab));
+}));
+
+/* docs: approve / reject */
+document.querySelectorAll('[data-reject]').forEach(b => b.addEventListener('click', () => {
+  document.getElementById('reasons-' + b.dataset.reject).classList.toggle('on');
+}));
+document.querySelectorAll('.reasons span').forEach(s => s.addEventListener('click', () => s.classList.toggle('on')));
+document.querySelectorAll('[data-send]').forEach(b => b.addEventListener('click', () => {
+  const card = document.getElementById('docDL');
+  card.className = 'doc bad';
+  document.getElementById('dlStatus').textContent = 'NEEDS CORRECTION'; document.getElementById('dlStatus').className = 'mini rd';
+  document.getElementById('reasons-dl').classList.remove('on');
+  document.getElementById('dlActs').innerHTML = '<button class="btn">👁 View</button><button class="btn cy">🔔 Remind driver</button>';
+  toast('↺ NEEDS CORRECTION · WhatsApp to driver: "DL — photo blurred, dobara bhejein" · app shows it on next open');
+}));
+document.querySelectorAll('[data-approve]').forEach(b => b.addEventListener('click', () => {
+  const card = document.getElementById('docDL');
+  card.className = 'doc ok';
+  document.getElementById('dlStatus').textContent = 'APPROVED'; document.getElementById('dlStatus').className = 'mini em';
+  document.getElementById('dlActs').innerHTML = '<button class="btn">👁 View</button><button class="btn">⬇ PDF</button><button class="btn sm">Replace</button>';
+  document.querySelector('.dtab .cnt').textContent = '1';
+  toast('✓ Driving Licence approved → license_no + expiry written to core DB · driver app shows PDF');
+}));
+
+/* profile edit */
+const form = document.getElementById('form');
+const editBtn = document.getElementById('editBtn'), saveBtn = document.getElementById('saveBtn'), cancelBtn = document.getElementById('cancelBtn');
+function setEdit(on){
+  form.classList.toggle('edit', on);
+  form.querySelectorAll('.val:not(.lock)').forEach(v => v.setAttribute('contenteditable', on ? 'true' : 'false'));
+  editBtn.style.display = on ? 'none' : ''; saveBtn.style.display = on ? '' : 'none'; cancelBtn.style.display = on ? '' : 'none';
+}
+editBtn.addEventListener('click', () => setEdit(true));
+cancelBtn.addEventListener('click', () => setEdit(false));
+saveBtn.addEventListener('click', () => { setEdit(false); toast('💾 Saved · PATCH /masters/drivers/DRV-0117 · audit written'); });
+document.getElementById('deleteBtn').addEventListener('click', () => toast('🗑 Would archive after the typed name matches — nothing deleted in this mock'));
+</script>
+</body>
+</html>

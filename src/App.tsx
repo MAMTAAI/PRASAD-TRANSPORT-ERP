@@ -129,11 +129,23 @@ function AppShell() {
   });
   const [isCustomerMode, setIsCustomerMode] = useState(false); 
   const [isPartnerMode, setIsPartnerMode] = useState(false);
-  // THE UNIVERSAL GATEWAY (owner's Tier 1, 2026-09-02): one door for every
-  // outside party — /app or ?gateway — mobile + OTP, and the server's role
-  // decides which isolated workspace opens. No staff login stands in front.
-  const isGatewayMode = typeof window !== 'undefined'
-    && (/^\/app\/?$/i.test(window.location.pathname) || new URLSearchParams(window.location.search).has('gateway'));
+  // THE TWO DOORS (owner, 2026-09-03: "strict separation between external
+  // users and office staff").
+  //
+  //   Gate 2 — the mobile Super-App gateway (mobile number + OTP, server picks
+  //            the portal) — opens for the /app path, for ?gateway, and for any
+  //            phone or tablet that is not explicitly asking for the office door.
+  //   Gate 1 — the office login (username + password + one-time code, lands on
+  //            Command Center) — opens for everything else, and ALWAYS for
+  //            /login or /office, so a staff member on a phone can still reach
+  //            it by link. Neither door carries the other's buttons.
+  const isGatewayMode = (() => {
+    if (typeof window === 'undefined') return false;
+    const { pathname, search } = window.location;
+    if (/^\/(login|office)\/?$/i.test(pathname)) return false;
+    if (/^\/app\/?$/i.test(pathname) || new URLSearchParams(search).has('gateway')) return true;
+    return /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent || '');
+  })();
 
   // Set when the server says this account may not be used yet (403
   // ACCOUNT_PENDING_APPROVAL / ACCOUNT_SUSPENDED). Held separately from `user`
@@ -145,10 +157,11 @@ function AppShell() {
   const boot = navFromUrl();
   const [activeModule, setActiveModule] = useState(
     ['OPERATION', 'ACCOUNTS', 'CRM'].includes(boot.module) ? boot.module : 'OPERATION');
-  // Landing page = Master Control v5.0 (God 2026-08-15). Logging in drops the
-  // user straight into the control centre instead of the legacy dashboard.
+  // Landing page = Command Center: Transport Fleet Ops (Master Control v5.0,
+  // ops tab) — Gate 1 "routes strictly to Command Center" (owner, 2026-09-03).
+  // Accounts still lands on its own deck; a URL that names a screen wins.
   const [activeComponent, setActiveComponent] = useState(
-    boot.screen || (boot.module === 'ACCOUNTS' ? 'ACCT_DECK' : boot.module === 'CRM' ? 'MASTER_CONTROL_V5' : 'OPS_DECK'));
+    boot.screen || (boot.module === 'ACCOUNTS' ? 'ACCT_DECK' : 'MASTER_CONTROL_V5'));
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false); 
@@ -526,13 +539,12 @@ function AppShell() {
   
   if (!user && !showPublicWebsite && !isDriverMode && !isCustomerMode && !isPartnerMode) {
     return (
+      // GATE 1. Staff only; the outside parties' buttons that used to sit on
+      // this screen are gone — they enter through Gate 2 (/app).
       <Login
         onLoginSuccess={handleLoginSuccess}
         onAccountHold={setAccountHold}
-        onCustomerClick={() => setIsCustomerMode(true)}
-        onPartnerClick={() => setIsPartnerMode(true)} 
-        onDriverClick={() => setIsDriverMode(true)} 
-        onBackToWeb={() => setShowPublicWebsite(true)} 
+        onBackToWeb={() => setShowPublicWebsite(true)}
       />
     );
   }
