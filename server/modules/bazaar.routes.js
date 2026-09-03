@@ -1372,16 +1372,31 @@ export async function registerBazaarRoutes(app) {
       //
       // The CUSTOMER's income is deliberately NOT posted here. Recognising
       // freight revenue before the trip runs would overstate a month's income
-      // and create a receivable for a service not yet delivered; the existing
-      // billing flow books it when the load is delivered. (The same trigger
-      // would refuse a Sundry Debtors leg on a market voucher anyway — the
-      // schema and the accounting agree.) Say the word and a
-      // 'Market Fleet Receivables (Customers)' group makes the customer leg
-      // postable at lock too.
+      // and create a receivable for a service not yet delivered.
+      //
+      // It IS posted now — on POD verification, by postMarketIncome() in
+      // bazaarSettlement.routes.js, into the 'Market Fleet Receivables
+      // (Customers)' group that migration 145 adds for it. Migration 144 holds
+      // the timing as a CHECK, so the income leg cannot be posted early by any
+      // route, import or correction script.
       //
       // The margin is not a posting. It is the difference between two of them,
       // and inventing a third entry for it would double-count the spread.
       let lockVoucher = null;
+      // THE FIRM GATE. Until today this posted with `company_id: s0.company_id
+      // ?? null`, and five deals took it up on that — ₹1,95,000 of freight cost
+      // and an equal partner payable sitting in the books with no firm. That is
+      // not a cosmetic gap: company_matches() folds a NULL-company row into
+      // EVERY firm, so the same ₹1,95,000 was being counted three times over.
+      // Migration 144 now holds this as a CHECK too; this is the polite half,
+      // so the desk gets a sentence instead of a constraint violation. The lock
+      // itself still stands — naming the firm is a separate, later decision —
+      // and /settlements/:id/post-commitment posts it once somebody has.
+      if (!s0.company_id) {
+        out.body.ledger_error = 'firm not named — the deal is locked, but nothing was posted. '
+          + 'Set the firm on this settlement, then post the commitment from the Finance Hub.';
+        out.body.lock_voucher_id = null;
+      } else
       try {
         const partnerAmount = Number(s0.awarded_amount);
         if (partnerAmount > 0) {

@@ -92,6 +92,110 @@ const getFull = async (id) => {
   return rows[0] ?? null;
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// THE CUSTOMER LEG (owner directive, 3-Sep-2026)
+//
+//   Dr  Market Debtors: <customer>        customer_rate
+//     Cr  Market Fleet Freight Income       customer_rate
+//
+// which is the owner's "Debit Customer (Sundry Debtors) / Credit Market
+// Freight Income", sub-classified into the market segment. It has to be:
+// ledger_fleet_segment_guard() refuses any BAZAAR_* voucher that touches a
+// ledger outside 'Market Fleet %', and posting a market customer into the
+// own-fleet Sundry Debtors book would mix the two businesses the owner split
+// on 2-Sep. Migration 145 creates 'Market Fleet Receivables (Customers)' for
+// exactly this leg.
+//
+// WHEN. On POD verification, not at award. At award the truck has not moved;
+// recognising the freight then overstates the month and raises a receivable
+// for a service not delivered — which is itself an error, not a stricter one.
+// Migration 144 holds that as a CHECK, so no other code path can post it early.
+//
+// WHY THERE IS NO THIRD ENTRY FOR THE MARGIN. The spread is the difference
+// between this posting and the BZLOCK commitment. Posting it again as
+// "commission" would count it twice and overstate income. v_market_margin_audit
+// proves the difference against the stored margin_amount per settlement, which
+// is what makes the 0% claim checkable instead of asserted.
+//
+// Returns { voucher_id } on success, or { skipped } / { error } — never throws
+// into the caller's happy path, because a POD that verified but did not post is
+// a fact the desk must SEE rather than a failure that loses the verification.
+// ═══════════════════════════════════════════════════════════════════════════
+async function postMarketIncome(s, userId, log) {
+  const rate = Number(s.customer_rate ?? 0);
+  if (!(rate > 0)) return { skipped: 'no customer rate on this deal — nothing to recognise' };
+  if (!s.company_id) return { skipped: NO_COMPANY_DETAIL };
+  if (!['POD_VERIFIED', 'SETTLED'].includes(s.status)) {
+    return { skipped: `income is recognised on delivery — this settlement is ${s.status}` };
+  }
+  if (s.income_voucher_id) return { voucher_id: s.income_voucher_id, already: true };
+  try {
+    const v = await postVoucher({
+      type: 'JOURNAL',
+      source_type: 'BAZAAR_INCOME',
+      // Deterministic, so a double-tap is TARA's 409 and not a second receivable.
+      ref_no: `BZINC-${s.id}`,
+      entry_date: today(),
+      narration: `Load ${s.load_id} delivered — freight billable to ${s.customer_name ?? 'customer'}`.trim(),
+      company_id: s.company_id,
+      created_by: userId ?? null,
+      lines: [
+        { ledger: `Market Debtors: ${s.customer_name ?? 'customer'}`, dr_cr: 'DR', amount: r2(rate),
+          group: 'Market Fleet Receivables (Customers)' },
+        { ledger: 'Market Fleet Freight Income', dr_cr: 'CR', amount: r2(rate),
+          group: 'Market Fleet Income' },
+      ],
+    });
+    const vid = v?.voucher_id ?? null;
+    if (vid) {
+      await query(
+        `UPDATE bazaar_settlements
+            SET income_voucher_id = $2::uuid, income_posted_at = now(), updated_at = now()
+          WHERE id = $1::uuid`, [s.id, vid]);
+    }
+    return { voucher_id: vid };
+  } catch (e) {
+    log?.error?.({ err: e, settlement: s.id }, 'market income posting failed');
+    return { error: e.code === 'DUPLICATE_REF' ? 'already posted for this deal' : (e.message ?? 'ledger posting failed') };
+  }
+}
+
+// The partner-side commitment (Dr Market Fleet Freight Cost / Cr Market
+// Partner). Normally posted at deal lock by bazaar.routes; this is the retry
+// for a deal that locked BEFORE its firm was named, which the lock route now
+// defers rather than posting untagged.
+async function postMarketCommitment(s, userId, log) {
+  const amount = Number(s.awarded_amount ?? 0);
+  if (!(amount > 0)) return { skipped: 'no awarded amount' };
+  if (!s.company_id) return { skipped: NO_COMPANY_DETAIL };
+  if (s.lock_voucher_id) return { voucher_id: s.lock_voucher_id, already: true };
+  try {
+    const v = await postVoucher({
+      type: 'JOURNAL',
+      source_type: 'BAZAAR_AWARD',
+      ref_no: `BZLOCK-${s.id}`,
+      entry_date: today(),
+      narration: `Load ${s.load_id} awarded — freight committed to ${s.vendor_name ?? 'partner'}`.trim(),
+      company_id: s.company_id,
+      created_by: userId ?? null,
+      lines: [
+        { ledger: 'Market Fleet Freight Cost', dr_cr: 'DR', amount: r2(amount), group: 'Market Fleet Expenses' },
+        { ledger: `Market Partner: ${s.vendor_name ?? 'partner'}`, dr_cr: 'CR', amount: r2(amount),
+          group: 'Market Fleet Payables (Partners)' },
+      ],
+    });
+    const vid = v?.voucher_id ?? null;
+    if (vid) {
+      await query('UPDATE bazaar_settlements SET lock_voucher_id = $2::uuid, updated_at = now() WHERE id = $1::uuid',
+        [s.id, vid]);
+    }
+    return { voucher_id: vid };
+  } catch (e) {
+    log?.error?.({ err: e, settlement: s.id }, 'market commitment posting failed');
+    return { error: e.code === 'DUPLICATE_REF' ? 'already posted for this deal' : (e.message ?? 'ledger posting failed') };
+  }
+}
+
 export function registerBazaarSettlementRoutes(app) {
   app.get('/settlements', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -304,7 +408,17 @@ export function registerBazaarSettlementRoutes(app) {
               pod_verified_by = $2, pod_note = $3, updated_at = now()
         WHERE id = $1::uuid RETURNING *`,
       [s.id, req.body?.verified_by ?? null, req.body?.note ?? null]);
-    return { settlement: rows[0] };
+
+    // Delivery is the accounting event for the customer's freight, so the
+    // income leg posts here — not at award, and not by hand. If it cannot
+    // post (no firm named yet) the verification still stands and the reason
+    // comes back with it; /post-income is the retry once a person fixes it.
+    const income = await postMarketIncome({ ...s, ...rows[0] }, req.user?.sub, req.log);
+    return {
+      settlement: rows[0],
+      income_voucher_id: income.voucher_id ?? null,
+      ledger_note: income.skipped ?? income.error ?? null,
+    };
   });
 
   // ── The balance — ONLY after the POD is verified ─────────────────────────
@@ -370,6 +484,92 @@ export function registerBazaarSettlementRoutes(app) {
   // ── Cancel (the workflow, never the books) ───────────────────────────────
   // Vouchers already posted stay posted — money that moved is a fact. The
   // deposit-refund route above is how it comes back, visibly.
+  // ── The books: recognise the customer's freight, or retry a deferred leg ──
+  //
+  // Both are idempotent and both refuse without a firm, so the desk can press
+  // them as often as it likes. They exist as explicit routes because the two
+  // things that stop a posting — no firm named, TARA refusing — are the two
+  // things a person has to fix, and a queue you can retry beats a log line.
+  app.post('/settlements/:id/post-income', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const s = await getFull(req.params.id);
+    if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const out = await postMarketIncome(s, req.user?.sub, req.log);
+    if (out.skipped) return reply.code(409).send({ error: 'NOT_POSTABLE', detail: out.skipped });
+    if (out.error) return reply.code(422).send({ error: 'LEDGER_REFUSED', detail: out.error });
+    return { settlement: await getFull(s.id), income_voucher_id: out.voucher_id, already: !!out.already };
+  });
+
+  app.post('/settlements/:id/post-commitment', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const s = await getFull(req.params.id);
+    if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const out = await postMarketCommitment(s, req.user?.sub, req.log);
+    if (out.skipped) return reply.code(409).send({ error: 'NOT_POSTABLE', detail: out.skipped });
+    if (out.error) return reply.code(422).send({ error: 'LEDGER_REFUSED', detail: out.error });
+    return { settlement: await getFull(s.id), lock_voucher_id: out.voucher_id, already: !!out.already };
+  });
+
+  // ── MARKET FLEET FINANCE HUB ─────────────────────────────────────────────
+  // One read for the Accounts side. Every figure comes from
+  // v_market_margin_audit (migration 144), which derives them from the posted
+  // entries rather than re-adding them here — so this endpoint cannot disagree
+  // with the books.
+  //
+  // `leaks` and `posted_without_firm` are the two numbers that must be zero.
+  // They are returned even when zero, because a hub that only shows problems
+  // when it has them cannot be trusted to be looking.
+  app.get('/market-hub', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const [totals, tasks, recent] = await Promise.all([
+      query(`SELECT
+               count(*)                                                       AS deals,
+               coalesce(sum(partner_rate), 0)::numeric(16,2)                  AS committed_to_partners,
+               coalesce(sum(customer_rate), 0)::numeric(16,2)                 AS billable_to_customers,
+               coalesce(sum(stored_margin), 0)::numeric(16,2)                 AS net_margin,
+               coalesce(sum(cost_posted), 0)::numeric(16,2)                   AS cost_in_books,
+               coalesce(sum(income_posted), 0)::numeric(16,2)                 AS income_in_books,
+               coalesce(sum(advance_amount), 0)::numeric(16,2)                AS advances_paid,
+               coalesce(sum(case when status = 'POD_VERIFIED' then partner_rate - coalesce(advance_amount,0) end), 0)::numeric(16,2)
+                                                                              AS balance_due_now,
+               coalesce(sum(case when status not in ('SETTLED','CANCELLED','POD_VERIFIED')
+                                 then partner_rate - coalesce(advance_amount,0) end), 0)::numeric(16,2)
+                                                                              AS balance_pending_pod,
+               coalesce(sum(deposit_amount), 0)::numeric(16,2)                AS deposits_held,
+               count(*) filter (where abs(coalesce(margin_leak,0)) > 0.005)   AS margin_leaks,
+               count(*) filter (where abs(coalesce(ledger_vs_stored_leak,0)) > 0.005) AS ledger_leaks,
+               count(*) filter (where lock_balanced is false)                 AS unbalanced_commitments,
+               count(*) filter (where income_balanced is false)               AS unbalanced_income,
+               coalesce(sum(untagged_ledger_lines), 0)                        AS untagged_ledger_lines
+             FROM v_market_margin_audit`),
+      query(`SELECT
+               count(*) filter (where posted_without_firm)  AS posted_without_firm,
+               count(*) filter (where firm_missing)         AS firm_missing,
+               count(*) filter (where commitment_unposted)  AS commitment_unposted,
+               count(*) filter (where income_unposted)      AS income_unposted
+             FROM v_market_margin_audit`),
+      query(`SELECT a.*, l.origin, l.destination, l.customer_name, b.vendor_name
+               FROM v_market_margin_audit a
+               JOIN bazaar_loads l ON l.load_id = a.load_id
+               LEFT JOIN bazaar_settlements s ON s.id = a.settlement_id
+               LEFT JOIN bazaar_bids b ON b.id = s.bid_id
+              ORDER BY a.created_at DESC LIMIT 50`),
+    ]);
+    const t = totals.rows[0] ?? {};
+    return {
+      at: new Date().toISOString(),
+      totals: t,
+      tasks: tasks.rows[0] ?? {},
+      // The single yes/no the owner asked for. False the moment any of the four
+      // integrity counters is non-zero.
+      zero_error: Number(t.margin_leaks || 0) === 0
+        && Number(t.ledger_leaks || 0) === 0
+        && Number(t.unbalanced_commitments || 0) === 0
+        && Number(t.unbalanced_income || 0) === 0,
+      deals: recent.rows,
+    };
+  });
+
   app.post('/settlements/:id/cancel', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const reason = String(req.body?.reason ?? '').trim();

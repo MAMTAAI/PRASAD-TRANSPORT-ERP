@@ -49,6 +49,13 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [at, setAt] = useState(null);
+  // The Market Fleet's own books. A SEPARATE read from dashboard/v5 on purpose:
+  // v5 is the own-fleet + contract world, and the owner split the two
+  // businesses on 2-Sep. Every figure below comes from v_market_margin_audit,
+  // which derives them from the posted entries rather than re-adding them — so
+  // this panel cannot quietly disagree with the ledger.
+  const [mkt, setMkt] = useState(null);
+  const [mktErr, setMktErr] = useState(null);
 
   const load = useCallback(async (cid) => {
     setLoading(true); setErr(null);
@@ -62,6 +69,17 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
   }, []);
 
   useEffect(() => { load(companyId); }, [companyId, load]);
+  useEffect(() => {
+    let live = true;
+    const pull = () => fetch(`${API}/api/v1/bazaar/market-hub`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status))))
+      .then((j) => { if (live) { setMkt(j); setMktErr(null); } })
+      .catch((e) => { if (live) setMktErr(e.message); });
+    pull();
+    const t = setInterval(pull, 60_000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+
   useEffect(() => {
     fetch(`${API}/api/v1/finance/companies`).then((r) => r.ok ? r.json() : null)
       .then((j) => { const list = Array.isArray(j) ? j : (j?.companies ?? []); if (list.length) setCompanies(list); })
@@ -78,6 +96,10 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
   const emi = fin.emi ?? {};
   const toll = fin.toll ?? {};
   const book = fin.ledger_book ?? [];
+  const mt = mkt?.totals ?? {};
+  const mq = mkt?.tasks ?? {};
+  const mktTasks = Number(mq.posted_without_firm ?? 0) + Number(mq.firm_missing ?? 0)
+    + Number(mq.commitment_unposted ?? 0) + Number(mq.income_unposted ?? 0);
   const totals = fin.book_totals ?? {};
   const unbilled = fin.unbilled_list ?? [];
   const outstanding = Number(fin.freight_income || 0) - Number(fin.received || 0);
@@ -174,6 +196,44 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
         .ad-console b{font-size:13.5px;} .ad-console p{margin:2px 0 0;font-size:12px;color:var(--ink3);}
         .ad-console button{font:inherit;font-weight:650;font-size:13px;cursor:pointer;border:1px solid var(--accent);color:var(--accent);background:var(--accent-soft);padding:9px 16px;border-radius:10px;}
         .ad-foot{margin-top:18px;font-size:11.5px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;}
+        /* ── MARKET FLEET FINANCE HUB ─────────────────────────────────
+           The brokerage's own books, kept visually distinct from the
+           own-fleet panels above by the cyan rail: two businesses, two
+           reads, one screen. */
+        .ad-mkt{border-color:color-mix(in oklab,var(--sky) 30%,var(--line));}
+        .ad-mkt>header{border-bottom-color:color-mix(in oklab,var(--sky) 24%,var(--line));}
+        .ad-mkt .verdict{display:flex;align-items:center;gap:9px;margin:0;padding:11px 16px;
+          font-size:12.5px;font-weight:650;border-bottom:1px solid var(--line);}
+        .ad-mkt .verdict.ok{background:var(--good-soft);color:var(--good);box-shadow:0 0 22px rgba(47,227,155,.14) inset;}
+        .ad-mkt .verdict.bad{background:var(--crit-soft);color:var(--crit);box-shadow:0 0 22px rgba(255,107,129,.16) inset;}
+        .ad-mkt .verdict small{color:var(--ink3);font-weight:500;font-size:11.5px;}
+        /* The square: two rates in, one spread out. Laid out as a real grid so
+           the three numbers line up as an equation rather than three cards. */
+        .ad-sq{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line);}
+        .ad-sq>div{background:var(--surface2);padding:13px 15px;}
+        .ad-sq .l{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);font-weight:700;}
+        .ad-sq .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:20px;
+          font-weight:650;margin-top:5px;letter-spacing:-.02em;}
+        .ad-sq .s{font-size:10.5px;color:var(--ink3);margin-top:3px;}
+        .ad-sq .spread{background:linear-gradient(140deg,rgba(34,211,238,.10),rgba(24,36,74,0));}
+        .ad-sq .spread .v{color:var(--sky);}
+        .ad-sq .neg .v{color:var(--crit);}
+        /* The desk's task list. Amber only when a count is non-zero — a queue
+           that lights up when empty teaches people to ignore it. */
+        .ad-task{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;}
+        .ad-task button{font:inherit;cursor:pointer;display:flex;align-items:baseline;gap:8px;
+          border:1px solid var(--line);background:var(--surface2);color:var(--ink2);
+          padding:7px 12px;border-radius:10px;font-size:12px;font-weight:600;transition:.16s;}
+        .ad-task button:hover{border-color:var(--line2);color:var(--ink);transform:translateY(-2px);}
+        .ad-task button b{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:14px;color:var(--ink);}
+        .ad-task button[data-hot="1"]{border-color:color-mix(in oklab,var(--accent) 48%,var(--line));
+          background:var(--accent-soft);box-shadow:0 0 22px rgba(255,178,36,.22);}
+        .ad-task button[data-hot="1"] b{color:var(--accent);}
+        .ad-task button[data-crit="1"]{border-color:color-mix(in oklab,var(--crit) 48%,var(--line));
+          background:var(--crit-soft);box-shadow:0 0 22px rgba(255,107,129,.22);}
+        .ad-task button[data-crit="1"] b{color:var(--crit);}
+        .ad-task .clear{font-size:12.5px;color:var(--good);font-weight:600;align-self:center;}
+        @media (max-width:900px){.ad-sq{grid-template-columns:1fr;}}
         @media (max-width:900px){.ad-kpis{grid-template-columns:repeat(2,1fr);}.ad-grid,.ad-grid3{grid-template-columns:1fr;}}
       `}</style>
 
@@ -314,6 +374,135 @@ export default function AccountsDeck2026({ currentUser, onOpenTool }) {
           </div>
         </section>
       </div>
+
+      {/* ═══ MARKET FLEET — FINANCE HUB ═══════════════════════════════════
+          The brokerage side of the books, which the own-fleet P&L above does
+          not contain and must not: FLEET_CROSSOVER keeps market money inside
+          'Market Fleet %' ledgers precisely so these two never mix.
+
+          The three numbers are the whole model — what the customer owes us,
+          what we owe the partner, and the spread between them. The spread is
+          NOT a third ledger entry: it is the difference between the other two,
+          and posting it separately would count it twice. `zero_error` is the
+          server's reconciliation of exactly that, per settlement. */}
+      <section className="ad-panel ad-mkt" style={{ marginBottom: 16 }}>
+        <header>
+          <h2>🌍 Market Fleet — Finance Hub</h2>
+          <span className="m">
+            {mkt ? `${mt.deals ?? 0} deals · brokerage books` : mktErr ? 'unavailable' : 'loading…'}
+          </span>
+        </header>
+
+        {mktErr ? (
+          <p className="ad-note" style={{ padding: '14px 16px' }}>
+            Could not read the market books ({mktErr}). The own-fleet figures above are unaffected —
+            they come from a different endpoint.
+          </p>
+        ) : !mkt ? (
+          <p className="ad-note" style={{ padding: '14px 16px' }}>Reading the market ledger…</p>
+        ) : (
+          <>
+            {/* The one line the owner asked for: does every rupee reconcile? */}
+            <p className={`verdict ${mkt.zero_error ? 'ok' : 'bad'}`}>
+              {mkt.zero_error ? '🔒' : '⚠'}
+              {mkt.zero_error
+                ? <>Ledger reconciled — 0 margin leaks, 0 unbalanced vouchers{' '}
+                    <small>· receivable − payable = margin on every deal, checked against the posted entries</small></>
+                : <>{Number(mt.margin_leaks ?? 0)} margin leak(s), {Number(mt.ledger_leaks ?? 0)} ledger mismatch(es),{' '}
+                    {Number(mt.unbalanced_commitments ?? 0) + Number(mt.unbalanced_income ?? 0)} unbalanced voucher(s)</>}
+            </p>
+
+            <div className="ad-sq">
+              <div>
+                <div className="l">Billable to customers</div>
+                <div className="v">{rL(mt.billable_to_customers)}</div>
+                <div className="s">Dr Market Debtors · {rL(mt.income_in_books)} recognised on delivery</div>
+              </div>
+              <div>
+                <div className="l">Committed to partners</div>
+                <div className="v">{rL(mt.committed_to_partners)}</div>
+                <div className="s">Cr Market Partner · {rL(mt.cost_in_books)} posted at award</div>
+              </div>
+              <div className={`spread${Number(mt.net_margin ?? 0) < 0 ? ' neg' : ''}`}>
+                <div className="l">Office commission / net margin</div>
+                <div className="v">{rL(mt.net_margin)}</div>
+                <div className="s">
+                  the spread, isolated — not a posting
+                  {Number(mt.billable_to_customers ?? 0) > 0
+                    ? ` · ${(Number(mt.net_margin ?? 0) / Number(mt.billable_to_customers) * 100).toFixed(2)}%`
+                    : ''}
+                </div>
+              </div>
+            </div>
+
+            <div className="ad-money">
+              <div className="box">
+                <div className="l">Advances paid</div>
+                <div className="v ad-num">{rL(mt.advances_paid)}</div>
+                <div className="s">released to partners at loading</div>
+              </div>
+              <div className="box due">
+                <div className="l">Balance pending POD</div>
+                <div className="v ad-num">{rL(mt.balance_pending_pod)}</div>
+                <div className="s">held until the POD is verified</div>
+              </div>
+              <div className="box hi">
+                <div className="l">Balance due now</div>
+                <div className="v ad-num">{rL(mt.balance_due_now)}</div>
+                <div className="s">POD verified — releasable</div>
+              </div>
+              <div className="box">
+                <div className="l">Deposits held</div>
+                <div className="v ad-num">{rL(mt.deposits_held)}</div>
+                <div className="s">refundable trip locks, both sides</div>
+              </div>
+            </div>
+
+            {/* What a PERSON has to fix. Surfaced, never auto-corrected: money
+                that posted is a fact, and stamping a firm onto somebody else's
+                lakh is not a script's decision. */}
+            <div className="ad-task">
+              <span style={{ fontSize: 10, letterSpacing: '.13em', textTransform: 'uppercase', color: 'var(--ink3)', fontWeight: 700, alignSelf: 'center', marginRight: 4 }}>
+                Desk
+              </span>
+              {mktTasks === 0 ? (
+                <span className="clear">✓ nothing waiting — every deal has a firm and both legs are posted</span>
+              ) : (
+                <>
+                  <button type="button" data-crit={Number(mq.posted_without_firm ?? 0) > 0 ? '1' : undefined}
+                          onClick={() => onOpenTool?.('BAZAAR_ADMIN')}
+                          title="These vouchers posted with no firm named. An untagged entry is counted in EVERY firm, so the same money shows up three times.">
+                    <b>{Number(mq.posted_without_firm ?? 0)}</b> posted without a firm
+                  </button>
+                  <button type="button" data-hot={Number(mq.firm_missing ?? 0) > 0 ? '1' : undefined}
+                          onClick={() => onOpenTool?.('BAZAAR_ADMIN')}
+                          title="No operating company on the settlement — no further money can move until it is named.">
+                    <b>{Number(mq.firm_missing ?? 0)}</b> firm not named
+                  </button>
+                  <button type="button" data-hot={Number(mq.commitment_unposted ?? 0) > 0 ? '1' : undefined}
+                          onClick={() => onOpenTool?.('BAZAAR_ADMIN')}
+                          title="The deal is locked but the partner commitment never reached the books.">
+                    <b>{Number(mq.commitment_unposted ?? 0)}</b> commitment unposted
+                  </button>
+                  <button type="button" data-hot={Number(mq.income_unposted ?? 0) > 0 ? '1' : undefined}
+                          onClick={() => onOpenTool?.('BAZAAR_ADMIN')}
+                          title="Delivered, but the customer's freight income has not been recognised.">
+                    <b>{Number(mq.income_unposted ?? 0)}</b> income unposted
+                  </button>
+                </>
+              )}
+            </div>
+
+            {Number(mt.untagged_ledger_lines ?? 0) > 0 && (
+              <p className="ad-note" style={{ paddingTop: 0 }}>
+                {Number(mt.untagged_ledger_lines)} market ledger line(s) carry no company. Until a person names
+                the firm on those settlements the company filter folds them into every firm, so the same money
+                reads three times. Nothing here rewrites them — the firm is a decision, not a default.
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       <section className="ad-panel" style={{ marginTop: 16 }}>
         <header><h2>Every accounts tool — unchanged</h2><span className="m">one click, same rooms as the sidebar</span></header>
