@@ -194,26 +194,122 @@ export async function registerIntegrationRoutes(app) {
     // DISTINCT ON keeps the newest load per vehicle. The stale rows are still
     // in the database and still wrong; this stops them being mistaken for
     // today's work, and the Unloading Queue is where they get closed.
+    // WHO IS DRIVING, AND WHICH LORRY IS IT (audit, 3-Sep-2026).
+    //
+    // This feed drives the Live Fleet Map, the trip tracker and the driver
+    // link on every truck row — and it was reading `trips` alone. On the live
+    // board that meant, out of 137 open trips:
+    //
+    //   · 101 carried NO driver at all — neither driver_id nor even a name —
+    //     so three trucks in four had a dead "call the driver" affordance,
+    //   ·   2 carried a name but no driver_id, so the Driver Control link was
+    //     hidden even though the person is in the driver master, and
+    //   ·  only 36 carried a mobile number, because the feed never looked at
+    //     drivers.mobile — the number was sitting one join away the whole time.
+    //
+    // The lorry had the same problem in a quieter form: `vehicles` was never
+    // joined, so a marker could not open the truck it belongs to. 136 of 137
+    // open trips resolve to a vehicle row once the registration is compared
+    // without spaces and dashes.
+    //
+    // So each row now says WHO, WHICH LORRY, and — the part that matters on a
+    // money screen — HOW IT KNOWS:
+    //   driver_source  LINKED       trips.driver_id → drivers.id
+    //                  NAME_MATCH   no id, but the trip's driver_name matches
+    //                               exactly one driver master row
+    //                  TRIP_TEXT    a name on the trip that matches nobody
+    //                  NONE         the trip does not say who is driving
+    // NAME_MATCH deliberately requires exactly one candidate. Two drivers of
+    // the same name is not a guess this endpoint is allowed to make; those
+    // stay TRIP_TEXT and a person decides.
+    //
+    // NOT DONE, on purpose: nothing here writes trips.driver_id. Backfilling
+    // 338 trips from a name match is a correction script, and corrections are
+    // the desk's to approve — `unlinked_drivers` in the summary is that queue.
+    //
+    // ALSO CONSIDERED AND REJECTED: falling back to the last FASTag crossing
+    // when a truck has no GPS fix. 73 open trips would have "gained" a
+    // position that way, but the newest toll row is 23-Jul — six weeks old.
+    // A six-week-old point drawn on a live map is worse than an empty space,
+    // because the empty space is honest. Those trucks stay in `noFix`.
+    const NORM = (c) => `regexp_replace(upper(${c}), '[^A-Z0-9]', '', 'g')`;
     const { rows } = await query(
       `SELECT * FROM (
-         SELECT DISTINCT ON (t.vehicle_no)
-                t.id, t.trip_code, t.vehicle_no, t.driver_name, t.driver_id, t.status,
+         SELECT DISTINCT ON (${NORM('t.vehicle_no')})
+                t.id, t.trip_code, t.vehicle_no, t.status,
                 t.loading_date, t.loading_point,
                 COALESCE(t.unloading_location, t.consignee_name) AS destination,
+
+                -- the lorry, as a real record the map can open
+                v.id            AS vehicle_id,
+                v.vehicle_type  AS vehicle_type,
+
+                -- who is driving, and how we know
+                COALESCE(t.driver_id, nm.id)              AS driver_id,
+                COALESCE(NULLIF(btrim(t.driver_name), ''),
+                         d.name, nm.name)                 AS driver_name,
+                COALESCE(NULLIF(btrim(t.driver_mobile), ''),
+                         d.mobile, nm.mobile)             AS driver_mobile,
+                CASE
+                  WHEN t.driver_id IS NOT NULL THEN 'LINKED'
+                  WHEN nm.id IS NOT NULL       THEN 'NAME_MATCH'
+                  WHEN NULLIF(btrim(t.driver_name), '') IS NOT NULL THEN 'TRIP_TEXT'
+                  ELSE 'NONE'
+                END                                       AS driver_source,
+
                 p.source, p.lat, p.lng, p.recorded_at,
+                -- Age of the fix in seconds, so the UI can say "4 min ago"
+                -- rather than implying every plotted truck is live right now.
+                EXTRACT(EPOCH FROM (now() - p.recorded_at))::int AS fix_age_s,
+
                 (SELECT count(*)::int FROM trips o
-                  WHERE o.vehicle_no = t.vehicle_no
+                  WHERE ${NORM('o.vehicle_no')} = ${NORM('t.vehicle_no')}
                     AND o.status IN ('LOADED','IN_TRANSIT','UNLOADING')) AS open_trips
            FROM trips t
+           LEFT JOIN drivers d  ON d.id = t.driver_id
+           -- The name fallback. Scalar subqueries rather than a join, so a
+           -- duplicated name yields NULL (ambiguous → not guessed) instead of
+           -- silently multiplying the row.
+           LEFT JOIN LATERAL (
+             SELECT dd.id, dd.name, dd.mobile
+               FROM drivers dd
+              WHERE t.driver_id IS NULL
+                AND NULLIF(btrim(t.driver_name), '') IS NOT NULL
+                AND lower(btrim(dd.name)) = lower(btrim(t.driver_name))
+                -- Exactly one candidate, or none at all. Two drivers sharing a
+                -- name is not a guess this endpoint may make: the row stays
+                -- TRIP_TEXT and a person decides which one it is.
+                AND (SELECT count(*) FROM drivers d2
+                      WHERE lower(btrim(d2.name)) = lower(btrim(t.driver_name))) = 1
+              LIMIT 1
+           ) nm ON true
+           LEFT JOIN vehicles v
+             ON ${NORM('v.vehicle_no')} = ${NORM('t.vehicle_no')}
            LEFT JOIN LATERAL (
              SELECT source, lat, lng, recorded_at FROM trip_gps_pings
               WHERE trip_id = t.id ORDER BY recorded_at DESC LIMIT 1
            ) p ON true
           WHERE t.status IN ('LOADED','IN_TRANSIT','UNLOADING')
-          ORDER BY t.vehicle_no, t.loading_date DESC NULLS LAST, t.created_at DESC
+          ORDER BY ${NORM('t.vehicle_no')}, t.loading_date DESC NULLS LAST, t.created_at DESC
        ) latest
        ORDER BY loading_date DESC NULLS LAST
        LIMIT 100`);
-    return { count: rows.length, trips: rows };
+
+    // The desk's data-quality queue, counted from the same rows the map draws
+    // so the number on screen and the number in the summary cannot disagree.
+    const summary = {
+      total: rows.length,
+      with_fix: rows.filter((r) => r.lat != null && r.lng != null).length,
+      no_fix: rows.filter((r) => r.lat == null || r.lng == null).length,
+      driver_linked: rows.filter((r) => r.driver_source === 'LINKED').length,
+      driver_name_matched: rows.filter((r) => r.driver_source === 'NAME_MATCH').length,
+      driver_unknown: rows.filter((r) => r.driver_source === 'NONE').length,
+      // Trips a person could link in one click: the name resolves to exactly
+      // one driver, but nobody has written the id onto the trip.
+      unlinked_drivers: rows.filter((r) => r.driver_source === 'NAME_MATCH').length,
+      no_mobile: rows.filter((r) => !r.driver_mobile).length,
+      vehicle_unresolved: rows.filter((r) => !r.vehicle_id).length,
+    };
+    return { count: rows.length, summary, trips: rows };
   });
 }

@@ -75,7 +75,7 @@ export default function LiveFleetMap() {
   const markersRef = useRef(new Map());   // trip_id -> { marker, target, current, raf }
   const [status, setStatus] = useState('loading');  // loading | ready | nokey | error
   const [detail, setDetail] = useState('');
-  const [board, setBoard] = useState({ withFix: [], noFix: [], total: 0 });
+  const [board, setBoard] = useState({ withFix: [], noFix: [], total: 0, summary: null });
   const [socketState, setSocketState] = useState('connecting'); // connecting | live | down
   const routesRef = useRef(new Map());   // trip_id -> google.maps.Polyline
   // ONE InfoWindow for the whole map, not one per marker. It opens on hover
@@ -168,6 +168,9 @@ export default function LiveFleetMap() {
         withFix: trips.filter((t) => t.lat != null && t.lng != null),
         noFix: trips.filter((t) => t.lat == null || t.lng == null),
         total: trips.length,
+        // Counted by the server off the same rows the map draws, so the number
+        // in the panel and the number of markers cannot drift apart.
+        summary: json.summary ?? null,
       });
     } catch { /* keep the last board rather than blanking it */ }
   }, []);
@@ -278,9 +281,22 @@ export default function LiveFleetMap() {
         // On touch, Maps synthesises the click, so the first tap still pins.
         if (!infoRef.current) infoRef.current = new g.maps.InfoWindow();
         const content = () =>
+          // The driver line says WHO and, when it is not certain, HOW we know.
+          // A name matched from text is not the same fact as a linked driver
+          // record, and on a screen the desk phones people from, the two must
+          // not read alike. The number is here because the reason to open this
+          // bubble is usually to call the man in the cab.
           `<div style="font-family:Inter,sans-serif;color:#0a1024;font-size:12px;line-height:1.5">
              <b>${t.vehicle_no ?? '—'}</b> · ${t.trip_code ?? ''}<br/>
-             ${t.driver_name ?? 'driver not set'}<br/>
+             ${t.driver_name
+               ? `${t.driver_name}${t.driver_source === 'NAME_MATCH'
+                   ? ' <span style="color:#b45309">(matched by name)</span>'
+                   : t.driver_source === 'TRIP_TEXT'
+                     ? ' <span style="color:#b45309">(not in driver master)</span>' : ''}`
+               : '<span style="color:#be123c">no driver on this trip</span>'}<br/>
+             ${t.driver_mobile
+               ? `<a href="tel:${String(t.driver_mobile).replace(/[^+0-9]/g, '')}" style="color:#0e7490;font-weight:700">📞 ${t.driver_mobile}</a><br/>`
+               : ''}
              ${t.loading_point ?? '?'} → ${t.destination ?? '?'}<br/>
              <span style="color:#3d548a">fix: ${t.source ?? 'unknown'} · ${
                t.recorded_at ? new Date(t.recorded_at).toLocaleString('en-IN') : '—'}</span>
@@ -520,6 +536,22 @@ export default function LiveFleetMap() {
                            tone={plotted > 0 ? 'text-emerald-300' : 'text-amber-300'} />
                   <HoverKv k="No fix yet" v={board.noFix.length}
                            tone={board.noFix.length > 0 ? 'text-amber-300' : 'text-slate-400'} />
+                  {board.summary && (
+                    <>
+                      <HoverKv k="Driver linked" v={board.summary.driver_linked}
+                               tone="text-emerald-300" />
+                      {board.summary.driver_name_matched > 0 && (
+                        <HoverKv k="Driver matched by name" v={board.summary.driver_name_matched}
+                                 tone="text-amber-300" />
+                      )}
+                      {board.summary.driver_unknown > 0 && (
+                        <HoverKv k="No driver on the trip" v={board.summary.driver_unknown}
+                                 tone="text-red-300" />
+                      )}
+                      <HoverKv k="Callable number" v={board.total - board.summary.no_mobile}
+                               tone={board.summary.no_mobile > 0 ? 'text-amber-300' : 'text-emerald-300'} />
+                    </>
+                  )}
                   {socketState === 'down' && (
                     <HoverNote tone="text-amber-300/90">
                       The socket is not connected, so the poll IS the tracking and
@@ -585,8 +617,22 @@ export default function LiveFleetMap() {
                     <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${t.lat != null ? 'bg-emerald-400' : 'bg-slate-600'}`} />
                     <span className="truncate text-[11px] font-bold text-slate-200">{t.vehicle_no}</span>
                     {t.trip_code && <span className="shrink-0 text-[8.5px] text-slate-600">{t.trip_code}</span>}
+                    {/* Call the cab. On a dispatch board the commonest next
+                        action after finding a truck is phoning its driver, and
+                        the number was one join away in the feed until today —
+                        28 of 41 open trucks have one. */}
+                    {t.driver_mobile && (
+                      <a href={`tel:${String(t.driver_mobile).replace(/[^+0-9]/g, '')}`}
+                         title={`Call ${t.driver_name ?? 'driver'} · ${t.driver_mobile}`}
+                         onClick={(e) => e.stopPropagation()}
+                         className="ml-auto shrink-0 rounded-md border border-active/40 bg-active/10 px-1.5 text-[9px] font-black text-active hover:bg-active/20">
+                        📞
+                      </a>
+                    )}
                     {/* The driver behind this lorry → Driver Control Dashboard
-                        (owner, 2026-09-03). The feed carries driver_id since today. */}
+                        (owner, 2026-09-03). driver_id is now also filled from an
+                        unambiguous name match, so this link works for trips that
+                        were never linked by id — but the badge says which it is. */}
                     {t.driver_id && (
                       <span role="button" title={`${t.driver_name ?? 'Driver'} — Driver Control Dashboard`} data-driver-link
                         onClick={(e) => { e.stopPropagation(); openDriverControl(t.driver_id, t.driver_name); }}
