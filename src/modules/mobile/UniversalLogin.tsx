@@ -58,6 +58,18 @@ const REG_TAX_PARTNER = [
   { k: 'pan_no', hi: 'PAN कार्ड', en: 'PAN — required', req: true, ph: 'AAAPA1234A', caps: true, check: (v) => vPan(v, true) },
   { k: 'gst_no', hi: 'GSTIN', en: 'if you have one', ph: '18ABCDE1234F1Z5', caps: true, check: (v) => vGstin(v) },
 ];
+// Must match server VENDOR_CATEGORIES in bazaar.routes.js exactly — these
+// strings become vendors.vendor_type, and a spelling that drifts here splits
+// one trade into two on the master.
+const VENDOR_CATS = [
+  ['Fuel Pump', '⛽ पंप'],
+  ['Mechanic / Workshop', '🔧 मैकेनिक'],
+  ['Spare Parts', '⚙️ पार्ट्स'],
+  ['Tyre', '🛞 टायर'],
+  ['Toll / Misc', '🛣 टोल / अन्य'],
+  ['Other', '📦 और कुछ'],
+];
+
 const REG_BANK = [
   { k: 'bank_name', hi: 'बैंक का नाम', en: 'Bank name', req: true, ph: 'State Bank of India' },
   { k: 'account_no', hi: 'खाता नंबर', en: 'Account number', req: true, ph: '30123456789', num: true, check: (v) => vAccountNo(v, true) },
@@ -176,10 +188,12 @@ export default function UniversalLogin({ onAuthenticated }) {
   // know what they are applying to be before they are asked for a code.
   const [regType, setRegType] = useState('CUSTOMER');
   const [trucks, setTrucks] = useState([]);      // [{ registration_no, vehicle_class, capacity, rc_expiry, rc_file_key, uploading, name }]
+  const [vendorCat, setVendorCat] = useState('');
   const isPartner = regType === 'FLEET_PARTNER';
+  const isVendor = regType === 'VENDOR';
 
   const openRegister = () => {
-    setError(''); setRegDigits(EMPTY); setRegTicket(''); setTrucks([]);
+    setError(''); setRegDigits(EMPTY); setRegTicket(''); setTrucks([]); setVendorCat('');
     setStep('REG_TYPE');
   };
 
@@ -285,7 +299,10 @@ export default function UniversalLogin({ onAuthenticated }) {
 
   const submitRegistration = async () => {
     const errs = {};
-    const taxFields = isPartner ? REG_TAX_PARTNER : REG_TAX;
+    // A vendor is validated like a partner: PAN required, GST optional. Keeping
+    // this in step with what is RENDERED matters — validating against a field
+    // the form never showed is an error the applicant cannot see or fix.
+    const taxFields = (isPartner || isVendor) ? REG_TAX_PARTNER : REG_TAX;
     for (const f of [...REG_FIELDS, ...taxFields, ...REG_BANK]) {
       const v = String(reg[f.k] ?? '').trim();
       if (f.req && !v) { errs[f.k] = 'यह ज़रूरी है / required'; continue; }
@@ -300,6 +317,7 @@ export default function UniversalLogin({ onAuthenticated }) {
     }
     // A truck with no plate, or a plate with no RC, is not something the office
     // can verify — the server refuses both, so the form says so first.
+    if (isVendor && !vendorCat) { setError('अपना काम चुनो / choose what you do'); return; }
     if (isPartner) {
       const filled = trucks.filter((t) => String(t.registration_no).trim());
       if (trucks.length !== filled.length) { setError('हर गाड़ी का नंबर डालो / every truck needs its number'); return; }
@@ -313,6 +331,7 @@ export default function UniversalLogin({ onAuthenticated }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...reg, mobile_no: regClean, ticket: regTicket, type: regType,
+          ...(isVendor ? { vendor_category: vendorCat } : {}),
           ...(isPartner ? {
             agency_name: reg.corporate_name,
             owner_name: reg.contact_person,
@@ -508,6 +527,10 @@ export default function UniversalLogin({ onAuthenticated }) {
               <div className="text-[17px] font-black text-slate-900">🚛 गाड़ी मालिक</div>
               <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Fleet Partner — आपकी अपनी गाड़ियाँ हैं और आप हमारा माल ढोना चाहते हैं। PAN, बैंक और हर गाड़ी की RC लगेगी।</div>
             </button>
+            <button onClick={() => startWall('VENDOR')} className="mt-3 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="VENDOR">
+              <div className="text-[17px] font-black text-slate-900">🔧 पंप / मैकेनिक / पार्ट्स</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Vendor — आप हमें डीज़ल, टायर, पार्ट्स या मरम्मत देते हैं और बिल भेजते हैं। PAN और बैंक लगेगा।</div>
+            </button>
             <button onClick={() => { setStep('NUMBER'); setError(''); }} className={`${GHOST} mt-4`}>‹ वापस लॉगिन पर</button>
           </>
         )}
@@ -568,6 +591,20 @@ export default function UniversalLogin({ onAuthenticated }) {
               <span className="mt-1 block text-[11.5px] text-violet-900/70">The office verifies your GSTIN, PAN and bank account before the app opens.</span>
             </div>
 
+            {isVendor && (
+              <>
+                {section('🔧', 'आप क्या काम करते हैं?', 'Your trade · required')}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {VENDOR_CATS.map(([val, label]) => (
+                    <button key={val} onClick={() => { setVendorCat(val); setError(''); }} data-cat={val}
+                      className={`min-h-[46px] rounded-xl border-2 px-3 text-[14px] font-extrabold ${vendorCat === val ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-slate-300 bg-white text-slate-700'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
             {section('🏭', 'फर्म की जानकारी', 'Company details')}
             <div className="mt-3 space-y-3">
               {/* Verified upstairs, so it is shown rather than asked. Editing it
@@ -583,8 +620,8 @@ export default function UniversalLogin({ onAuthenticated }) {
               {REG_FIELDS.map(renderField)}
             </div>
 
-            {section('🧾', isPartner ? 'PAN और GST' : 'GST और PAN', isPartner ? 'PAN required' : 'Tax details · required')}
-            <div className="mt-3 space-y-3">{(isPartner ? REG_TAX_PARTNER : REG_TAX).map(renderField)}</div>
+            {section('🧾', (isPartner || isVendor) ? 'PAN और GST' : 'GST और PAN', (isPartner || isVendor) ? 'PAN required' : 'Tax details · required')}
+            <div className="mt-3 space-y-3">{(isPartner || isVendor ? REG_TAX_PARTNER : REG_TAX).map(renderField)}</div>
 
             {section('🏦', 'बैंक की जानकारी', 'Bank details · for payments')}
             <div className="mt-3 space-y-3">{REG_BANK.map(renderField)}</div>

@@ -26,6 +26,14 @@ import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { checkParty, last10, upper, trimOrNull } from '../lib/partyFormats.js';
 import { asSystem } from '../lib/staging.js';
 
+// The trades a service vendor can apply in (owner, 3-Sep). A list rather than
+// free text so the master stays filterable: these strings become
+// vendors.vendor_type, and 'Fuel Pump' / 'Spare Parts' are already what the
+// existing rows say — a new spelling would quietly split one trade into two.
+export const VENDOR_CATEGORIES = [
+  'Fuel Pump', 'Mechanic / Workshop', 'Spare Parts', 'Tyre', 'Toll / Misc', 'Other',
+];
+
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -638,14 +646,27 @@ export async function registerBazaarRoutes(app) {
 
     const isCustomer = type === 'CUSTOMER';
     const isPartner = type === 'FLEET_PARTNER';
+    // A SERVICE vendor — a pump, a workshop, a parts shop (owner, 3-Sep). It
+    // must say WHICH, because the category becomes vendors.vendor_type on
+    // approval and an untyped vendor is one no category filter ever finds.
+    const isVendor = type === 'VENDOR';
+    const category = trimOrNull(b.vendor_category);
+    if (isVendor && !VENDOR_CATEGORIES.includes(String(category))) {
+      return reply.code(400).send({
+        error: 'BAD_CATEGORY',
+        detail: `vendor_category must be one of ${VENDOR_CATEGORIES.join(', ')}`,
+      });
+    }
     // Owner, 3-Sep: a fleet partner MUST bring PAN and bank details. GST is not
     // demanded of them — a single-lorry operator commonly has no registration,
     // and refusing those applicants would close the market fleet to exactly the
     // people it exists to reach. A customer we bill still needs both.
     const bad = checkParty(b, {
       requireGst: isCustomer,
-      requirePan: isPartner,
-      requireBank: isCustomer || isPartner,
+      // A pump or a workshop is paid the same way a partner is — no PAN and no
+      // account means the office cannot settle a bill it just approved.
+      requirePan: isPartner || isVendor,
+      requireBank: isCustomer || isPartner || isVendor,
     });
     if (bad.length) {
       return reply.code(400).send({ error: 'BAD_FIELDS', detail: bad[0].message, fields: bad });
@@ -734,16 +755,17 @@ export async function registerBazaarRoutes(app) {
         const { rows } = await c.query(`
           INSERT INTO onboarding_applications (type, corporate_name, gst_no, pan_no, mobile_no,
             address, contact_person, aadhaar_last4, documents, status,
-            email, bank_name, account_no, ifsc_code)
+            email, bank_name, account_no, ifsc_code, vendor_category)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::jsonb,'{}'::jsonb),'PENDING_KYC',
-                  $10,$11,$12,$13)
+                  $10,$11,$12,$13,$14)
           RETURNING *`,
           [type, String(name).toUpperCase(), gst,
            upper(b.pan_no), mobile || null, trimOrNull(b.address),
            trimOrNull(b.contact_person ?? b.owner_name), aadhaar,
            b.documents ? JSON.stringify(b.documents) : null,
            trimOrNull(b.email), trimOrNull(b.bank_name),
-           String(b.account_no ?? '').replace(/\s/g, '') || null, upper(b.ifsc_code)]);
+           String(b.account_no ?? '').replace(/\s/g, '') || null, upper(b.ifsc_code),
+           isVendor ? category : null]);
         // Spending the ticket is the SYSTEM's own bookkeeping about a code it
         // sent, not the applicant writing a business fact — the same category
         // as the audit row for this request. onboarding_applications above
@@ -820,15 +842,23 @@ export async function registerBazaarRoutes(app) {
       const role = isCustomer ? 'CUSTOMER' : 'VENDOR';
 
       // 1. Open the gate the API actually enforces (068).
-      // A KYC that came through the Load Bazaar is a FLEET PARTNER (market
-      // trucks, bids, market-fleet payables) — never a service vendor, which
-      // is a fuel pump or a tyre shop of the own fleet (migration 130).
+      //
+      // THE KIND COMES FROM THE APPLICATION, not from the door it arrived at.
+      // Until 3-Sep every KYC here was a fleet partner, so this line simply
+      // wrote FLEET_PARTNER — and the moment service vendors could apply
+      // (owner's Vendor Portal directive, same day) that turned every fuel pump
+      // into a market transporter: it opened the wrong app and /portal/vendor/
+      // expense-bills refused its own bills with 409 FLEET_PARTNER. vendor_kind
+      // decides which of the two vendor apps a login opens (migration 130), so
+      // it has to say what the applicant actually is.
+      const kind = app0.type === 'VENDOR' ? 'SERVICE' : 'FLEET_PARTNER';
       const { rows: party } = await c.query(`
         UPDATE ${table}
            SET is_approved_for_portal = true, portal_approved_by = NULL, portal_approved_at = now()
-               ${isCustomer ? '' : ", vendor_kind = 'FLEET_PARTNER'"}
+               ${isCustomer ? '' : ', vendor_kind = $2'}
          WHERE id = $1::uuid
-         RETURNING ${isCustomer ? 'customer_name' : 'vendor_name'} AS name, email, mobile_no`, [partyId]);
+         RETURNING ${isCustomer ? 'customer_name' : 'vendor_name'} AS name, email, mobile_no`,
+        isCustomer ? [partyId] : [partyId, kind]);
       if (!party.length) { notes.push(`master_id ${partyId} not found in ${table}`); return app0; }
 
       // 2. The login. OTP login matches users by MOBILE, so a mobile is the

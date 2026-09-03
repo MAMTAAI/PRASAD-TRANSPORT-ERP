@@ -114,11 +114,23 @@ export async function registerQueueRoutes(app) {
   //
   // TARA returns 409 DUPLICATE_REF if the same expense is approved twice, so a
   // double-click cannot post the cost twice.
+  // THE GROUP MUST BE ONE account_groups ACTUALLY HAS. `ledgers.group_head` is a
+  // foreign key onto that table, so posting a bill whose expense ledger does not
+  // exist yet made TARA open it under 'Direct Expenses' — a group nobody ever
+  // created — and the whole approval died with 23503 ledgers_group_fk. It only
+  // ever showed up on the FIRST bill of a kind, which is why it survived: the
+  // ledgers that already existed were never re-created. Found 3-Sep-2026 the
+  // first time a service vendor's fuel bill was approved end to end.
+  //
+  // Ledger names and groups below are the ones already on the books, so an
+  // approval lands in the same account the office has been using, not beside it.
   const EXPENSE_LEDGER = {
-    FUEL: 'Diesel / Fuel Expense',
-    TOLL: 'Toll & Fastag Expense',
-    VENDOR: 'Purchases / Expense',
-    OTHER: 'Purchases / Expense',
+    FUEL:        { ledger: 'Diesel / Fuel Expense',    group: 'Direct Expenses - Fuel & HSD' },
+    TOLL:        { ledger: 'Toll & Fastag Expense',    group: 'Direct Expenses - Toll & FASTag' },
+    TYRE:        { ledger: 'Tyre Consumption Expenses', group: 'Direct Expenses - Repairs & Tyres' },
+    MAINTENANCE: { ledger: 'Vehicle Spares & Repairs',  group: 'Direct Expenses - Repairs & Tyres' },
+    VENDOR:      { ledger: 'Purchases / Expense',       group: 'Indirect Expenses' },
+    OTHER:       { ledger: 'Purchases / Expense',       group: 'Indirect Expenses' },
   };
 
   app.post('/expenses/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
@@ -145,7 +157,7 @@ export async function registerQueueRoutes(app) {
         entry_date: exp.bill_date ?? new Date().toISOString().slice(0, 10),
         narration: `Retro ${String(exp.expense_type).toLowerCase()} bill ${exp.bill_no ?? ''} — ${exp.vendor_name || 'cash'}${tag} (${exp.vehicle_no ?? ''})`.trim(),
         lines: [
-          { ledger: debit, dr_cr: 'DR', amount, group: 'Direct Expenses' },
+          { ledger: debit.ledger, dr_cr: 'DR', amount, group: debit.group },
           { ledger: credit, dr_cr: 'CR', amount, group: exp.vendor_name ? 'Sundry Creditors' : 'Cash-in-Hand' },
         ],
       });

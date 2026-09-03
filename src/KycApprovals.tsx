@@ -109,14 +109,16 @@ kar dein? Yeh master par turant lag jayega.`)) return;
     const list = [
       { name: 'Mobile format', c: vMobile(a.mobile_no, true) },
       { name: 'GSTIN format', c: vGstin(a.gst_no, a.type === 'CUSTOMER') },
-      { name: 'PAN format', c: vPan(a.pan_no, a.type === 'FLEET_PARTNER' || a.type === 'CUSTOMER') },
+      // PAN is required of all three kinds now: a customer we bill, a partner
+      // we pay, and a vendor we pay (owner, 3-Sep).
+      { name: 'PAN format', c: vPan(a.pan_no, true) },
       { name: 'GSTIN ↔ PAN match', c: gstinPanMatch(a.gst_no, a.pan_no) },
     ];
     // The bank account is only asked of a customer (migration 134), so the
     // fleet-partner queue is not suddenly shown three checks it must fail.
     // Bank details are demanded of a customer AND of a fleet partner (owner,
     // 3-Sep) — the office cannot pay a partner without them.
-    if (a.type === 'CUSTOMER' || a.type === 'FLEET_PARTNER') {
+    if (a.type === 'CUSTOMER' || a.type === 'FLEET_PARTNER' || a.type === 'VENDOR') {
       list.push({ name: 'IFSC format', c: vIfsc(a.ifsc_code, true) });
       list.push({ name: 'Account number', c: vAccountNo(a.account_no, true) });
     }
@@ -137,7 +139,10 @@ kar dein? Yeh master par turant lag jayega.`)) return;
   const approve = async (a) => {
     if (busy) return;
     const name = a.type === 'CUSTOMER' ? a.corporate_name : a.agency_name;
-    if (!window.confirm(`✅ "${name}" ko approve karke ${a.type === 'CUSTOMER' ? 'CUSTOMER' : 'VENDOR (Fleet Partner)'} master banayein?`)) return;
+    const kindWord = a.type === 'CUSTOMER' ? 'CUSTOMER'
+      : a.type === 'VENDOR' ? `VENDOR (${a.vendor_category || 'Service'})`
+      : 'VENDOR (Fleet Partner)';
+    if (!window.confirm(`✅ "${name}" ko approve karke ${kindWord} master banayein?`)) return;
     setBusy(true);
     try {
       const user = JSON.parse(localStorage.getItem('prasad_user') || '{}');
@@ -181,12 +186,24 @@ kar dein? Yeh master par turant lag jayega.`)) return;
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             vendor_name: a.agency_name || '',
-            vendor_type: 'FLEET PARTNER',
+            // A service vendor's TRADE is what it applied as — writing
+            // 'FLEET PARTNER' onto a fuel pump would put it in the market fleet
+            // and out of every category filter the office uses. The
+            // vendor_kind trigger reads this column, so it also decides which
+            // of the two vendor apps this party gets.
+            vendor_type: a.type === 'VENDOR' ? (a.vendor_category || 'Other') : 'FLEET PARTNER',
             contact_person: a.owner_name || '',
             mobile_no: a.mobile_no || '',
             gst_no: a.gst_no || null,
+            pan_no: a.pan_no || null,
+            email: a.email || null,
+            address: a.address || '',
+            // migrations 134/139 — the account the office will pay against.
+            bank_account: a.account_no || null,
+            ifsc_code: a.ifsc_code || null,
             opening_balance: 0,
             status: 'ACTIVE',
+            portal_access: true,
           }),
         });
         masterId = j.vendor?.id || '';
@@ -200,7 +217,7 @@ kar dein? Yeh master par turant lag jayega.`)) return;
       });
       await loadApps();
       logAudit({ action: 'KYC_APPROVE', target: name, details: `${a.type} approved → master ${masterId}` });
-      alert(`✅ ${name} approved — ${a.type === 'CUSTOMER' ? 'Customer' : 'Vendor'} Master me ban gaya.`);
+      alert(`✅ ${name} approved — ${a.type === 'CUSTOMER' ? 'Customer' : 'Vendor'} Master me ban gaya${a.type === 'VENDOR' ? ` (${a.vendor_category || 'Service'})` : ''}.`);
     } catch (e) { console.error(e); alert('❌ Approve fail: ' + (e.message || 'error')); }
     setBusy(false);
   };
@@ -281,9 +298,9 @@ kar dein? Yeh master par turant lag jayega.`)) return;
           <div key={a.id} style={{ ...S.card, borderLeft: `4px solid ${st.color}` }}>
             <div onClick={() => setOpenId(open ? null : a.id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', cursor: 'pointer', flexWrap: 'wrap' }}>
               <div style={{ minWidth: 0 }}>
-                <b style={{ fontSize: '15px' }}>{a.type === 'CUSTOMER' ? '🏢' : '🚛'} {name || '—'}</b>
+                <b style={{ fontSize: '15px' }}>{a.type === 'CUSTOMER' ? '🏢' : a.type === 'VENDOR' ? '🔧' : '🚛'} {name || '—'}</b>
                 <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
-                  {a.type === 'CUSTOMER' ? 'Customer' : 'Fleet Partner'} · 📱 {a.mobile_no || '—'} · Checks: <span style={{ color: passed === checks.length ? '#10b981' : '#f59e0b', fontWeight: 'bold' }}>{passed}/{checks.length}</span>
+                  {a.type === 'CUSTOMER' ? 'Customer' : a.type === 'VENDOR' ? `Vendor · ${a.vendor_category || 'Service'}` : 'Fleet Partner'} · 📱 {a.mobile_no || '—'} · Checks: <span style={{ color: passed === checks.length ? '#10b981' : '#f59e0b', fontWeight: 'bold' }}>{passed}/{checks.length}</span>
                 </div>
               </div>
               <span style={S.chip(st.color)}>{st.label}</span>
