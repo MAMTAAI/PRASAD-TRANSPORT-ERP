@@ -46,6 +46,37 @@ export default function BazaarAdmin() {
     catch (e) { console.error(e); }
   };
 
+  // One button style for every way of reaching a party.
+  const contactBtn = (c) => ({
+    display: 'inline-block', background: `${c}22`, color: c, border: `1px solid ${c}`,
+    borderRadius: '8px', padding: '5px 10px', fontSize: '12px', fontWeight: 800, textDecoration: 'none',
+  });
+
+  /** A counter-offer: the desk asking one side to move. It does not edit their
+   *  number — it records the ask and sends it, so the negotiation is on the
+   *  record instead of in somebody's WhatsApp. */
+  const counter = async (l, party, bid) => {
+    const isCust = party === 'CUSTOMER';
+    const from = isCust ? Number(l.target_rate) : Number(bid?.bid_amount);
+    const ask = window.prompt(
+      isCust
+        ? `Customer ne ₹${from?.toLocaleString('en-IN')} kaha hai. Aap kitna maang rahe hain?`
+        : `${bid?.vendor_name} ki bid ₹${from?.toLocaleString('en-IN')} hai. Aap kitne me chahte hain?`,
+      String(isCust ? Math.round(from * 1.05) : Math.round(from * 0.95)));
+    if (ask === null) return;
+    const amount = Number(String(ask).replace(/[^0-9.]/g, ''));
+    if (!(amount > 0)) return alert('Sahi rakam daalein.');
+    const note = window.prompt('Ek line — kyun? (dono taraf yahi message jaayega)', '') ?? '';
+    try {
+      await fetchJson(`${BAZAAR}/loads/${l.load_id}/counter`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ party, bid_id: bid?.id ?? null, ask_amount: amount, note }),
+      });
+      alert(`↗ Counter bhej diya — ₹${amount.toLocaleString('en-IN')}`);
+      await loadDesk();
+    } catch (e) { alert('❌ ' + e.message); }
+  };
+
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
   const [customVehicleType, setCustomVehicleType] = useState(''); 
   const [isAddingCustomVehicle, setIsAddingCustomVehicle] = useState(false);
@@ -377,6 +408,30 @@ export default function BazaarAdmin() {
                   </span>
                 </div>
 
+                {/* REACH THE CUSTOMER FROM HERE. A desk that has to leave the
+                    screen to find a phone number negotiates on WhatsApp and the
+                    system learns about it later, if at all. */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px', alignItems: 'center' }}>
+                  <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 700 }}>Customer:</span>
+                  {l.customer_mobile ? (
+                    <>
+                      <a href={`tel:+91${String(l.customer_mobile).slice(-10)}`} style={contactBtn('#0ea5e9')}>📞 Call</a>
+                      <a href={`https://wa.me/91${String(l.customer_mobile).slice(-10)}`} target="_blank" rel="noreferrer" style={contactBtn('#16a34a')}>💬 WhatsApp</a>
+                    </>
+                  ) : <span style={{ color: '#f59e0b', fontSize: '12px' }}>no number on file</span>}
+                  {l.customer_email
+                    ? <a href={`mailto:${l.customer_email}`} style={contactBtn('#7c3aed')}>✉️ Email</a>
+                    : <span style={{ color: '#64748b', fontSize: '12px' }}>no email</span>}
+                  <button onClick={() => counter(l, 'CUSTOMER')} style={{ ...contactBtn('#f59e0b'), border: 'none', cursor: 'pointer' }} data-counter-cust={l.load_id}>
+                    ↗ Ask for more
+                  </button>
+                  {l.customer_counter && (
+                    <span style={{ color: '#fbbf24', fontSize: '12px' }}>
+                      asked ₹{Number(l.customer_counter.ask_amount).toLocaleString('en-IN')} · {l.customer_counter.status}
+                    </span>
+                  )}
+                </div>
+
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: '10px', marginTop: '14px' }}>
                   <div style={{ background: '#111c33', borderRadius: '12px', padding: '11px' }}>
                     <div style={{ color: '#94a3b8', fontSize: '12px' }}>CUSTOMER TARGET</div>
@@ -410,10 +465,25 @@ export default function BazaarAdmin() {
                           L{b.l_rank} · {b.trips_done} trip{b.trips_done === 1 ? '' : 's'} done{b.is_approved_for_portal ? '' : ' · portal not open'}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontFamily: 'monospace', fontWeight: 800 }}>₹{Number(b.bid_amount).toLocaleString('en-IN')}</div>
-                        <div style={{ fontSize: '12px', color: b.margin_amount < 0 ? '#f87171' : b.below_floor ? '#fbbf24' : '#4ade80' }}>
-                          margin ₹{Number(b.margin_amount ?? 0).toLocaleString('en-IN')} ({b.margin_pct ?? '—'}%){b.below_floor && b.margin_amount >= 0 ? ' ⚠' : ''}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {/* Reach this partner, and push back on their number,
+                            without leaving the deal. */}
+                        <span style={{ display: 'flex', gap: '6px' }} onClick={(e) => e.stopPropagation()}>
+                          {b.vendor_mobile && <a href={`tel:+91${String(b.vendor_mobile).slice(-10)}`} style={contactBtn('#0ea5e9')}>📞</a>}
+                          {b.vendor_mobile && <a href={`https://wa.me/91${String(b.vendor_mobile).slice(-10)}`} target="_blank" rel="noreferrer" style={contactBtn('#16a34a')}>💬</a>}
+                          {b.vendor_email && <a href={`mailto:${b.vendor_email}`} style={contactBtn('#7c3aed')}>✉️</a>}
+                          <button onClick={() => counter(l, 'PARTNER', b)} style={{ ...contactBtn('#f59e0b'), border: 'none', cursor: 'pointer' }} data-counter-part={b.id}>↘ Ask less</button>
+                        </span>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontFamily: 'monospace', fontWeight: 800 }}>₹{Number(b.bid_amount).toLocaleString('en-IN')}</div>
+                          <div style={{ fontSize: '12px', color: b.margin_amount < 0 ? '#f87171' : b.below_floor ? '#fbbf24' : '#4ade80' }}>
+                            margin ₹{Number(b.margin_amount ?? 0).toLocaleString('en-IN')} ({b.margin_pct ?? '—'}%){b.below_floor && b.margin_amount >= 0 ? ' ⚠' : ''}
+                          </div>
+                          {b.last_counter && (
+                            <div style={{ fontSize: '11.5px', color: '#fbbf24' }}>
+                              asked ₹{Number(b.last_counter.ask).toLocaleString('en-IN')} · {b.last_counter.status}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>

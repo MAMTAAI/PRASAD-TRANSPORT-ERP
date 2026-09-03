@@ -26,6 +26,7 @@ import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { checkParty, last10, upper, trimOrNull } from '../lib/partyFormats.js';
 import { asSystem } from '../lib/staging.js';
 import { laneEconomics } from '../lib/laneEconomics.js';
+import { postVoucher } from '../agents/tara.js';
 
 // The trades a service vendor can apply in (owner, 3-Sep). A list rather than
 // free text so the master stays filterable: these strings become
@@ -98,6 +99,17 @@ export async function registerBazaarRoutes(app) {
       // done — two admins posting at once must not land on the same number.
       const row = await withTransaction(async (c) => {
         await c.query('LOCK TABLE bazaar_loads IN SHARE ROW EXCLUSIVE MODE');
+        // Link the load to a real customer when the name matches one. Posted by
+        // name alone it had no customer_id, so nothing downstream — the desk's
+        // call button, the customer's own app — could find its way back.
+        let customerId = b.customer_id ?? null;
+        if (!customerId && b.customer_name) {
+          const { rows: cm } = await c.query(
+            `SELECT id FROM customers
+              WHERE regexp_replace(upper(customer_name), '[^A-Z0-9]', '', 'g')
+                  = regexp_replace(upper($1), '[^A-Z0-9]', '', 'g') LIMIT 1`, [b.customer_name]);
+          customerId = cm[0]?.id ?? null;
+        }
         const loadId = b.load_id ?? await (async () => {
           const { rows } = await c.query(
             `SELECT COALESCE(MAX(NULLIF(regexp_replace(load_id, '\\D', '', 'g'), '')::bigint), 0) + 1 AS n
@@ -107,13 +119,15 @@ export async function registerBazaarRoutes(app) {
         const { rows } = await c.query(`
           INSERT INTO bazaar_loads (load_id, customer_name, origin, destination, distance_km,
             toll_plazas, toll_amount, material, weight, target_rate, loading_date, vehicle_type,
-            rate_type, status, posted_by)
-          VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,0),$8,$9,COALESCE($10,0),$11,$12,$13,COALESCE($14,'OPEN'),$15)
+            rate_type, status, posted_by, customer_id, load_kind, company_id)
+          VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,0),$8,$9,COALESCE($10,0),$11,$12,$13,COALESCE($14,'OPEN'),$15,
+                  $16::uuid, COALESCE($17,'MARKET'), $18::uuid)
           RETURNING *`,
           [loadId, b.customer_name, b.origin, b.destination, b.distance_km ?? null,
            b.toll_plazas ?? null, b.toll_amount ?? null, b.material ?? null, b.weight ?? null,
            b.target_rate ?? null, b.loading_date || null, b.vehicle_type ?? null,
-           b.rate_type ?? null, b.status ?? null, b.posted_by ?? null]);
+           b.rate_type ?? null, b.status ?? null, b.posted_by ?? null,
+           customerId, b.load_kind ? String(b.load_kind).toUpperCase() : null, b.company_id ?? null]);
         return rows[0];
       });
       return reply.code(201).send({ load: row });
@@ -1101,10 +1115,19 @@ export async function registerBazaarRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const { rows: loads } = await query(`
       SELECT l.*, c.customer_name AS customer, c.mobile_no AS customer_mobile,
-             co.company_name,
+             c.email AS customer_email, c.contact_person AS customer_contact,
+             c.id AS resolved_customer_id, co.company_name,
              (SELECT count(*) FROM bazaar_bids b WHERE b.load_id = l.load_id AND b.status = 'PENDING')::int AS bid_count
         FROM bazaar_loads l
-        LEFT JOIN customers c ON c.id = l.customer_id
+        -- A load posted by NAME (the Post Manual Load form does exactly that)
+        -- carries no customer_id, and the desk then had no number to ring. Fall
+        -- back to the name, squashed the way depot names are, so "AADHAR GREEN
+        --  INDUSTRIES LLP" with its double space still finds its customer.
+        LEFT JOIN customers c
+               ON c.id = l.customer_id
+               OR (l.customer_id IS NULL
+                   AND regexp_replace(upper(c.customer_name), '[^A-Z0-9]', '', 'g')
+                     = regexp_replace(upper(COALESCE(l.customer_name, '')), '[^A-Z0-9]', '', 'g'))
         LEFT JOIN companies co ON co.id = l.company_id
        WHERE l.load_kind = 'MARKET'
          AND l.status IN ('OPEN', 'AWARD_REQUESTED')
@@ -1117,7 +1140,12 @@ export async function registerBazaarRoutes(app) {
         SELECT b.id, b.vendor_id, b.vendor_name, b.bid_amount, b.remarks, b.created_at,
                (SELECT count(*) FROM bazaar_settlements s
                  WHERE s.vendor_id = b.vendor_id AND s.status = 'SETTLED')::int AS trips_done,
-               v.is_approved_for_portal
+               v.is_approved_for_portal, v.mobile_no AS vendor_mobile, v.email AS vendor_email,
+               v.show_commission,
+               -- The last counter the desk sent this partner, and its answer.
+               (SELECT json_build_object('ask', co.ask_amount, 'status', co.status, 'sent_at', co.sent_at)
+                  FROM bazaar_counter_offers co
+                 WHERE co.bid_id = b.id ORDER BY co.sent_at DESC LIMIT 1) AS last_counter
           FROM bazaar_bids b
           LEFT JOIN vendors v ON v.id = b.vendor_id
          WHERE b.load_id = $1 AND b.status = 'PENDING'
@@ -1137,15 +1165,84 @@ export async function registerBazaarRoutes(app) {
         };
       });
 
+      // The last thing the desk asked the customer for, so a second counter is
+      // not sent blind on top of the first.
+      const { rows: cc } = await query(
+        `SELECT ask_amount, status, sent_at FROM bazaar_counter_offers
+          WHERE load_id = $1 AND party = 'CUSTOMER' ORDER BY sent_at DESC LIMIT 1`, [l.load_id]);
+
       out.push({
         ...l,
         bids: priced,
         // Distance, and the toll we have actually paid on this lane before.
         lane: await laneEconomics(l.origin, l.destination).catch(() => null),
         requested_bid_id: l.award_requested_bid_id ?? null,
+        customer_counter: cc[0] ?? null,
       });
     }
     return { count: out.length, floor_pct: MARGIN_FLOOR_PCT, loads: out };
+  });
+
+  /** A counter-offer — the desk asking one side to move.
+   *
+   *  It does NOT edit the other party's number. A counter is an ASK with a
+   *  direction and an answer, so it is a row: the desk can later see that it
+   *  asked ₹43,000 and was answered ₹41,500, which is the negotiation itself.
+   *  Overwriting target_rate would erase exactly that.
+   *
+   *  The ask goes out on WhatsApp immediately, because a counter nobody hears
+   *  about is a note to self. Each side is told ONLY its own number — the
+   *  partner is never told what the customer said, and vice versa. */
+  app.post('/loads/:loadId/counter', { preHandler: requireDeskRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const party = String(b.party ?? '').toUpperCase();
+    if (!['CUSTOMER', 'PARTNER'].includes(party)) {
+      return reply.code(400).send({ error: 'BAD_PARTY', detail: 'party must be CUSTOMER or PARTNER' });
+    }
+    const ask = Number(b.ask_amount);
+    if (!(ask > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT', detail: 'the amount you are asking for is required' });
+
+    const { rows: L } = await query(
+      `SELECT l.*, c.customer_name, c.mobile_no AS customer_mobile
+         FROM bazaar_loads l LEFT JOIN customers c ON c.id = l.customer_id
+        WHERE l.load_id = $1`, [req.params.loadId]);
+    const load = L[0];
+    if (!load) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+    let bid = null, vendorMobile = null;
+    if (party === 'PARTNER') {
+      if (!UUID_RE.test(String(b.bid_id ?? ''))) return reply.code(400).send({ error: 'BAD_BID', detail: 'which partner are you countering?' });
+      const { rows: B } = await query(
+        `SELECT b.*, v.mobile_no AS vendor_mobile FROM bazaar_bids b
+           LEFT JOIN vendors v ON v.id = b.vendor_id
+          WHERE b.id = $1::uuid AND b.load_id = $2`, [b.bid_id, load.load_id]);
+      bid = B[0];
+      if (!bid) return reply.code(404).send({ error: 'NO_SUCH_BID' });
+      vendorMobile = bid.vendor_mobile;
+    }
+
+    const from = party === 'CUSTOMER' ? Number(load.target_rate) || null : Number(bid.bid_amount) || null;
+    const { rows } = await query(`
+      INSERT INTO bazaar_counter_offers
+        (load_id, party, bid_id, vendor_id, from_amount, ask_amount, note, sent_by, expires_at, channel)
+      VALUES ($1,$2,$3::uuid,$4::uuid,$5,$6,$7,$8::uuid, now() + interval '24 hours', 'whatsapp')
+      RETURNING *`,
+      [load.load_id, party, bid?.id ?? null, bid?.vendor_id ?? null, from, ask,
+       trimOrNull(b.note), req.user?.sub ?? null]);
+
+    const lane = `${load.origin} → ${load.destination}`;
+    if (party === 'CUSTOMER' && load.customer_mobile) {
+      notifyWhatsApp(load.customer_mobile,
+        `📦 Load ${load.load_id} (${lane}): is load ke liye hamara rate ₹${ask.toLocaleString('en-IN')} hai. `
+        + `${trimOrNull(b.note) ?? ''} Manzoor ho to reply karein.`.trim());
+    }
+    if (party === 'PARTNER' && vendorMobile) {
+      notifyWhatsApp(vendorMobile,
+        `📦 Load ${load.load_id} (${lane}): aapki bid par office ka counter — ₹${ask.toLocaleString('en-IN')}. `
+        + `${trimOrNull(b.note) ?? ''} App me jaakar apni bid revise karein.`.trim());
+    }
+    return reply.code(201).send({ counter: rows[0], sent_to: party });
   });
 
   /** Lock the deal: fix both rates, award the bid, open the settlement.
@@ -1167,6 +1264,28 @@ export async function registerBazaarRoutes(app) {
     const margin = Number((customerRate - partnerRate).toFixed(2));
     const marginPct = Number(((margin / customerRate) * 100).toFixed(2));
     const reason = trimOrNull(b.margin_reason);
+
+    // WHAT you are locking is checked before HOW MUCH. Ordered the other way
+    // round, locking a bid that belongs to a different load answered
+    // BELOW_MARGIN_FLOOR — an economics complaint about a deal that does not
+    // exist, which sends the desk off to argue with a number instead of the
+    // mistake. Caught by the audit on 3-Sep.
+    const { rows: pre } = await query(
+      `SELECT b.id, b.status, b.load_id, l.status AS load_status, l.load_kind
+         FROM bazaar_bids b JOIN bazaar_loads l ON l.load_id = b.load_id
+        WHERE b.id = $1::uuid`, [bidId]);
+    if (!pre.length || pre[0].load_id !== req.params.loadId) {
+      return reply.code(404).send({ error: 'NO_SUCH_BID', detail: 'that bid is not on this load' });
+    }
+    if (pre[0].status !== 'PENDING') {
+      return reply.code(409).send({ error: 'BID_DECIDED', detail: `bid is ${pre[0].status}` });
+    }
+    if (pre[0].load_kind !== 'MARKET') {
+      return reply.code(409).send({ error: 'NOT_A_MARKET_LOAD', detail: 'a contract load is allocated directly, not bid on' });
+    }
+    if (!['OPEN', 'AWARD_REQUESTED'].includes(pre[0].load_status)) {
+      return reply.code(409).send({ error: 'LOAD_NOT_OPEN', detail: `load is ${pre[0].load_status}` });
+    }
 
     if (margin < 0 && (!reason || reason.length < 5)) {
       return reply.code(400).send({
@@ -1231,9 +1350,71 @@ export async function registerBazaarRoutes(app) {
           [settlement.id, customerRate, margin, marginPct, reason,
            req.user?.sub ?? null, b.company_id ?? load.company_id ?? null]);
 
-        return { code: 200, body: { locked: true, settlement: S[0], margin_amount: margin, margin_pct: marginPct } };
+        return { code: 200, body: {
+          locked: true, settlement: S[0], margin_amount: margin, margin_pct: marginPct,
+          vendor_name: bid.vendor_name, origin: load.origin, destination: load.destination,
+          material: load.material, weight: load.weight, loading_date: load.loading_date,
+        } };
       });
       if (out.code !== 200) return reply.code(out.code).send(out.body);
+      const s0 = out.body.settlement;
+
+      // ── THE BOOKS (owner: "auto-post figures to the SQL Ledger") ──────────
+      //
+      // WHAT IS POSTED AT LOCK, AND WHAT IS NOT.
+      //
+      // At lock the truck has not moved. What is real at this moment is the
+      // COMMITMENT to the partner: the load is awarded and we owe that amount
+      // on completion. That is posted here as a JOURNAL —
+      //     Dr Market Fleet Expenses / Cr Market Partner: <name>
+      // both legs inside 'Market Fleet %', which is what the FLEET_CROSSOVER
+      // trigger requires of anything with a BAZAAR_ source_type.
+      //
+      // The CUSTOMER's income is deliberately NOT posted here. Recognising
+      // freight revenue before the trip runs would overstate a month's income
+      // and create a receivable for a service not yet delivered; the existing
+      // billing flow books it when the load is delivered. (The same trigger
+      // would refuse a Sundry Debtors leg on a market voucher anyway — the
+      // schema and the accounting agree.) Say the word and a
+      // 'Market Fleet Receivables (Customers)' group makes the customer leg
+      // postable at lock too.
+      //
+      // The margin is not a posting. It is the difference between two of them,
+      // and inventing a third entry for it would double-count the spread.
+      let lockVoucher = null;
+      try {
+        const partnerAmount = Number(s0.awarded_amount);
+        if (partnerAmount > 0) {
+          const v = await postVoucher({
+            type: 'JOURNAL',
+            source_type: 'BAZAAR_AWARD',
+            // Deterministic, so a double-tap is TARA's 409 and not a second
+            // liability — the same discipline as BZADV / BZBAL.
+            ref_no: `BZLOCK-${s0.id}`,
+            entry_date: new Date().toISOString().slice(0, 10),
+            narration: `Load ${s0.load_id} awarded — ${out.body.origin ?? ''} freight committed to ${out.body.vendor_name ?? 'partner'}`.trim(),
+            company_id: s0.company_id ?? null,
+            created_by: req.user?.sub ?? null,
+            lines: [
+              { ledger: 'Market Fleet Freight Cost', dr_cr: 'DR', amount: partnerAmount, group: 'Market Fleet Expenses' },
+              { ledger: `Market Partner: ${out.body.vendor_name ?? 'partner'}`, dr_cr: 'CR', amount: partnerAmount, group: 'Market Fleet Payables (Partners)' },
+            ],
+          });
+          lockVoucher = v?.voucher_id ?? null;
+          if (lockVoucher) {
+            await query('UPDATE bazaar_settlements SET lock_voucher_id = $2::uuid WHERE id = $1::uuid', [s0.id, lockVoucher]);
+          }
+        }
+      } catch (e) {
+        // A deal that locked but did not post is a fact the desk must see, not
+        // a silent gap: the lock stands (the transaction committed), and the
+        // response says the books did not take it.
+        req.log?.error?.({ err: e, settlement: s0.id }, 'lock posted no voucher');
+        out.body.ledger_error = e.code === 'DUPLICATE_REF'
+          ? 'already posted for this deal'
+          : (e.message ?? 'ledger posting failed');
+      }
+      out.body.lock_voucher_id = lockVoucher;
 
       // After commit — telling either party is not part of the money decision.
       const s = out.body.settlement;
@@ -1244,10 +1425,20 @@ export async function registerBazaarRoutes(app) {
            LEFT JOIN customers c ON c.id = s.customer_id
           WHERE s.id = $1::uuid`, [s.id]);
       if (who[0]?.vendor_mobile) {
-        // The partner is told THEIR number and only theirs.
-        notifyWhatsApp(who[0].vendor_mobile,
-          `✅ Load ${s.load_id} aapko mila hai — ₹${Number(s.awarded_amount).toLocaleString('en-IN')}. `
-          + 'App me jaakar confirm karein aur gaadi lagayein.');
+        // The partner is told THEIR number and only theirs — never the
+        // customer's rate and never the margin. With the trip details, because
+        // "you won ₹39,000" without a lane is a message you have to ring back
+        // about (owner, 3-Sep).
+        const d = out.body;
+        const when = d.loading_date ? new Date(d.loading_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : null;
+        notifyWhatsApp(who[0].vendor_mobile, [
+          `✅ Load ${s.load_id} aapko mila hai.`,
+          `📍 ${d.origin} → ${d.destination}`,
+          [d.material, d.weight ? `${d.weight} T` : null].filter(Boolean).join(' · ') || null,
+          when ? `🗓 Loading ${when}` : null,
+          `💰 Aapka bhada: ₹${Number(s.awarded_amount).toLocaleString('en-IN')}`,
+          'App me jaakar CONFIRM karein aur gaadi + driver lagayein.',
+        ].filter(Boolean).join('\n'));
       }
       return out.body;
     } catch (e) { return pgErr(reply, e); }
