@@ -26,9 +26,24 @@ import 'dotenv/config';
   const { dirname, join } = await import('node:path');
   const killFile = join(dirname(dirname(fileURLToPath(import.meta.url))), 'ERP_API.KILL');
   if (existsSync(killFile)) {
-    console.error('REFUSING TO START: ERP_API.KILL is present — this copy of the ERP is retired.');
-    console.error(readFileSync(killFile, 'utf8'));
-    process.exit(1);
+    // LOCAL BOOT-TEST MODE — owner's explicit permission, 2026-09-03 ("allow
+    // the guarded local test mode ... to verify the OTP and routing flows").
+    // The retirement stands: the file stays, and a plain start still refuses.
+    // What is allowed is a throwaway API for looking at screens, and only when
+    // it cannot possibly touch the books — the database host must be this
+    // machine, and every writer that made the office copy diverge (the agent
+    // loops, the IOCL mail sync) is forced off whatever the environment says.
+    const localDb = ['127.0.0.1', 'localhost', '::1'].includes(String(process.env.PGHOST ?? '').trim());
+    const testMode = process.env.ERP_LOCAL_TEST === '1' && localDb;
+    if (!testMode) {
+      console.error('REFUSING TO START: ERP_API.KILL is present — this copy of the ERP is retired.');
+      console.error(readFileSync(killFile, 'utf8'));
+      if (process.env.ERP_LOCAL_TEST === '1') console.error('ERP_LOCAL_TEST=1 was set but PGHOST is not local — refused.');
+      process.exit(1);
+    }
+    process.env.AGENT_LOOPS = '0';
+    process.env.IOCL_SYNC_CRON_ENABLED = '0';
+    console.warn('LOCAL BOOT-TEST MODE: ERP_API.KILL honoured · db=' + process.env.PGHOST + ' · agent loops OFF · IOCL sync OFF · screens only, never the books');
   }
 }
 
