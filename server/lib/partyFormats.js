@@ -37,7 +37,11 @@ export const gstinHoldsPan = (gstin, pan) => {
 
 /** Returns [] when everything given is well formed, else a list of
  *  { field, message } the form can paint under the offending input. */
-export function checkParty(b, { requireGst = false, requireBank = false } = {}) {
+/** `requireGst` demands GSTIN **and** PAN — a firm we bill against has both.
+ *  `requirePan` demands PAN alone, which is the fleet-partner case (owner,
+ *  3-Sep): a single-lorry operator often has no GST registration, but the
+ *  office cannot pay one without a PAN. */
+export function checkParty(b, { requireGst = false, requirePan = false, requireBank = false } = {}) {
   const bad = [];
   const test = (field, value, rx, message, required) => {
     const s = value == null ? '' : String(value).trim();
@@ -49,7 +53,7 @@ export function checkParty(b, { requireGst = false, requireBank = false } = {}) 
   // The 4th character is the holder type (P individual, C company, F firm, …),
   // so a made-up example like ABCDE1234F is itself invalid — the sample shown
   // to the applicant has to be one the pattern actually accepts.
-  test('pan_no',     upper(b.pan_no),     RX.pan,      'PAN must look like AAAPA1234A (10 characters)', requireGst);
+  test('pan_no',     upper(b.pan_no),     RX.pan,      'PAN must look like AAAPA1234A (10 characters)', requireGst || requirePan);
   test('pincode',    b.pincode,           RX.pincode,  'Pincode must be 6 digits', false);
   test('email',      b.email,             RX.email,    'Enter a valid email address', false);
   test('ifsc_code',  upper(b.ifsc_code),  RX.ifsc,     'IFSC must look like SBIN0001234', requireBank);

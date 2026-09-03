@@ -50,6 +50,14 @@ const REG_TAX = [
   { k: 'gst_no', hi: 'GSTIN', en: '15 characters', req: true, ph: '18ABCDE1234F1Z5', caps: true, check: (v) => vGstin(v, true) },
   { k: 'pan_no', hi: 'PAN', en: '10 characters', req: true, ph: 'AAAPA1234A', caps: true, check: (v) => vPan(v, true) },
 ];
+// A fleet partner (owner directive, 3-Sep) MUST bring PAN and bank details.
+// GST is asked for but not demanded: a single-lorry owner commonly has no
+// registration, and refusing them would shut the market fleet to exactly the
+// people it exists to reach.
+const REG_TAX_PARTNER = [
+  { k: 'pan_no', hi: 'PAN कार्ड', en: 'PAN — required', req: true, ph: 'AAAPA1234A', caps: true, check: (v) => vPan(v, true) },
+  { k: 'gst_no', hi: 'GSTIN', en: 'if you have one', ph: '18ABCDE1234F1Z5', caps: true, check: (v) => vGstin(v) },
+];
 const REG_BANK = [
   { k: 'bank_name', hi: 'बैंक का नाम', en: 'Bank name', req: true, ph: 'State Bank of India' },
   { k: 'account_no', hi: 'खाता नंबर', en: 'Account number', req: true, ph: '30123456789', num: true, check: (v) => vAccountNo(v, true) },
@@ -164,7 +172,19 @@ export default function UniversalLogin({ onAuthenticated }) {
   const regClean = regMobile.replace(/\D/g, '').replace(/^91(?=[6-9]\d{9}$)/, '').slice(-10);
   const regValid = /^[6-9]\d{9}$/.test(regClean);
 
+  // CUSTOMER or FLEET_PARTNER. Chosen before the wall, because a person should
+  // know what they are applying to be before they are asked for a code.
+  const [regType, setRegType] = useState('CUSTOMER');
+  const [trucks, setTrucks] = useState([]);      // [{ registration_no, vehicle_class, capacity, rc_expiry, rc_file_key, uploading, name }]
+  const isPartner = regType === 'FLEET_PARTNER';
+
   const openRegister = () => {
+    setError(''); setRegDigits(EMPTY); setRegTicket(''); setTrucks([]);
+    setStep('REG_TYPE');
+  };
+
+  const startWall = (type) => {
+    setRegType(type);
     setError(''); setRegDigits(EMPTY); setRegTicket('');
     // The number they already typed is the number the office will ring, so it
     // carries into the wall rather than being asked for twice.
@@ -233,9 +253,40 @@ export default function UniversalLogin({ onAuthenticated }) {
     if (next.every((d) => d) && next.join('').length === 6) verifyRegOtp(next.join(''));
   };
 
+  // ── the trucks a partner applies with ────────────────────────────────────
+  // Each one carries its RC. The scan goes up on the ticket (POST
+  // /auth/register/upload) — the applicant has no session, so the verified
+  // handset is the credential, and the server picks the key.
+  const addTruck = () => setTrucks((t) => [...t, { registration_no: '', vehicle_class: '', capacity: '', rc_expiry: '', rc_file_key: '', uploading: false, name: '' }]);
+  const setTruck = (i, k, v) => setTrucks((t) => t.map((x, n) => (n === i ? { ...x, [k]: v } : x)));
+  const dropTruck = (i) => setTrucks((t) => t.filter((_, n) => n !== i));
+
+  const uploadRc = async (i, file) => {
+    if (!file) return;
+    setTruck(i, 'uploading', true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('mobile', regClean);
+      fd.append('ticket', regTicket);
+      fd.append('tag', 'rc');
+      const res = await fetch(`${API_BASE}/api/v1/auth/register/upload`, { method: 'POST', body: fd });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.path) throw new Error(j.detail || j.error || 'upload failed');
+      setTrucks((t) => t.map((x, n) => (n === i ? { ...x, rc_file_key: j.path, name: file.name || 'RC', uploading: false } : x)));
+      // The banner that said "attach the RC" is now false — clearing it is the
+      // difference between a form that answers you and one that nags.
+      setError('');
+    } catch (e) {
+      setTrucks((t) => t.map((x, n) => (n === i ? { ...x, uploading: false } : x)));
+      setError(String(e?.message ?? e));
+    }
+  };
+
   const submitRegistration = async () => {
     const errs = {};
-    for (const f of [...REG_FIELDS, ...REG_TAX, ...REG_BANK]) {
+    const taxFields = isPartner ? REG_TAX_PARTNER : REG_TAX;
+    for (const f of [...REG_FIELDS, ...taxFields, ...REG_BANK]) {
       const v = String(reg[f.k] ?? '').trim();
       if (f.req && !v) { errs[f.k] = 'यह ज़रूरी है / required'; continue; }
       if (v && f.check) { const c = f.check(v); if (!c.ok) errs[f.k] = c.message; }
@@ -247,12 +298,33 @@ export default function UniversalLogin({ onAuthenticated }) {
       setError('कुछ जानकारी ठीक करनी है / please fix the marked fields');
       return;
     }
+    // A truck with no plate, or a plate with no RC, is not something the office
+    // can verify — the server refuses both, so the form says so first.
+    if (isPartner) {
+      const filled = trucks.filter((t) => String(t.registration_no).trim());
+      if (trucks.length !== filled.length) { setError('हर गाड़ी का नंबर डालो / every truck needs its number'); return; }
+      const noRc = filled.find((t) => !t.rc_file_key);
+      if (noRc) { setError(`${noRc.registration_no} — RC की फोटो लगाओ / attach the RC`); return; }
+    }
     setError(''); setBusy(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/bazaar/onboarding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...reg, mobile_no: regClean, ticket: regTicket, type: 'CUSTOMER' }),
+        body: JSON.stringify({
+          ...reg, mobile_no: regClean, ticket: regTicket, type: regType,
+          ...(isPartner ? {
+            agency_name: reg.corporate_name,
+            owner_name: reg.contact_person,
+            vehicles: trucks
+              .filter((t) => String(t.registration_no).trim())
+              .map((t) => ({
+                registration_no: t.registration_no, vehicle_class: t.vehicle_class || null,
+                capacity: t.capacity === '' ? null : t.capacity,
+                rc_file_key: t.rc_file_key, rc_expiry: t.rc_expiry || null,
+              })),
+          } : {}),
+        }),
       });
       const j = await res.json().catch(() => ({}));
       setBusy(false);
@@ -367,10 +439,10 @@ export default function UniversalLogin({ onAuthenticated }) {
               ))}
             </div>
             <div className="mt-6 rounded-2xl border-2 border-dashed border-violet-300 bg-violet-50 p-3.5 text-center">
-              <p className="text-[14px] font-black text-violet-900">नए कस्टमर हैं? / New customer?</p>
-              <p className="mt-0.5 text-[12px] font-semibold leading-snug text-violet-900/75">माल भेजने के लिए अपनी फर्म रजिस्टर करें — ऑफिस जाँच कर के चालू करेगा।</p>
+              <p className="text-[14px] font-black text-violet-900">नए हैं? कस्टमर या गाड़ी मालिक?</p>
+              <p className="mt-0.5 text-[12px] font-semibold leading-snug text-violet-900/75">अपनी फर्म या गाड़ियाँ रजिस्टर करें — ऑफिस जाँच कर के चालू करेगा।</p>
               <button onClick={openRegister} className="mt-2.5 min-h-[46px] w-full rounded-xl bg-violet-600 text-[16px] font-black text-white shadow-[0_4px_0_rgba(0,0,0,0.16)] active:translate-y-0.5 active:shadow-none" id="g2-register">
-                🏢 New Customer Registration →
+                📝 नया रजिस्ट्रेशन / Register →
               </button>
             </div>
             <a href={GATE1_URL} className="mt-auto pt-8 text-center text-[11.5px] font-bold text-slate-400 underline decoration-dotted underline-offset-4">ऑफिस स्टाफ? Desktop login →</a>
@@ -417,10 +489,26 @@ export default function UniversalLogin({ onAuthenticated }) {
               <p className="text-[20px] font-black text-red-800">नंबर रजिस्टर नहीं है?</p>
               <p className="mt-1 text-[14px] font-semibold leading-relaxed text-red-900/80">OTP सिर्फ़ उन्हीं नंबरों पर जाता है जो ऑफिस में ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम दर्ज हैं। नहीं आया तो ऑफिस से रजिस्टर करवाओ — या समय निकल गया हो तो दोबारा भेजो।</p>
             </div>
-            <button onClick={openRegister} className={`${BIG} mt-5 bg-violet-600`}>🏢 नए कस्टमर — रजिस्टर करें</button>
+            <button onClick={openRegister} className={`${BIG} mt-5 bg-violet-600`}>📝 नया रजिस्ट्रेशन करें</button>
             {DISPATCH_MOBILE && <a href={DISPATCH_TEL} className={`${GHOST} mt-2 block text-center`}>📞 ऑफिस को कॉल करो</a>}
             <button onClick={send} disabled={busy} className={`${GHOST} mt-2`}>🔁 OTP दोबारा भेजो</button>
             <button onClick={reset} className={`${GHOST} mt-2`}>‹ दूसरा नंबर</button>
+          </>
+        )}
+
+        {step === 'REG_TYPE' && (
+          <>
+            <Brand icon="📝" title="नया रजिस्ट्रेशन" sub="New registration" tone="from-violet-500 to-purple-700" />
+            <p className="mt-5 text-center text-[14px] font-bold text-slate-700">आप क्या हैं?<span className="block text-[12px] font-semibold text-slate-500">What are you registering as?</span></p>
+            <button onClick={() => startWall('CUSTOMER')} className="mt-4 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="CUSTOMER">
+              <div className="text-[17px] font-black text-slate-900">🏭 माल भेजने वाला</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Customer — आपको अपना माल भिजवाना है। ट्रैकिंग, POD और बिल दिखेंगे।</div>
+            </button>
+            <button onClick={() => startWall('FLEET_PARTNER')} className="mt-3 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="FLEET_PARTNER">
+              <div className="text-[17px] font-black text-slate-900">🚛 गाड़ी मालिक</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Fleet Partner — आपकी अपनी गाड़ियाँ हैं और आप हमारा माल ढोना चाहते हैं। PAN, बैंक और हर गाड़ी की RC लगेगी।</div>
+            </button>
+            <button onClick={() => { setStep('NUMBER'); setError(''); }} className={`${GHOST} mt-4`}>‹ वापस लॉगिन पर</button>
           </>
         )}
 
@@ -495,11 +583,52 @@ export default function UniversalLogin({ onAuthenticated }) {
               {REG_FIELDS.map(renderField)}
             </div>
 
-            {section('🧾', 'GST और PAN', 'Tax details · required')}
-            <div className="mt-3 space-y-3">{REG_TAX.map(renderField)}</div>
+            {section('🧾', isPartner ? 'PAN और GST' : 'GST और PAN', isPartner ? 'PAN required' : 'Tax details · required')}
+            <div className="mt-3 space-y-3">{(isPartner ? REG_TAX_PARTNER : REG_TAX).map(renderField)}</div>
 
             {section('🏦', 'बैंक की जानकारी', 'Bank details · for payments')}
             <div className="mt-3 space-y-3">{REG_BANK.map(renderField)}</div>
+
+            {isPartner && (
+              <>
+                {section('🚛', 'आपकी गाड़ियाँ', 'Your trucks · RC required for each')}
+                <div className="mt-2 rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">
+                  हर गाड़ी की RC की फोटो लगाओ। ऑफिस RC जाँच कर के गाड़ी चालू करेगा — तब तक वो लोड नहीं ले सकती।
+                  <span className="mt-1 block text-[11.5px] text-amber-900/75">The office activates each truck after checking its RC.</span>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {trucks.map((tk, i) => (
+                    <div key={i} className="rounded-2xl border-2 border-slate-300 bg-white p-3" data-truck-row={i}>
+                      <div className="flex items-center justify-between">
+                        <b className="text-[13px] font-extrabold text-slate-700">गाड़ी {i + 1}</b>
+                        <button onClick={() => dropTruck(i)} className="min-h-[34px] rounded-lg px-2 text-[12px] font-extrabold text-red-700">हटाओ ✕</button>
+                      </div>
+                      <input
+                        value={tk.registration_no} onChange={(e) => setTruck(i, 'registration_no', e.target.value.toUpperCase())}
+                        placeholder="AS01AB1234" data-truck-reg={i}
+                        className="mt-2 min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 font-mono text-[16px] font-bold tracking-wide outline-none focus:border-emerald-500"
+                      />
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <input value={tk.vehicle_class} onChange={(e) => setTruck(i, 'vehicle_class', e.target.value)} placeholder="Oil Tanker"
+                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                        <input value={tk.capacity} inputMode="decimal" onChange={(e) => setTruck(i, 'capacity', e.target.value)} placeholder="टन / T"
+                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                      </div>
+                      <label className="mt-2 block text-[11.5px] font-extrabold text-slate-500">RC की तारीख / RC expiry
+                        <input type="date" value={tk.rc_expiry} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setTruck(i, 'rc_expiry', e.target.value)}
+                          className="mt-1 min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                      </label>
+                      <label className={`mt-2 flex min-h-[46px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 text-[14px] font-extrabold ${tk.rc_file_key ? 'border-green-400 bg-green-50 text-green-800' : 'border-dashed border-slate-400 bg-slate-50 text-slate-700'}`}>
+                        {tk.uploading ? '⏳ भेज रहे हैं…' : tk.rc_file_key ? `✅ RC लगी — ${tk.name}` : '📎 RC की फोटो लगाओ'}
+                        <input type="file" accept="image/*,application/pdf" hidden data-rc={i}
+                          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadRc(i, f); }} />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={addTruck} className={`${GHOST} mt-3`} data-add-truck>+ और गाड़ी जोड़ो</button>
+              </>
+            )}
 
             {Err}
             <button onClick={submitRegistration} disabled={busy} className={`${BIG} mt-5 bg-violet-600`} id="g2-reg-send">

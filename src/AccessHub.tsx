@@ -40,6 +40,9 @@ const KIND_TABS = [
   { key: 'SERVICE_VENDOR', label: 'Service Vendors', icon: '⛽', role: 'VENDOR', hint: 'Pumps, tyre shops, spares — bill uploads' },
   { key: 'DRIVER', label: 'Drivers', icon: '🧑‍✈️', role: 'DRIVER', hint: 'Own & attached fleet — duty, uploads, khata' },
   { key: 'MARKET_DRIVER', label: 'Market Drivers', icon: '🪪', role: null, hint: "A partner's drivers — approve, block, reject. No login." },
+  // Owner, 3-Sep: the office must be able to switch an individual truck off,
+  // not only the partner who owns it. Same door, same audit trail.
+  { key: 'MARKET_VEHICLE', label: 'Market Trucks', icon: '🚛', role: null, hint: "A partner's trucks — activate, deactivate with a reason. A deactivated truck cannot take a load." },
   { key: 'MATRIX', label: 'Role Matrix', icon: '🧩', role: null, hint: 'Which pages and fields each role may see at all' },
 ];
 const STATE = {
@@ -53,7 +56,7 @@ const QUARANTINE = [
   { key: 'app_uploads', label: 'App uploads', icon: '📱', go: 'EXPENSE_APPROVALS' },
   { key: 'kyc', label: 'KYC applications', icon: '🪪', go: 'ONBOARDING' },
   { key: 'driver_requests', label: 'Driver requests', icon: '🙋', go: 'DRIVER' },
-  { key: 'market_trucks', label: 'Market trucks', icon: '🚚', go: 'MARKET_VEHICLE' },
+  { key: 'market_trucks', label: 'Market trucks', icon: '🚚', tab: 'MARKET_VEHICLE' },
   { key: 'market_drivers', label: 'Market drivers', icon: '🧑‍✈️', tab: 'MARKET_DRIVER' },
   { key: 'loads_review', label: 'Loads to review', icon: '📦', go: 'BAZAAR_ADMIN' },
   { key: 'award_requests', label: 'Award requests', icon: '🏁', go: 'BAZAAR_ADMIN' },
@@ -145,6 +148,10 @@ export default function AccessHub({ onNavigate }) {
   useEffect(() => { setExpanded(null); setEditing(null); setAsking(null); load(kind); /* eslint-disable-line */ }, [kind]);
 
   const tab = KIND_TABS.find((t) => t.key === kind);
+  // Market drivers and market trucks are the two kinds with no login at all:
+  // they are switched on and off through system_status, and the columns that
+  // describe a session are meaningless for them.
+  const isMarket = kind === 'MARKET_DRIVER' || kind === 'MARKET_VEHICLE';
   const counts = useMemo(() => {
     const by = { ALL: rows.length, ACTIVE: 0, PENDING: 0, BLOCKED: 0, ARCHIVED: 0 };
     for (const r of rows) by[r.access] = (by[r.access] ?? 0) + 1;
@@ -291,7 +298,7 @@ export default function AccessHub({ onNavigate }) {
             <table className="ah-table">
               <thead><tr>
                 <th style={{ minWidth: 240 }}>Party</th>
-                <th>{kind === 'MARKET_DRIVER' ? 'Partner' : 'Login'}</th>
+                <th>{isMarket ? 'Partner' : 'Login'}</th>
                 <th>Sessions</th>
                 <th>Access</th>
                 <th style={{ minWidth: 300 }}>Decisions</th>
@@ -314,7 +321,7 @@ export default function AccessHub({ onNavigate }) {
                               <input className="ah-input" value={d.name ?? ''} onChange={(e) => setEditing({ ...editing, draft: { ...d, name: e.target.value } })} placeholder="Name" />
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <input className="ah-input" style={{ width: 130 }} value={d.mobile ?? ''} onChange={(e) => setEditing({ ...editing, draft: { ...d, mobile: e.target.value } })} placeholder="10-digit mobile" />
-                                {kind !== 'DRIVER' && kind !== 'MARKET_DRIVER' && <input className="ah-input" style={{ flex: 1 }} value={d.email ?? ''} onChange={(e) => setEditing({ ...editing, draft: { ...d, email: e.target.value } })} placeholder="email" />}
+                                {kind !== 'DRIVER' && !isMarket && <input className="ah-input" style={{ flex: 1 }} value={d.email ?? ''} onChange={(e) => setEditing({ ...editing, draft: { ...d, email: e.target.value } })} placeholder="email" />}
                               </div>
                               {isPartner && (
                                 <div style={{ display: 'flex', gap: 6 }}>
@@ -332,14 +339,20 @@ export default function AccessHub({ onNavigate }) {
                                 {r.vendor_kind === 'FLEET_PARTNER' && r.subscription_plan && <span className="ah-count">{r.subscription_plan}{r.max_vehicle_limit ? ` · ${r.max_vehicle_limit} trucks` : ''}</span>}
                               </div>
                               <div className="ah-sub">
-                                {r.mobile ? `📱 ${r.mobile}` : <span style={{ color: '#f87171' }}>no mobile — cannot log in</span>}
+                                {/* A truck has no mobile and never will — saying
+                                    "cannot log in" about a lorry is noise, so it
+                                    shows what it actually is instead. */}
+                                {kind === 'MARKET_VEHICLE'
+                                  ? <span style={{ color: '#94a3b8' }}>{[r.vehicle_class, r.capacity ? `${r.capacity} T` : null].filter(Boolean).join(' · ') || 'truck'}</span>
+                                  : r.mobile ? `📱 ${r.mobile}` : <span style={{ color: '#f87171' }}>no mobile — cannot log in</span>}
                                 {r.email && !String(r.email).includes('@login.prasadtransport.com') ? ` · ${r.email}` : ''}
                                 {kind === 'DRIVER' && r.license_no ? ` · DL ${r.license_no}` : ''}
                                 {kind === 'MARKET_DRIVER' && r.licence_no ? ` · DL ${r.licence_no}` : ''}
+                                {kind === 'MARKET_VEHICLE' ? [r.vehicle_class, r.capacity ? `${r.capacity} T` : null].filter(Boolean).map((x) => ` · ${x}`).join('') : ''}
                                 {r.vendor_type && kind === 'SERVICE_VENDOR' ? ` · ${r.vendor_type}` : ''}
                               </div>
                               <div className="ah-sub" style={{ color: '#64748b' }}>
-                                {kind === 'FLEET_PARTNER' ? `${r.trucks ?? 0} trucks` : kind === 'SERVICE_VENDOR' ? `${r.bills ?? 0} bills` : kind === 'CUSTOMER' ? `${r.activity ?? 0} loads` : kind === 'DRIVER' ? `${r.activity ?? 0} trips` : `${r.activity ?? 0} trucks named`}
+                                {kind === 'FLEET_PARTNER' ? `${r.trucks ?? 0} trucks` : kind === 'SERVICE_VENDOR' ? `${r.bills ?? 0} bills` : kind === 'CUSTOMER' ? `${r.activity ?? 0} loads` : kind === 'DRIVER' ? `${r.activity ?? 0} trips` : kind === 'MARKET_VEHICLE' ? `${r.activity ?? 0} trips` : `${r.activity ?? 0} trucks named`}
                                 {r.record_status && r.record_status !== 'ACTIVE' ? ` · master: ${r.record_status}` : ''}
                               </div>
                             </>
@@ -347,7 +360,7 @@ export default function AccessHub({ onNavigate }) {
                         </td>
                         {/* Login / Partner */}
                         <td>
-                          {kind === 'MARKET_DRIVER' ? (
+                          {isMarket ? (
                             <div><div style={{ color: '#cbd5e1' }}>{r.partner_name ?? '—'}</div><div className="ah-sub">registered {rel(r.created_at)}</div></div>
                           ) : kind === 'DRIVER' ? (
                             <div><div style={{ color: '#cbd5e1' }}>OTP / login link</div><div className="ah-sub">last seen {rel(r.last_seen)}</div></div>
@@ -364,7 +377,7 @@ export default function AccessHub({ onNavigate }) {
                         </td>
                         {/* Sessions */}
                         <td>
-                          {kind === 'MARKET_DRIVER' ? <span className="ah-sub">—</span> : (
+                          {isMarket ? <span className="ah-sub">—</span> : (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               <span style={{ fontWeight: 800, color: r.live_sessions > 0 ? '#34d399' : '#475569' }}>{r.live_sessions ?? 0}</span>
                               {r.live_sessions > 0 && <button className="ah-btn ah-btn--ghost" style={{ minHeight: 28, fontSize: 11 }} disabled={busyRow} onClick={() => revoke(r)}>end all</button>}
@@ -380,7 +393,7 @@ export default function AccessHub({ onNavigate }) {
                               {r.last_reason ? <div style={{ color: '#fca5a5' }}>“{r.last_reason}”</div> : null}
                             </div>
                           )}
-                          {kind === 'MARKET_DRIVER' && r.reject_reason && !r.last_reason && <div className="ah-sub" style={{ color: '#fca5a5' }}>“{r.reject_reason}”</div>}
+                          {isMarket && r.reject_reason && !r.last_reason && <div className="ah-sub" style={{ color: '#fca5a5' }}>“{r.reject_reason}”</div>}
                         </td>
                         {/* Decisions */}
                         <td>

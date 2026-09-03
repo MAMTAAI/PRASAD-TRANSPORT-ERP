@@ -601,8 +601,19 @@ export async function registerBazaarRoutes(app) {
     if (status) { args.push(String(status).toUpperCase()); where.push(`status = $${args.length}`); }
     if (type) { args.push(String(type).toUpperCase()); where.push(`type = $${args.length}`); }
     const { rows } = await query(
-      `SELECT * FROM onboarding_applications ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY submitted_at DESC`, args);
+      `SELECT a.*,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                         'id', v.id, 'registration_no', v.registration_no,
+                         'vehicle_class', v.vehicle_class, 'capacity', v.capacity,
+                         'rc_file_key', v.rc_file_key, 'rc_expiry', v.rc_expiry,
+                         'market_vehicle_id', v.market_vehicle_id)
+                       ORDER BY v.created_at)
+                  FROM onboarding_vehicles v WHERE v.application_id = a.id
+              ), '[]'::json) AS vehicles
+         FROM onboarding_applications a
+        ${where.length ? 'WHERE ' + where.map((w) => 'a.' + w).join(' AND ') : ''}
+        ORDER BY a.submitted_at DESC`, args);
     return { applications: rows.map(withAliases) };
   });
 
@@ -626,12 +637,42 @@ export async function registerBazaarRoutes(app) {
     if (!name) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'corporate_name (or agency_name) is required' });
 
     const isCustomer = type === 'CUSTOMER';
-    const bad = checkParty(b, { requireGst: isCustomer, requireBank: isCustomer });
+    const isPartner = type === 'FLEET_PARTNER';
+    // Owner, 3-Sep: a fleet partner MUST bring PAN and bank details. GST is not
+    // demanded of them — a single-lorry operator commonly has no registration,
+    // and refusing those applicants would close the market fleet to exactly the
+    // people it exists to reach. A customer we bill still needs both.
+    const bad = checkParty(b, {
+      requireGst: isCustomer,
+      requirePan: isPartner,
+      requireBank: isCustomer || isPartner,
+    });
     if (bad.length) {
       return reply.code(400).send({ error: 'BAD_FIELDS', detail: bad[0].message, fields: bad });
     }
 
     const mobile = last10(b.mobile_no);
+
+    // The trucks a partner is applying with, each with its RC scan. Validated
+    // before anything is written so a bad plate cannot leave half an
+    // application behind.
+    const vehicles = Array.isArray(b.vehicles) ? b.vehicles.slice(0, 25) : [];
+    if (isPartner && vehicles.length) {
+      const seen = new Set();
+      for (const v of vehicles) {
+        const reg = String(v?.registration_no ?? '').toUpperCase().replace(/\s+/g, '').trim();
+        if (!reg) return reply.code(400).send({ error: 'BAD_VEHICLE', detail: 'every truck needs its registration number' });
+        if (seen.has(reg)) return reply.code(400).send({ error: 'DUPLICATE_VEHICLE', detail: `${reg} is listed twice` });
+        seen.add(reg);
+        // The RC is the point of listing the truck here at all — the office is
+        // being asked to verify a document, not to take a plate on trust.
+        const key = String(v?.rc_file_key ?? '').trim();
+        if (!key || !key.startsWith(`up/onboarding/${mobile}/`)) {
+          return reply.code(400).send({ error: 'RC_REQUIRED', detail: `upload the RC for ${reg} before sending the form` });
+        }
+      }
+    }
+
 
     // ── THE OTP WALL (owner, 2026-09-03) ────────────────────────────────────
     // "A user must verify their mobile number before they can even see the KYC
@@ -709,6 +750,21 @@ export async function registerBazaarRoutes(app) {
         // stays under the fence, where it belongs (it is a STAGING_TABLE); only
         // this one statement steps outside it, and it is still inside the same
         // transaction, so the two commit or roll back together.
+        // The trucks ride with the application, not on market_vehicles: a row
+        // there is a truck the system may dispatch, and this is still a claim
+        // on a form nobody has read. They become real at approval.
+        for (const v of vehicles) {
+          await c.query(`
+            INSERT INTO onboarding_vehicles
+              (application_id, registration_no, vehicle_class, capacity, rc_file_key, rc_expiry)
+            VALUES ($1::uuid,$2,$3,$4,$5,$6::date)`,
+            [rows[0].id,
+             String(v.registration_no).toUpperCase().replace(/\s+/g, ''),
+             trimOrNull(v.vehicle_class),
+             v.capacity === '' || v.capacity == null ? null : Number(v.capacity),
+             String(v.rc_file_key).trim(),
+             String(v.rc_expiry ?? '').trim() || null]);
+        }
         const { rowCount } = await asSystem(() => c.query(
           `UPDATE registration_tickets SET consumed_at = now(), application_id = $2::uuid
             WHERE id = $1::uuid AND consumed_at IS NULL`, [ticketId, rows[0].id]));
@@ -813,10 +869,50 @@ export async function registerBazaarRoutes(app) {
                            role, permissions, status, account_status, approved_at, approved_by,
                            must_change_password, ${linkCol})
         VALUES ($1, $2::citext, $3, $4, $5, $6, $7::user_role, '{"grants":[]}'::jsonb,
-                'ACTIVE', 'ACTIVE'::account_status, now(), $9, true, $8::uuid)`,
+                'ACTIVE', 'ACTIVE'::account_status, now(), $9::uuid, true, $8::uuid)`,
+        // approved_by is a uuid column, so it takes the acting admin's id — the
+        // `approved_by` field in the request body is a display NAME and casting
+        // it here is a 22P02 that fails the whole approval.
         [party[0].name, email, mobile, hashHex, saltHex, ALGO, role, partyId,
-         approved_by ?? 'kyc-approval']);
+         req.user?.sub ?? null]);
       notes.push(`portal login created and activated — OTP login on ${mobile}`);
+
+      // The trucks the applicant listed become real here, and only here. Each
+      // one lands PENDING APPROVAL rather than active: approving the PARTY says
+      // the firm is who it claims to be, not that every lorry on the form is
+      // roadworthy — the office still opens each truck and checks its RC. The
+      // RC scan travels with it as a partner_documents row so it appears in the
+      // same queue every other vehicle paper does (migration 136), carrying its
+      // expiry, ready to be approved onto the truck.
+      if (app0.type === 'FLEET_PARTNER') {
+        const { rows: obv } = await c.query(
+          `SELECT * FROM onboarding_vehicles WHERE application_id = $1::uuid ORDER BY created_at`, [app0.id]);
+        for (const v of obv) {
+          const { rows: mv } = await c.query(`
+            INSERT INTO market_vehicles
+              (registration_no, vendor_agency, vendor_id, vehicle_class, capacity,
+               rc_expiry, system_status, added_by, submitted_by)
+            VALUES ($1,$2,$3::uuid,$4,$5,$6::date,'PENDING APPROVAL',$7,NULL)
+            ON CONFLICT (registration_no) DO NOTHING
+            RETURNING id`,
+            [v.registration_no, party[0].name, partyId, v.vehicle_class, v.capacity,
+             v.rc_expiry, `kyc:${app0.id.slice(0, 8)}`]);
+          if (!mv.length) { notes.push(`${v.registration_no} already exists on the system — skipped`); continue; }
+          await c.query(
+            `UPDATE onboarding_vehicles SET market_vehicle_id = $2::uuid WHERE id = $1::uuid`,
+            [v.id, mv[0].id]);
+          if (v.rc_file_key) {
+            await c.query(`
+              INSERT INTO partner_documents
+                (doc_type, file_key, vendor_id, uploader_role, uploader_name,
+                 vehicle_no, market_vehicle_id, expiry_date, remarks, status)
+              VALUES ('RC',$1,$2::uuid,'VENDOR',$3,$4,$5::uuid,$6::date,$7,'PENDING')`,
+              [v.rc_file_key, partyId, `kyc:${party[0].name}`, v.registration_no,
+               mv[0].id, v.rc_expiry, `RC submitted with the onboarding application`]);
+          }
+        }
+        if (obv.length) notes.push(`${obv.length} truck(s) created, each PENDING APPROVAL with its RC in the document queue`);
+      }
       return app0;
     });
 

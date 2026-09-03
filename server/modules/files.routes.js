@@ -19,7 +19,8 @@
 import multipart from '@fastify/multipart';
 import { put, openStream, remove, stats, safeKey, MAX_BYTES, DRIVER, StorageError } from '../lib/storage.js';
 import { emit } from '../agents/bus.js';
-import { query } from '../db/pool.js';
+import { query, isDegraded } from '../db/pool.js';
+import { verifyCode } from '../lib/auth.js';
 
 // Infer the document kind from the stored key so BHUVANESHWARI (the OCR/vault
 // agent) can classify without re-reading the bytes. drivers/<id>/dl_photo →
@@ -44,6 +45,10 @@ function inferDocType(key) {
 // Only what a document archive should ever hold. An upload endpoint that
 // accepts anything is an upload endpoint that will eventually serve a script
 // back to a browser from the app's own origin.
+// Used by the ticket-gated onboarding upload below.
+const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
+const last10 = (v) => String(v ?? '').replace(/\D/g, '').slice(-10);
+
 const ALLOWED = new Map([
   ['image/webp', '.webp'], ['image/jpeg', '.jpg'], ['image/png', '.png'],
   ['application/pdf', '.pdf'],
@@ -187,6 +192,74 @@ export async function registerFileRoutes(app) {
       throw e;
     }
   });
+
+  // The applicant's RC scans live HERE rather than in auth.routes because
+  // @fastify/multipart is registered in this plugin's scope — a multipart route
+  // declared outside it answers 415 for every upload. The path still reads
+  // /auth/register/… so the staging fence's own /api/v1/auth/ exemption and the
+  // apiGuard entry both keep pointing at one place.
+  /** The applicant's RC scans, before they have any session at all.
+   *
+   *  Owner, 2026-09-03: a fleet partner must be able to add several trucks
+   *  "by uploading their respective RCs" DURING registration. POST /files needs
+   *  a session by design, and an applicant has none — so this is the one door
+   *  that takes bytes from a stranger, and it is narrow on purpose:
+   *
+   *    · the ticket from the OTP wall is the credential, so the handset is
+   *      already verified and rate-limited before a single byte arrives;
+   *    · the key is CHOSEN HERE, never by the caller — everything lands under
+   *      up/onboarding/<mobile>/, a namespace no signed-in party can read and
+   *      no applicant can aim outside of;
+   *    · images and PDFs only, and the extension follows the bytes, not the
+   *      name; the same ceiling as every other upload;
+   *    · the ticket is NOT spent here. One verification covers the form and
+   *      the scans that go with it — it is spent when the application is filed.
+   */
+  const REG_UPLOAD_TYPES = new Map([
+    ['image/jpeg', '.jpg'], ['image/png', '.png'], ['image/webp', '.webp'], ['application/pdf', '.pdf'],
+  ]);
+
+  app.post('/auth/register/upload', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    let part;
+    try { part = await req.file(); } catch (e) { return reply.code(400).send({ error: 'BAD_MULTIPART', detail: e.message }); }
+    if (!part) return reply.code(400).send({ error: 'NO_FILE', detail: 'multipart field "file" is required' });
+
+    const mobile = last10(part.fields?.mobile?.value ?? '');
+    const ticket = String(part.fields?.ticket?.value ?? '').trim();
+    if (!mobile || !ticket) return reply.code(400).send({ error: 'NO_TICKET', detail: 'mobile and ticket are required' });
+
+    const { rows: tk } = await query(
+      `SELECT * FROM registration_tickets
+        WHERE mobile = $1 AND consumed_at IS NULL AND expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [mobile]);
+    if (!tk.length || !verifyCode(ticket, tk[0].ticket_salt, tk[0].ticket_hash)) {
+      return reply.code(401).send({ error: 'MOBILE_NOT_VERIFIED', detail: 'verify your mobile number again before uploading' });
+    }
+
+    const contentType = String(part.mimetype || '').split(';')[0].trim();
+    const ext = REG_UPLOAD_TYPES.get(contentType);
+    if (!ext) {
+      return reply.code(415).send({ error: 'BAD_TYPE', detail: `refused ${contentType || 'unknown type'} — photos and PDFs only` });
+    }
+    const buffer = await part.toBuffer();
+    // @fastify/multipart truncates at the limit rather than throwing.
+    if (part.file?.truncated) return reply.code(413).send({ error: 'TOO_LARGE', detail: `file exceeds ${Math.round(MAX_BYTES / 1024 / 1024)} MB` });
+
+    const tag = String(part.fields?.tag?.value ?? 'doc').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'doc';
+    const key = `up/onboarding/${mobile}/${tag}_${Date.now()}${ext}`;
+    try {
+      const out = await put(safeKey(key), buffer, contentType);
+      return reply.code(201).send({ path: out.key, bytes: out.bytes });
+    } catch (e) {
+      if (e instanceof StorageError) {
+        const status = { NO_SPACE: 507, TOO_LARGE: 413, BAD_KEY: 400, DRIVER_UNAVAILABLE: 503 }[e.code] ?? 400;
+        return reply.code(status).send({ error: e.code, detail: e.message });
+      }
+      throw e;
+    }
+  });
+
 
   app.get('/files/*', async (req, reply) => {
     // Object-level ownership: allow-listed per role, with the settlement-POD

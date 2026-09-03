@@ -33,6 +33,7 @@ const bazaarFetch = async (path: string, opts?: RequestInit) => {
 
 import { vGstin, vPan, vMobile, vIfsc, vAccountNo, gstinPanMatch, runChecks } from './lib/validators';
 import { logAudit } from './lib/audit';
+import { openDocument } from './lib/openDocument';
 import { useIsMobile } from './hooks/useIsMobile';
 
 // The waiting state is PENDING_KYC since migration 134 (the owner's name for
@@ -108,14 +109,27 @@ kar dein? Yeh master par turant lag jayega.`)) return;
     const list = [
       { name: 'Mobile format', c: vMobile(a.mobile_no, true) },
       { name: 'GSTIN format', c: vGstin(a.gst_no, a.type === 'CUSTOMER') },
-      { name: 'PAN format', c: vPan(a.pan_no, a.type === 'FLEET_PARTNER') },
+      { name: 'PAN format', c: vPan(a.pan_no, a.type === 'FLEET_PARTNER' || a.type === 'CUSTOMER') },
       { name: 'GSTIN ↔ PAN match', c: gstinPanMatch(a.gst_no, a.pan_no) },
     ];
     // The bank account is only asked of a customer (migration 134), so the
     // fleet-partner queue is not suddenly shown three checks it must fail.
-    if (a.type === 'CUSTOMER') {
+    // Bank details are demanded of a customer AND of a fleet partner (owner,
+    // 3-Sep) — the office cannot pay a partner without them.
+    if (a.type === 'CUSTOMER' || a.type === 'FLEET_PARTNER') {
       list.push({ name: 'IFSC format', c: vIfsc(a.ifsc_code, true) });
       list.push({ name: 'Account number', c: vAccountNo(a.account_no, true) });
+    }
+    // A partner's trucks are part of what is being verified: every one listed
+    // must carry an RC scan, or there is nothing to check it against.
+    if (a.type === 'FLEET_PARTNER' && (a.vehicles ?? []).length) {
+      const missing = (a.vehicles ?? []).filter((v) => !v.rc_file_key);
+      list.push({
+        name: `RC for all ${(a.vehicles ?? []).length} truck(s)`,
+        c: missing.length
+          ? { ok: false, message: `no RC uploaded for ${missing.map((v) => v.registration_no).join(', ')}` }
+          : { ok: true, message: '' },
+      });
     }
     return list.map(x => ({ name: x.name, ok: x.c.ok, msg: x.c.message }));
   };
@@ -293,6 +307,37 @@ kar dein? Yeh master par turant lag jayega.`)) return;
                   {a.ifsc_code ? <div><span style={{ color: '#64748b' }}>IFSC:</span> <b style={{ fontFamily: 'monospace' }}>{a.ifsc_code}</b></div> : null}
                   {a.reject_reason ? <div style={{ gridColumn: '1 / -1', color: '#ef4444' }}>Reject reason: {a.reject_reason}</div> : null}
                 </div>
+
+                {/* The trucks this partner applied with (migration 137). Each
+                    RC opens from the vault — approving the party creates these
+                    as PENDING trucks with their RC in the document queue, so
+                    the plate is checked here and the paper is checked there. */}
+                {(a.vehicles ?? []).length > 0 && (
+                  <div style={{ marginTop: '12px' }}>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px' }}>
+                      🚛 TRUCKS ON THIS APPLICATION ({(a.vehicles ?? []).length})
+                    </div>
+                    {(a.vehicles ?? []).map((v) => (
+                      <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                                               borderTop: '1px solid #1e293b', padding: '8px 0', fontSize: '13px' }}>
+                        <b style={{ fontFamily: 'monospace' }}>{v.registration_no}</b>
+                        <span style={{ color: '#94a3b8' }}>
+                          {[v.vehicle_class, v.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ') || '—'}
+                        </span>
+                        <span style={{ color: v.rc_expiry ? '#94a3b8' : '#f59e0b' }}>
+                          RC {v.rc_expiry ? String(v.rc_expiry).slice(0, 10) : 'no expiry given'}
+                        </span>
+                        {v.rc_file_key
+                          ? <button onClick={() => openDocument(v.rc_file_key)}
+                              style={{ ...S.btn('#1e293b', false), padding: '6px 12px', minHeight: '34px', fontSize: '12px' }}>
+                              👁 View RC
+                            </button>
+                          : <span style={{ color: '#ef4444', fontWeight: 'bold' }}>NO RC</span>}
+                        {v.market_vehicle_id && <span style={S.chip('#10b981')}>created</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{ marginTop: '10px' }}>
                   {checks.map((c, i) => (
                     <div key={i} style={{ fontSize: '12px', color: c.ok ? '#10b981' : '#ef4444', padding: '2px 0' }}>

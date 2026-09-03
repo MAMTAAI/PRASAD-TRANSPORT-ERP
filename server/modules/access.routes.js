@@ -43,6 +43,11 @@ const KINDS = {
   SERVICE_VENDOR: { table: 'vendors',   role: 'VENDOR',   link: 'vendor_id',   nameCol: 'vendor_name',   mobileCol: 'mobile_no', features: true, kindWhere: "vendor_kind = 'SERVICE'" },
   DRIVER:         { table: 'drivers',   role: 'DRIVER',   nameCol: 'name',   mobileCol: 'mobile' },
   MARKET_DRIVER:  { table: 'market_drivers', nameCol: 'name', mobileCol: 'mobile', market: true },
+  // A truck is a party the office turns on and off too (owner, 3-Sep): "a
+  // partner/vehicle cannot be used in the system if marked deactivated". It has
+  // no login and no mobile — it maps onto market_vehicles.system_status, the
+  // same column every dispatch path already checks for 'System Active'.
+  MARKET_VEHICLE: { table: 'market_vehicles', nameCol: 'registration_no', mobileCol: null, market: true },
 };
 const kindOf = (s) => KINDS[String(s ?? '').toUpperCase()] ? String(s).toUpperCase() : null;
 
@@ -53,6 +58,7 @@ const EDITABLE = {
   SERVICE_VENDOR: { name: 'vendor_name', mobile: 'mobile_no', email: 'email', owner_name: 'owner_name', pan_no: 'pan_no' },
   DRIVER:         { name: 'name', mobile: 'mobile', license_no: 'license_no', license_expiry: 'license_expiry' },
   MARKET_DRIVER:  { name: 'name', mobile: 'mobile', licence_no: 'licence_no', licence_expiry: 'licence_expiry' },
+  MARKET_VEHICLE: { vehicle_class: 'vehicle_class', capacity: 'capacity', engine_no: 'engine_no', chassis_no: 'chassis_no' },
 };
 
 const LAST_ACTION = `
@@ -112,6 +118,23 @@ function listSql(kind) {
       ${LAST_ACTION}
      WHERE ($1 = '' OR x.name ILIKE '%' || $1 || '%' OR COALESCE(x.mobile, '') LIKE '%' || $1 || '%')
      ORDER BY x.name LIMIT $2`;
+  if (kind === 'MARKET_VEHICLE') {
+    // A truck has no name and no mobile; the plate is its name, and the partner
+    // it belongs to is what the office searches by just as often.
+    return `
+      SELECT x.id, x.registration_no AS name, NULL::text AS mobile, NULL::text AS email,
+             x.vehicle_class, x.capacity, x.rc_expiry, x.ins_expiry, x.fit_expiry,
+             x.system_status, x.reject_reason, x.deactivated_reason,
+             x.created_at, x.approved_at, x.vendor_id, v.vendor_name AS partner_name,
+             '{}'::jsonb AS features, NULL::uuid AS login_id, 0::int AS live_sessions, NULL::timestamptz AS last_seen,
+             (SELECT count(*) FROM bazaar_settlements s WHERE s.market_vehicle_id = x.id)::int AS activity,
+             la.action AS last_action, la.reason AS last_reason, la.actor_name AS last_actor, la.created_at AS last_action_at
+        FROM market_vehicles x
+        LEFT JOIN vendors v ON v.id = x.vendor_id
+        ${LAST_ACTION}
+       WHERE ($1 = '' OR x.registration_no ILIKE '%' || $1 || '%' OR COALESCE(v.vendor_name, '') ILIKE '%' || $1 || '%')
+       ORDER BY x.created_at DESC LIMIT $2`;
+  }
   return `
     SELECT x.id, x.name, x.mobile, NULL::text AS email, x.licence_no, x.licence_expiry, x.system_status, x.reject_reason,
            x.created_at, x.approved_at, x.vendor_id, v.vendor_name AS partner_name,
@@ -127,7 +150,7 @@ function listSql(kind) {
 
 /** The one state the office reasons about. Derived, never stored. */
 export function accessState(r, kind) {
-  if (kind === 'MARKET_DRIVER') {
+  if (kind === 'MARKET_DRIVER' || kind === 'MARKET_VEHICLE') {
     return { 'System Active': 'ACTIVE', 'PENDING APPROVAL': 'PENDING', BLOCKED: 'BLOCKED', REJECTED: 'ARCHIVED' }[r.system_status] ?? 'PENDING';
   }
   if (r.record_status === 'ARCHIVED') return 'ARCHIVED';
@@ -145,7 +168,7 @@ async function listParties(kind, q, limit) {
 async function snapshot(t, kind, id) {
   const k = KINDS[kind];
   const cols = k.market
-    ? 'id, name, mobile, system_status, reject_reason'
+    ? `id, ${k.nameCol} AS name, ${k.mobileCol ?? 'NULL::text'} AS mobile, system_status, reject_reason`
     : `id, ${k.nameCol} AS name, ${k.mobileCol} AS mobile, status::text AS status, is_approved_for_portal`;
   const { rows } = await t.query(`SELECT ${cols} FROM ${k.table} WHERE id = $1::uuid`, [id]);
   return rows[0] ?? null;
@@ -282,9 +305,13 @@ export function registerAccessRoutes(app) {
         const before = await snapshot(t, kind, id);
         if (!before) return null;
         if (k.market) {
+          // Same statement for a market driver and a market truck; only the
+          // table differs, and a truck also clears its deactivation note.
           await t.query(
-            `UPDATE market_drivers SET system_status = 'System Active', approved_by = $2::uuid, approved_at = now(),
-                    reject_reason = NULL, updated_at = now() WHERE id = $1::uuid`, [id, actor.id]);
+            `UPDATE ${k.table} SET system_status = 'System Active', approved_by = $2::uuid, approved_at = now(),
+                    reject_reason = NULL, updated_at = now()
+                    ${kind === 'MARKET_VEHICLE' ? ', blocked_at = NULL, blocked_by = NULL, deactivated_reason = NULL' : ''}
+              WHERE id = $1::uuid`, [id, actor.id]);
         } else {
           await t.query(
             `UPDATE ${k.table}
@@ -323,8 +350,12 @@ export function registerAccessRoutes(app) {
     if (!before) return null;
     if (k.market) {
       await t.query(
-        `UPDATE market_drivers SET system_status = $2, reject_reason = $3, updated_at = now() WHERE id = $1::uuid`,
-        [id, archive ? 'REJECTED' : 'BLOCKED', reason]);
+        `UPDATE ${k.table} SET system_status = $2, reject_reason = $3, updated_at = now()
+                ${kind === 'MARKET_VEHICLE' ? ', blocked_at = now(), blocked_by = $4::uuid, deactivated_reason = $3' : ''}
+          WHERE id = $1::uuid`,
+        kind === 'MARKET_VEHICLE'
+          ? [id, archive ? 'REJECTED' : 'BLOCKED', reason, actor.id]
+          : [id, archive ? 'REJECTED' : 'BLOCKED', reason]);
     } else {
       await t.query(
         `UPDATE ${k.table}

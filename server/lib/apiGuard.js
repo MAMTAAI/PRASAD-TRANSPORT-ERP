@@ -56,6 +56,11 @@ export const PUBLIC_API = new Set([
   // proof they hand back is a single-use ticket, never a session.
   'POST /api/v1/auth/register/otp/request',
   'POST /api/v1/auth/register/otp/verify',
+  // …and the RC scans that ride with a fleet-partner application (3-Sep). The
+  // ticket is the credential here too: no ticket, no bytes. The key is chosen
+  // by the server under up/onboarding/<mobile>/, so an applicant cannot aim an
+  // upload at anybody else's tree the way a free-form path would allow.
+  'POST /api/v1/auth/register/upload',
   // A fleet partner applying has no account yet; this IS the application.
   // Public, but no longer anonymous: since 3-Sep it must carry a ticket from
   // the two routes above, so nothing reaches the CRM without a verified handset.
