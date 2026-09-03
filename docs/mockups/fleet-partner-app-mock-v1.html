@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fleet Partner App Mock v1 — Trucks on trip · Market money · History</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="mock-shared.css">
+<style>
+  .stage{display:flex;gap:4px;flex-wrap:wrap}
+  .stage span{font-size:9.5px;font-weight:800;border-radius:6px;padding:3px 6px;background:#f1f5f9;color:#94a3b8}
+  .stage span.on{background:#dcfce7;color:#166534}.stage span.now{background:#2563eb;color:#fff}
+  .mini{height:110px;border-radius:12px;background:#e8efe3;position:relative;overflow:hidden}
+  .mini .map{border-radius:12px}
+  .month{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:800;color:#334155;padding:6px 4px 0}
+  .month b{color:#15803d}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Fleet Partner App — UI Mock v1 · Trucks on trip · Market money · Trip history</h1>
+    <p>3-Sep-2026 · Super-App external role 4 of 4 (Fleet Partner: market truck owners who run Load Bazaar trips) · light theme, same family as the driver app v4 · Hindi first with EN toggle · mock only, nothing wired, nothing shipped</p>
+  </div>
+  <span class="tag">AWAITING YOUR YES</span>
+</header>
+
+<div class="sec">1 · Try it <small>tap a truck, open a settlement, walk Confirm → Assign → POD, see the month's history</small></div>
+<div class="wrap">
+  <div class="frame">
+    <p class="cap">Interactive prototype <span>· RK ROADLINES (5 trucks in the bazaar)</span></p>
+    <div class="phone" id="live"></div>
+    <button class="reset" onclick="go('home')">↺ reset to home</button>
+  </div>
+  <div class="card">
+    <h3>What the fleet partner gets</h3>
+    <ul>
+      <li><b>Home = "which of my trucks are earning right now".</b> Three counters (on trip / free / awaiting approval), a "Market money" card (advance received, balance due, deposit held, month total) and the list of trucks on trip with the stage each one is at — the same 7-stage settlement pipeline the desk uses, in plain words.</li>
+      <li><b>One button per stage, nothing else.</b> AWAITING_CONFIRM shows "✅ Confirm" with the deadline; CONFIRMED shows "🚚 Assign truck"; ADVANCE_PAID shows "📷 POD photo". After POD the balance waits for the office to verify — the card says so.</li>
+      <li><b>Money is honest:</b> advance is 90 % of the award (the real default), balance releases only on POD_VERIFIED (the real gate), deposit shown as "held by office" with its BZDEP reference. Every paid line carries its TARA reference so a partner can match it to the bank.</li>
+      <li><b>Trip history</b> = month groups with per-month totals, truck, lane, award, and a SETTLED pill; statement PDF from the existing endpoint.</li>
+      <li><b>My trucks</b> = the market_vehicles list with System Active / Pending approval / Blocked, expiry warnings (insurance, fitness, permit), and "add a truck" that lands as PENDING APPROVAL — Milan/OCR reviews the papers exactly as for drivers.</li>
+      <li>Loads and blind bidding (L1 rank) stay as today, one screen, since they already work — the focus here is the truck-on-trip and money views.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="sec">2 · All screens <small>laid out flat</small></div>
+<div class="wrap" id="gallery"></div>
+
+<div class="sec">3 · Open points for the YES</div>
+<div class="wrap">
+  <div class="card">
+    <ol>
+      <li><b>Where does a partner's truck position come from?</b> Their drivers are market drivers on the driver app (map + Loading Invoice + Unloading POD, approved 3-Sep) — so the mini-map uses the same <code>trip_gps_pings</code>. If the market driver has no app, the card shows "no live position" rather than a stale dot. OK?</li>
+      <li><b>Who uploads the POD:</b> drawn so BOTH the market driver (driver app) and the partner (this app) can — the desk verifies once. Or partner-only?</li>
+      <li><b>Deposit line:</b> shown as "held by office · refunds on settlement" with the BZDEP ref. Show it to every partner, or only when a deposit was actually taken for that load?</li>
+      <li><b>Blocked truck:</b> shows the office's reason and a call button; no re-submit from the phone (matches the access-hub rule for drivers). Correct?</li>
+    </ol>
+  </div>
+  <div class="card" style="max-width:820px">
+    <div class="two">
+      <div class="old"><b>Today (FleetPartnerApp.tsx)</b>
+        dark theme · English only · 5 tabs (Loads · My Trips · My Fleet · Earnings · Account) · loads-first · settlement stages as raw enum text · earnings as counters, no per-trip money · no positions</div>
+      <div class="new"><b>This mock</b>
+        light theme, Hindi first · home = trucks on trip + market-money card · one action button per stage · settlement detail with advance/balance/deposit + TARA refs · month-grouped history with totals · mini-map per truck · truck status + expiries</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SB = `<div class="sb"><span>9:41</span><span>📶 🔋</span></div>`;
+const BAR = (name, sub) => `<div class="bar"><div class="who"><div class="brand">PRASAD TRANSPORT · LOAD BAZAAR</div><div class="name">${name}</div><div class="sub">${sub}</div></div><button class="lang">हिं · EN</button></div>`;
+const TOP = (t, s, back = 'home') => `<div class="bar"><button class="back" onclick="go('${back}')">‹</button><div class="ttl">${t}<small>${s}</small></div></div>`;
+const NAV = (on) => `<div class="nav">
+  <button class="${on==='home'?'on':''}" onclick="go('home')"><i>🏠</i>होम</button>
+  <button class="${on==='trucks'?'on':''}" onclick="go('trucks')"><i>🚚</i>ट्रक<span class="dot">1</span></button>
+  <button class="${on==='money'?'on':''}" onclick="go('money')"><i>💰</i>पैसा<span class="dot">2</span></button>
+  <button class="${on==='hist'?'on':''}" onclick="go('hist')"><i>📜</i>इतिहास</button>
+  <button class="${on==='loads'?'on':''}" onclick="go('loads')"><i>📢</i>लोड<span class="dot">3</span></button>
+</div>`;
+const STAGES = ['Confirm','Assign','Advance','POD','Verified','Settled'];
+const STG = (n) => `<div class="stage">${STAGES.map((s,i)=>`<span class="${i<n?'on':i===n?'now':''}">${i<n?'✓ ':''}${s}</span>`).join('')}</div>`;
+
+const S = {};
+const truckRow = (cls, truck, drv, route, sub, n, btn) => `<div class="row ${cls}" onclick="go('settle')"><div class="rtop"><div class="ric">🚚</div><div class="rt"><b><span class="truck">${truck}</span> · ${drv}</b><small>${route}</small><small>${sub}</small></div></div>${STG(n)}${btn||''}</div>`;
+
+S.home = `${SB}${BAR('RK ROADLINES', 'Fleet Partner · 5 trucks · Guwahati')}
+<div class="body">
+  <div class="kpis">
+    <div class="kpi b"><b>3</b><small>ट्रिप पर · on trip</small></div>
+    <div class="kpi g"><b>1</b><small>खाली · free</small></div>
+    <div class="kpi a"><b>1</b><small>मंज़ूरी बाकी</small></div>
+  </div>
+  <div class="money">
+    <div class="mh">बाज़ार का पैसा · Market money <span>सितंबर 2026</span></div>
+    <div class="mrow"><div class="ic2">✅</div><div><div class="lt">एडवांस मिला · Advance received</div><div class="ls">3 trips · 90% of award</div></div><div class="bal ok">₹1,12,050</div></div>
+    <div class="mrow"><div class="ic2">⏳</div><div><div class="lt">बैलेंस बाकी · Balance due</div><div class="ls">releases after POD verified</div><div class="barr"><i class="b" style="width:64%"></i></div></div><div class="bal wait">₹12,450</div></div>
+    <div class="mrow"><div class="ic2">🔒</div><div><div class="lt">डिपॉज़िट · Deposit held</div><div class="ls">1 load · refunds on settlement</div></div><div class="bal b">₹5,000</div></div>
+    <div class="mrow"><div class="ic2">📈</div><div><div class="lt">इस महीने कुल · Month total</div><div class="ls">awards, 4 trips</div></div><div class="bal ok">₹1,66,500</div></div>
+  </div>
+  <div class="h6">अभी ट्रिप पर · Trucks on trip now <span onclick="go('trucks')">all ›</span></div>
+  ${truckRow('warn','AS01AB1122','Ramesh','Guwahati → Agartala · Cement 25 MT','LD00031 · ₹41,500 · advance ₹37,350 paid ✅',3,`<div class="rbtn"><button class="ab g" onclick="event.stopPropagation();go('podcam')">📷 POD फोटो · upload</button></div>`)}
+  ${truckRow('','AS01CD3344','Biju','Silchar → Guwahati · Tea 12 MT','LD00029 · ₹28,000 · advance ₹25,200 paid ✅',3)}
+  ${truckRow('hi','AS01EF5566','—','Guwahati → Imphal · Steel 18 MT','LD00032 · ₹55,000 · confirm by 12:30 ⏰',0,`<div class="rbtn"><button class="ab g" onclick="event.stopPropagation();go('settle')">✅ Confirm · कन्फ़र्म</button><button class="ab o" onclick="event.stopPropagation()">❌ Decline</button></div>`)}
+  <button class="call">📞 ऑफिस को कॉल करो · Call desk</button>
+</div>${NAV('home')}`;
+
+const fleetRow = (cls, truck, cls2, drv, st, stl, sub, extra='') => `<div class="row ${cls}" onclick="go('truck')"><div class="rtop"><div class="ric">🚚</div><div class="rt"><b><span class="truck">${truck}</span> · ${cls2}</b><small>${drv}</small><small>${sub}</small></div><span class="st ${st}">${stl}</span></div>${extra}</div>`;
+S.trucks = `${SB}${TOP('मेरे ट्रक · My trucks', '5 in the bazaar · 3 on trip · 1 free')}
+<div class="body" style="position:relative">
+  ${fleetRow('hi','AS01AB1122','Trailer 25 MT','Ramesh · 98·····','info','ON TRIP','Guwahati → Agartala · POD due')}
+  ${fleetRow('','AS01CD3344','10-wheel 12 MT','Biju · 97·····','info','ON TRIP','Silchar → Guwahati')}
+  ${fleetRow('','AS01EF5566','Trailer 20 MT','no driver linked','wait','CONFIRM','Guwahati → Imphal · reply by 12:30')}
+  ${fleetRow('good','AS01GH7788','10-wheel 12 MT','Sanjay · 96·····','ok','FREE','last trip 30-Aug · ready for loads',`<div class="warn">⚠️ Insurance expires in 12 days (15-Sep) · renew &amp; upload</div>`)}
+  ${fleetRow('warn','AS01JK9900','Open 10 MT','Manoj · 99·····','wait','PENDING APPROVAL','submitted 2-Sep · office checking RC + insurance')}
+  <div style="height:56px"></div>
+</div>
+<button class="fab" onclick="go('addtruck')">➕ ट्रक जोड़ो · Add truck</button>
+${NAV('trucks')}`;
+
+S.truck = `${SB}${TOP('AS01AB1122 · Trailer 25 MT', 'Ramesh · ON TRIP · LD00031 Guwahati → Agartala', 'trucks')}
+<div class="mapwrap" style="flex:0 0 230px"><div class="map" id="map-live"></div>
+  <div class="ovl-top"><span class="via">📡 Driver app · 6 min ago</span></div>
+  <div class="ovl-bot"><div class="eta"><b>Near Karimganj · 96 km left</b><span class="route">Loaded 2-Sep 07:30 · ETA today 16:00</span></div><button class="recenter">◎</button></div>
+</div>
+<div class="body">
+  <div class="money"><div style="padding:2px 0 8px">${STG(3)}</div><div class="kv">
+    <span>Award</span><b>₹41,500</b>
+    <span>Advance (90%)</span><b style="color:#15803d">₹37,350 · paid 2-Sep · BZADV-118</b>
+    <span>Balance</span><b style="color:#b45309">₹4,150 · after POD verified</b>
+  </div></div>
+  <div class="rbtn"><button class="ab g" onclick="go('podcam')">📷 POD फोटो</button><button class="ab dk">📞 Ramesh</button></div>
+  <div class="h6">कागज़ · Papers</div>
+  <div class="row good"><div class="rtop"><div class="ric">📄</div><div class="rt"><b>RC · Insurance · Fitness · Permit · PUC</b><small>all valid · next: PUC 30-Nov</small></div><span class="st ok">OK</span></div></div>
+</div>`;
+
+S.addtruck = `${SB}${TOP('ट्रक जोड़ो · Add truck', 'lands as PENDING APPROVAL · office verifies papers', 'trucks')}
+<div class="body">
+  <div class="form">
+    <div class="fld"><label>गाड़ी नंबर · Registration</label><div class="in">AS01 <span>____</span></div></div>
+    <div class="fld"><label>प्रकार · Class</label><div class="chips"><span class="chip">Open 10-wheel</span><span class="chip on">Trailer</span><span class="chip">Tanker</span><span class="chip">Container</span></div></div>
+    <div class="fld"><label>क्षमता · Capacity</label><div class="in">25 <span>MT</span></div></div>
+    <div class="fld"><label>ड्राइवर · Driver (optional)</label><div class="chips"><span class="chip">Ramesh</span><span class="chip">Sanjay</span><span class="chip">＋ new</span></div></div>
+    <div class="photo">📷 RC की फोटो</div>
+    <div class="photo">📷 Insurance</div>
+    <div class="photo">📷 Fitness · Permit</div>
+  </div>
+  <div class="note">OCR expiry dates पढ़ेगा; ऑफिस मंज़ूरी देगा तभी ट्रक लोड ले सकेगा। Approval comes on WhatsApp.</div>
+  <button class="big p" style="margin:0" onclick="go('sent')">📤 ऑफिस को भेजो</button>
+</div>`;
+
+const setRow = (cls, id, truck, route, award, n, sub, btn) => `<div class="row ${cls}" onclick="go('settle')"><div class="rtop"><div class="ric">💰</div><div class="rt"><b>${id} · <span class="truck">${truck}</span></b><small>${route}</small><small>${sub}</small></div><div class="amt">₹${award}<small>award</small></div></div>${STG(n)}${btn||''}</div>`;
+S.money = `${SB}${TOP('पैसा · Settlements', 'Per trip · advance 90% · balance after POD verified')}
+<div class="body">
+  <div class="segs"><button class="on">चालू 3</button><button>Action 2</button><button>Settled</button></div>
+  ${setRow('hi','LD00032','AS01EF5566','Guwahati → Imphal · Steel 18 MT','55,000',0,'awarded 09:05 · confirm by 12:30 ⏰',`<div class="rbtn"><button class="ab g">✅ Confirm</button><button class="ab o">❌ Decline</button></div>`)}
+  ${setRow('warn','LD00031','AS01AB1122','Guwahati → Agartala · Cement 25 MT','41,500',3,'advance ₹37,350 ✅ BZADV-118 · balance ₹4,150 waits for POD',`<div class="rbtn"><button class="ab g" onclick="event.stopPropagation();go('podcam')">📷 Upload POD</button></div>`)}
+  ${setRow('','LD00029','AS01CD3344','Silchar → Guwahati · Tea 12 MT','28,000',3,'advance ₹25,200 ✅ BZADV-115 · balance ₹2,800 · POD due')}
+  ${setRow('','LD00028','AS01GH7788','Guwahati → Shillong · Cement 20 MT','32,000',4,'POD submitted 31-Aug · office verifying · balance ₹3,200')}
+  ${setRow('good','LD00027','AS01GH7788','Guwahati → Shillong · Cement 20 MT','30,000',6,'SETTLED 30-Aug · balance ₹3,000 BZBAL-104 · deposit ₹5,000 refunded BZDEPREF-104')}
+  <div class="rbtn"><button class="ab p">📄 Statement PDF</button></div>
+</div>${NAV('money')}`;
+
+S.settle = `${SB}${TOP('LD00031 · Guwahati → Agartala', 'AS01AB1122 · Ramesh · Cement 25 MT · loaded 2-Sep', 'money')}
+<div class="body">
+  <div class="money"><div style="padding:2px 0 8px">${STG(3)}</div>
+    <div class="mrow"><div class="ic2">🏆</div><div><div class="lt">Award · अवार्ड</div><div class="ls">desk approved 1-Sep 17:10</div></div><div class="bal b">₹41,500</div></div>
+    <div class="mrow"><div class="ic2">✅</div><div><div class="lt">Advance 90%</div><div class="ls">paid 2-Sep 10:15 · BZADV-118 · NEFT</div></div><div class="bal ok">₹37,350</div></div>
+    <div class="mrow"><div class="ic2">⏳</div><div><div class="lt">Balance</div><div class="ls">after office verifies POD</div></div><div class="bal wait">₹4,150</div></div>
+    <div class="mrow"><div class="ic2">🔒</div><div><div class="lt">Deposit</div><div class="ls">held · BZDEP-118 · refunds on settlement</div></div><div class="bal b">₹5,000</div></div>
+  </div>
+  <div class="warn">📷 POD अपलोड करो — बैलेंस ₹4,150 उसके बाद ही रिलीज़ होगा। Upload POD; balance releases after verification.</div>
+  <button class="big g" style="margin:0" onclick="go('podcam')">📷 Unloading POD फोटो</button>
+  <div class="tl">
+    <div class="tls"><div class="d on"></div><div><b>Confirmed</b><small>1-Sep 17:40 · by you</small></div></div>
+    <div class="tls"><div class="d on"></div><div><b>Truck assigned · AS01AB1122 · Ramesh</b><small>1-Sep 18:05</small></div></div>
+    <div class="tls"><div class="d on"></div><div><b>Advance paid ₹37,350</b><small>2-Sep 10:15 · BZADV-118</small></div></div>
+    <div class="tls"><div class="d now"></div><div><b>POD pending</b><small>unload expected today 16:00</small></div></div>
+    <div class="tls"><div class="d"></div><div><b>Office verifies POD → balance ₹4,150</b><small>usually within 1 working day</small></div></div>
+    <div class="tls"><div class="d"></div><div><b>Settled · deposit refund</b><small></small></div></div>
+  </div>
+</div>`;
+
+S.podcam = `<div class="scr cam">${SB}
+<div class="camtop"><button class="back" onclick="go('settle')">‹</button><div class="ttl">Unloading POD की फोटो<small>LD00031 · AS01AB1122 · stamp + signature must be visible</small></div></div>
+<div class="view"><div class="guide"><div class="doc"></div></div><div class="hint">पूरा कागज़ डिब्बे के अंदर</div></div>
+<div class="cambar"><button class="flash">⚡ Flash</button><button class="shutter" onclick="go('sent')"></button><button class="gal">🖼 Gallery</button></div>
+<div class="camlbl">📷 फोटो खींचो</div></div>`;
+
+S.sent = `${SB}<div class="center"><div class="tick">✓</div><h2>भेज दिया!</h2><p>Sent to office</p>
+<span class="st wait" style="margin-top:8px">POD SUBMITTED · verification pending</span>
+<p class="small">ऑफिस चेक करके बैलेंस रिलीज़ करेगा; WhatsApp आएगा। Balance ₹4,150 releases on verification.</p>
+<button class="big o" onclick="go('money')">पैसा देखो · Settlements</button>
+<button class="big dk" style="margin-top:10px" onclick="go('home')">होम</button></div>`;
+
+const histRow = (truck, route, date, amt) => `<div class="row"><div class="rtop"><div class="ric">✅</div><div class="rt"><b><span class="truck">${truck}</span> · ${route}</b><small>${date}</small></div><div class="amt g">₹${amt}<small>settled</small></div></div></div>`;
+S.hist = `${SB}${TOP('इतिहास · Trip history', 'Settled trips · month totals')}
+<div class="body">
+  <div class="segs"><button class="on">All trucks</button><button>AS01AB1122</button><button>AS01GH7788</button><button>▾</button></div>
+  <div class="month">अगस्त 2026 · 6 trips <b>₹1,92,000</b></div>
+  ${histRow('AS01GH7788','Guwahati → Shillong · Cement','30-Aug · settled 30-Aug','30,000')}
+  ${histRow('AS01AB1122','Guwahati → Agartala · Cement','24-Aug · settled 27-Aug','41,000')}
+  ${histRow('AS01CD3344','Silchar → Guwahati · Tea','19-Aug · settled 22-Aug','27,500')}
+  ${histRow('AS01AB1122','Guwahati → Imphal · Steel','12-Aug · settled 15-Aug','54,000')}
+  ${histRow('AS01GH7788','Guwahati → Shillong · Cement','8-Aug · settled 10-Aug','29,500')}
+  <div class="month">जुलाई 2026 · 4 trips <b>₹1,21,500</b></div>
+  ${histRow('AS01AB1122','Guwahati → Agartala · Cement','28-Jul · settled 31-Jul','40,000')}
+  ${histRow('AS01CD3344','Guwahati → Dimapur · FMCG','15-Jul · settled 18-Jul','26,500')}
+  <div class="rbtn"><button class="ab p">📄 Statement PDF</button><button class="ab o">📅 FY 26-27</button></div>
+</div>${NAV('hist')}`;
+
+S.loads = `${SB}${TOP('लोड · Open loads', 'Blind bidding · you see your rank, not others’ rates')}
+<div class="body">
+  <div class="row hi"><div class="rtop"><div class="ric">📦</div><div class="rt"><b>Guwahati → Agartala</b><small>Cement 25 MT · trailer · load 5-Sep</small><small>closes 4-Sep 18:00 · book-now ₹44,000</small></div><span class="st info">OPEN</span></div><div class="rbtn"><button class="ab p">💬 Bid · बोली</button><button class="ab g">⚡ Book now</button></div></div>
+  <div class="row warn"><div class="rtop"><div class="ric">📦</div><div class="rt"><b>Guwahati → Imphal</b><small>Steel 18 MT · 10-wheel · load 6-Sep</small><small>your bid ₹55,000 · rank <b style="color:#15803d">L1</b> · closes 18:00</small></div><span class="st ok">L1</span></div><div class="rbtn"><button class="ab o">✏️ Revise</button><button class="ab o">Withdraw</button></div></div>
+  <div class="row"><div class="rtop"><div class="ric">📦</div><div class="rt"><b>Silchar → Guwahati</b><small>Tea 12 MT · 10-wheel · load 7-Sep</small><small>your bid ₹27,000 · rank L3</small></div><span class="st wait">L3</span></div><div class="rbtn"><button class="ab o">✏️ Revise</button></div></div>
+  <div class="note">Book-now और accept दोनों "award requested" बनते हैं — desk मंज़ूरी देता है। Nothing is won until the office confirms.</div>
+</div>${NAV('loads')}`;
+
+function wrapScr(h){ return h.startsWith('<div class="scr cam"') ? h : `<div class="scr">${h}</div>`; }
+function go(id){ document.getElementById('live').innerHTML = wrapScr(S[id]); if (id==='truck') setTimeout(()=>drawMap('map-live'), 30); }
+function drawMap(elId){
+  const el = document.getElementById(elId); if (!el || el._done) return; el._done = true;
+  const m = L.map(el, { zoomControl:false }).setView([24.9, 92.2], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(m);
+  const via=[[26.14,91.73],[25.58,91.89],[24.87,92.36],[24.60,92.60],[23.83,91.28]];
+  L.polyline(via,{color:'#2563eb',weight:5,opacity:.85}).addTo(m);
+  const pin=(ll,e,t,s,cls='')=>L.marker(ll,{icon:L.divIcon({className:'lf-pin',html:`<div class="pin ${cls}"><span class="pe">${e}</span><span class="pl">${t}<small>${s}</small></span></div>`,iconAnchor:[12,12]})}).addTo(m);
+  pin(via[0],'🟢','Guwahati','loaded 2-Sep'); pin(via[4],'🔴','Agartala','ETA 16:00'); pin([24.60,92.60],'🚚','AS01AB1122','38 km/h','tk');
+  m.fitBounds(via,{padding:[26,26]});
+}
+const GAL = [['home','Home · market money + trucks on trip'],['trucks','My trucks · status + expiries'],['truck','Truck · mini-map + stage'],['money','Settlements · one button per stage'],['settle','Settlement detail · refs'],['podcam','Camera · POD'],['sent','Sent · POD submitted'],['hist','Trip history · month totals'],['loads','Open loads · blind L-rank'],['addtruck','Add truck · pending approval']];
+const g = document.getElementById('gallery');
+for (const [id, cap] of GAL) { const f = document.createElement('div'); f.className='frame'; const html = id==='truck' ? S[id].replace('id="map-live"','id="map-gal"') : S[id]; f.innerHTML = `<p class="cap">${cap} <span>· ${id}</span></p><div class="phone">${wrapScr(html)}</div>`; g.appendChild(f); }
+go('home'); setTimeout(()=>drawMap('map-gal'), 60);
+</script>
+</body>
+</html>

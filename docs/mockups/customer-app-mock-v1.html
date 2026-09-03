@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer App Mock v1 — Tracking · POD · Bookings</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="mock-shared.css">
+<style>
+  .podthumb{width:56px;height:70px;border-radius:8px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.2);flex:0 0 auto;position:relative;background-image:repeating-linear-gradient(0deg,transparent 0 9px,#e7e5e4 9px 10px);border:1px solid #e2e8f0}
+  .podthumb:after{content:"";position:absolute;right:5px;bottom:5px;width:22px;height:22px;border:2px solid #16a34a;border-radius:50%}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Customer App — UI Mock v1 · Live tracking · Digital POD · Booking status</h1>
+    <p>3-Sep-2026 · Super-App external role 3 of 4 (Customer: IOCL / HPCL / Aadhar Green officers, private consignors) · light theme, same family as the driver app v4 · English first with a हिं toggle · mock only, nothing wired, nothing shipped</p>
+  </div>
+  <span class="tag">AWAITING YOUR YES</span>
+</header>
+
+<div class="sec">1 · Try it <small>drag the map, tap a shipment, open a POD, place a booking</small></div>
+<div class="wrap">
+  <div class="frame">
+    <p class="cap">Interactive prototype <span>· AADHAR GREEN ENERGY (customer)</span></p>
+    <div class="phone" id="live"></div>
+    <button class="reset" onclick="go('home')">↺ reset to home</button>
+  </div>
+  <div class="card">
+    <h3>What the customer gets</h3>
+    <ul>
+      <li><b>Home = "where are my trucks".</b> Three counters (on road / delivered this month / POD pending) and today's dispatch list with one-tap Track. No finance on the home screen — money lives in Bills, and only if the office switches that module on for this customer.</li>
+      <li><b>Live tracking = the same map as the driver app</b> (route line, 🟢 loading / 🔴 unloading pins, 🚚 live), plus the "Tracking via" badge the API already returns (DRIVER_APP / GPRS / FASTAG with age) — so a 40-minute-old FASTag ping never pretends to be live.</li>
+      <li><b>Digital POD = stamp, signature, quantities.</b> Delivered shipments show the POD photo the driver uploaded (once the office has verified it), with unloaded qty, shortage and challan no beside it. Download PDF and share on WhatsApp.</li>
+      <li><b>Bookings = indent status without the marketplace jargon.</b> Submitted → Under review → Truck being arranged → Truck assigned → Delivered. A load can also be posted with a target rate; offers appear when the office opens it to the market, and "Accept" only requests the award — the desk decides (the AWARD barrier already in production).</li>
+      <li>Every write ("Book a truck", "Accept offer") reads as "sent to office" — the staging fence makes that true server-side.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="sec">2 · All screens <small>laid out flat</small></div>
+<div class="wrap" id="gallery"></div>
+
+<div class="sec">3 · Open points for the YES</div>
+<div class="wrap">
+  <div class="card">
+    <ol>
+      <li><b>Default language:</b> drawn English-first (oil-company officers), हिं toggle in the bar. Vendor and Fleet Partner apps are Hindi-first. OK?</li>
+      <li><b>Driver phone number:</b> hidden unless the office turns on <code>cust.shipments.driver</code> for that customer (the rule already in the API). The call bar goes to dispatch. Keep it that way?</li>
+      <li><b>POD visibility timing:</b> shown only after the office verifies the POD (not the moment the driver uploads it). Correct?</li>
+      <li><b>Bookings for IOCL-type customers:</b> their loads come by mail (AC4/AC5), not by app. For them the Bookings tab shows the indent list read-only and the "Book a truck" button is hidden. Private consignors (Aadhar Green etc.) get the full booking form. OK?</li>
+    </ol>
+  </div>
+  <div class="card" style="max-width:820px">
+    <div class="two">
+      <div class="old"><b>Today (CustomerApp.tsx)</b>
+        dark theme · English only · 4 tabs (Loads · Shipments · Bills · Account) · marketplace-first · tracking in a bottom sheet with no route or "via" badge · POD as a file link</div>
+      <div class="new"><b>This mock</b>
+        light theme, EN/हिं · home = trucks on road · full-screen map with route + tracking-source badge · POD viewer with stamp/sign + qty + share · booking stepper in plain words · call bar to dispatch</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SB = `<div class="sb"><span>9:41</span><span>📶 🔋</span></div>`;
+const BAR = (name, sub) => `<div class="bar"><div class="who"><div class="brand">PRASAD TRANSPORT · CUSTOMER</div><div class="name">${name}</div><div class="sub">${sub}</div></div><button class="lang">EN · हिं</button></div>`;
+const TOP = (t, s, back = 'home') => `<div class="bar"><button class="back" onclick="go('${back}')">‹</button><div class="ttl">${t}<small>${s}</small></div></div>`;
+const NAV = (on) => `<div class="nav">
+  <button class="${on==='home'?'on':''}" onclick="go('home')"><i>🏠</i>Home</button>
+  <button class="${on==='trips'?'on':''}" onclick="go('trips')"><i>🚚</i>Trips<span class="dot">6</span></button>
+  <button class="${on==='book'?'on':''}" onclick="go('book')"><i>📋</i>Bookings</button>
+  <button class="${on==='pod'?'on':''}" onclick="go('pod')"><i>📄</i>POD</button>
+  <button class="${on==='acct'?'on':''}" onclick="go('acct')"><i>👤</i>Account</button>
+</div>`;
+const STEPS = (n, labels) => `<div class="steps">${labels.map((l,i)=>`<div class="s ${i<n?'on':i===n?'now':''}"><i>${i<n?'✓':i+1}</i>${l}</div>`).join('')}</div>`;
+const BOOK_STEPS = ['Sent','Review','Arranging','Assigned','Delivered'];
+
+const S = {};
+const tripRow = (cls, code, truck, route, sub, st, stl, btn) => `<div class="row ${cls}"><div class="rtop"><div class="ric">🚚</div><div class="rt"><b>${code} · <span class="truck">${truck}</span></b><small>${route}</small><small>${sub}</small></div><span class="st ${st}">${stl}</span></div>${btn||''}</div>`;
+
+S.home = `${SB}${BAR('AADHAR GREEN ENERGY', 'Customer · CUST-0042 · Guwahati')}
+<div class="body">
+  <div class="kpis">
+    <div class="kpi b"><b>6</b><small>trucks on road</small></div>
+    <div class="kpi g"><b>48</b><small>delivered · Sep</small></div>
+    <div class="kpi a"><b>3</b><small>POD pending</small></div>
+  </div>
+  <div class="h6">Today's dispatches <span onclick="go('trips')">all 6 ›</span></div>
+  ${tripRow('hi','PT00751','AS01KC7723','Numaligarh → Silchar depot','12 KL HSD · loaded 06:10 · ETA 14:30','info','IN TRANSIT',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track live</button><button class="ab o" onclick="go('tripdetail')">Details</button></div>`)}
+  ${tripRow('','PT00749','AS01LC0419','Bongaigaon → Guwahati','16 KL MS · unloading now','wait','UNLOADING',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track</button></div>`)}
+  <div class="grid2">
+    <button class="tile b" onclick="go('track')"><span class="ic">📍</span><span class="t1">Live Tracking</span><span class="t2">6 trucks on road</span></button>
+    <button class="tile v" onclick="go('book')"><span class="ic">📋</span><span class="t1">Bookings</span><span class="t2">indent status</span><span class="dot">2</span></button>
+    <button class="tile g" onclick="go('pod')"><span class="ic">📄</span><span class="t1">Digital POD</span><span class="t2">delivery proof</span></button>
+    <button class="tile a" onclick="go('acct')"><span class="ic">🧾</span><span class="t1">Bills</span><span class="t2">statement · outstanding</span></button>
+  </div>
+  <button class="call">📞 Call dispatch · डिस्पैच</button>
+</div>${NAV('home')}`;
+
+S.trips = `${SB}${TOP('My shipments', '6 on road · 48 delivered this month')}
+<div class="body">
+  <div class="segs"><button class="on">On road 6</button><button>Delivered</button><button>All</button></div>
+  ${tripRow('hi','PT00751','AS01KC7723','Numaligarh → Silchar depot','12 KL HSD · ETA 14:30 · via Driver app 4 min','info','IN TRANSIT',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track live</button></div>`)}
+  ${tripRow('','PT00749','AS01LC0419','Bongaigaon → Guwahati','16 KL MS · at unloading point','wait','UNLOADING')}
+  ${tripRow('','PT00748','AS01MC5502','Numaligarh → Agartala','12 KL HSD · via FASTag 38 min · ETA tomorrow 09:00','info','IN TRANSIT',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track</button></div>`)}
+  ${tripRow('','PT00747','AS01NC1188','Numaligarh → Dimapur','12 KL HSD · via GPRS 11 min','info','IN TRANSIT',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track</button></div>`)}
+  ${tripRow('','PT00746','AS01JC2261','Bongaigaon → Silchar','16 KL HSD · no ping 3 h ⚠️','info','IN TRANSIT',`<div class="rbtn"><button class="ab p" onclick="go('track')">📍 Track</button></div>`)}
+  ${tripRow('good','PT00740','AS01KC7723','Numaligarh → Silchar depot','delivered 1-Sep 15:20 · POD ✅','ok','DELIVERED',`<div class="rbtn"><button class="ab g" onclick="go('podview')">📄 View POD</button></div>`)}
+</div>${NAV('trips')}`;
+
+S.track = `${SB}<div class="bar" style="padding:6px 12px"><button class="back" onclick="go('trips')">‹</button><div class="ttl">PT00751 · <span class="truck">AS01KC7723</span><small>Numaligarh → Silchar depot · 12 KL HSD</small></div><span class="st info">IN TRANSIT</span></div>
+<div class="mapwrap tall"><div class="map" id="map-live"></div>
+  <div class="ovl-top"><span class="via">📡 Tracking via: Driver app · 4 min ago</span><button class="recenter">◎</button></div>
+  <div class="ovl-bot"><div class="eta"><b>ETA 14:30 · 118 km left</b><span class="route">Passed Jorabat 09:40 · avg 42 km/h</span></div></div>
+</div>
+<div class="body">
+  <div class="tl">
+    <div class="tls"><div class="d on"></div><div><b>Loaded · Numaligarh refinery</b><small>Today 06:10 · challan NRL-88213 · 12,000 L</small></div></div>
+    <div class="tls"><div class="d on"></div><div><b>Crossed Jorabat check-post</b><small>09:40 · FASTag</small></div></div>
+    <div class="tls"><div class="d now"></div><div><b>Near Shillong bypass</b><small>10:52 · driver app · 42 km/h</small></div></div>
+    <div class="tls"><div class="d"></div><div><b>Silchar depot · unloading</b><small>ETA 14:30</small></div></div>
+  </div>
+  <div class="rbtn"><button class="ab dk">📞 Call dispatch</button><button class="ab o">🔗 Share link</button></div>
+</div>`;
+
+S.tripdetail = `${SB}${TOP('PT00751', 'Numaligarh → Silchar depot · loaded 3-Sep', 'trips')}
+<div class="body">
+  <div class="money"><div class="kv">
+    <span>Truck</span><b><span class="truck">AS01KC7723</span></b>
+    <span>Product</span><b>HSD · 12,000 L</b>
+    <span>Challan</span><b>NRL-88213</b>
+    <span>Advice no</span><b>AGE/09/0117</b>
+    <span>Loaded</span><b>3-Sep 06:10</b>
+    <span>Expected</span><b>3-Sep 14:30</b>
+    <span>Driver</span><b style="color:var(--mut)">via dispatch ☎</b>
+    <span>Freight</span><b style="color:var(--mut)">as per contract</b>
+  </div></div>
+  <div class="note">Driver number and freight appear here only when the office enables them for your account.</div>
+  <button class="big p" style="margin:0" onclick="go('track')">📍 Track live</button>
+  <button class="call">📞 Call dispatch</button>
+</div>`;
+
+const bookRow = (cls, id, route, sub, n, extra='') => `<div class="row ${cls}" onclick="go('bookdetail')"><div class="rtop"><div class="ric">📋</div><div class="rt"><b>${id} · ${route}</b><small>${sub}</small></div></div>${STEPS(n, BOOK_STEPS)}${extra}</div>`;
+S.book = `${SB}${TOP('Bookings', 'Your indents · Sent → Review → Arranging → Assigned → Delivered')}
+<div class="body" style="position:relative">
+  ${bookRow('hi','LD00031','Guwahati → Agartala','Cement 25 MT · load 5-Sep · 3 offers in',2,`<div class="rbtn"><button class="ab p">See 3 offers</button></div>`)}
+  ${bookRow('warn','LD00032','Guwahati → Imphal','Steel 18 MT · load 6-Sep · sent 08:50',1,`<div class="warn">⏳ Office is reviewing · you will get WhatsApp</div>`)}
+  ${bookRow('','LD00029','Silchar → Guwahati','Tea 12 MT · <span class="truck">AS01MC5502</span> assigned',3)}
+  ${bookRow('good','LD00027','Guwahati → Shillong','Cement 20 MT · delivered 30-Aug · POD ✅',5)}
+  <div style="height:56px"></div>
+</div>
+<button class="fab" onclick="go('newbook')">➕ Book a truck</button>
+${NAV('book')}`;
+
+S.bookdetail = `${SB}${TOP('LD00031 · Guwahati → Agartala', 'Cement 25 MT · loading 5-Sep', 'book')}
+<div class="body">
+  <div class="money"><div style="padding:6px 0 8px">${STEPS(2, BOOK_STEPS)}</div><div class="kv">
+    <span>Status</span><b>Open to market · offers coming in</b>
+    <span>Your target</span><b>₹42,000</b>
+    <span>Offers close</span><b>4-Sep 18:00</b>
+  </div></div>
+  <div class="h6">Offers (3)</div>
+  <div class="row hi"><div class="rtop"><div class="ric">🥇</div><div class="rt"><b>Offer L1</b><small>fleet partner · 25 MT trailer · 4.5★</small></div><div class="amt g">₹41,500</div></div><div class="rbtn"><button class="ab g">✅ Accept · send to office</button></div></div>
+  <div class="row"><div class="rtop"><div class="ric">🥈</div><div class="rt"><b>Offer L2</b><small>fleet partner · 25 MT</small></div><div class="amt">₹43,000</div></div></div>
+  <div class="row"><div class="rtop"><div class="ric">🥉</div><div class="rt"><b>Offer L3</b><small>fleet partner · 22 MT</small></div><div class="amt">₹44,800</div></div></div>
+  <div class="note">Accepting an offer asks the office to award it. The desk confirms the truck and driver, then this shows "Assigned".</div>
+</div>`;
+
+S.newbook = `${SB}${TOP('Book a truck', 'New indent · goes to the office for review', 'book')}
+<div class="body">
+  <div class="form">
+    <div class="fld"><label>From → To (recent lanes)</label><div class="chips"><span class="chip on">Guwahati → Agartala</span><span class="chip">Guwahati → Imphal</span><span class="chip">Silchar → Guwahati</span><span class="chip">＋ other</span></div></div>
+    <div class="fld"><label>Material</label><div class="chips"><span class="chip on">Cement</span><span class="chip">Steel</span><span class="chip">Tea</span><span class="chip">Other</span></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="fld"><label>Weight</label><div class="in">25 <span>MT</span></div></div>
+      <div class="fld"><label>Loading date</label><div class="in">5-Sep 📅</div></div>
+    </div>
+    <div class="fld"><label>Vehicle type</label><div class="chips"><span class="chip">Open 10-wheel</span><span class="chip on">Trailer</span><span class="chip">Container</span></div></div>
+    <div class="fld"><label>Target rate (optional)</label><div class="in">₹ 42,000 <span>per trip</span></div></div>
+  </div>
+  <div class="note">The office reviews new bookings in office hours and opens them to the market or assigns own fleet. You get a WhatsApp at each step.</div>
+  <button class="big p" style="margin:0" onclick="go('booksent')">📤 Send to office</button>
+</div>`;
+
+S.booksent = `${SB}<div class="center"><div class="tick">✓</div><h2>Sent!</h2><p>Booking LD00033 is with the office</p>
+<span class="st wait" style="margin-top:8px">UNDER REVIEW</span>
+<p class="small">You will get a WhatsApp when it is opened to the market or a truck is assigned. Track it under Bookings.</p>
+<button class="big o" onclick="go('book')">See bookings</button>
+<button class="big dk" style="margin-top:10px" onclick="go('home')">Home</button></div>`;
+
+const podRow = (cls, code, truck, route, sub, st, stl, btn) => `<div class="row ${cls}"><div class="rtop"><div class="podthumb"></div><div class="rt"><b>${code} · <span class="truck">${truck}</span></b><small>${route}</small><small>${sub}</small></div><span class="st ${st}">${stl}</span></div>${btn||''}</div>`;
+S.pod = `${SB}${TOP('Digital POD', 'Delivery proof · verified by office')}
+<div class="body">
+  <div class="segs"><button class="on">Ready 45</button><button>Pending 3</button><button>Sep</button><button>Aug</button></div>
+  ${podRow('good','PT00740','AS01KC7723','Numaligarh → Silchar depot','1-Sep · 12,000 L · 0 short','ok','POD ✅',`<div class="rbtn"><button class="ab g" onclick="go('podview')">📄 View</button><button class="ab o">⬇ PDF</button><button class="ab o">📲 Share</button></div>`)}
+  ${podRow('good','PT00738','AS01NC1188','Numaligarh → Dimapur','31-Aug · 11,960 L · 40 L short','ok','POD ✅',`<div class="rbtn"><button class="ab g" onclick="go('podview')">📄 View</button><button class="ab o">⬇ PDF</button><button class="ab o">📲 Share</button></div>`)}
+  ${podRow('warn','PT00745','AS01LC0419','Bongaigaon → Guwahati','2-Sep · unloaded · office verifying','wait','PENDING')}
+  ${podRow('good','PT00736','AS01MC5502','Numaligarh → Agartala','30-Aug · 12,000 L','ok','POD ✅')}
+  ${podRow('good','PT00735','AS01JC2261','Bongaigaon → Silchar','29-Aug · 16,000 L','ok','POD ✅')}
+</div>${NAV('pod')}`;
+
+S.podview = `${SB}${TOP('POD · PT00740', 'Silchar depot · 1-Sep 15:20 · verified 2-Sep', 'pod')}
+<div class="docview"><div class="paper"><i class="h"></i><i></i><i class="s"></i><i></i><i></i><i class="s"></i><i></i><div class="seal">RECEIVED<br>SILCHAR<br>DEPOT</div><div class="sign">R. Das</div></div><div class="zoomhint">pinch to zoom · 2 pages</div></div>
+<div class="body" style="flex:0 0 auto">
+  <div class="money"><div class="kv">
+    <span>Truck</span><b><span class="truck">AS01KC7723</span></b>
+    <span>Loaded / Unloaded</span><b>12,000 L / 12,000 L</b>
+    <span>Shortage</span><b style="color:#15803d">0 L</b>
+    <span>Challan</span><b>NRL-88198</b>
+    <span>Received by</span><b>R. Das · depot</b>
+  </div></div>
+  <div class="rbtn"><button class="ab p">⬇ Download PDF</button><button class="ab g">📲 WhatsApp</button></div>
+</div>`;
+
+S.acct = `${SB}${TOP('Account', 'AADHAR GREEN ENERGY · read-only')}
+<div class="body">
+  <div class="money">
+    <div class="mh">Bills · Sep 2026 <span>monthly billing</span></div>
+    <div class="mrow"><div class="ic2">🧾</div><div><div class="lt">Billed</div><div class="ls">AGE/26-27/08 · Aug · 42 trips</div></div><div class="bal b">₹6,30,000</div></div>
+    <div class="mrow"><div class="ic2">🏦</div><div><div class="lt">Received</div><div class="ls">last 28-Aug</div></div><div class="bal ok">₹4,80,000</div></div>
+    <div class="mrow"><div class="ic2">⏳</div><div><div class="lt">Outstanding</div><div class="ls">terms 30 days</div></div><div class="bal wait">₹1,50,000</div></div>
+  </div>
+  <div class="rbtn"><button class="ab p">📄 Statement PDF</button><button class="ab o">🧾 Bills list</button></div>
+  <div class="money"><div class="kv">
+    <span>Customer code</span><b>CUST-0042</b>
+    <span>GST</span><b>18AAACA····1ZK</b>
+    <span>Payment terms</span><b>30 days</b>
+    <span>Contact</span><b>Mr. Bhattacharjee</b>
+    <span>Language</span><b>EN · हिं</b>
+  </div></div>
+  <div class="note">Bills and outstanding show only when the office enables the Ledger module for your account.</div>
+  <button class="call">📞 Call dispatch</button>
+  <button class="ab o" style="min-height:46px">🚪 Logout</button>
+</div>${NAV('acct')}`;
+
+function wrapScr(h){ return `<div class="scr">${h}</div>`; }
+function go(id){ document.getElementById('live').innerHTML = wrapScr(S[id]); if (id==='track') setTimeout(()=>drawMap('map-live'), 30); }
+function drawMap(elId){
+  const el = document.getElementById(elId); if (!el || el._done) return; el._done = true;
+  const m = L.map(el, { zoomControl:false, attributionControl:true }).setView([25.6, 92.6], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(m);
+  const A=[26.62,93.73], B=[24.83,92.78], via=[[26.62,93.73],[26.12,91.92],[25.58,91.89],[25.20,92.35],[24.83,92.78]];
+  L.polyline(via,{color:'#2563eb',weight:5,opacity:.85}).addTo(m);
+  const pin=(ll,e,t,s,cls='')=>L.marker(ll,{icon:L.divIcon({className:'lf-pin',html:`<div class="pin ${cls}"><span class="pe">${e}</span><span class="pl">${t}<small>${s}</small></span></div>`,iconAnchor:[12,12]})}).addTo(m);
+  pin(A,'🟢','Numaligarh','loaded 06:10'); pin(B,'🔴','Silchar depot','ETA 14:30'); pin([25.58,91.89],'🚚','AS01KC7723','42 km/h','tk');
+  m.fitBounds(via,{padding:[30,30]});
+}
+const GAL = [['home','Home · trucks on road'],['trips','My shipments'],['track','Live tracking · map + via badge'],['tripdetail','Trip detail'],['book','Bookings · stepper'],['bookdetail','Booking · offers'],['newbook','Book a truck'],['booksent','Sent · under review'],['pod','Digital POD list'],['podview','POD viewer'],['acct','Account · bills']];
+const g = document.getElementById('gallery');
+for (const [id, cap] of GAL) { const f = document.createElement('div'); f.className='frame'; const html = id==='track' ? S[id].replace('id="map-live"','id="map-gal"') : S[id]; f.innerHTML = `<p class="cap">${cap} <span>· ${id}</span></p><div class="phone">${wrapScr(html)}</div>`; g.appendChild(f); }
+go('home'); setTimeout(()=>drawMap('map-gal'), 60);
+</script>
+</body>
+</html>
