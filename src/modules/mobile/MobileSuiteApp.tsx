@@ -98,8 +98,12 @@ function Router() {
       )}
       {role === 'CUSTOMER' && (
         <ProtectedRoute allowedRoles={['CUSTOMER']} onDenied={refresh}>
-          <CustomerApp />
-          {exit}
+          {/* The Customer app (v1, 3-Sep-2026) paints its own light full-bleed
+              screen and carries Logout under Account — the floating sign-out
+              would sit on its bottom nav, same as the vendor app. */}
+          <div style={{ margin: '-12px -12px 0', minHeight: '100vh' }}>
+            <CustomerApp />
+          </div>
         </ProtectedRoute>
       )}
       {role === 'VENDOR' && (

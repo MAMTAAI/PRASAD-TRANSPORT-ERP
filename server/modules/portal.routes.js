@@ -125,15 +125,34 @@ export async function resolveParty(req, reply) {
  *  role-wide matrix, and the party's own feature map. ANDed, never ORed — a
  *  stale per-party flag must not be able to re-open what the role matrix closed,
  *  or "no VENDOR sees ledgers" becomes a suggestion. */
+// The per-party feature map was written by the customer master long before
+// the module keys existed: IOCL / BPCL / HPCL carry
+// {place_orders:false, download_pods:true, live_tracking:true, ledger_invoices:true}.
+// Those spellings never matched a module key, so "place_orders:false" — the
+// owner's rule that a corporate whose loads arrive by mail does not book
+// trucks from the app — was silently ignored. Honoured here, by alias.
+const LEGACY_FEATURE_KEYS = {
+  place_order: ['place_orders', 'book_truck'],
+  pods: ['download_pods', 'pod'],
+  tracking: ['live_tracking'],
+  ledger: ['ledger_invoices', 'bills'],
+};
+
 export async function visibleModules(party) {
   const { rows } = await query(
     `SELECT module_key, parent_key, label, is_visible, sensitive
        FROM v_portal_role_matrix WHERE role = $1`, [party.role]);
   const out = {};
+  const f = party.features ?? {};
   for (const m of rows) {
     const roleAllows = m.is_visible;
     const short = m.module_key.split('.').slice(1).join('.');
-    const partyOverride = party.features?.[short] ?? party.features?.[m.module_key];
+    let partyOverride = f[short] ?? f[m.module_key];
+    if (partyOverride === undefined) {
+      for (const alias of LEGACY_FEATURE_KEYS[short] ?? []) {
+        if (f[alias] !== undefined) { partyOverride = f[alias]; break; }
+      }
+    }
     out[m.module_key] = roleAllows && partyOverride !== false;
   }
   // A field cannot be visible when its page is not.

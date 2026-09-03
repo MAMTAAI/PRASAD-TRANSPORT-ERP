@@ -96,14 +96,29 @@ async function mayReadKey(user, key) {
   if (norm.startsWith(ownPrefix(user))) return true;
   if (role === 'DRIVER') return norm.startsWith('drivers/') && norm.split('/')[1] === String(user.sub);
   // The record-based grant: this exact key, on a settlement this party is on.
+  // A CUSTOMER sees the bazaar POD only once the office has verified it
+  // (owner's rule, 3-Sep-2026); the vendor who uploaded it may see its own.
   const { rows } = await query(
     `SELECT 1 FROM bazaar_settlements s
        JOIN users u ON u.id = $2::uuid
       WHERE s.pod_file = $1
-        AND ((u.customer_id IS NOT NULL AND s.customer_id = u.customer_id)
+        AND ((u.customer_id IS NOT NULL AND s.customer_id = u.customer_id AND s.pod_verified_at IS NOT NULL)
           OR (u.vendor_id   IS NOT NULL AND s.vendor_id   = u.vendor_id))
       LIMIT 1`, [norm, user.sub]);
-  return rows.length > 0;
+  if (rows.length > 0) return true;
+  // Own-fleet delivery proof: the driver's POD photo on one of THIS customer's
+  // trips, and only after the office approved it (partner_documents.status).
+  if (role === 'CUSTOMER') {
+    const { rows: pod } = await query(
+      `SELECT 1 FROM partner_documents d
+         JOIN trips t ON t.id = d.trip_id
+         JOIN users u ON u.id = $2::uuid
+        WHERE d.file_key = $1 AND d.doc_type = 'POD' AND d.status = 'APPROVED'
+          AND u.customer_id IS NOT NULL AND t.customer_id = u.customer_id
+        LIMIT 1`, [norm, user.sub]);
+    return pod.length > 0;
+  }
+  return false;
 }
 
 export async function registerFileRoutes(app) {

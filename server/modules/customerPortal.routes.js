@@ -17,7 +17,8 @@
 //     UPDATE with uq_bazaar_bid_winner backstopping a concurrent double-award.
 // ═══════════════════════════════════════════════════════════════════════════
 import { query, withTransaction, isDegraded } from '../db/pool.js';
-import { resolveParty, needsModule } from './portal.routes.js';
+import { resolveParty, needsModule, visibleModules } from './portal.routes.js';
+import { getRoute, geocode, getDistanceMatrix } from '../lib/googleMaps.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
 
@@ -187,6 +188,154 @@ export function registerCustomerPortalRoutes(app) {
     return reply.code(out.code).send(out.body);
   });
 
+  // ═══ CUSTOMER APP v1 HOME (approved mock, 3-Sep-2026) ═══════════════════
+  // One call paints the home screen: trucks on the road, delivered this month,
+  // PODs ready / awaited, the latest dispatches, the customer's usual lanes
+  // (chips on the indent form) and whether THIS customer may request an indent.
+  // can_request_indent is the owner's corporate/regular split: IOCL-type
+  // customers (loads arrive by mail) carry place_orders:false in their feature
+  // map and get a read-only Bookings tab; everyone else gets the button.
+  app.get('/portal/customer/summary', { preHandler: needsModule('cust.dashboard') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const cid = req.party.customerId;
+    const vis = req.visible ?? await visibleModules(req.party);
+    const canOrder = !!vis['cust.place_order'];
+
+    const { rows: [c] } = await query(
+      `SELECT customer_name, customer_code, city, payment_terms, billing_cycle, gst_no
+         FROM customers WHERE id = $1::uuid`, [cid]);
+
+    const { rows: [k] } = await query(`
+      SELECT count(*) FILTER (WHERE status = 'IN_TRANSIT')::int AS on_road,
+             count(*) FILTER (WHERE status = 'UNLOADING')::int AS unloading,
+             count(*) FILTER (WHERE status IN ('COMPLETED','SETTLED')
+                              AND COALESCE(unloading_date, loading_date) >= date_trunc('month', now()))::int AS delivered_month,
+             count(*) FILTER (WHERE loading_date >= date_trunc('month', now()))::int AS loaded_month,
+             count(*) FILTER (WHERE loading_date = current_date)::int AS loaded_today
+        FROM trips WHERE customer_id = $1::uuid`, [cid]);
+
+    const { rows: [p] } = await query(`
+      SELECT (SELECT count(*) FROM partner_documents d JOIN trips t ON t.id = d.trip_id
+               WHERE t.customer_id = $1::uuid AND d.doc_type = 'POD' AND d.status = 'APPROVED')::int
+           + (SELECT count(*) FROM bazaar_settlements s
+               WHERE s.customer_id = $1::uuid AND s.pod_verified_at IS NOT NULL)::int AS ready,
+             (SELECT count(*) FROM trips t
+               WHERE t.customer_id = $1::uuid AND t.status IN ('COMPLETED','SETTLED')
+                 AND COALESCE(t.unloading_date, t.loading_date) >= current_date - 30
+                 AND NOT EXISTS (SELECT 1 FROM partner_documents d
+                                  WHERE d.trip_id = t.id AND d.doc_type = 'POD' AND d.status = 'APPROVED'))::int AS awaited`, [cid]);
+
+    const { rows: latest } = await query(`
+      SELECT trip_code, status, vehicle_no, product_type, loading_date, loading_point,
+             unloading_location, loaded_qty, unloading_date
+        FROM trips WHERE customer_id = $1::uuid
+       ORDER BY (status = 'IN_TRANSIT') DESC, loading_date DESC NULLS LAST LIMIT 3`, [cid]);
+
+    const { rows: lanes } = await query(`
+      SELECT loading_point, unloading_location, count(*)::int AS trips, max(loading_date) AS last
+        FROM trips
+       WHERE customer_id = $1::uuid AND loading_point IS NOT NULL AND unloading_location IS NOT NULL
+       GROUP BY 1, 2 ORDER BY max(loading_date) DESC NULLS LAST LIMIT 5`, [cid]);
+
+    let bookings = null;
+    if (canOrder) {
+      const { rows: [b] } = await query(`
+        SELECT count(*) FILTER (WHERE status = 'PENDING_REVIEW')::int AS review,
+               count(*) FILTER (WHERE status IN ('OPEN','AWARD_REQUESTED'))::int AS arranging,
+               count(*) FILTER (WHERE status = 'AWARDED')::int AS assigned,
+               (SELECT count(*) FROM bazaar_bids b JOIN bazaar_loads l ON l.load_id = b.load_id
+                 WHERE l.customer_id = $1::uuid AND l.status = 'OPEN' AND b.status = 'PENDING')::int AS offers
+          FROM bazaar_loads WHERE customer_id = $1::uuid`, [cid]);
+      bookings = b;
+    }
+
+    return {
+      customer: c ? { name: c.customer_name, code: c.customer_code, city: c.city, payment_terms: c.payment_terms, billing_cycle: c.billing_cycle, gst_no: c.gst_no } : null,
+      trips: k, pods: p, latest, lanes, bookings,
+      can_request_indent: canOrder,
+      corporate: !canOrder,
+      driver_visible: !!vis['cust.shipments.driver'],
+      freight_visible: !!vis['cust.shipments.freight'],
+      ledger_visible: !!vis['cust.ledger'],
+    };
+  });
+
+  // ═══ DIGITAL POD (verified only) ══════════════════════════════════════════
+  // The owner's rule: a customer sees a delivery proof ONLY after the office
+  // verified it. Own-fleet PODs are the driver's photo in partner_documents
+  // (status APPROVED = verified); bazaar PODs sit on the settlement
+  // (pod_verified_at). Anything unverified is listed as PENDING with no file —
+  // the phone shows the truck delivered and the paper still with the office.
+  app.get('/portal/customer/pods', { preHandler: needsModule('cust.pods') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const cid = req.party.customerId;
+    const { rows: ready } = await query(`
+      SELECT 'TRIP' AS kind, t.trip_code AS ref, t.vehicle_no, t.loading_point AS origin,
+             t.unloading_location AS destination, t.product_type,
+             COALESCE(t.unloading_date, d.reviewed_at) AS delivered_at,
+             t.loaded_qty, t.unloaded_qty, t.shortage_qty, t.challan_no,
+             d.id AS doc_id, d.file_key, d.reviewed_at AS verified_at, 'READY' AS pod_status
+        FROM partner_documents d
+        JOIN trips t ON t.id = d.trip_id
+       WHERE t.customer_id = $1::uuid AND d.doc_type = 'POD' AND d.status = 'APPROVED'
+      UNION ALL
+      -- bazaar_loads.weight is TEXT ("25", "25 MT"); trips.loaded_qty is numeric,
+      -- and a UNION will not match the two. Digits only, or nothing.
+      SELECT 'LOAD', s.load_id, mv.registration_no, l.origin, l.destination, l.material,
+             s.pod_verified_at,
+             NULLIF(regexp_replace(COALESCE(l.weight, ''), '[^0-9.]', '', 'g'), '')::numeric,
+             NULL, NULL, NULL,
+             NULL, s.pod_file, s.pod_verified_at, 'READY'
+        FROM bazaar_settlements s
+        JOIN bazaar_loads l ON l.load_id = s.load_id
+        LEFT JOIN market_vehicles mv ON mv.id = s.market_vehicle_id
+       WHERE s.customer_id = $1::uuid AND s.pod_verified_at IS NOT NULL
+       ORDER BY delivered_at DESC NULLS LAST LIMIT 100`, [cid]);
+    const { rows: pending } = await query(`
+      SELECT 'TRIP' AS kind, t.trip_code AS ref, t.vehicle_no, t.loading_point AS origin,
+             t.unloading_location AS destination, t.product_type,
+             COALESCE(t.unloading_date, t.loading_date) AS delivered_at,
+             t.loaded_qty, t.unloaded_qty, t.shortage_qty, t.challan_no,
+             EXISTS (SELECT 1 FROM partner_documents d WHERE d.trip_id = t.id AND d.doc_type = 'POD' AND d.status = 'PENDING') AS with_office
+        FROM trips t
+       WHERE t.customer_id = $1::uuid AND t.status IN ('COMPLETED','SETTLED')
+         AND COALESCE(t.unloading_date, t.loading_date) >= current_date - 30
+         AND NOT EXISTS (SELECT 1 FROM partner_documents d WHERE d.trip_id = t.id AND d.doc_type = 'POD' AND d.status = 'APPROVED')
+       ORDER BY delivered_at DESC NULLS LAST LIMIT 50`, [cid]);
+    return { ready: ready.length, pending: pending.length, pods: [
+      ...ready,
+      ...pending.map((r) => ({ ...r, file_key: null, verified_at: null, pod_status: r.with_office ? 'WITH_OFFICE' : 'PENDING' })),
+    ] };
+  });
+
+  // ═══ LANE GEOMETRY (scoped) ═══════════════════════════════════════════════
+  // /maps/trip/:tripId/route takes a trip id, which this app never sees; this
+  // is the same answer keyed by the customer's own trip code, ownership checked.
+  app.get('/portal/customer/trips/:tripCode/route', { preHandler: needsModule('cust.tracking') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: t } = await query(`
+      SELECT id, trip_code, vehicle_no, status, loading_point,
+             COALESCE(unloading_location, consignee_name) AS destination, loading_date, rtkm
+        FROM trips WHERE trip_code = $1 AND customer_id = $2::uuid`,
+      [req.params.tripCode, req.party.customerId]);
+    if (!t[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such shipment of yours' });
+    const trip = t[0];
+    const [route, o, d] = await Promise.all([
+      getRoute(trip.loading_point, trip.destination),
+      geocode(trip.loading_point ? `${trip.loading_point}, India` : ''),
+      geocode(trip.destination ? `${trip.destination}, India` : ''),
+    ]);
+    return {
+      trip: { trip_code: trip.trip_code, vehicle_no: trip.vehicle_no, status: trip.status, loading_point: trip.loading_point, destination: trip.destination, rtkm: trip.rtkm },
+      origin: o.ok ? { lat: o.lat, lng: o.lng, label: trip.loading_point } : null,
+      destination: d.ok ? { lat: d.lat, lng: d.lng, label: trip.destination } : null,
+      route: route.ok
+        ? { polyline: route.polyline, distance_km: route.distance_m == null ? null : +(route.distance_m / 1000).toFixed(1),
+            duration_min: route.duration_s == null ? null : Math.round(route.duration_s / 60), cached: !!route.cached }
+        : { polyline: null, error: route.reason },
+    };
+  });
+
   // ═══ SHIPMENT TRACKING (scoped) ═══════════════════════════════════════════
   // The generic /api/v1/tracking/:tripId would let any holder of a trip id read
   // any truck's position, so CUSTOMER stays outside that prefix. This is the
@@ -194,7 +343,9 @@ export function registerCustomerPortalRoutes(app) {
   app.get('/portal/customer/trips/:tripCode/tracking', { preHandler: needsModule('cust.shipments') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows: T } = await query(
-      `SELECT id, trip_code, status, vehicle_no FROM trips
+      `SELECT id, trip_code, status, vehicle_no,
+              COALESCE(unloading_location, consignee_name) AS destination
+         FROM trips
         WHERE trip_code = $1 AND customer_id = $2::uuid`,
       [req.params.tripCode, req.party.customerId]);
     if (!T.length) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such shipment of yours' });
@@ -207,13 +358,43 @@ export function registerCustomerPortalRoutes(app) {
     const { rows: trail } = await query(`
       SELECT lat, lng, recorded_at FROM trip_gps_pings
        WHERE trip_id = $1::uuid ORDER BY recorded_at DESC LIMIT 50`, [T[0].id]);
+    // ── ETA, and only a real one ────────────────────────────────────────────
+    // The approved mock puts "ETA · km left" on the customer's map. There is no
+    // honest way to derive that from the lane length (that is the whole route,
+    // not what is left), so it is asked of Google FROM THE TRUCK'S OWN FIX —
+    // and therefore only when there IS a fix, it is recent, and the app asked
+    // (?eta=1, which the app sends on open and then every 5 minutes, not on
+    // every 45-second position poll). Coordinates are rounded to 2 dp so a
+    // moving truck reuses one cached pair per ~1 km instead of billing a fresh
+    // Distance Matrix element for every metre.
+    let eta = null;
+    const ageMin = fix[0]?.recorded_at ? (Date.now() - new Date(fix[0].recorded_at).getTime()) / 60000 : null;
+    if (req.query?.eta === '1' && fix[0]?.lat != null && T[0].destination && ageMin != null && ageMin <= 90) {
+      const from = `${Number(fix[0].lat).toFixed(2)},${Number(fix[0].lng).toFixed(2)}`;
+      const dm = await getDistanceMatrix([from], [`${T[0].destination}, India`]);
+      const hit = dm.ok ? dm.results.find((r) => r.duration_s != null) : null;
+      if (hit) {
+        eta = {
+          remaining_km: hit.distance_m == null ? null : +(hit.distance_m / 1000).toFixed(0),
+          remaining_min: Math.round(hit.duration_s / 60),
+          // Counted from when the truck was seen, not from now — a 20-minute-old
+          // fix must not quietly move the arrival 20 minutes later.
+          arrival_at: new Date(new Date(fix[0].recorded_at).getTime() + hit.duration_s * 1000).toISOString(),
+          cached: !!hit.cached,
+        };
+      }
+    }
+
     return {
       trip_code: T[0].trip_code,
       status: T[0].status,
       vehicle_no: T[0].vehicle_no,
+      destination: T[0].destination,
       // null when no ping exists — the app shows "position not reported yet",
       // never an invented truck (same honesty rule as TripTrackingMap).
       position: fix[0] ?? null,
+      age_min: ageMin == null ? null : Math.round(ageMin),
+      eta,
       trail: trail.reverse(),
     };
   });
@@ -226,7 +407,8 @@ export function registerCustomerPortalRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(`
       SELECT s.status, s.confirm_deadline, s.vendor_confirmed_at,
-             s.pod_file, s.pod_submitted_at, s.pod_verified_at, s.cancel_reason,
+             CASE WHEN s.pod_verified_at IS NOT NULL THEN s.pod_file END AS pod_file,
+             s.pod_submitted_at, s.pod_verified_at, s.cancel_reason,
              s.created_at, s.updated_at,
              b.vendor_name, b.bid_amount AS awarded_amount,
              mv.registration_no AS vehicle_reg,
