@@ -48,7 +48,17 @@ export const PUBLIC_API = new Set([
   'GET /api/v1/auth/health',
   // The marketing site renders before anybody has logged in.
   'GET /api/v1/crm/website',
+  // THE REGISTRATION WALL (owner, 2026-09-03). A firm applying to become a
+  // customer has no account by construction, so the two steps that prove it
+  // holds the number it typed cannot require one either. Unlike /auth/otp/*,
+  // these DO send to a number on no master — that is the entire job — so they
+  // carry their own rate limits (3/hour per number, 20/hour per IP) and the
+  // proof they hand back is a single-use ticket, never a session.
+  'POST /api/v1/auth/register/otp/request',
+  'POST /api/v1/auth/register/otp/verify',
   // A fleet partner applying has no account yet; this IS the application.
+  // Public, but no longer anonymous: since 3-Sep it must carry a ticket from
+  // the two routes above, so nothing reaches the CRM without a verified handset.
   'POST /api/v1/bazaar/onboarding',
   // …and the same applicant checking the decision. Readable only by the
   // application's unguessable uuid, and it answers with the status alone.

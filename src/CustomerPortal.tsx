@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 
+import { verifyMobileForRegistration } from './lib/registerOtp';
 import { API_BASE } from './lib/apiBase';
 import RouteMap from './lib/RouteMap';
 const API = API_BASE;
@@ -187,12 +188,18 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
     ]);
     if (errors.length) return alert("⚠️ Please fix these before submitting:\n\n• " + errors.join("\n• "));
 
+    // The OTP wall (owner, 2026-09-03) — see FleetPartnerPortal for why this
+    // is here and not only on the new Gate 2 form.
+    const ticket = await verifyMobileForRegistration(profile.mobileNo);
+    if (!ticket) return;
+
     setLoading(true);
     try {
       await fetchJson(`${BAZAAR}/onboarding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+        ticket,
         type: 'CUSTOMER',
         corporate_name: profile.corporateName.toUpperCase(),
         gst_no: profile.gstNumber.toUpperCase(),

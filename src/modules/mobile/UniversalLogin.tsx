@@ -149,12 +149,88 @@ export default function UniversalLogin({ onAuthenticated }) {
   const [applied, setApplied] = useState(null);
   const setF = (k, v) => { setReg((r) => ({ ...r, [k]: v })); setRegErr((e) => ({ ...e, [k]: '' })); };
 
+  // THE OTP WALL (owner, 2026-09-03): "a user must verify their mobile number
+  // before they can even see the KYC form." So the form is not a step the
+  // applicant can reach by typing a URL or by closing a dialog — REG_OTP →
+  // REG_CODE → REGISTER, and the form only mounts once a ticket exists. The
+  // server enforces the same thing (POST /bazaar/onboarding wants the ticket),
+  // because a wall only the browser knows about is a suggestion.
+  const [regMobile, setRegMobile] = useState('');
+  const [regDigits, setRegDigits] = useState(EMPTY);
+  const [regTicket, setRegTicket] = useState('');
+  const [regChannel, setRegChannel] = useState('');
+  const regBoxes = useRef([]);
+
+  const regClean = regMobile.replace(/\D/g, '').replace(/^91(?=[6-9]\d{9}$)/, '').slice(-10);
+  const regValid = /^[6-9]\d{9}$/.test(regClean);
+
   const openRegister = () => {
-    setError('');
+    setError(''); setRegDigits(EMPTY); setRegTicket('');
     // The number they already typed is the number the office will ring, so it
-    // carries into the form rather than being asked for twice.
-    setReg((r) => ({ ...r, mobile_no: valid ? clean : (r.mobile_no ?? '') }));
-    setStep('REGISTER');
+    // carries into the wall rather than being asked for twice.
+    setRegMobile(valid ? clean : '');
+    setStep('REG_OTP');
+  };
+
+  const sendRegOtp = async () => {
+    setError('');
+    if (!regValid) { setError('10 अंकों का मोबाइल नंबर डालो'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/register/otp/request`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobile: regClean }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setError(j.detail || (j.error === 'OTP_CHANNEL_UNAVAILABLE'
+          ? 'OTP भेजने का रास्ता अभी बंद है — ऑफिस को कॉल करो'
+          : 'OTP नहीं भेज पाए — नंबर चेक करो'));
+        return;
+      }
+      setRegChannel(j.channel === 'whatsapp' ? 'WhatsApp' : j.channel === 'sms' ? 'SMS' : j.channel === 'dev' ? 'test' : '');
+      setRegDigits(EMPTY);
+      setStep('REG_CODE');
+      setTimeout(() => regBoxes.current[0]?.focus(), 60);
+    } catch { setBusy(false); setError('इंटरनेट नहीं है — दोबारा कोशिश करो'); }
+  };
+
+  const verifyRegOtp = async (code) => {
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/register/otp/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mobile: regClean, code }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok || !j.ticket) {
+        setRegDigits(EMPTY);
+        setError(j.error === 'OTP_INVALID' ? 'OTP गलत है — फिर से देखो'
+          : j.error === 'OTP_ATTEMPTS_EXCEEDED' ? 'बहुत बार गलत — नया OTP मंगाओ'
+          : j.error === 'OTP_EXPIRED' ? 'OTP का समय निकल गया — दोबारा भेजो'
+          : (j.detail || 'OTP जाँच नहीं पाए'));
+        regBoxes.current[0]?.focus();
+        return;
+      }
+      setRegTicket(j.ticket);
+      setReg((r) => ({ ...r, mobile_no: regClean }));
+      setStep('REGISTER');
+    } catch { setBusy(false); setError('इंटरनेट नहीं है — दोबारा कोशिश करो'); }
+  };
+
+  const onRegDigit = (i, v) => {
+    const c = v.replace(/\D/g, '');
+    if (c.length > 1) {
+      const all = c.slice(0, 6).split('');
+      setRegDigits([...all, ...EMPTY].slice(0, 6));
+      if (all.length === 6) verifyRegOtp(all.join(''));
+      return;
+    }
+    const next = [...regDigits]; next[i] = c; setRegDigits(next);
+    if (c && i < 5) regBoxes.current[i + 1]?.focus();
+    if (next.every((d) => d) && next.join('').length === 6) verifyRegOtp(next.join(''));
   };
 
   const submitRegistration = async () => {
@@ -176,7 +252,7 @@ export default function UniversalLogin({ onAuthenticated }) {
       const res = await fetch(`${API_BASE}/api/v1/bazaar/onboarding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...reg, type: 'CUSTOMER' }),
+        body: JSON.stringify({ ...reg, mobile_no: regClean, ticket: regTicket, type: 'CUSTOMER' }),
       });
       const j = await res.json().catch(() => ({}));
       setBusy(false);
@@ -186,6 +262,14 @@ export default function UniversalLogin({ onAuthenticated }) {
         // could not know (already applied, already a customer).
         if (j.fields?.length) {
           setRegErr(Object.fromEntries(j.fields.map((f) => [f.field, f.message])));
+        }
+        // The 30-minute ticket died while they were typing. Sending them back
+        // to the wall with the number still filled in is one tap, and leaving
+        // them on a form whose Send button can never work is not.
+        if (j.error === 'MOBILE_NOT_VERIFIED') {
+          setRegTicket(''); setRegDigits(EMPTY); setStep('REG_OTP');
+          setError('नंबर की जाँच का समय निकल गया — OTP दोबारा मंगाओ');
+          return;
         }
         setError(j.detail || 'फॉर्म नहीं भेजा जा सका / could not send the form');
         return;
@@ -340,6 +424,54 @@ export default function UniversalLogin({ onAuthenticated }) {
           </>
         )}
 
+        {step === 'REG_OTP' && (
+          <>
+            <Brand icon="📱" title="पहले नंबर जाँचें" sub="Verify your mobile first" tone="from-violet-500 to-purple-700" />
+            <div className="mt-5 rounded-2xl bg-violet-50 px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-violet-900">
+              रजिस्ट्रेशन फ़ॉर्म खोलने से पहले हम आपके नंबर पर एक कोड भेजेंगे। यही नंबर आपका लॉगिन नंबर बनेगा।
+              <span className="mt-1 block text-[11.5px] text-violet-900/70">We send a code first — this becomes your login number.</span>
+            </div>
+            <label className="mt-5 block text-[16px] font-black">मोबाइल नंबर
+              <span className="block text-[12px] font-semibold text-slate-500">Mobile number</span>
+            </label>
+            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-white px-4 py-3 ${error ? 'border-red-300' : 'border-slate-300 focus-within:border-violet-500'}`}>
+              <span className="text-[16px] font-bold text-slate-500">+91</span>
+              <input
+                type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={13} autoFocus
+                value={regMobile} onChange={(e) => { setRegMobile(e.target.value); setError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && sendRegOtp()}
+                placeholder="98765 43210" data-reg-mobile
+                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-900 placeholder-slate-300 outline-none"
+              />
+            </div>
+            {Err}
+            <button onClick={sendRegOtp} disabled={busy} className={`${BIG} mt-4 bg-violet-600`} id="g2-reg-otp">{busy ? 'भेज रहे हैं…' : 'कोड भेजो →'}</button>
+            <button onClick={() => { setStep('NUMBER'); setError(''); }} className={`${GHOST} mt-2`}>‹ वापस लॉगिन पर</button>
+          </>
+        )}
+
+        {step === 'REG_CODE' && (
+          <>
+            <Brand icon="💬" title="कोड डालो" sub={`+91 ${regClean.slice(0, 5)} ${regClean.slice(5)}${regChannel ? ` · ${regChannel}` : ''}`} tone="from-violet-500 to-purple-700" />
+            <div className="mt-8 flex justify-between gap-2">
+              {regDigits.map((d, i) => (
+                <input
+                  key={i} ref={(el) => (regBoxes.current[i] = el)} value={d}
+                  onChange={(e) => onRegDigit(i, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) regBoxes.current[i - 1]?.focus(); }}
+                  inputMode="numeric" maxLength={6} autoComplete="one-time-code" data-reg-code
+                  className={`h-14 w-full rounded-xl border-2 bg-white text-center font-mono text-[24px] font-black text-slate-900 outline-none ${d ? 'border-violet-500' : 'border-slate-300 focus:border-violet-500'}`}
+                />
+              ))}
+            </div>
+            {Err}
+            <p className="mt-3 text-center text-[13px] font-semibold text-slate-500">{busy ? 'जाँच रहे हैं…' : 'कोड डालते ही फ़ॉर्म खुलेगा'}</p>
+            <button onClick={() => verifyRegOtp(regDigits.join(''))} disabled={busy || regDigits.join('').length !== 6} className={`${BIG} mt-4 bg-violet-600`} id="g2-reg-verify">✅ जाँचो</button>
+            <button onClick={sendRegOtp} disabled={busy} className={`${GHOST} mt-2`}>🔁 कोड दोबारा भेजो</button>
+            <button onClick={() => { setStep('REG_OTP'); setError(''); }} className={`${GHOST} mt-2`}>‹ नंबर बदलो</button>
+          </>
+        )}
+
         {step === 'REGISTER' && (
           <>
             <Brand icon="🏢" title="नया कस्टमर" sub="New Customer Registration · KYC" tone="from-violet-500 to-purple-700" />
@@ -350,21 +482,16 @@ export default function UniversalLogin({ onAuthenticated }) {
 
             {section('🏭', 'फर्म की जानकारी', 'Company details')}
             <div className="mt-3 space-y-3">
-              <label className="block">
-                <span className="block text-[14px] font-black text-slate-800">मोबाइल नंबर<span className="text-red-600"> *</span>
-                  <span className="block text-[11.5px] font-semibold text-slate-500">Office will call this number · login number</span>
-                </span>
-                <div className={`mt-1 flex items-center gap-2 rounded-xl border-2 bg-white px-3 ${regErr.mobile_no ? 'border-red-400' : 'border-slate-300 focus-within:border-emerald-500'}`}>
-                  <span className="text-[15px] font-bold text-slate-500">+91</span>
-                  <input
-                    type="tel" inputMode="numeric" maxLength={13} placeholder="98765 43210"
-                    value={reg.mobile_no ?? ''} onChange={(e) => setF('mobile_no', e.target.value)}
-                    data-reg="mobile_no"
-                    className="min-h-[46px] min-w-0 flex-1 bg-transparent font-mono text-[17px] font-extrabold tracking-wider text-slate-900 placeholder-slate-300 outline-none"
-                  />
+              {/* Verified upstairs, so it is shown rather than asked. Editing it
+                  here would only produce a form the server must reject: the
+                  ticket is pinned to the number the code went to. */}
+              <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-3 py-2.5">
+                <div className="text-[11.5px] font-extrabold text-emerald-800">मोबाइल नंबर — जाँचा हुआ / verified</div>
+                <div className="font-mono text-[17px] font-extrabold text-emerald-900" data-reg-verified>
+                  ✅ +91 {regClean.slice(0, 5)} {regClean.slice(5)}
                 </div>
-                {regErr.mobile_no && <span className="mt-1 block text-[12px] font-bold text-red-700">{regErr.mobile_no}</span>}
-              </label>
+                <button onClick={() => { setStep('REG_OTP'); setError(''); }} className="mt-1 text-[11.5px] font-bold text-emerald-800 underline decoration-dotted underline-offset-2">नंबर बदलना है?</button>
+              </div>
               {REG_FIELDS.map(renderField)}
             </div>
 

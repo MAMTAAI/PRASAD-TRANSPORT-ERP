@@ -1,6 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 
+import { verifyMobileForRegistration } from './lib/registerOtp';
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
 const BAZAAR = `${API}/api/v1/bazaar`;
@@ -95,12 +96,19 @@ export default function FleetPartnerPortal({ onBack }: FleetPartnerPortalProps) 
     ]);
     if (errors.length) return alert("⚠️ Please fix these before submitting:\n\n• " + errors.join("\n• "));
 
+    // The OTP wall (owner, 2026-09-03). The server refuses an application with
+    // no ticket, so asking here is not politeness — it is the only way this
+    // form can succeed.
+    const ticket = await verifyMobileForRegistration(profile.mobileNo);
+    if (!ticket) return;
+
     setLoading(true);
     try {
       await fetchJson(`${BAZAAR}/onboarding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+        ticket,
         type: 'FLEET_PARTNER',
         agency_name: profile.agencyName,
         owner_name: profile.ownerName || '',

@@ -20,10 +20,11 @@
 import { randomBytes } from 'node:crypto';
 import { query, withTransaction, isDegraded } from '../db/pool.js';
 import { requireAdminRole } from './auth.routes.js';
-import { hashPassword, ALGO } from '../lib/auth.js';
+import { hashPassword, verifyCode, ALGO } from '../lib/auth.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { checkParty, last10, upper, trimOrNull } from '../lib/partyFormats.js';
+import { asSystem } from '../lib/staging.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -631,6 +632,35 @@ export async function registerBazaarRoutes(app) {
     }
 
     const mobile = last10(b.mobile_no);
+
+    // ── THE OTP WALL (owner, 2026-09-03) ────────────────────────────────────
+    // "A user must verify their mobile number before they can even see the KYC
+    // form." The form is hidden until the code verifies, and this is the half
+    // that makes that true rather than decorative: the ticket minted by
+    // /auth/register/otp/verify is required here, must belong to the number on
+    // the form, and is spent in the same transaction as the insert.
+    //
+    // Enforced for EVERY type, not just CUSTOMER. Confining it to customers
+    // would leave the fleet-partner door open as an unguarded way into the same
+    // table — the spam would simply arrive wearing a different hat.
+    const ticket = String(b.ticket ?? '').trim();
+    if (!ticket) {
+      return reply.code(401).send({
+        error: 'MOBILE_NOT_VERIFIED',
+        detail: 'Verify your mobile number with the code we send before sending this form.',
+      });
+    }
+    const { rows: tk } = await query(
+      `SELECT * FROM registration_tickets
+        WHERE mobile = $1 AND consumed_at IS NULL AND expires_at > now()
+        ORDER BY created_at DESC LIMIT 1`, [mobile]);
+    if (!tk.length || !verifyCode(ticket, tk[0].ticket_salt, tk[0].ticket_hash)) {
+      return reply.code(401).send({
+        error: 'MOBILE_NOT_VERIFIED',
+        detail: 'This mobile number is not verified, or the verification has expired. Please verify it again.',
+      });
+    }
+    const ticketId = tk[0].id;
     const gst = upper(b.gst_no);
     // A firm that is already on the books, or already waiting, must not be able
     // to queue itself a second time — the desk would have two applications and
@@ -656,21 +686,44 @@ export async function registerBazaarRoutes(app) {
     // Only ever the last four digits, whatever the client sent.
     const aadhaar = String(b.aadhaar_last4 ?? '').replace(/\D/g, '').slice(-4) || null;
     try {
-      const { rows } = await query(`
-        INSERT INTO onboarding_applications (type, corporate_name, gst_no, pan_no, mobile_no,
-          address, contact_person, aadhaar_last4, documents, status,
-          email, bank_name, account_no, ifsc_code)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::jsonb,'{}'::jsonb),'PENDING_KYC',
-                $10,$11,$12,$13)
-        RETURNING *`,
-        [type, String(name).toUpperCase(), gst,
-         upper(b.pan_no), mobile || null, trimOrNull(b.address),
-         trimOrNull(b.contact_person ?? b.owner_name), aadhaar,
-         b.documents ? JSON.stringify(b.documents) : null,
-         trimOrNull(b.email), trimOrNull(b.bank_name),
-         String(b.account_no ?? '').replace(/\s/g, '') || null, upper(b.ifsc_code)]);
-      return reply.code(201).send({ application: withAliases(rows[0]) });
-    } catch (e) { return pgErr(reply, e); }
+      // One transaction: the application is filed and the ticket is spent
+      // together, so a retry of the same submission cannot land twice and a
+      // failed insert does not silently burn someone's verification.
+      const row = await withTransaction(async (c) => {
+        const { rows } = await c.query(`
+          INSERT INTO onboarding_applications (type, corporate_name, gst_no, pan_no, mobile_no,
+            address, contact_person, aadhaar_last4, documents, status,
+            email, bank_name, account_no, ifsc_code)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::jsonb,'{}'::jsonb),'PENDING_KYC',
+                  $10,$11,$12,$13)
+          RETURNING *`,
+          [type, String(name).toUpperCase(), gst,
+           upper(b.pan_no), mobile || null, trimOrNull(b.address),
+           trimOrNull(b.contact_person ?? b.owner_name), aadhaar,
+           b.documents ? JSON.stringify(b.documents) : null,
+           trimOrNull(b.email), trimOrNull(b.bank_name),
+           String(b.account_no ?? '').replace(/\s/g, '') || null, upper(b.ifsc_code)]);
+        // Spending the ticket is the SYSTEM's own bookkeeping about a code it
+        // sent, not the applicant writing a business fact — the same category
+        // as the audit row for this request. onboarding_applications above
+        // stays under the fence, where it belongs (it is a STAGING_TABLE); only
+        // this one statement steps outside it, and it is still inside the same
+        // transaction, so the two commit or roll back together.
+        const { rowCount } = await asSystem(() => c.query(
+          `UPDATE registration_tickets SET consumed_at = now(), application_id = $2::uuid
+            WHERE id = $1::uuid AND consumed_at IS NULL`, [ticketId, rows[0].id]));
+        // Someone spent this ticket between our check and here — one verified
+        // number, one application.
+        if (!rowCount) throw Object.assign(new Error('ticket already spent'), { code: 'TICKET_SPENT' });
+        return rows[0];
+      });
+      return reply.code(201).send({ application: withAliases(row) });
+    } catch (e) {
+      if (e.code === 'TICKET_SPENT') {
+        return reply.code(409).send({ error: 'ALREADY_APPLIED', detail: 'This verification has already been used for an application.' });
+      }
+      return pgErr(reply, e);
+    }
   });
 
   // master_id is supplied by the caller: KycApprovals creates the customer or

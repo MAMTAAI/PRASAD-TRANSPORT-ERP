@@ -196,7 +196,7 @@ export const SECTIONS = [
   { key: 'docs', label: 'App uploads', icon: '📱', badge: 'pending_partner_docs', accent: '#f59e0b', screen: 'EXPENSE_APPROVALS',
     list: async () => firstArray(await api('/queues/partner-documents?status=PENDING')) },
   { key: 'kyc', label: 'KYC applications', icon: '🪪', badge: 'pending_kyc', accent: '#38bdf8', screen: 'ONBOARDING',
-    list: async () => firstArray(await api('/bazaar/onboarding?status=SUBMITTED')) },
+    list: async () => firstArray(await api('/bazaar/onboarding?status=PENDING_KYC')) },
   { key: 'pods', label: 'PODs to verify', icon: '📄', badge: 'pending_pods', accent: '#8b5cf6', screen: 'BAZAAR_ADMIN',
     list: async () => firstArray(await api('/bazaar/settlements?status=POD_SUBMITTED')) },
   { key: 'awards', label: 'Award requests', icon: '🏁', badge: 'pending_award_requests', accent: '#fb923c', screen: 'BAZAAR_ADMIN',

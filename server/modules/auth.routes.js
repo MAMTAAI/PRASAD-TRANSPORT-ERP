@@ -709,6 +709,127 @@ export async function registerAuthRoutes(app) {
     return { token, expires_at: expiresAt, driver: drv[0], role: 'DRIVER' };
   });
 
+  // ═══ REGISTRATION OTP — THE WALL IN FRONT OF THE KYC FORM ═════════════════
+  //
+  // Owner, 2026-09-03: "Put the Registration Form strictly behind an OTP
+  // verification wall. We don't want spam entries in our CRM. A user must
+  // verify their mobile number before they can even see the KYC form."
+  //
+  // This is deliberately NOT /otp/request with a flag. That route answers 200
+  // for a number it has never heard of and sends nothing, on purpose — a login
+  // door that says "no such user" is a free directory of who works here. This
+  // door has the opposite job: the number is on no master yet and sending to it
+  // IS the point. Two doors, two purposes, and a REGISTER code can never
+  // satisfy a login (the verify below filters on purpose).
+  //
+  // What survives the code is a ticket, not a session. See migration 135.
+  const REG_TICKET_MIN = 30;
+  const REG_MAX_PER_HOUR = 3;
+  // Per-IP ceiling, in memory: it costs nothing, it resets on restart, and the
+  // per-mobile cap in the database is the one that actually protects a person's
+  // handset from being rung by a script.
+  const regIpHits = new Map();
+  const ipAllowed = (ip) => {
+    const now = Date.now();
+    const hits = (regIpHits.get(ip) ?? []).filter((t) => now - t < 3600_000);
+    if (hits.length >= 20) { regIpHits.set(ip, hits); return false; }
+    hits.push(now); regIpHits.set(ip, hits);
+    if (regIpHits.size > 5000) regIpHits.clear();   // crude, bounded, enough
+    return true;
+  };
+
+  app.post('/register/otp/request', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const mobile = last10(req.body?.mobile);
+    if (!/^[6-9]\d{9}$/.test(mobile)) return reply.code(400).send({ error: 'BAD_MOBILE' });
+    if (!ipAllowed(req.ip ?? 'unknown')) {
+      return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', detail: 'Too many registration codes from here. Try again later.' });
+    }
+    const { rows: [{ n }] } = await query(
+      `SELECT count(*)::int AS n FROM auth_otp
+        WHERE mobile = $1 AND purpose = 'REGISTER' AND created_at > now() - interval '1 hour'`, [mobile]);
+    if (n >= REG_MAX_PER_HOUR) {
+      return reply.code(429).send({ error: 'TOO_MANY_REQUESTS', detail: `Only ${REG_MAX_PER_HOUR} codes per hour to one number. Please try later or call the office.` });
+    }
+
+    // One live code per number, exactly like the login door.
+    const burn = () => query(`UPDATE auth_otp SET consumed_at = now()
+                               WHERE mobile = $1 AND consumed_at IS NULL AND purpose = 'REGISTER'`, [mobile]);
+
+    const devMobiles = String(process.env.OTP_DEV_BYPASS_MOBILES ?? '')
+      .split(',').map((m) => last10(m)).filter((m) => m.length === 10);
+    const devCode = String(process.env.OTP_DEV_CODE ?? '').replace(/\D/g, '');
+    if (devMobiles.includes(mobile) && devCode.length === 6) {
+      const { saltHex, hashHex } = hashCode(devCode);
+      await burn();
+      await query(
+        `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, purpose, expires_at)
+         VALUES ($1,$2,$3,'dev','REGISTER', now() + ($4 || ' minutes')::interval)`,
+        [mobile, hashHex, saltHex, String(OTP_TTL_MIN)]);
+      req.log.warn({ mobile_tail: mobile.slice(-4) }, 'registration OTP dev bypass: code stored, nothing sent');
+      return { sent: true, channel: 'dev', dev: true, expires_in_minutes: OTP_TTL_MIN };
+    }
+
+    const channel = await otp.available();
+    if (!channel.ok) return reply.code(503).send({ error: 'OTP_CHANNEL_UNAVAILABLE', detail: channel.reason });
+    const code = newOtp();
+    const { saltHex, hashHex } = hashCode(code);
+    await burn();
+    await query(
+      `INSERT INTO auth_otp (mobile, code_hash, code_salt, channel, purpose, expires_at)
+       VALUES ($1,$2,$3,$4,'REGISTER', now() + ($5 || ' minutes')::interval)`,
+      [mobile, hashHex, saltHex, otp.CHANNEL_NAME, String(OTP_TTL_MIN)]);
+    try {
+      const sent = await otp.send(mobile, code);
+      if (sent?.channel && sent.channel !== otp.CHANNEL_NAME) {
+        await query(`UPDATE auth_otp SET channel = $2
+                      WHERE mobile = $1 AND consumed_at IS NULL AND purpose = 'REGISTER'`, [mobile, sent.channel]);
+      }
+    } catch (e) {
+      req.log.error({ err: e }, 'registration otp send failed');
+      return reply.code(502).send({ error: 'OTP_SEND_FAILED', detail: e.message });
+    }
+    return { sent: true, channel: otp.CHANNEL_NAME, expires_in_minutes: OTP_TTL_MIN };
+  });
+
+  app.post('/register/otp/verify', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const mobile = last10(req.body?.mobile);
+    const code = String(req.body?.code ?? '').replace(/\D/g, '');
+    if (mobile.length !== 10 || code.length !== 6) return reply.code(400).send({ error: 'BAD_INPUT' });
+
+    const { rows } = await query(
+      `SELECT * FROM auth_otp
+        WHERE mobile = $1 AND consumed_at IS NULL AND expires_at > now() AND purpose = 'REGISTER'
+        ORDER BY created_at DESC LIMIT 1`, [mobile]);
+    const rec = rows[0];
+    if (!rec) return reply.code(401).send({ error: 'OTP_EXPIRED' });
+    if (rec.attempts >= OTP_MAX_ATTEMPTS) {
+      await query('UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid', [rec.id]);
+      return reply.code(429).send({ error: 'OTP_ATTEMPTS_EXCEEDED' });
+    }
+    if (!verifyCode(code, rec.code_salt, rec.code_hash)) {
+      await query('UPDATE auth_otp SET attempts = attempts + 1 WHERE id = $1::uuid', [rec.id]);
+      return reply.code(401).send({ error: 'OTP_INVALID' });
+    }
+    const { rowCount } = await query(
+      'UPDATE auth_otp SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL', [rec.id]);
+    if (!rowCount) return reply.code(401).send({ error: 'OTP_ALREADY_USED' });
+
+    // The ticket is the only thing that leaves here. It is not a session: it
+    // carries no role, opens no route, and the onboarding form is the one place
+    // that will look at it.
+    const ticket = randomBytes(32).toString('hex');
+    const { saltHex, hashHex } = hashCode(ticket);
+    await query(`UPDATE registration_tickets SET consumed_at = now()
+                  WHERE mobile = $1 AND consumed_at IS NULL`, [mobile]);
+    await query(
+      `INSERT INTO registration_tickets (mobile, ticket_hash, ticket_salt, issued_ip, expires_at)
+       VALUES ($1,$2,$3,$4, now() + ($5 || ' minutes')::interval)`,
+      [mobile, hashHex, saltHex, req.ip ?? null, String(REG_TICKET_MIN)]);
+    return { verified: true, mobile, ticket, expires_in_minutes: REG_TICKET_MIN };
+  });
+
   // ═══ OTP-LESS DRIVER SIGN-IN ══════════════════════════════════════════════
   //
   // Everything behind driver login already worked on the day this was written:

@@ -16,7 +16,7 @@
 // account the chart of accounts has to explain. Nothing is lost — the khata in
 // CustomerLedger.tsx reads `Debtors: <name>` whether a row exists yet or not.
 import React, { useState, useEffect } from 'react';
-import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks } from './lib/validators';
+import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks, vIfsc, vAccountNo } from './lib/validators';
 
 import { API_BASE } from './lib/apiBase';
 import { isAdmin } from './lib/rbac';
@@ -38,7 +38,11 @@ const fetchJson = async (url: string, opts?: RequestInit) => {
 const CUSTOMER_WRITABLE = ['customer_name', 'address', 'state', 'city', 'pincode', 'gst_no',
   'pan_no', 'contact_person', 'mobile_no', 'email', 'payment_terms', 'opening_balance',
   'credit_limit', 'account_manager', 'billing_cycle', 'detention_applicable',
-  'consignees', 'locations', 'portal_features', 'status'];
+  'consignees', 'locations', 'portal_features', 'status',
+  // migration 134 — the bank account a KYC application brings in, and the one
+  // a customer asks to change from its app. Without these three here the office
+  // could receive an account it could never see or correct on the master.
+  'bank_name', 'account_no', 'ifsc_code'];
 const NUMERIC_COLS = ['opening_balance', 'credit_limit'];
 
 const fromApi = (d: any) => ({
@@ -67,7 +71,7 @@ const toApi = (f: any, extra: any = {}) => {
   if (f.customer_id) out.customer_code = f.customer_id;
   if (f.portal_access !== undefined) out.portal_enabled = !!f.portal_access;
   // citext columns reject '' against the unique portal-email index; send null.
-  for (const t of ['gst_no', 'pan_no', 'email', 'portal_email']) if (out[t] === '') out[t] = null;
+  for (const t of ['gst_no', 'pan_no', 'email', 'portal_email', 'bank_name', 'account_no', 'ifsc_code']) if (out[t] === '') out[t] = null;
   return out;
 };
 
@@ -92,6 +96,7 @@ export default function Customer() {
   const getInitialFormData = () => ({
     customer_id: '', customer_name: '', address: '', state: '', pincode: '',
     gst_no: '', pan_no: '', contact_person: '', mobile_no: '', email: '', status: 'ACTIVE',
+    bank_name: '', account_no: '', ifsc_code: '',
     opening_balance: '0', total_freight: '0', total_shortage: '0', total_tds: '0', total_received: '0', current_outstanding: '0',
     credit_limit: '0', payment_terms: '30 Days', account_manager: '',
     billing_cycle: '30_days', // '15_days' (Oil Cos, fortnightly) | '30_days' (regular monthly)
@@ -218,6 +223,8 @@ export default function Customer() {
       gstinPanMatch(formData.gst_no, formData.pan_no),
       vMobile(formData.mobile_no),
       vPincode(formData.pincode),
+      vIfsc(formData.ifsc_code),
+      vAccountNo(formData.account_no),
     ]);
     if (vErrors.length) return alert("⚠️ Please fix these fields:\n\n• " + vErrors.join("\n• "));
     // 🚫 Duplicate guard — one unified customer record (name or GSTIN unique).
@@ -520,6 +527,14 @@ export default function Customer() {
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Pincode</label><input className="modern-input" placeholder="6-digit Pincode" inputMode="numeric" maxLength={6} value={formData.pincode} onChange={e=>setFormData({...formData, pincode: e.target.value.replace(/[^\d]/g, '')})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Contact Person</label><input className="modern-input" value={formData.contact_person} onChange={e=>setFormData({...formData, contact_person: e.target.value})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#94a3b8' }}>Mobile No</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
+
+                {/* 🏦 Bank account (migration 134). Where an approved KYC
+                    application's account lands, and what the customer sees on
+                    its own Account tab. A change asked for from the app arrives
+                    in KYC Approvals as a request — it never edits this directly. */}
+                <div><label style={{ fontSize:'11px', color:'#38bdf8' }}>🏦 Bank Name</label><input className="modern-input" value={formData.bank_name || ''} onChange={e=>setFormData({...formData, bank_name: e.target.value})} /></div>
+                <div><label style={{ fontSize:'11px', color:'#38bdf8' }}>Account No</label><input className="modern-input" inputMode="numeric" value={formData.account_no || ''} onChange={e=>setFormData({...formData, account_no: e.target.value.replace(/[^\d]/g, '')})} /></div>
+                <div><label style={{ fontSize:'11px', color:'#38bdf8' }}>IFSC Code</label><input className="modern-input" maxLength={11} value={formData.ifsc_code || ''} onChange={e=>setFormData({...formData, ifsc_code: e.target.value.toUpperCase()})} /></div>
 
                 <div><label style={{ fontSize:'11px', color:'#10b981', fontWeight:'bold' }}>Credit Limit (₹)</label><input type="number" className="modern-input" style={{borderColor:'#10b981'}} value={formData.credit_limit} onChange={e=>setFormData({...formData, credit_limit: e.target.value})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#f59e0b' }}>Payment Terms</label>
