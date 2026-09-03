@@ -196,22 +196,22 @@ const T = {
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
 const SHELL = APP_SHELL;
-const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
+const CARD = 'rounded-2xl border-2 border-slate-700 bg-slate-900 bg-deck-card shadow-deck';
 const PILL = {
-  IN_TRANSIT: 'bg-blue-100 text-blue-800', LOADED: 'bg-blue-100 text-blue-800', UNLOADING: 'bg-amber-100 text-amber-800',
-  COMPLETED: 'bg-green-100 text-green-800', SETTLED: 'bg-green-100 text-green-800',
-  PENDING: 'bg-slate-100 text-slate-600', CANCELLED: 'bg-red-100 text-red-800',
-  READY: 'bg-green-100 text-green-800', WITH_OFFICE: 'bg-amber-100 text-amber-800',
+  IN_TRANSIT: 'bg-live/15 text-live', LOADED: 'bg-live/15 text-live', UNLOADING: 'bg-pending/15 text-pending',
+  COMPLETED: 'bg-active/15 text-active', SETTLED: 'bg-active/15 text-active',
+  PENDING: 'bg-slate-800 text-slate-400', CANCELLED: 'bg-blocked/15 text-blocked',
+  READY: 'bg-active/15 text-active', WITH_OFFICE: 'bg-pending/15 text-pending',
 };
 const SOURCE = { DRIVER_APP: 'Driver app', DRIVER: 'Driver app', GPRS: 'GPRS', GPS: 'GPS', FASTAG: 'FASTag', MANUAL: 'Office entry' };
 
-const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-extrabold ${PILL[s] ?? 'bg-slate-100 text-slate-600'}`}>{label ?? s}</span>;
-const TruckNo = ({ n }) => (n ? <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-amber-900">{n}</span> : null);
+const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-extrabold ${PILL[s] ?? 'bg-slate-800 text-slate-400'}`}>{label ?? s}</span>;
+const TruckNo = ({ n }) => (n ? <span className="inline-block rounded-md bg-pending/15 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-pending">{n}</span> : null);
 const KV = ({ rows }) => (
   <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 px-3 py-3">
     {rows.filter(Boolean).map(([k, v, cls]) => (
       <React.Fragment key={k}>
-        <span className="text-[12.5px] font-semibold text-slate-500">{k}</span>
+        <span className="text-[12.5px] font-semibold text-slate-400">{k}</span>
         <b className={`text-right text-[13.5px] font-extrabold ${cls ?? ''}`}>{v}</b>
       </React.Fragment>
     ))}
@@ -221,9 +221,9 @@ const Steps = ({ n, labels }) => (
   <div className="flex items-center px-0.5 pt-2">
     {labels.map((l, i) => (
       <div key={l} className="relative flex flex-1 flex-col items-center gap-0.5 text-center text-[9px] font-extrabold">
-        <i className={`grid h-[20px] w-[20px] place-items-center rounded-full not-italic text-[10px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-200 text-slate-500'}`}>{i < n ? '✓' : i + 1}</i>
-        <span className={i <= n ? 'text-slate-900' : 'text-slate-400'}>{l}</span>
-        {i < labels.length - 1 && <span className={`absolute left-[calc(50%+11px)] top-[10px] h-[2px] w-[calc(100%-22px)] ${i < n ? 'bg-green-600' : 'bg-slate-200'}`} />}
+        <i className={`grid h-[20px] w-[20px] place-items-center rounded-full not-italic text-[10px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-700 text-slate-400'}`}>{i < n ? '✓' : i + 1}</i>
+        <span className={i <= n ? 'text-slate-100' : 'text-slate-400'}>{l}</span>
+        {i < labels.length - 1 && <span className={`absolute left-[calc(50%+11px)] top-[10px] h-[2px] w-[calc(100%-22px)] ${i < n ? 'bg-green-600' : 'bg-slate-700'}`} />}
       </div>
     ))}
   </div>
@@ -342,19 +342,19 @@ export default function CustomerApp() {
 
   // ── shared chrome ─────────────────────────────────────────────────────────
   const Bar = ({ title, sub, back, right }) => (
-    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2.5">
-      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-100 px-3.5 text-[16px] font-bold">‹</button>}
-      <div className="min-w-0 flex-1"><div className="truncate text-[17px] font-extrabold leading-tight">{title}</div>{sub && <div className="truncate text-[11.5px] font-semibold text-slate-500">{sub}</div>}</div>
+    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-700 bg-slate-900 px-3 py-2.5">
+      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-800 px-3.5 text-[16px] font-bold">‹</button>}
+      <div className="min-w-0 flex-1"><div className="truncate text-[17px] font-extrabold leading-tight">{title}</div>{sub && <div className="truncate text-[11.5px] font-semibold text-slate-400">{sub}</div>}</div>
       {right}
-      <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'en' ? 'EN · हिं' : 'हिं · EN'}</button>
+      <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'en' ? 'EN · हिं' : 'हिं · EN'}</button>
     </div>
   );
   const CallBar = () => (
-    <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-slate-900 py-3 text-center text-[16px] font-extrabold text-white">📞 {t.call}</a>
+    <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-live py-3 text-center text-[16px] font-extrabold text-slate-950">📞 {t.call}</a>
   );
   const Seg = ({ items, value, onChange }) => (
-    <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
-      {items.map(([k, l]) => <button key={k} onClick={() => onChange(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${value === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>)}
+    <div className="flex gap-1 rounded-xl bg-slate-700 p-[3px] md:col-span-2">
+      {items.map(([k, l]) => <button key={k} onClick={() => onChange(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${value === k ? 'bg-slate-900 text-slate-100 shadow' : 'text-slate-400'}`}>{l}</button>)}
     </div>
   );
   const Tile = ({ tone, icon, label, sub, badge, onClick }) => (
@@ -376,7 +376,7 @@ export default function CustomerApp() {
     return (
       <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
-          <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}>
+          <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-400'}`}>
             <span className="text-[21px] leading-none">{i}</span>{l}
             {n > 0 && <span className="absolute right-3 top-0 rounded-full bg-red-500 px-1.5 text-[9.5px] font-extrabold text-white">{n}</span>}
           </button>
@@ -384,19 +384,19 @@ export default function CustomerApp() {
       </nav>
     );
   };
-  const Toast = () => (toast ? <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-900 px-4 py-2.5 text-[13px] font-bold text-white shadow-lg">{toast}</div> : null);
-  const PreviewNote = () => (viewAs ? <div className="rounded-2xl border-2 border-cyan-300 bg-cyan-50 px-3 py-2 text-[12px] font-bold text-cyan-900">👁 {t.preview}</div> : null);
+  const Toast = () => (toast ? <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-live px-4 py-2.5 text-[13px] font-bold text-slate-950 shadow-lg">{toast}</div> : null);
+  const PreviewNote = () => (viewAs ? <div className="rounded-2xl border-2 border-live/45 bg-live/10 px-3 py-2 text-[12px] font-bold text-live">👁 {t.preview}</div> : null);
 
   const TripRow = ({ x, highlight }) => {
     const pod = podForTrip(x.trip_code);
     return (
-      <div className={`${CARD} ${highlight ? 'border-blue-300 bg-blue-50/40' : ''} px-3 py-2.5`}>
+      <div className={`${CARD} ${highlight ? 'border-live/45 bg-live/5' : ''} px-3 py-2.5`}>
         <div className="flex items-start gap-2.5">
           <span className="text-[22px] leading-none">🚚</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-extrabold">{x.trip_code} · <TruckNo n={x.vehicle_no} /></div>
-            <div className="truncate text-[12px] font-semibold text-slate-600">{x.loading_point ?? '—'} → {x.unloading_location ?? '—'}</div>
-            <div className="truncate text-[11.5px] font-semibold text-slate-500">
+            <div className="truncate text-[12px] font-semibold text-slate-400">{x.loading_point ?? '—'} → {x.unloading_location ?? '—'}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-400">
               {[x.product_type, Number.isFinite(Number(x.loaded_qty)) ? qty(x.loaded_qty) : null, x.loading_date ? `${t.loadedOn} ${dmy(x.loading_date)}` : null].filter(Boolean).join(' · ')}
             </div>
           </div>
@@ -406,7 +406,7 @@ export default function CustomerApp() {
           {ON_ROAD.has(x.status) && vis['cust.tracking'] && (
             <button onClick={() => setView({ k: 'track', code: x.trip_code })} className="min-h-[38px] rounded-full bg-blue-600 px-3 text-[12.5px] font-extrabold text-white">📍 {t.track}</button>
           )}
-          <button onClick={() => setView({ k: 'trip', code: x.trip_code })} className="min-h-[38px] rounded-full border-2 border-slate-300 bg-white px-3 text-[12.5px] font-extrabold">{t.details}</button>
+          <button onClick={() => setView({ k: 'trip', code: x.trip_code })} className="min-h-[38px] rounded-full border-2 border-slate-700 bg-slate-900 px-3 text-[12.5px] font-extrabold">{t.details}</button>
           {pod && <button onClick={() => setView({ k: 'podview', pod })} className="min-h-[38px] rounded-full bg-green-600 px-3 text-[12.5px] font-extrabold text-white">📄 {t.viewPod}</button>}
         </div>
       </div>
@@ -414,7 +414,7 @@ export default function CustomerApp() {
   };
 
   // ── gates ─────────────────────────────────────────────────────────────────
-  if (gate === 'loading') return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-[13px] text-slate-500" style={FONT}>{t.loading}</div>;
+  if (gate === 'loading') return <div className="grid min-h-screen place-items-center bg-slate-950 bg-deck-ground text-[13px] text-slate-400" style={FONT}>{t.loading}</div>;
   if (gate !== 'ok') {
     return (
       <div className={SHELL} style={FONT}>
@@ -423,8 +423,8 @@ export default function CustomerApp() {
           <div>
             <div className="text-5xl">🏭</div>
             <h2 className="mt-3 text-[20px] font-extrabold">{gate === 'not_approved' ? t.notApproved : t.cantReach}</h2>
-            <p className="mt-2 text-[13.5px] font-semibold text-slate-500">{gateMsg}</p>
-            <a href={DISPATCH_TEL} className="mt-6 block rounded-2xl bg-slate-900 py-3 text-[16px] font-extrabold text-white">📞 {t.call}</a>
+            <p className="mt-2 text-[13.5px] font-semibold text-slate-400">{gateMsg}</p>
+            <a href={DISPATCH_TEL} className="mt-6 block rounded-2xl bg-live py-3 text-[16px] font-extrabold text-slate-950">📞 {t.call}</a>
           </div>
         </div>
       </div>
@@ -442,7 +442,7 @@ export default function CustomerApp() {
       <div className={SHELL} style={FONT} data-screen="tripdetail">
         <Bar title={view.code} sub={x ? `${x.loading_point ?? '—'} → ${x.unloading_location ?? '—'}` : ''} back={() => setView({ k: 'tabs' })} />
         <div className="flex flex-1 flex-col gap-2.5 px-3 pb-8 pt-3">
-          {!x ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrips}</div> : (
+          {!x ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noTrips}</div> : (
             <>
               <div className={CARD}>
                 <KV rows={[
@@ -454,12 +454,12 @@ export default function CustomerApp() {
                   [t.loadedOn, x.loading_date ? `${dmy(x.loading_date)} · ${x.loading_point ?? ''}` : '—'],
                   [DONE.has(x.status) ? t.tlDelivered : t.expected, x.unloading_date ? `${dmy(x.unloading_date)} · ${x.unloading_location ?? ''}` : (x.unloading_location ?? '—')],
                   Number.isFinite(Number(x.unloaded_qty)) ? [t.unloadedQ, qty(x.unloaded_qty)] : null,
-                  Number.isFinite(Number(x.shortage_qty)) ? [t.shortage, qty(x.shortage_qty), Number(x.shortage_qty) > 0 ? 'text-red-600' : 'text-green-700'] : null,
+                  Number.isFinite(Number(x.shortage_qty)) ? [t.shortage, qty(x.shortage_qty), Number(x.shortage_qty) > 0 ? 'text-red-600' : 'text-active'] : null,
                   [t.driver, showDriver && x.driver_name ? <span>{x.driver_name}{x.driver_mobile ? <a className="ml-1 text-blue-600" href={`tel:${x.driver_mobile}`}>☎</a> : null}</span> : <span className="text-slate-400">{t.viaOffice}</span>],
                   [t.freight, showFreight && x.freight_amount != null ? inr(x.freight_amount) : <span className="text-slate-400">{t.byContract}</span>],
                 ]} />
               </div>
-              {withheld.length > 0 && <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.hiddenNote}</div>}
+              {withheld.length > 0 && <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.hiddenNote}</div>}
               {ON_ROAD.has(x.status) && vis['cust.tracking'] && (
                 <button onClick={() => setView({ k: 'track', code: x.trip_code })} className="min-h-[56px] rounded-2xl bg-blue-600 text-[17px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)]">📍 {t.track}</button>
               )}
@@ -485,7 +485,7 @@ export default function CustomerApp() {
               [t.truck, <TruckNo n={p.vehicle_no} />],
               [t.route, `${p.origin ?? '—'} → ${p.destination ?? '—'}`],
               [t.loadedUnloaded, `${Number.isFinite(Number(p.loaded_qty)) ? qty(p.loaded_qty) : '—'} / ${Number.isFinite(Number(p.unloaded_qty)) ? qty(p.unloaded_qty) : '—'}`],
-              Number.isFinite(Number(p.shortage_qty)) ? [t.shortage, qty(p.shortage_qty), Number(p.shortage_qty) > 0 ? 'text-red-600' : 'text-green-700'] : null,
+              Number.isFinite(Number(p.shortage_qty)) ? [t.shortage, qty(p.shortage_qty), Number(p.shortage_qty) > 0 ? 'text-red-600' : 'text-active'] : null,
               p.challan_no ? [t.challan, p.challan_no] : null,
               [t.verified, dmyt(p.verified_at)],
             ]} />
@@ -504,14 +504,14 @@ export default function CustomerApp() {
   if (view.k === 'newbook') return <NewBooking />;
   if (view.k === 'sent') {
     return (
-      <div className={`${SHELL} items-center justify-center bg-white px-6 text-center`} style={FONT} data-screen="booksent">
+      <div className={`${SHELL} items-center justify-center bg-slate-900 px-6 text-center`} style={FONT} data-screen="booksent">
         <div className="grid h-[120px] w-[120px] place-items-center rounded-full bg-green-600 text-[76px] font-black text-white">✓</div>
         <h2 className="mt-4 text-[30px] font-extrabold">{t.sent}</h2>
-        <p className="text-[16px] font-semibold text-slate-600">{t.sentSub(view.id)}</p>
-        <span className="mt-3 rounded-full bg-amber-100 px-3 py-1.5 text-[12px] font-extrabold text-amber-800">{t.sentPill}</span>
-        <p className="mt-4 text-[13.5px] text-slate-500">{t.sentNote}</p>
-        <button onClick={() => { setTab('book'); setView({ k: 'tabs' }); }} className="mt-8 min-h-[60px] w-full rounded-2xl border-[3px] border-slate-300 bg-white text-[18px] font-extrabold">{t.seeBookings}</button>
-        <button onClick={() => { setTab('home'); setView({ k: 'tabs' }); }} className="mt-3 min-h-[60px] w-full rounded-2xl bg-slate-900 text-[18px] font-extrabold text-white">{t.homeBtn}</button>
+        <p className="text-[16px] font-semibold text-slate-400">{t.sentSub(view.id)}</p>
+        <span className="mt-3 rounded-full bg-pending/15 px-3 py-1.5 text-[12px] font-extrabold text-pending">{t.sentPill}</span>
+        <p className="mt-4 text-[13.5px] text-slate-400">{t.sentNote}</p>
+        <button onClick={() => { setTab('book'); setView({ k: 'tabs' }); }} className="mt-8 min-h-[60px] w-full rounded-2xl border-[3px] border-slate-700 bg-slate-900 text-[18px] font-extrabold">{t.seeBookings}</button>
+        <button onClick={() => { setTab('home'); setView({ k: 'tabs' }); }} className="mt-3 min-h-[60px] w-full rounded-2xl bg-live text-[18px] font-extrabold text-slate-950">{t.homeBtn}</button>
       </div>
     );
   }
@@ -530,13 +530,13 @@ export default function CustomerApp() {
   return (
     <div className={SHELL} style={FONT} data-screen={tab}>
       {tab === 'home' ? (
-        <div className="sticky top-0 z-30 flex items-start gap-2 border-b border-slate-200 bg-white px-3 py-2.5">
+        <div className="sticky top-0 z-30 flex items-start gap-2 border-b border-slate-700 bg-slate-900 px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t.brand}</div>
             <div className="truncate text-[18px] font-extrabold leading-tight">{me?.name ?? '—'}</div>
-            <div className="truncate text-[11.5px] font-semibold text-slate-500">{[t.customer, me?.code, me?.city].filter(Boolean).join(' · ')}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-400">{[t.customer, me?.code, me?.city].filter(Boolean).join(' · ')}</div>
           </div>
-          <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'en' ? 'EN · हिं' : 'हिं · EN'}</button>
+          <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'en' ? 'EN · हिं' : 'हिं · EN'}</button>
         </div>
       ) : (
         <Bar
@@ -568,18 +568,18 @@ export default function CustomerApp() {
         {tab === 'home' && (
           <>
             <div className="grid grid-cols-3 gap-2">
-              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-blue-600">{sum?.trips?.on_road ?? onRoad.length}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{t.kRoad}</div></div>
-              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-green-700">{sum?.trips?.delivered_month ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{t.kDone} · {t.month}</div></div>
-              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-amber-600">{sum?.pods?.awaited ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{t.kPod}</div></div>
+              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-blue-600">{sum?.trips?.on_road ?? onRoad.length}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{t.kRoad}</div></div>
+              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-active">{sum?.trips?.delivered_month ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{t.kDone} · {t.month}</div></div>
+              <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[21px] font-black text-amber-600">{sum?.pods?.awaited ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{t.kPod}</div></div>
             </div>
 
-            <div className="flex items-center justify-between px-0.5 pt-1 text-[12.5px] font-extrabold text-slate-700">
+            <div className="flex items-center justify-between px-0.5 pt-1 text-[12.5px] font-extrabold text-slate-300">
               {t.todays}
               {trips.length > 0 && <button onClick={() => setTab('trips')} className="text-[12px] font-bold text-blue-600">{t.allN(trips.length)}</button>}
             </div>
             {(sum?.latest?.length ? sum.latest : onRoad.slice(0, 3)).map((x, i) => <TripRow key={x.trip_code ?? i} x={x} highlight={i === 0 && ON_ROAD.has(x.status)} />)}
             {!(sum?.latest?.length || onRoad.length) && (
-              <div className={`${CARD} px-3 py-5 text-center`}><div className="text-3xl">🅿️</div><div className="mt-1 text-[14px] font-extrabold">{t.none}</div><div className="text-[12px] font-semibold text-slate-500">{t.noneSub}</div></div>
+              <div className={`${CARD} px-3 py-5 text-center`}><div className="text-3xl">🅿️</div><div className="mt-1 text-[14px] font-extrabold">{t.none}</div><div className="text-[12px] font-semibold text-slate-400">{t.noneSub}</div></div>
             )}
 
             <div className="grid grid-cols-2 gap-2 pt-1">
@@ -596,7 +596,7 @@ export default function CustomerApp() {
         {tab === 'trips' && (
           <>
             <Seg items={[['ROAD', `${t.segRoad} ${onRoad.length}`], ['DONE', `${t.segDone} ${doneTrips.length}`], ['ALL', t.segAll]]} value={seg} onChange={setSeg} />
-            {segTrips.length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrips}</div>}
+            {segTrips.length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noTrips}</div>}
             {segTrips.map((x, i) => <TripRow key={x.trip_code ?? i} x={x} highlight={seg === 'ROAD' && i === 0} />)}
           </>
         )}
@@ -605,35 +605,35 @@ export default function CustomerApp() {
         {tab === 'book' && (
           <>
             {!canOrder && (
-              <div className={`${CARD} border-blue-200 bg-blue-50/60 px-3 py-3`}>
-                <div className="text-[14.5px] font-extrabold text-blue-900">📬 {t.corpTitle}</div>
-                <div className="mt-1 text-[12.5px] font-semibold leading-snug text-blue-900/80">{t.corpSub}</div>
+              <div className={`${CARD} border-live/35 bg-live/10 px-3 py-3`}>
+                <div className="text-[14.5px] font-extrabold text-live">📬 {t.corpTitle}</div>
+                <div className="mt-1 text-[12.5px] font-semibold leading-snug text-live/80">{t.corpSub}</div>
               </div>
             )}
-            {canOrder && loads.length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noBookings}</div>}
+            {canOrder && loads.length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noBookings}</div>}
             {canOrder && loads.map((l) => {
               const n = bookStep(l.status);
               return (
-                <button key={l.load_id} onClick={() => setView({ k: 'booking', id: l.load_id })} className={`${CARD} ${l.status === 'PENDING_REVIEW' ? 'border-amber-300' : l.pending_bids > 0 ? 'border-blue-300' : ''} px-3 py-2.5 text-left`}>
+                <button key={l.load_id} onClick={() => setView({ k: 'booking', id: l.load_id })} className={`${CARD} ${l.status === 'PENDING_REVIEW' ? 'border-pending/45' : l.pending_bids > 0 ? 'border-live/45' : ''} px-3 py-2.5 text-left`}>
                   <div className="flex items-start gap-2.5">
                     <span className="text-[20px] leading-none">📋</span>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[14px] font-extrabold">{l.load_id} · {l.origin} → {l.destination}</div>
-                      <div className="truncate text-[11.5px] font-semibold text-slate-500">
+                      <div className="truncate text-[11.5px] font-semibold text-slate-400">
                         {[l.material, l.weight ? `${l.weight} MT` : null, l.loading_date ? `${t.loadDate} ${dmy(l.loading_date)}` : null, l.awarded_to].filter(Boolean).join(' · ')}
                       </div>
                     </div>
                     {l.status === 'CANCELLED' && <Pill s="CANCELLED" label={t.cancelled} />}
                   </div>
                   <Steps n={n} labels={t.steps} />
-                  {l.status === 'PENDING_REVIEW' && <div className="mt-2 rounded-xl bg-amber-50 px-2.5 py-1.5 text-[11.5px] font-bold text-amber-900">⏳ {t.stReview}</div>}
-                  {l.status === 'AWARD_REQUESTED' && <div className="mt-2 rounded-xl bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-bold text-blue-900">🏁 {t.stAsked}</div>}
+                  {l.status === 'PENDING_REVIEW' && <div className="mt-2 rounded-xl bg-pending/10 px-2.5 py-1.5 text-[11.5px] font-bold text-pending">⏳ {t.stReview}</div>}
+                  {l.status === 'AWARD_REQUESTED' && <div className="mt-2 rounded-xl bg-live/10 px-2.5 py-1.5 text-[11.5px] font-bold text-live">🏁 {t.stAsked}</div>}
                   {l.status === 'OPEN' && l.pending_bids > 0 && <div className="mt-2 inline-block rounded-full bg-blue-600 px-3 py-1.5 text-[12px] font-extrabold text-white">{t.offersN(l.pending_bids)}</div>}
                 </button>
               );
             })}
             {!canOrder && (doneTrips.length + onRoad.length === 0
-              ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrips}</div>
+              ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noTrips}</div>
               : trips.slice(0, 20).map((x, i) => <TripRow key={x.trip_code ?? i} x={x} />))}
           </>
         )}
@@ -642,15 +642,15 @@ export default function CustomerApp() {
         {tab === 'pod' && (
           <>
             <Seg items={[['READY', `${t.segReady} ${readyPods.length}`], ['WAIT', `${t.segWait} ${waitPods.length}`]]} value={podSeg} onChange={setPodSeg} />
-            {(podSeg === 'READY' ? readyPods : waitPods).length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noPods}</div>}
+            {(podSeg === 'READY' ? readyPods : waitPods).length === 0 && <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noPods}</div>}
             {(podSeg === 'READY' ? readyPods : waitPods).map((p, i) => (
-              <div key={`${p.ref}-${i}`} className={`${CARD} ${p.pod_status === 'READY' ? 'border-green-200' : 'border-amber-200'} px-3 py-2.5`}>
+              <div key={`${p.ref}-${i}`} className={`${CARD} ${p.pod_status === 'READY' ? 'border-active/35' : 'border-pending/35'} px-3 py-2.5`}>
                 <div className="flex items-start gap-2.5">
                   <span className="text-[22px] leading-none">{p.pod_status === 'READY' ? '📄' : '📭'}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] font-extrabold">{p.ref} · <TruckNo n={p.vehicle_no} /></div>
-                    <div className="truncate text-[12px] font-semibold text-slate-600">{p.origin ?? '—'} → {p.destination ?? '—'}</div>
-                    <div className="truncate text-[11.5px] font-semibold text-slate-500">
+                    <div className="truncate text-[12px] font-semibold text-slate-400">{p.origin ?? '—'} → {p.destination ?? '—'}</div>
+                    <div className="truncate text-[11.5px] font-semibold text-slate-400">
                       {[dmy(p.delivered_at), Number.isFinite(Number(p.unloaded_qty ?? p.loaded_qty)) ? qty(p.unloaded_qty ?? p.loaded_qty) : null,
                         Number.isFinite(Number(p.shortage_qty)) && Number(p.shortage_qty) > 0 ? `${qty(p.shortage_qty)} ${t.shortage.toLowerCase()}` : null].filter(Boolean).join(' · ')}
                     </div>
@@ -660,11 +660,11 @@ export default function CustomerApp() {
                 {p.pod_status === 'READY' ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <button onClick={() => setView({ k: 'podview', pod: p })} className="min-h-[38px] rounded-full bg-green-600 px-3 text-[12.5px] font-extrabold text-white">📄 {t.view}</button>
-                    <button onClick={() => openPodFile(p, true)} className="min-h-[38px] rounded-full border-2 border-slate-300 bg-white px-3 text-[12.5px] font-extrabold">⬇ {t.save}</button>
-                    <button onClick={() => sharePod(p)} className="min-h-[38px] rounded-full border-2 border-slate-300 bg-white px-3 text-[12.5px] font-extrabold">📲 {t.share}</button>
+                    <button onClick={() => openPodFile(p, true)} className="min-h-[38px] rounded-full border-2 border-slate-700 bg-slate-900 px-3 text-[12.5px] font-extrabold">⬇ {t.save}</button>
+                    <button onClick={() => sharePod(p)} className="min-h-[38px] rounded-full border-2 border-slate-700 bg-slate-900 px-3 text-[12.5px] font-extrabold">📲 {t.share}</button>
                   </div>
                 ) : (
-                  <div className="mt-2 rounded-xl bg-amber-50 px-2.5 py-1.5 text-[11.5px] font-bold leading-snug text-amber-900">⏳ {t.podPending}</div>
+                  <div className="mt-2 rounded-xl bg-pending/10 px-2.5 py-1.5 text-[11.5px] font-bold leading-snug text-pending">⏳ {t.podPending}</div>
                 )}
               </div>
             ))}
@@ -677,28 +677,28 @@ export default function CustomerApp() {
             {showLedger ? (
               <>
                 <div className={CARD}>
-                  <div className="flex items-center justify-between px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">
-                    {t.billsHead}<span className="text-[10.5px] font-semibold text-slate-500">{String(sum?.customer?.billing_cycle ?? '').replace('_', ' ')}</span>
+                  <div className="flex items-center justify-between px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-300">
+                    {t.billsHead}<span className="text-[10.5px] font-semibold text-slate-400">{String(sum?.customer?.billing_cycle ?? '').replace('_', ' ')}</span>
                   </div>
                   <KV rows={[
-                    [t.billed, inr(bills.reduce((s, b) => s + (Number(b.total_net) || 0), 0)), 'text-blue-700'],
-                    [t.received, inr(bills.reduce((s, b) => s + (Number(b.received_amount) || 0), 0)), 'text-green-700'],
+                    [t.billed, inr(bills.reduce((s, b) => s + (Number(b.total_net) || 0), 0)), 'text-live'],
+                    [t.received, inr(bills.reduce((s, b) => s + (Number(b.received_amount) || 0), 0)), 'text-active'],
                     vis['cust.ledger.balance'] ? [t.outstanding, inr(me?.current_outstanding), 'text-red-600'] : null,
                   ]} />
                 </div>
                 <button onClick={openStatement} className="min-h-[50px] w-full rounded-2xl bg-blue-600 text-[15px] font-extrabold text-white">📄 {t.stmt}</button>
                 <div className={CARD}>
-                  <div className="px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">{t.billsList}</div>
-                  {bills.length === 0 && <div className="px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500">{t.noBills}</div>}
+                  <div className="px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-300">{t.billsList}</div>
+                  {bills.length === 0 && <div className="px-3 py-4 text-center text-[12.5px] font-semibold text-slate-400">{t.noBills}</div>}
                   {bills.slice(0, 12).map((b) => (
-                    <div key={b.bill_no} className="flex items-center gap-2 border-t border-slate-100 px-3 py-2">
+                    <div key={b.bill_no} className="flex items-center gap-2 border-t border-slate-800 px-3 py-2">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-[13px] font-extrabold">{b.bill_no}</div>
-                        <div className="truncate text-[11px] font-semibold text-slate-500">{dmy(b.bill_date)}{b.location ? ` · ${b.location}` : ''}</div>
+                        <div className="truncate text-[11px] font-semibold text-slate-400">{dmy(b.bill_date)}{b.location ? ` · ${b.location}` : ''}</div>
                       </div>
                       <div className="text-right">
                         <div className="text-[13px] font-extrabold">{inrShort(b.total_net)}</div>
-                        <div className="text-[10.5px] font-bold text-slate-500">{b.status}</div>
+                        <div className="text-[10.5px] font-bold text-slate-400">{b.status}</div>
                       </div>
                     </div>
                   ))}
@@ -707,7 +707,7 @@ export default function CustomerApp() {
             ) : (
               <div className={`${CARD} px-3 py-4 text-center`}>
                 <div className="text-3xl">🔒</div>
-                <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-600">{t.ledgerLocked}</div>
+                <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-400">{t.ledgerLocked}</div>
               </div>
             )}
             <div className={CARD}>
@@ -716,7 +716,7 @@ export default function CustomerApp() {
                 [t.gst, me?.gst_no ?? '—'],
                 [t.payTerms, me?.payment_terms ? `${me.payment_terms}` : '—'],
                 [t.city, me?.city ?? '—'],
-                [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'en' ? 'English · हिं' : 'हिंदी · EN'}</button>],
+                [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-800 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'en' ? 'English · हिं' : 'हिंदी · EN'}</button>],
               ]} />
             </div>
             {/* BANK ACCOUNT (owner directive, 2026-09-03). The customer may
@@ -725,10 +725,10 @@ export default function CustomerApp() {
                 over a shoulder — and a request that is still with the office is
                 shown as such rather than as if it had already taken effect. */}
             <div className={CARD}>
-              <div className="flex items-center justify-between px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">
+              <div className="flex items-center justify-between px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-300">
                 🏦 {t.bankHead}
                 {bank?.request?.status === 'PENDING' && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-extrabold text-amber-800">{t.bankWait}</span>
+                  <span className="rounded-full bg-pending/15 px-2 py-0.5 text-[10.5px] font-extrabold text-pending">{t.bankWait}</span>
                 )}
               </div>
               {bank?.on_file?.present ? (
@@ -738,10 +738,10 @@ export default function CustomerApp() {
                   [t.bankIfsc, bank.on_file.ifsc_code ?? '—'],
                 ]} />
               ) : (
-                <div className="px-3 py-3 text-[12.5px] font-semibold text-slate-500">{t.bankNone}</div>
+                <div className="px-3 py-3 text-[12.5px] font-semibold text-slate-400">{t.bankNone}</div>
               )}
               {bank?.request?.status === 'PENDING' && (
-                <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold leading-snug text-amber-900">
+                <div className="mx-3 mb-2.5 rounded-xl bg-pending/10 px-3 py-2 text-[12px] font-semibold leading-snug text-pending">
                   {t.bankWaitSub}
                   <div className="mt-1 font-mono text-[11.5px] font-bold">
                     {bank.request.bank_name} · {bank.request.account_no_masked} · {bank.request.ifsc_code}
@@ -749,20 +749,20 @@ export default function CustomerApp() {
                 </div>
               )}
               {bank?.request?.status === 'REJECTED' && bank.request.reject_reason && (
-                <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-semibold leading-snug text-red-800">
+                <div className="mx-3 mb-2.5 rounded-xl bg-blocked/10 px-3 py-2 text-[12px] font-semibold leading-snug text-blocked">
                   <b>{t.bankRejected}:</b> {bank.request.reject_reason}
                 </div>
               )}
               <div className="px-3 pb-3">
                 <button
                   onClick={() => setView({ k: 'bank' })} disabled={viewAs}
-                  className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white text-[14px] font-extrabold disabled:opacity-50"
+                  className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 text-[14px] font-extrabold disabled:opacity-50"
                   data-bank-edit
                 >✏️ {t.bankUpdate}</button>
               </div>
             </div>
             <CallBar />
-            <button onClick={logout} className="min-h-[46px] rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">🚪 {t.logout}</button>
+            <button onClick={logout} className="min-h-[46px] rounded-2xl border-2 border-slate-700 bg-slate-900 text-[15px] font-extrabold">🚪 {t.logout}</button>
           </>
         )}
       </div>
@@ -805,7 +805,7 @@ export default function CustomerApp() {
       })();
       return () => { dead = true; if (obj) URL.revokeObjectURL(obj); };
     }, [p.file_key]);
-    if (state === 'ok') return <img src={url} alt={`POD ${p.ref}`} className="w-full rounded-2xl border-2 border-slate-200 bg-white object-contain" style={{ maxHeight: '52vh' }} />;
+    if (state === 'ok') return <img src={url} alt={`POD ${p.ref}`} className="w-full rounded-2xl border-2 border-slate-700 bg-slate-900 object-contain" style={{ maxHeight: '52vh' }} />;
     return (
       <button onClick={() => openPodFile(p)} className={`${CARD} grid min-h-[180px] place-items-center px-3 py-6 text-center`}>
         <div>
@@ -847,11 +847,11 @@ export default function CustomerApp() {
 
     return (
       <div className={SHELL} style={FONT} data-screen="track">
-        <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2">
-          <button onClick={() => setView({ k: 'tabs' })} className="min-h-[42px] rounded-full bg-slate-100 px-3.5 text-[16px] font-bold">‹</button>
+        <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-700 bg-slate-900 px-3 py-2">
+          <button onClick={() => setView({ k: 'tabs' })} className="min-h-[42px] rounded-full bg-slate-800 px-3.5 text-[16px] font-bold">‹</button>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[16px] font-extrabold leading-tight">{code} · <TruckNo n={x?.vehicle_no ?? tk?.vehicle_no} /></div>
-            <div className="truncate text-[11.5px] font-semibold text-slate-500">{x ? `${x.loading_point ?? '—'} → ${x.unloading_location ?? '—'}` : ''}{x?.product_type ? ` · ${x.product_type}` : ''}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-400">{x ? `${x.loading_point ?? '—'} → ${x.unloading_location ?? '—'}` : ''}{x?.product_type ? ` · ${x.product_type}` : ''}</div>
           </div>
           {x && <Pill s={x.status} label={statusWord(x.status)} />}
         </div>
@@ -860,21 +860,21 @@ export default function CustomerApp() {
           <RouteMap light height={mapH} className="!rounded-none !border-0"
             origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null} />
           <div className="pointer-events-none absolute left-2.5 right-2.5 top-2 z-[500] flex items-start justify-between gap-2">
-            <div className="pointer-events-auto rounded-xl bg-white px-2.5 py-1.5 text-[11px] font-bold shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
+            <div className="pointer-events-auto rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
               {pos ? <>📡 {t.via}: <b>{SOURCE[pos.source] ?? pos.source}</b> · {ago(tk?.age_min)}</> : <>📡 {t.viaNone}</>}
             </div>
           </div>
           <div className="absolute bottom-2 left-2.5 right-2.5 z-[500]">
-            <div className="rounded-xl bg-white px-2.5 py-1.5 text-[11px] leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
+            <div className="rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
               {tk?.eta ? (
                 <>
                   <b className="block text-[13.5px]">🕒 {t.eta} {hm(tk.eta.arrival_at)} · {tk.eta.remaining_km} {t.kmLeft}</b>
-                  <span className="text-slate-500">{pos?.speed_kmh != null ? `${Math.round(pos.speed_kmh)} km/h · ` : ''}{geo?.route?.distance_km ? `${t.routeIs} ${geo.route.distance_km} km` : ''}</span>
+                  <span className="text-slate-400">{pos?.speed_kmh != null ? `${Math.round(pos.speed_kmh)} km/h · ` : ''}{geo?.route?.distance_km ? `${t.routeIs} ${geo.route.distance_km} km` : ''}</span>
                 </>
               ) : (
                 <>
                   <b className="block text-[13.5px]">{geo?.route?.distance_km ? `🛣 ${t.routeIs} ${geo.route.distance_km} km` : `🛣 ${t.routeIs} —`}{geo?.route?.duration_min ? ` · ${t.about} ${Math.floor(geo.route.duration_min / 60)}h ${geo.route.duration_min % 60}m` : ''}</b>
-                  <span className="text-slate-500">{pos ? t.noEta : t.viaNoneSub}</span>
+                  <span className="text-slate-400">{pos ? t.noEta : t.viaNoneSub}</span>
                 </>
               )}
             </div>
@@ -894,13 +894,13 @@ export default function CustomerApp() {
             ].filter(Boolean).map((s, i) => (
               <div key={i} className="flex gap-2.5 py-1.5">
                 <div className={`mt-1 h-[12px] w-[12px] shrink-0 rounded-full ${s.on ? 'bg-green-600' : s.now ? 'bg-blue-600 ring-4 ring-blue-200' : 'bg-slate-300'}`} />
-                <div className="min-w-0"><div className="truncate text-[13.5px] font-extrabold">{s.title}</div><div className="truncate text-[11.5px] font-semibold text-slate-500">{s.sub}</div></div>
+                <div className="min-w-0"><div className="truncate text-[13.5px] font-extrabold">{s.title}</div><div className="truncate text-[11.5px] font-semibold text-slate-400">{s.sub}</div></div>
               </div>
             ))}
           </div>
           <div className="flex gap-2">
-            <a href={DISPATCH_TEL} className="min-h-[50px] flex-1 rounded-2xl bg-slate-900 py-3.5 text-center text-[15px] font-extrabold text-white">📞 {t.call}</a>
-            <button onClick={() => shareTrip(x ?? { trip_code: code, vehicle_no: tk?.vehicle_no, status: tk?.status }, tk)} className="min-h-[50px] flex-1 rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">📲 {t.share}</button>
+            <a href={DISPATCH_TEL} className="min-h-[50px] flex-1 rounded-2xl bg-live py-3.5 text-center text-[15px] font-extrabold text-slate-950">📞 {t.call}</a>
+            <button onClick={() => shareTrip(x ?? { trip_code: code, vehicle_no: tk?.vehicle_no, status: tk?.status }, tk)} className="min-h-[50px] flex-1 rounded-2xl border-2 border-slate-700 bg-slate-900 text-[15px] font-extrabold">📲 {t.share}</button>
           </div>
         </div>
       </div>
@@ -955,28 +955,28 @@ export default function CustomerApp() {
 
           {load?.status !== 'AWARDED' && (
             <>
-              <div className="px-0.5 text-[12.5px] font-extrabold text-slate-700">{t.offers} {bids?.length ? `(${bids.length})` : ''}</div>
-              {bids === null && <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500`}>{t.loading}</div>}
-              {bids?.length === 0 && <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold leading-snug text-slate-500`}>{t.noOffers}</div>}
+              <div className="px-0.5 text-[12.5px] font-extrabold text-slate-300">{t.offers} {bids?.length ? `(${bids.length})` : ''}</div>
+              {bids === null && <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-400`}>{t.loading}</div>}
+              {bids?.length === 0 && <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold leading-snug text-slate-400`}>{t.noOffers}</div>}
               {bids?.map((b, i) => (
-                <div key={b.id} className={`${CARD} ${i === 0 ? 'border-green-300' : ''} px-3 py-2.5`}>
+                <div key={b.id} className={`${CARD} ${i === 0 ? 'border-active/45' : ''} px-3 py-2.5`}>
                   <div className="flex items-center gap-2.5">
                     <span className="text-[20px]">{['🥇', '🥈', '🥉'][i] ?? '📦'}</span>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13.5px] font-extrabold">{b.vendor_name ?? `${t.offers} ${i + 1}`}</div>
-                      <div className="truncate text-[11px] font-semibold text-slate-500">{[b.remarks, dmy(b.created_at)].filter(Boolean).join(' · ')}</div>
+                      <div className="truncate text-[11px] font-semibold text-slate-400">{[b.remarks, dmy(b.created_at)].filter(Boolean).join(' · ')}</div>
                     </div>
-                    <div className={`text-[15px] font-black ${i === 0 ? 'text-green-700' : ''}`}>{inr(b.bid_amount)}</div>
+                    <div className={`text-[15px] font-black ${i === 0 ? 'text-active' : ''}`}>{inr(b.bid_amount)}</div>
                   </div>
                   {canAccept && b.status === 'PENDING' && (
                     <button onClick={() => accept(b)} disabled={!!sending} className="mt-2 min-h-[44px] w-full rounded-xl bg-green-600 text-[14px] font-extrabold text-white disabled:opacity-60">
                       {sending === b.id ? t.accepting : `✅ ${t.accept}`}
                     </button>
                   )}
-                  {b.status === 'ACCEPTED' && <div className="mt-2 rounded-xl bg-green-50 px-2.5 py-1.5 text-[11.5px] font-bold text-green-800">✅ {t.stAwarded}</div>}
+                  {b.status === 'ACCEPTED' && <div className="mt-2 rounded-xl bg-active/10 px-2.5 py-1.5 text-[11.5px] font-bold text-active">✅ {t.stAwarded}</div>}
                 </div>
               ))}
-              <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.awardNote}</div>
+              <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.awardNote}</div>
             </>
           )}
           <CallBar />
@@ -1027,21 +1027,21 @@ export default function CustomerApp() {
       setView({ k: 'tabs' });
     };
 
-    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
+    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-400">{children}</div>;
     // `invalid` is ours, not the DOM's — spreading it onto <input> makes React
     // warn about a non-boolean attribute, so it is pulled out of the rest.
     const Inp = ({ invalid, className, ...rest }) => (
-      <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-white px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-300 focus:border-blue-500'} ${className ?? ''}`} />
+      <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-slate-900 px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-700 focus:border-blue-500'} ${className ?? ''}`} />
     );
 
     return (
       <div className={SHELL} style={FONT} data-screen="bankedit">
         <Bar title={t.bankUpdate} back={() => setView({ k: 'tabs' })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bankNote}</div>
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.bankNote}</div>
           {on.present && (
             <div className={`${CARD} px-3 py-2.5`}>
-              <div className="text-[11px] font-extrabold text-slate-500">{lang === 'en' ? 'On file now' : 'अभी दर्ज है'}</div>
+              <div className="text-[11px] font-extrabold text-slate-400">{lang === 'en' ? 'On file now' : 'अभी दर्ज है'}</div>
               <div className="mt-0.5 font-mono text-[13px] font-bold">{on.bank_name} · {on.account_no_masked} · {on.ifsc_code}</div>
             </div>
           )}
@@ -1049,14 +1049,14 @@ export default function CustomerApp() {
           <div>
             <Lbl>{t.bankAcct}</Lbl>
             <Inp value={f.account_no} invalid={!!err.account_no} inputMode="numeric" onChange={(e) => set('account_no', e.target.value.replace(/[^0-9]/g, ''))} placeholder="30123456789" className="font-mono tracking-wide" data-bank="account_no" />
-            {err.account_no && <div className="mt-1 text-[11.5px] font-bold text-red-700">{err.account_no}</div>}
+            {err.account_no && <div className="mt-1 text-[11.5px] font-bold text-blocked">{err.account_no}</div>}
           </div>
           <div>
             <Lbl>{t.bankIfsc}</Lbl>
             <Inp value={f.ifsc_code} invalid={!!err.ifsc_code} onChange={(e) => set('ifsc_code', e.target.value.toUpperCase())} placeholder="SBIN0001234" className="font-mono tracking-wide" data-bank="ifsc_code" />
-            {err.ifsc_code && <div className="mt-1 text-[11.5px] font-bold text-red-700">{err.ifsc_code}</div>}
+            {err.ifsc_code && <div className="mt-1 text-[11.5px] font-bold text-blocked">{err.ifsc_code}</div>}
           </div>
-          {msg && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{msg}</div>}
+          {msg && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{msg}</div>}
           <button onClick={send} disabled={busy} className="min-h-[62px] w-full rounded-2xl bg-blue-600 text-[19px] font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-bank-send>
             {busy ? t.bankSending : `📤 ${t.bankSend}`}
           </button>
@@ -1097,9 +1097,9 @@ export default function CustomerApp() {
     }, [f.origin, f.destination]);
     const MATERIALS = ['Cement', 'Steel', 'Tea', 'HSD', 'MS', 'Other'];
     const VTYPES = ['Open 10-wheel', 'Trailer', 'Container', 'Tanker'];
-    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
-    const Inp = (props) => <input {...props} className={`min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500 ${props.className ?? ''}`} />;
-    const Chip = ({ on, children, onClick }) => <button type="button" onClick={onClick} className={`min-h-[38px] rounded-full border-2 px-3 text-[13px] font-extrabold ${on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-800'}`}>{children}</button>;
+    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-400">{children}</div>;
+    const Inp = (props) => <input {...props} className={`min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 px-3 text-[16px] font-bold outline-none focus:border-blue-500 ${props.className ?? ''}`} />;
+    const Chip = ({ on, children, onClick }) => <button type="button" onClick={onClick} className={`min-h-[38px] rounded-full border-2 px-3 text-[13px] font-extrabold ${on ? 'border-slate-900 bg-live text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-200'}`}>{children}</button>;
 
     const send = async () => {
       setSendErr('');
@@ -1160,7 +1160,7 @@ export default function CustomerApp() {
               <Lbl>{t.fromLbl}</Lbl>
               <PlaceInput value={f.origin} onChange={(v) => set('origin', v)} placeholder="Guwahati"
                 onResolved={(p) => set('origin_place_id', p?.place_id ?? '')}
-                className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500"
+                className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 px-3 text-[16px] font-bold outline-none focus:border-blue-500"
                 id="lane-origin" />
               <input type="hidden" value={f.origin} data-origin readOnly />
             </div>
@@ -1168,7 +1168,7 @@ export default function CustomerApp() {
               <Lbl>{t.toLbl}</Lbl>
               <PlaceInput value={f.destination} onChange={(v) => set('destination', v)} placeholder="Agartala"
                 onResolved={(p) => set('dest_place_id', p?.place_id ?? '')}
-                className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500"
+                className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 px-3 text-[16px] font-bold outline-none focus:border-blue-500"
                 id="lane-dest" />
               <input type="hidden" value={f.destination} data-destination readOnly />
             </div>
@@ -1178,18 +1178,18 @@ export default function CustomerApp() {
                 runs and one nobody has checked must not read the same. */}
             {(laneBusy || lane) && (
               <div className={`${CARD} px-3 py-2.5`} data-lane>
-                {laneBusy && !lane && <div className="text-[12.5px] font-semibold text-slate-500">{t.laneLooking}</div>}
+                {laneBusy && !lane && <div className="text-[12.5px] font-semibold text-slate-400">{t.laneLooking}</div>}
                 {lane && (
                   <>
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-[12px] font-semibold text-slate-500">{t.laneKm}</span>
+                      <span className="text-[12px] font-semibold text-slate-400">{t.laneKm}</span>
                       <span className="text-[15px] font-extrabold">{lane.km ? `${lane.km} km` : '—'}</span>
                     </div>
                     <div className="mt-1 flex items-baseline justify-between gap-3">
-                      <span className="text-[12px] font-semibold text-slate-500">{t.laneToll}</span>
+                      <span className="text-[12px] font-semibold text-slate-400">{t.laneToll}</span>
                       <span className="text-[15px] font-extrabold">{lane.toll != null ? inr(lane.toll) : '—'}</span>
                     </div>
-                    <div className={`mt-1 text-[11.5px] font-bold ${lane.toll_source === 'OUR_TRIPS' ? 'text-green-700' : 'text-amber-700'}`}>
+                    <div className={`mt-1 text-[11.5px] font-bold ${lane.toll_source === 'OUR_TRIPS' ? 'text-active' : 'text-pending'}`}>
                       {lane.toll_source === 'OUR_TRIPS' ? `✓ ${t.laneMeasured}` : t.laneNoData}
                     </div>
                     <div className="mt-1 text-[11px] font-semibold text-slate-400">
@@ -1213,8 +1213,8 @@ export default function CustomerApp() {
             </div>
             <div><Lbl>{t.targetOpt}</Lbl><Inp inputMode="decimal" value={f.target_rate} onChange={(e) => set('target_rate', e.target.value)} placeholder={`₹ · ${t.perTrip}`} /></div>
           </div>
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.newNote}</div>
-          {sendErr && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{sendErr}</div>}
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.newNote}</div>
+          {sendErr && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{sendErr}</div>}
           <button onClick={send} disabled={sendBusy || viewAs} className="min-h-[62px] rounded-2xl bg-violet-600 text-[19px] font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-send>
             {sendBusy ? t.sending : `📤 ${t.sendOffice}`}
           </button>

@@ -203,7 +203,7 @@ const T = {
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
 const SHELL = APP_SHELL;
-const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
+const CARD = 'rounded-2xl border-2 border-slate-700 bg-slate-900 bg-deck-card shadow-deck';
 
 // The settlement's own vocabulary, and who owns each step. `nextMove` below is
 // the whole point of the screen: it decides whether the partner sees a button
@@ -215,21 +215,21 @@ const LIVE = new Set(STAGES.slice(0, 6));
 const DOC_TYPES = ['RC', 'INSURANCE', 'FITNESS', 'PERMIT', 'PUC'];
 
 const PILL = {
-  AWAITING_CONFIRM: 'bg-amber-100 text-amber-800',
-  CONFIRMED: 'bg-blue-100 text-blue-800',
+  AWAITING_CONFIRM: 'bg-pending/15 text-pending',
+  CONFIRMED: 'bg-live/15 text-live',
   VEHICLE_ASSIGNED: 'bg-indigo-100 text-indigo-800',
-  ADVANCE_PAID: 'bg-violet-100 text-violet-800',
-  POD_SUBMITTED: 'bg-cyan-100 text-cyan-800',
+  ADVANCE_PAID: 'bg-mamta/15 text-mamta',
+  POD_SUBMITTED: 'bg-live/15 text-live',
   POD_VERIFIED: 'bg-teal-100 text-teal-800',
-  SETTLED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-700',
-  'System Active': 'bg-green-100 text-green-800',
-  'PENDING APPROVAL': 'bg-amber-100 text-amber-800',
-  BLOCKED: 'bg-red-100 text-red-700',
-  REJECTED: 'bg-red-100 text-red-700',
-  PENDING: 'bg-amber-100 text-amber-800',
-  APPROVED: 'bg-green-100 text-green-800',
-  NEEDS_CORRECTION: 'bg-red-100 text-red-700',
+  SETTLED: 'bg-active/15 text-active',
+  CANCELLED: 'bg-blocked/15 text-blocked',
+  'System Active': 'bg-active/15 text-active',
+  'PENDING APPROVAL': 'bg-pending/15 text-pending',
+  BLOCKED: 'bg-blocked/15 text-blocked',
+  REJECTED: 'bg-blocked/15 text-blocked',
+  PENDING: 'bg-pending/15 text-pending',
+  APPROVED: 'bg-active/15 text-active',
+  NEEDS_CORRECTION: 'bg-blocked/15 text-blocked',
 };
 
 export default function FleetPartnerApp() {
@@ -290,33 +290,33 @@ export default function FleetPartnerApp() {
 
   // ── shared bits ───────────────────────────────────────────────────────────
   const Bar = ({ title, sub, back }) => (
-    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2.5">
-      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-100 px-3.5 text-[16px] font-bold">‹</button>}
+    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-700 bg-slate-900 px-3 py-2.5">
+      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-800 px-3.5 text-[16px] font-bold">‹</button>}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[17px] font-extrabold leading-tight">{title}</div>
-        {sub && <div className="truncate text-[11.5px] font-semibold text-slate-500">{sub}</div>}
+        {sub && <div className="truncate text-[11.5px] font-semibold text-slate-400">{sub}</div>}
       </div>
-      <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+      <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
     </div>
   );
-  const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-extrabold ${PILL[s] ?? 'bg-slate-100 text-slate-600'}`}>{label ?? s}</span>;
-  const TruckNo = ({ n }) => (n ? <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-amber-900">{n}</span> : null);
+  const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-extrabold ${PILL[s] ?? 'bg-slate-800 text-slate-400'}`}>{label ?? s}</span>;
+  const TruckNo = ({ n }) => (n ? <span className="inline-block rounded-md bg-pending/15 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-pending">{n}</span> : null);
   const KV = ({ rows }) => (
     <div className="px-3 py-2">
       {rows.filter(Boolean).map(([k, v, cls]) => (
-        <div key={k} className="flex items-baseline justify-between gap-3 border-b border-slate-100 py-1.5 last:border-0">
-          <span className="shrink-0 text-[12px] font-semibold text-slate-500">{k}</span>
+        <div key={k} className="flex items-baseline justify-between gap-3 border-b border-slate-800 py-1.5 last:border-0">
+          <span className="shrink-0 text-[12px] font-semibold text-slate-400">{k}</span>
           <span className={`min-w-0 truncate text-right text-[13.5px] font-extrabold ${cls ?? ''}`}>{v}</span>
         </div>
       ))}
     </div>
   );
-  const CallBar = () => <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-slate-900 py-3 text-center text-[15px] font-extrabold text-white">📞 {t.call}</a>;
-  const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
+  const CallBar = () => <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-live py-3 text-center text-[15px] font-extrabold text-slate-950">📞 {t.call}</a>;
+  const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-400">{children}</div>;
   // `invalid` is ours, not the DOM's — spreading it onto <input> makes React
   // warn about a non-boolean attribute.
   const Inp = ({ invalid, className, ...rest }) => (
-    <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-white px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-300 focus:border-blue-500'} ${className ?? ''}`} />
+    <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-slate-900 px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-700 focus:border-blue-500'} ${className ?? ''}`} />
   );
 
   const Steps = ({ n }) => {
@@ -327,9 +327,9 @@ export default function FleetPartnerApp() {
       <div className="flex items-start px-0.5 py-1">
         {labels.map((l, i) => (
           <div key={l} className="relative flex flex-1 flex-col items-center gap-0.5 text-center text-[8.5px] font-extrabold">
-            <i className={`grid h-[20px] w-[20px] place-items-center rounded-full not-italic text-[10px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-200 text-slate-500'}`}>{i < n ? '✓' : i + 1}</i>
-            <span className={i <= n ? 'text-slate-900' : 'text-slate-400'}>{l}</span>
-            {i < labels.length - 1 && <span className={`absolute left-[calc(50%+10px)] top-[9px] h-[2px] w-[calc(100%-20px)] ${i < n ? 'bg-green-600' : 'bg-slate-200'}`} />}
+            <i className={`grid h-[20px] w-[20px] place-items-center rounded-full not-italic text-[10px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-700 text-slate-400'}`}>{i < n ? '✓' : i + 1}</i>
+            <span className={i <= n ? 'text-slate-100' : 'text-slate-400'}>{l}</span>
+            {i < labels.length - 1 && <span className={`absolute left-[calc(50%+10px)] top-[9px] h-[2px] w-[calc(100%-20px)] ${i < n ? 'bg-green-600' : 'bg-slate-700'}`} />}
           </div>
         ))}
       </div>
@@ -351,18 +351,18 @@ export default function FleetPartnerApp() {
   }[s.status] ?? null);
 
   function Toast() {
-    return <div className="fixed bottom-24 left-1/2 z-50 w-[86%] max-w-sm -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-center text-[14px] font-extrabold text-white shadow-lg">{toast}</div>;
+    return <div className="fixed bottom-24 left-1/2 z-50 w-[86%] max-w-sm -translate-x-1/2 rounded-2xl bg-live px-4 py-3 text-center text-[14px] font-extrabold text-slate-950 shadow-lg">{toast}</div>;
   }
 
   // ══ GATES ═════════════════════════════════════════════════════════════════
-  if (gate === 'loading') return <div className={`${SHELL} items-center justify-center`} style={FONT}><div className="text-[13px] font-semibold text-slate-500">…</div></div>;
+  if (gate === 'loading') return <div className={`${SHELL} items-center justify-center`} style={FONT}><div className="text-[13px] font-semibold text-slate-400">…</div></div>;
   if (gate !== 'ok') {
     return (
       <div className={`${SHELL} items-center justify-center px-6 text-center`} style={FONT} data-screen="gate">
         <div className="text-5xl">{gate === 'not_approved' ? '⏳' : '⚠️'}</div>
         <div className="mt-3 text-[19px] font-extrabold">{gate === 'not_approved' ? t.notApproved : '—'}</div>
-        <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-600">{gateMsg}</div>
-        <a href={DISPATCH_TEL} className="mt-5 min-h-[52px] w-full rounded-2xl bg-slate-900 py-3.5 text-[16px] font-extrabold text-white">📞 {t.call}</a>
+        <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-400">{gateMsg}</div>
+        <a href={DISPATCH_TEL} className="mt-5 min-h-[52px] w-full rounded-2xl bg-live py-3.5 text-[16px] font-extrabold text-slate-950">📞 {t.call}</a>
       </div>
     );
   }
@@ -407,30 +407,30 @@ export default function FleetPartnerApp() {
           {/* Money, and only what the office has actually done. The deposit line
               appears only when a deposit was taken (owner's rule from the mock). */}
           <div className={CARD}>
-            <div className="px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">💰 {t.amount}</div>
+            <div className="px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-300">💰 {t.amount}</div>
             <KV rows={[
-              [t.amount, inr(s.awarded_amount), 'text-slate-900'],
-              Number(s.deposit_amount) > 0 ? [t.deposit, inr(s.deposit_amount), 'text-amber-700'] : null,
-              [t.advance, inr(s.advance_amount), stageIndex(s.status) >= 3 ? 'text-green-700' : 'text-slate-400'],
-              [t.balance, inr(s.balance_amount), s.status === 'SETTLED' ? 'text-green-700' : 'text-slate-400'],
+              [t.amount, inr(s.awarded_amount), 'text-slate-100'],
+              Number(s.deposit_amount) > 0 ? [t.deposit, inr(s.deposit_amount), 'text-pending'] : null,
+              [t.advance, inr(s.advance_amount), stageIndex(s.status) >= 3 ? 'text-active' : 'text-slate-400'],
+              [t.balance, inr(s.balance_amount), s.status === 'SETTLED' ? 'text-active' : 'text-slate-400'],
             ]} />
-            <div className="mx-3 mb-2.5 rounded-xl bg-blue-50 px-3 py-2 text-[12px] font-semibold leading-snug text-blue-900">{t.moneyNote}</div>
+            <div className="mx-3 mb-2.5 rounded-xl bg-live/10 px-3 py-2 text-[12px] font-semibold leading-snug text-live">{t.moneyNote}</div>
           </div>
 
           {LIVE.has(s.status) && (
             <div className={`${CARD} px-3 py-3 text-center`}>
               <div className="text-2xl">📍</div>
-              <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.noPosition}</div>
-              <div className="mt-0.5 text-[11.5px] font-semibold leading-snug text-slate-500">{t.noPositionSub}</div>
+              <div className="mt-1 text-[13px] font-extrabold text-slate-300">{t.noPosition}</div>
+              <div className="mt-0.5 text-[11.5px] font-semibold leading-snug text-slate-400">{t.noPositionSub}</div>
             </div>
           )}
 
           {s.status === 'AWAITING_CONFIRM' && dl && (
-            <div className={`rounded-2xl px-3 py-2.5 text-[12.5px] font-extrabold ${dl.over ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-900'}`}>
+            <div className={`rounded-2xl px-3 py-2.5 text-[12.5px] font-extrabold ${dl.over ? 'bg-blocked/10 text-blocked' : 'bg-pending/10 text-pending'}`}>
               {dl.over ? `⏰ ${t.overdue}` : `⏰ ${dl.h}h ${dl.m}m — ${t.confirmBy} ${dmyt(s.confirm_deadline)}`}
             </div>
           )}
-          {s.cancel_reason && <div className="rounded-2xl bg-red-50 px-3 py-2.5 text-[12.5px] font-extrabold text-red-800">{s.cancel_reason}</div>}
+          {s.cancel_reason && <div className="rounded-2xl bg-blocked/10 px-3 py-2.5 text-[12.5px] font-extrabold text-blocked">{s.cancel_reason}</div>}
           <CallBar />
         </div>
 
@@ -446,9 +446,9 @@ export default function FleetPartnerApp() {
               >{mv.label}</button>
             </>
           ) : (
-            <div className="rounded-2xl bg-slate-100 px-3 py-3 text-center">
+            <div className="rounded-2xl bg-slate-800 px-3 py-3 text-center">
               <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{t.officeSide}</div>
-              <div className="text-[15px] font-extrabold text-slate-700">{wait ?? '—'}</div>
+              <div className="text-[15px] font-extrabold text-slate-300">{wait ?? '—'}</div>
             </div>
           )}
         </div>
@@ -492,13 +492,13 @@ export default function FleetPartnerApp() {
               [t.bidsWord, String(l.bid_count ?? 0)],
             ]} />
           </div>
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bidNote}</div>
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.bidNote}</div>
           <div>
             <Lbl>{t.bidAmt}</Lbl>
             <Inp inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value.replace(/[^0-9.]/g, '')); setErr(''); }}
               placeholder="₹" className="font-mono text-[20px]" data-bid-amount />
           </div>
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
           <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-bid-send>
             {busy ? t.sending : `💰 ${t.bidSend}`}
           </button>
@@ -535,11 +535,11 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="assign">
         <Bar title={t.assignTitle} sub={`${s.origin} → ${s.destination}`} back={() => setView({ k: 'trip', id: s.id })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.onlyApproved}</div>
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.onlyApproved}</div>
           {trucks.length === 0 ? (
             <div className={`${CARD} px-3 py-5 text-center`}>
               <div className="text-3xl">🚛</div>
-              <div className="mt-1 text-[13.5px] font-extrabold text-slate-700">{t.noApproved}</div>
+              <div className="mt-1 text-[13.5px] font-extrabold text-slate-300">{t.noApproved}</div>
               <button onClick={() => setView({ k: 'addTruck' })} className="mt-3 min-h-[46px] w-full rounded-xl bg-blue-600 text-[15px] font-extrabold text-white">{t.addTruck}</button>
             </div>
           ) : (
@@ -549,11 +549,11 @@ export default function FleetPartnerApp() {
                 <div className="space-y-2">
                   {trucks.map((v) => (
                     <button key={v.id} onClick={() => setTruck(v.id)} data-truck={v.registration_no}
-                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${truck === v.id ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${truck === v.id ? 'border-blue-500 bg-live/10' : 'border-slate-700 bg-slate-900'}`}>
                       <span className="text-[20px]">{truck === v.id ? '🔘' : '⚪'}</span>
                       <span className="min-w-0 flex-1">
                         <TruckNo n={v.registration_no} />
-                        <span className="ml-1.5 text-[11.5px] font-semibold text-slate-500">{[v.vehicle_class, v.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ')}</span>
+                        <span className="ml-1.5 text-[11.5px] font-semibold text-slate-400">{[v.vehicle_class, v.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ')}</span>
                       </span>
                     </button>
                   ))}
@@ -564,15 +564,15 @@ export default function FleetPartnerApp() {
                 <div className="space-y-2">
                   {drivers.map((d) => (
                     <button key={d.id} onClick={() => setDriver(driver === d.id ? '' : d.id)}
-                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${driver === d.id ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${driver === d.id ? 'border-blue-500 bg-live/10' : 'border-slate-700 bg-slate-900'}`}>
                       <span className="text-[20px]">{driver === d.id ? '🔘' : '⚪'}</span>
-                      <span className="min-w-0 flex-1 text-[14px] font-extrabold">{d.name}<span className="ml-1.5 font-mono text-[11.5px] font-semibold text-slate-500">{d.mobile}</span></span>
+                      <span className="min-w-0 flex-1 text-[14px] font-extrabold">{d.name}<span className="ml-1.5 font-mono text-[11.5px] font-semibold text-slate-400">{d.mobile}</span></span>
                     </button>
                   ))}
-                  {drivers.length === 0 && <div className="rounded-xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-500">{t.noDrivers}</div>}
+                  {drivers.length === 0 && <div className="rounded-xl bg-slate-800 px-3 py-2 text-[12px] font-semibold text-slate-400">{t.noDrivers}</div>}
                 </div>
               </div>
-              {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+              {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
               <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-assign-send>
                 {busy ? t.sending : t.save}
               </button>
@@ -594,15 +594,15 @@ export default function FleetPartnerApp() {
       <>
         <input ref={cam} type="file" accept="image/*" capture="environment" hidden data-cam onChange={take} />
         <input ref={gal} type="file" accept="image/*,application/pdf" hidden data-gal onChange={take} />
-        <button onClick={() => cam.current?.click()} className="min-h-[58px] w-full rounded-2xl bg-slate-900 text-[17px] font-extrabold text-white">{t.camera}</button>
-        <button onClick={() => gal.current?.click()} className="min-h-[50px] w-full rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">{t.gallery}</button>
+        <button onClick={() => cam.current?.click()} className="min-h-[58px] w-full rounded-2xl bg-live text-[17px] font-extrabold text-slate-950">{t.camera}</button>
+        <button onClick={() => gal.current?.click()} className="min-h-[50px] w-full rounded-2xl border-2 border-slate-700 bg-slate-900 text-[15px] font-extrabold">{t.gallery}</button>
         {file && (
           <div className={`${CARD} px-3 py-2.5`}>
-            <div className="text-[11px] font-extrabold text-slate-500">📎</div>
+            <div className="text-[11px] font-extrabold text-slate-400">📎</div>
             <div className="truncate text-[13.5px] font-extrabold">{file.name || 'photo.jpg'}</div>
           </div>
         )}
-        {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+        {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
         <button onClick={onSend} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-violet-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-send>
           {busy ? t.sending : `📤 ${t.send}`}
         </button>
@@ -634,10 +634,10 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="pod">
         <Bar title={t.podTitle} sub={`${s.load_id} · ${s.origin} → ${s.destination}`} back={() => setView({ k: 'trip', id: s.id })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-violet-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-violet-900">{t.podBody}</div>
+          <div className="rounded-2xl bg-mamta/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-mamta">{t.podBody}</div>
           {/* The driver may already have sent one — the desk verifies once, and
               whoever gets to it first is fine (owner's rule). */}
-          {s.pod_submitted_at && <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold text-amber-900">{t.podAlready} · {dmyt(s.pod_submitted_at)}</div>}
+          {s.pod_submitted_at && <div className="rounded-2xl bg-pending/10 px-3 py-2.5 text-[12.5px] font-semibold text-pending">{t.podAlready} · {dmyt(s.pod_submitted_at)}</div>}
           <Uploader onSend={send} busy={busy} err={err} file={file} setFile={(f) => { setFile(f); setErr(''); }} />
         </div>
         {toast && <Toast />}
@@ -665,14 +665,14 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="truck">
         <Bar title={v?.registration_no ?? '—'} sub={[v?.vehicle_class, v?.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ')} back={() => setView({ k: 'tabs' })} />
         <div className="flex-1 space-y-2.5 overflow-y-auto p-3 pb-24">
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
-          {!d && !err && <div className="py-8 text-center text-[13px] font-semibold text-slate-500">…</div>}
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
+          {!d && !err && <div className="py-8 text-center text-[13px] font-semibold text-slate-400">…</div>}
 
           {v && (
             <>
               <div className={CARD}>
                 <div className="flex items-center justify-between px-3 pt-2.5">
-                  <span className="text-[12.5px] font-extrabold text-slate-700">🚛 {t.truck}</span>
+                  <span className="text-[12.5px] font-extrabold text-slate-300">🚛 {t.truck}</span>
                   <Pill s={v.system_status} />
                 </div>
                 <KV rows={[
@@ -686,7 +686,7 @@ export default function FleetPartnerApp() {
                 {!blocked && (
                   <div className="px-3 pb-3">
                     <button onClick={() => setView({ k: 'editTruck', id: v.id })} disabled={viewAs}
-                      className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white text-[14px] font-extrabold disabled:opacity-50" data-edit-truck>
+                      className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 text-[14px] font-extrabold disabled:opacity-50" data-edit-truck>
                       ✏️ {t.editTruck}
                     </button>
                   </div>
@@ -694,10 +694,10 @@ export default function FleetPartnerApp() {
               </div>
 
               {blocked && (
-                <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-3">
-                  <div className="text-[14px] font-extrabold text-red-800">🚫 {t.blockedTitle}</div>
-                  {v.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-red-900">{v.reject_reason}</div>}
-                  <div className="mt-1 text-[11.5px] font-semibold text-red-900/75">{t.blockedNote}</div>
+                <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-3">
+                  <div className="text-[14px] font-extrabold text-blocked">🚫 {t.blockedTitle}</div>
+                  {v.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-blocked">{v.reject_reason}</div>}
+                  <div className="mt-1 text-[11.5px] font-semibold text-blocked/75">{t.blockedNote}</div>
                   <a href={DISPATCH_TEL} className="mt-2 block min-h-[46px] rounded-xl bg-red-600 py-3 text-center text-[15px] font-extrabold text-white">📞 {t.callOffice}</a>
                 </div>
               )}
@@ -706,16 +706,16 @@ export default function FleetPartnerApp() {
                   it is, and either a renewal button or what is already with the
                   office for it. The date itself is never an input here. */}
               <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-[13px] font-extrabold text-slate-700">📄 {t.papers}</span>
+                <span className="text-[13px] font-extrabold text-slate-300">📄 {t.papers}</span>
               </div>
-              <div className="rounded-2xl bg-blue-50 px-3 py-2 text-[12px] font-semibold leading-snug text-blue-900">{t.paperNote}</div>
+              <div className="rounded-2xl bg-live/10 px-3 py-2 text-[12px] font-semibold leading-snug text-live">{t.paperNote}</div>
 
               {(d.papers ?? []).map((p) => {
                 const n = daysTo(p.expiry);
-                const tone = p.expiry == null ? 'bg-slate-100 text-slate-600'
-                  : n < 0 ? 'bg-red-100 text-red-700'
-                  : n <= 30 ? 'bg-amber-100 text-amber-800'
-                  : 'bg-green-100 text-green-800';
+                const tone = p.expiry == null ? 'bg-slate-800 text-slate-400'
+                  : n < 0 ? 'bg-blocked/15 text-blocked'
+                  : n <= 30 ? 'bg-pending/15 text-pending'
+                  : 'bg-active/15 text-active';
                 const note = p.expiry == null ? t.noDate
                   : n < 0 ? `${t.expired} · ${dmy(p.expiry)}`
                   : `${n} ${t.expiringIn} · ${dmy(p.expiry)}`;
@@ -737,12 +737,12 @@ export default function FleetPartnerApp() {
                         )}
                     </div>
                     {p.pending && (
-                      <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold text-amber-900">
+                      <div className="mx-3 mb-2.5 rounded-xl bg-pending/10 px-3 py-2 text-[12px] font-semibold text-pending">
                         {dmy(p.pending.expiry_date)} · {dmyt(p.pending.created_at)}
                       </div>
                     )}
                     {p.last_reject && (
-                      <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-semibold text-red-800">
+                      <div className="mx-3 mb-2.5 rounded-xl bg-blocked/10 px-3 py-2 text-[12px] font-semibold text-blocked">
                         <b>{t.rejected}:</b> {p.last_reject.reject_reason ?? '—'}
                       </div>
                     )}
@@ -750,14 +750,14 @@ export default function FleetPartnerApp() {
                 );
               })}
 
-              <div className="mt-1 text-[13px] font-extrabold text-slate-700">🗂 {t.docHistory}</div>
+              <div className="mt-1 text-[13px] font-extrabold text-slate-300">🗂 {t.docHistory}</div>
               {(d.documents ?? []).length === 0
-                ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500`}>{t.noDocs}</div>
+                ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-400`}>{t.noDocs}</div>
                 : (d.documents ?? []).slice(0, 15).map((x) => (
                   <div key={x.id} className={`${CARD} flex items-center gap-2 px-3 py-2`}>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-extrabold">{t[x.doc_type] ?? x.doc_type}{x.doc_no ? ` · ${x.doc_no}` : ''}</div>
-                      <div className="truncate text-[11px] font-semibold text-slate-500">{dmy(x.expiry_date)} · {dmyt(x.created_at)}</div>
+                      <div className="truncate text-[11px] font-semibold text-slate-400">{dmy(x.expiry_date)} · {dmyt(x.created_at)}</div>
                     </div>
                     <Pill s={x.status} />
                   </div>
@@ -801,7 +801,7 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="renew">
         <Bar title={`${t.renewTitle} — ${t[docType]}`} back={() => setView({ k: 'truck', id })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.paperNote}</div>
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.paperNote}</div>
           <div><Lbl>{t.newExpiry}</Lbl><Inp type="date" value={expiry} min={today()} onChange={(e) => { setExpiry(e.target.value); setErr(''); }} data-expiry /></div>
           <div><Lbl>{t.docNo}</Lbl><Inp value={docNo} onChange={(e) => setDocNo(e.target.value.toUpperCase())} placeholder="POL-123456" className="font-mono" data-docno /></div>
           <Uploader onSend={send} busy={busy} err={err} file={file} setFile={(f) => { setFile(f); setErr(''); }} />
@@ -839,7 +839,7 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="edittruck">
         <Bar title={t.editTruck} sub={v.registration_no} back={() => setView({ k: 'truck', id })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-slate-100 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-slate-700">{t.detailsNote}</div>
+          <div className="rounded-2xl bg-slate-800 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-slate-300">{t.detailsNote}</div>
           <div><Lbl>{t.regNo}</Lbl><Inp value={v.registration_no} disabled className="font-mono opacity-60" /></div>
           <div className="grid grid-cols-2 gap-2">
             <div><Lbl>{t.vclass}</Lbl><Inp value={f.vehicle_class ?? ''} onChange={(e) => set('vehicle_class', e.target.value)} placeholder="Oil Tanker" data-e="vehicle_class" /></div>
@@ -847,7 +847,7 @@ export default function FleetPartnerApp() {
           </div>
           <div><Lbl>{t.engineNo}</Lbl><Inp value={f.engine_no ?? ''} onChange={(e) => set('engine_no', e.target.value.toUpperCase())} className="font-mono" data-e="engine_no" /></div>
           <div><Lbl>{t.chassisNo}</Lbl><Inp value={f.chassis_no ?? ''} onChange={(e) => set('chassis_no', e.target.value.toUpperCase())} className="font-mono" data-e="chassis_no" /></div>
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
           <button onClick={save} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-edit-send>
             {busy ? t.sending : `💾 ${t.saveEdit}`}
           </button>
@@ -874,19 +874,19 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="addtruck">
         <Bar title={t.addTruck} back={() => setView({ k: 'tabs' })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">{t.pendingNote}</div>
+          <div className="rounded-2xl bg-pending/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-pending">{t.pendingNote}</div>
           <div><Lbl>{t.regNo}</Lbl><Inp value={f.registration_no} onChange={(e) => set('registration_no', e.target.value.toUpperCase())} placeholder="AS01AB1234" className="font-mono tracking-wide" data-v="registration_no" /></div>
           <div className="grid grid-cols-2 gap-2">
             <div><Lbl>{t.vclass}</Lbl><Inp value={f.vehicle_class} onChange={(e) => set('vehicle_class', e.target.value)} placeholder="Oil Tanker" data-v="vehicle_class" /></div>
             <div><Lbl>{t.capacity}</Lbl><Inp inputMode="decimal" value={f.capacity} onChange={(e) => set('capacity', e.target.value)} placeholder="20" data-v="capacity" /></div>
           </div>
-          <div className="text-[11px] font-extrabold text-slate-500">{t.papers}</div>
+          <div className="text-[11px] font-extrabold text-slate-400">{t.papers}</div>
           <div className="grid grid-cols-2 gap-2">
             {[['rc_expiry', t.RC], ['ins_expiry', t.INSURANCE], ['fit_expiry', t.FITNESS], ['np_expiry', t.PERMIT], ['puc_expiry', t.PUC]].map(([k, l]) => (
               <div key={k}><Lbl>{l}</Lbl><Inp type="date" value={f[k]} min={today()} onChange={(e) => set(k, e.target.value)} /></div>
             ))}
           </div>
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
           <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-truck-send>{busy ? t.sending : `📤 ${t.save}`}</button>
         </div>
         {toast && <Toast />}
@@ -912,12 +912,12 @@ export default function FleetPartnerApp() {
       <div className={SHELL} style={FONT} data-screen="adddriver">
         <Bar title={t.addDriver} back={() => setView({ k: 'tabs' })} />
         <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">{t.pendingNote}</div>
+          <div className="rounded-2xl bg-pending/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-pending">{t.pendingNote}</div>
           <div><Lbl>{t.dName}</Lbl><Inp value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ramesh Das" data-d="name" /></div>
           <div><Lbl>{t.dMobile}</Lbl><Inp inputMode="numeric" maxLength={13} value={f.mobile} onChange={(e) => set('mobile', e.target.value)} placeholder="98765 43210" className="font-mono tracking-wide" data-d="mobile" /></div>
           <div><Lbl>{t.dLicence}</Lbl><Inp value={f.licence_no} onChange={(e) => set('licence_no', e.target.value.toUpperCase())} placeholder="AS0120200001234" className="font-mono" data-d="licence_no" /></div>
           <div><Lbl>{t.dLicExp}</Lbl><Inp type="date" value={f.licence_expiry} min={today()} onChange={(e) => set('licence_expiry', e.target.value)} /></div>
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
           <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-driver-send>{busy ? t.sending : `📤 ${t.save}`}</button>
         </div>
         {toast && <Toast />}
@@ -945,7 +945,7 @@ export default function FleetPartnerApp() {
           <span className="text-[22px] leading-none">🚛</span>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14.5px] font-extrabold">{s.origin ?? '—'} → {s.destination ?? '—'}</div>
-            <div className="truncate text-[11.5px] font-semibold text-slate-500">
+            <div className="truncate text-[11.5px] font-semibold text-slate-400">
               {s.load_id}{s.vehicle_reg ? ` · ${s.vehicle_reg}` : ''}{s.material ? ` · ${s.material}` : ''}{s.weight ? ` · ${s.weight} T` : ''}
             </div>
           </div>
@@ -955,8 +955,8 @@ export default function FleetPartnerApp() {
           </div>
         </div>
         {mv
-          ? <div className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-center text-[13.5px] font-extrabold text-white">{mv.label} ›</div>
-          : waitingLine(s) && <div className="mt-2 rounded-xl bg-slate-100 px-3 py-1.5 text-center text-[12px] font-extrabold text-slate-600">⏳ {waitingLine(s)}</div>}
+          ? <div className="mt-2 rounded-xl bg-live px-3 py-2 text-center text-[13.5px] font-extrabold text-slate-950">{mv.label} ›</div>
+          : waitingLine(s) && <div className="mt-2 rounded-xl bg-slate-800 px-3 py-1.5 text-center text-[12px] font-extrabold text-slate-400">⏳ {waitingLine(s)}</div>}
       </button>
     );
   };
@@ -976,26 +976,26 @@ export default function FleetPartnerApp() {
           <span className="text-[22px] leading-none">{kind === 'TRUCK' ? '🚛' : '🧑‍✈️'}</span>
           <div className="min-w-0 flex-1">
             {kind === 'TRUCK'
-              ? <><TruckNo n={row.registration_no} /><div className="mt-0.5 truncate text-[11.5px] font-semibold text-slate-500">{[row.vehicle_class, row.capacity ? `${row.capacity} T` : null, row.driver_name].filter(Boolean).join(' · ') || '—'}</div></>
-              : <><div className="truncate text-[14.5px] font-extrabold">{row.name}</div><div className="truncate font-mono text-[11.5px] font-semibold text-slate-500">{row.mobile}{row.licence_no ? ` · ${row.licence_no}` : ''}</div></>}
+              ? <><TruckNo n={row.registration_no} /><div className="mt-0.5 truncate text-[11.5px] font-semibold text-slate-400">{[row.vehicle_class, row.capacity ? `${row.capacity} T` : null, row.driver_name].filter(Boolean).join(' · ') || '—'}</div></>
+              : <><div className="truncate text-[14.5px] font-extrabold">{row.name}</div><div className="truncate font-mono text-[11.5px] font-semibold text-slate-400">{row.mobile}{row.licence_no ? ` · ${row.licence_no}` : ''}</div></>}
           </div>
           <Pill s={st} />
         </div>
-        {pending && <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold leading-snug text-amber-900">⏳ {t.pendingNote}</div>}
+        {pending && <div className="mx-3 mb-2.5 rounded-xl bg-pending/10 px-3 py-2 text-[12px] font-semibold leading-snug text-pending">⏳ {t.pendingNote}</div>}
         {blocked && (
-          <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2.5">
-            <div className="text-[13px] font-extrabold text-red-800">🚫 {kind === 'TRUCK' ? t.blockedTitle : t.blockedDriver}</div>
-            {row.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-red-900">{row.reject_reason}</div>}
-            <div className="mt-1 text-[11.5px] font-semibold text-red-900/75">{t.blockedNote}</div>
+          <div className="mx-3 mb-2.5 rounded-xl bg-blocked/10 px-3 py-2.5">
+            <div className="text-[13px] font-extrabold text-blocked">🚫 {kind === 'TRUCK' ? t.blockedTitle : t.blockedDriver}</div>
+            {row.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-blocked">{row.reject_reason}</div>}
+            <div className="mt-1 text-[11.5px] font-semibold text-blocked/75">{t.blockedNote}</div>
             <a href={DISPATCH_TEL} onClick={(e) => e.stopPropagation()} className="mt-2 block min-h-[44px] rounded-xl bg-red-600 py-2.5 text-center text-[14px] font-extrabold text-white">📞 {t.callOffice}</a>
           </div>
         )}
         {dates.length > 0 && !blocked && (
-          <div className="border-t border-slate-100 px-3 py-2">
+          <div className="border-t border-slate-800 px-3 py-2">
             <div className="flex flex-wrap gap-1.5">
               {dates.map(([l, d]) => {
                 const n = daysTo(d);
-                return <span key={l} className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold ${n < 0 ? 'bg-red-100 text-red-700' : n <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{l} {dmy(d)}</span>;
+                return <span key={l} className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold ${n < 0 ? 'bg-blocked/15 text-blocked' : n <= 30 ? 'bg-pending/15 text-pending' : 'bg-slate-800 text-slate-400'}`}>{l} {dmy(d)}</span>;
               })}
             </div>
           </div>
@@ -1005,8 +1005,8 @@ export default function FleetPartnerApp() {
     // A truck opens; a driver has nothing behind it yet, so it does not pretend
     // to be a link.
     return kind === 'TRUCK'
-      ? <button onClick={() => setView({ k: 'truck', id: row.id })} className={`${CARD} w-full text-left ${blocked ? 'border-red-300' : ''}`} data-vehicle={row.registration_no}>{body}</button>
-      : <div className={`${CARD} ${blocked ? 'border-red-300' : ''}`}>{body}</div>;
+      ? <button onClick={() => setView({ k: 'truck', id: row.id })} className={`${CARD} w-full text-left ${blocked ? 'border-blocked/45' : ''}`} data-vehicle={row.registration_no}>{body}</button>
+      : <div className={`${CARD} ${blocked ? 'border-blocked/45' : ''}`}>{body}</div>;
   };
 
   const Nav = () => {
@@ -1021,7 +1021,7 @@ export default function FleetPartnerApp() {
       <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
           <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }}
-            className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}
+            className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-400'}`}
             data-nav={k}>
             <span className="text-[22px] leading-none">{i}</span>{l}
             {n > 0 && <span className="absolute right-[18%] top-0 rounded-full bg-red-500 px-1.5 text-[10px] font-extrabold text-white">{n}</span>}
@@ -1034,13 +1034,13 @@ export default function FleetPartnerApp() {
   return (
     <div className={SHELL} style={FONT} data-screen={tab}>
       {tab === 'home' ? (
-        <div className="sticky top-0 z-30 flex items-start gap-2 border-b border-slate-200 bg-white px-3 py-2.5">
+        <div className="sticky top-0 z-30 flex items-start gap-2 border-b border-slate-700 bg-slate-900 px-3 py-2.5">
           <div className="min-w-0 flex-1">
             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t.brand}</div>
             <div className="truncate text-[18px] font-extrabold leading-tight">{me?.name ?? earn?.vendor ?? '—'}</div>
-            <div className="truncate text-[11.5px] font-semibold text-slate-500">{t.partner}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-400">{t.partner}</div>
           </div>
-          <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+          <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
         </div>
       ) : (
         <Bar
@@ -1049,35 +1049,35 @@ export default function FleetPartnerApp() {
         />
       )}
 
-      {viewAs && <div className="mx-3 mt-2 rounded-2xl border-2 border-cyan-300 bg-cyan-50 px-3 py-2 text-[12px] font-extrabold text-cyan-900">👁 {t.viewAs}</div>}
+      {viewAs && <div className="mx-3 mt-2 rounded-2xl border-2 border-live/45 bg-live/10 px-3 py-2 text-[12px] font-extrabold text-live">👁 {t.viewAs}</div>}
 
       <div className={`flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5 ${['trips', 'loads', 'fleet'].includes(tab) ? 'md:grid md:auto-rows-min md:grid-cols-2 md:items-start' : ''}`}>
         {tab === 'home' && (
           <>
             <div className="grid grid-cols-3 gap-2">
-              {[[live.length, t.kRunning, 'text-blue-700'], [earn?.fleet?.active ?? 0, t.kTrucks, 'text-green-700'], [earn?.fleet?.pending ?? 0, t.kPending, 'text-amber-700']].map(([n, l, c]) => (
+              {[[live.length, t.kRunning, 'text-live'], [earn?.fleet?.active ?? 0, t.kTrucks, 'text-active'], [earn?.fleet?.pending ?? 0, t.kPending, 'text-pending']].map(([n, l, c]) => (
                 <div key={l} className={`${CARD} px-2 py-2.5 text-center`}>
                   <div className={`text-[22px] font-extrabold ${c}`}>{n}</div>
-                  <div className="text-[10.5px] font-semibold leading-tight text-slate-500">{l}</div>
+                  <div className="text-[10.5px] font-semibold leading-tight text-slate-400">{l}</div>
                 </div>
               ))}
             </div>
 
             {paperAlerts > 0 && (
-              <button onClick={() => setTab('fleet')} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-left" data-paper-alert>
-                <div className="text-[13.5px] font-extrabold text-amber-900">📄 {paperAlerts} — {t.papers}</div>
-                <div className="text-[11.5px] font-semibold text-amber-900/80">{t.paperNote}</div>
+              <button onClick={() => setTab('fleet')} className="rounded-2xl border-2 border-pending/45 bg-pending/10 px-3 py-2.5 text-left" data-paper-alert>
+                <div className="text-[13.5px] font-extrabold text-pending">📄 {paperAlerts} — {t.papers}</div>
+                <div className="text-[11.5px] font-semibold text-pending/80">{t.paperNote}</div>
               </button>
             )}
 
-            <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.running}</div>
+            <div className="mt-1 text-[13px] font-extrabold text-slate-300">{t.running}</div>
             {live.length === 0 ? (
               <div className={`${CARD} px-3 py-6 text-center`}>
                 {/* 🚛, not 🛻 — the pickup emoji has no glyph in Nirmala UI and
                     renders as a tofu box on the office machines. */}
                 <div className="text-4xl">🚛</div>
-                <div className="mt-2 text-[14px] font-extrabold text-slate-700">{t.nothingRunning}</div>
-                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-500">{t.nothingRunningSub}</div>
+                <div className="mt-2 text-[14px] font-extrabold text-slate-300">{t.nothingRunning}</div>
+                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-400">{t.nothingRunningSub}</div>
               </div>
             ) : live.map((s) => <TripCard key={s.id} s={s} />)}
             <CallBar />
@@ -1090,12 +1090,12 @@ export default function FleetPartnerApp() {
             plan a week around a lorry they have not been given. */}
         {tab === 'loads' && (
           <>
-            <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bidNote}</div>
+            <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.bidNote}</div>
             {openLoads.length === 0 ? (
               <div className={`${CARD} px-3 py-6 text-center`} data-screen="loads">
                 <div className="text-4xl">📦</div>
-                <div className="mt-2 text-[14px] font-extrabold text-slate-700">{t.noLoads}</div>
-                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-500">{t.noLoadsSub}</div>
+                <div className="mt-2 text-[14px] font-extrabold text-slate-300">{t.noLoads}</div>
+                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-400">{t.noLoadsSub}</div>
               </div>
             ) : openLoads.map((l) => (
               <div key={l.load_id} className={CARD} data-load={l.load_id}>
@@ -1103,18 +1103,18 @@ export default function FleetPartnerApp() {
                   <span className="text-[22px] leading-none">📦</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14.5px] font-extrabold">{l.origin} → {l.destination}</div>
-                    <div className="truncate text-[11.5px] font-semibold text-slate-500">
+                    <div className="truncate text-[11.5px] font-semibold text-slate-400">
                       {l.load_id}{l.material ? ` · ${l.material}` : ''}{l.weight ? ` · ${l.weight} T` : ''}{l.loading_date ? ` · ${dmy(l.loading_date)}` : ''}
                     </div>
                   </div>
                   {/* How many others are interested is fair to say; by how much
                       is not, and the server never sends it. */}
-                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10.5px] font-extrabold text-slate-600">
+                  <span className="shrink-0 rounded-full bg-slate-800 px-2 py-1 text-[10.5px] font-extrabold text-slate-400">
                     {l.bid_count ?? 0} {t.bidsWord}
                   </span>
                 </div>
                 {l.my_bid_amount ? (
-                  <div className="mx-3 mb-2.5 rounded-xl bg-green-50 px-3 py-2 text-[12.5px] font-extrabold text-green-800">
+                  <div className="mx-3 mb-2.5 rounded-xl bg-active/10 px-3 py-2 text-[12.5px] font-extrabold text-active">
                     ✅ {t.myBid} ₹{Number(l.my_bid_amount).toLocaleString('en-IN')} · {t.withOffice}
                   </div>
                 ) : (
@@ -1132,13 +1132,13 @@ export default function FleetPartnerApp() {
 
         {tab === 'trips' && (
           <>
-            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
+            <div className="flex gap-1 rounded-xl bg-slate-700 p-[3px] md:col-span-2">
               {[['LIVE', `${t.segLive} ${live.length}`], ['DONE', `${t.segDone} ${done.length}`], ['ALL', t.segAll]].map(([k, l]) => (
-                <button key={k} onClick={() => setSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${seg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
+                <button key={k} onClick={() => setSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${seg === k ? 'bg-slate-900 text-slate-100 shadow' : 'text-slate-400'}`}>{l}</button>
               ))}
             </div>
             {segList.length === 0
-              ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrips}</div>
+              ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-400`}>{t.noTrips}</div>
               : segList.map((s) => <TripCard key={s.id} s={s} />)}
           </>
         )}
@@ -1148,27 +1148,27 @@ export default function FleetPartnerApp() {
             {showMoney && earn?.ledger ? (
               <div className={CARD}>
                 <KV rows={[
-                  [t.billed, inr(earn.ledger.billed), 'text-blue-700'],
-                  [t.posted, inr(earn.ledger.posted), 'text-green-700'],
-                  [t.awaiting, inr(earn.ledger.awaiting_approval), 'text-amber-700'],
-                  [t.bal, inr(earn.ledger.current_balance), 'text-slate-900'],
+                  [t.billed, inr(earn.ledger.billed), 'text-live'],
+                  [t.posted, inr(earn.ledger.posted), 'text-active'],
+                  [t.awaiting, inr(earn.ledger.awaiting_approval), 'text-pending'],
+                  [t.bal, inr(earn.ledger.current_balance), 'text-slate-100'],
                 ]} />
               </div>
             ) : (
               <div className={`${CARD} px-3 py-5 text-center`}>
                 <div className="text-3xl">🔒</div>
-                <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-600">{t.moneyLocked}</div>
+                <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-400">{t.moneyLocked}</div>
               </div>
             )}
 
-            <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.tripsTitle}</div>
+            <div className="mt-1 text-[13px] font-extrabold text-slate-300">{t.tripsTitle}</div>
             {done.length === 0
-              ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500`}>{t.noTrips}</div>
+              ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-400`}>{t.noTrips}</div>
               : done.slice(0, 12).map((s) => (
                 <div key={s.id} className={`${CARD} flex items-center gap-2 px-3 py-2`}>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-extrabold">{s.origin} → {s.destination}</div>
-                    <div className="truncate text-[11px] font-semibold text-slate-500">{s.load_id} · {dmy(s.loading_date)}</div>
+                    <div className="truncate text-[11px] font-semibold text-slate-400">{s.load_id} · {dmy(s.loading_date)}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-[13px] font-extrabold">{inrShort(s.awarded_amount)}</div>
@@ -1181,33 +1181,33 @@ export default function FleetPartnerApp() {
               <KV rows={[
                 [t.myName, me?.name ?? earn?.vendor ?? '—'],
                 [t.payTerms, earn?.payment_terms ?? '—'],
-                [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'hi' ? 'हिंदी · EN' : 'English · हिं'}</button>],
+                [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-800 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'hi' ? 'हिंदी · EN' : 'English · हिं'}</button>],
               ]} />
             </div>
             <CallBar />
             <button onClick={() => { for (const k of ['prasad_token', 'prasad_user', 'prasad_view_as_vendor']) localStorage.removeItem(k); location.reload(); }}
-              className="min-h-[46px] rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">🚪 {t.logout}</button>
+              className="min-h-[46px] rounded-2xl border-2 border-slate-700 bg-slate-900 text-[15px] font-extrabold">🚪 {t.logout}</button>
           </>
         )}
 
         {tab === 'fleet' && (
           <>
-            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
+            <div className="flex gap-1 rounded-xl bg-slate-700 p-[3px] md:col-span-2">
               {[['TRUCKS', `${t.trucksTab} ${fleet.vehicles?.length ?? 0}`], ['DRIVERS', `${t.driversTab} ${fleet.drivers?.length ?? 0}`]].map(([k, l]) => (
-                <button key={k} onClick={() => setFleetSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${fleetSeg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
+                <button key={k} onClick={() => setFleetSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${fleetSeg === k ? 'bg-slate-900 text-slate-100 shadow' : 'text-slate-400'}`}>{l}</button>
               ))}
             </div>
 
             {fleetSeg === 'TRUCKS' ? (
               <>
                 <button onClick={() => setView({ k: 'addTruck' })} disabled={viewAs} className="min-h-[50px] rounded-2xl bg-blue-600 text-[15px] font-extrabold text-white disabled:opacity-50" data-add-truck>{t.addTruck}</button>
-                {(fleet.vehicles ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrucks}</div>}
+                {(fleet.vehicles ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-400`}>{t.noTrucks}</div>}
                 {(fleet.vehicles ?? []).map((v) => <PartyCard key={v.id} row={v} kind="TRUCK" />)}
               </>
             ) : (
               <>
                 <button onClick={() => setView({ k: 'addDriver' })} disabled={viewAs} className="min-h-[50px] rounded-2xl bg-blue-600 text-[15px] font-extrabold text-white disabled:opacity-50" data-add-driver>{t.addDriver}</button>
-                {(fleet.drivers ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-500`}>{t.noDrivers}</div>}
+                {(fleet.drivers ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-400`}>{t.noDrivers}</div>}
                 {(fleet.drivers ?? []).map((d) => <PartyCard key={d.id} row={d} kind="DRIVER" />)}
               </>
             )}

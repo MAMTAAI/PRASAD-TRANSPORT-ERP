@@ -377,15 +377,15 @@ export default function UniversalLogin({ onAuthenticated }) {
 
   // ── shared bits ───────────────────────────────────────────────────────────
   const BIG = 'w-full rounded-2xl bg-emerald-600 px-4 py-4 text-[20px] font-black text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] active:translate-y-1 active:shadow-none disabled:opacity-60';
-  const GHOST = 'w-full rounded-2xl border-2 border-slate-300 bg-white px-4 py-3.5 text-[16px] font-bold text-slate-800';
+  const GHOST = 'w-full rounded-2xl border-2 border-slate-700 bg-slate-900 px-4 py-3.5 text-[16px] font-bold text-slate-200';
   const Brand = ({ icon = '🚛', title = 'Prasad Transport', sub = 'App · ऐप', tone = 'from-emerald-500 to-teal-600' }) => (
     <div className="pt-8 text-center">
       <span className={`mx-auto grid h-16 w-16 place-items-center rounded-[18px] bg-gradient-to-br ${tone} text-[32px] shadow-[0_10px_24px_rgba(22,163,74,0.35)]`}>{icon}</span>
-      <h1 className="mt-3 text-[24px] font-black text-slate-900">{title}</h1>
-      <p className="text-[13px] font-semibold text-slate-500">{sub}</p>
+      <h1 className="mt-3 text-[24px] font-black text-slate-100">{title}</h1>
+      <p className="text-[13px] font-semibold text-slate-400">{sub}</p>
     </div>
   );
-  const Err = error ? <p className="mt-3 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 text-center text-[14px] font-bold text-red-700">{error}</p> : null;
+  const Err = error ? <p className="mt-3 rounded-xl border-2 border-blocked/35 bg-blocked/10 px-3 py-2 text-center text-[14px] font-bold text-blocked">{error}</p> : null;
 
   // NOT a component — a function that returns markup. Declared inside the
   // render, <Field/> would be a NEW component type on every keystroke, so React
@@ -394,16 +394,16 @@ export default function UniversalLogin({ onAuthenticated }) {
   // 46 px targets, 16 px font: under 16 px iOS zooms the page on focus.
   const renderField = (f) => (
     <label className="block" key={f.k}>
-      <span className="block text-[14px] font-black text-slate-800">
+      <span className="block text-[14px] font-black text-slate-200">
         {f.hi}{f.req && <span className="text-red-600"> *</span>}
-        <span className="block text-[11.5px] font-semibold text-slate-500">{f.en}</span>
+        <span className="block text-[11.5px] font-semibold text-slate-400">{f.en}</span>
       </span>
       {f.area ? (
         <textarea
           rows={2} value={reg[f.k] ?? ''} placeholder={f.ph}
           onChange={(e) => setF(f.k, e.target.value)}
           data-reg={f.k}
-          className={`mt-1 w-full rounded-xl border-2 bg-white px-3 py-2.5 text-[16px] font-semibold text-slate-900 outline-none ${regErr[f.k] ? 'border-red-400' : 'border-slate-300 focus:border-emerald-500'}`}
+          className={`mt-1 w-full rounded-xl border-2 bg-slate-900 px-3 py-2.5 text-[16px] font-semibold text-slate-100 outline-none ${regErr[f.k] ? 'border-red-400' : 'border-slate-700 focus:border-emerald-500'}`}
         />
       ) : (
         <input
@@ -412,22 +412,22 @@ export default function UniversalLogin({ onAuthenticated }) {
           autoCapitalize={f.caps ? 'characters' : undefined}
           onChange={(e) => setF(f.k, f.caps ? e.target.value.toUpperCase() : e.target.value)}
           data-reg={f.k}
-          className={`mt-1 min-h-[46px] w-full rounded-xl border-2 bg-white px-3 text-[16px] font-semibold text-slate-900 outline-none ${f.caps || f.num ? 'font-mono tracking-wide' : ''} ${regErr[f.k] ? 'border-red-400' : 'border-slate-300 focus:border-emerald-500'}`}
+          className={`mt-1 min-h-[46px] w-full rounded-xl border-2 bg-slate-900 px-3 text-[16px] font-semibold text-slate-100 outline-none ${f.caps || f.num ? 'font-mono tracking-wide' : ''} ${regErr[f.k] ? 'border-red-400' : 'border-slate-700 focus:border-emerald-500'}`}
         />
       )}
-      {regErr[f.k] && <span className="mt-1 block text-[12px] font-bold text-red-700">{regErr[f.k]}</span>}
+      {regErr[f.k] && <span className="mt-1 block text-[12px] font-bold text-blocked">{regErr[f.k]}</span>}
     </label>
   );
   const section = (icon, title, sub) => (
-    <div className="mt-6 flex items-baseline gap-2 border-b-2 border-slate-200 pb-1">
+    <div className="mt-6 flex items-baseline gap-2 border-b-2 border-slate-700 pb-1">
       <span className="text-[17px]">{icon}</span>
-      <b className="text-[16px] font-black text-slate-900">{title}</b>
-      <span className="text-[11.5px] font-semibold text-slate-500">{sub}</span>
+      <b className="text-[16px] font-black text-slate-100">{title}</b>
+      <span className="text-[11.5px] font-semibold text-slate-400">{sub}</span>
     </div>
   );
 
   return (
-    <div className="min-h-screen w-full bg-[#f8fafc] text-slate-900" data-gate="2"
+    <div className="min-h-screen w-full bg-slate-950 bg-deck-ground text-slate-100" data-gate="2"
       style={{ fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' }}>
       <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-8">
 
@@ -435,31 +435,31 @@ export default function UniversalLogin({ onAuthenticated }) {
           <>
             <Brand />
             <label className="mt-8 block text-[16px] font-black">अपना मोबाइल नंबर डालो
-              <span className="block text-[12px] font-semibold text-slate-500">Enter your mobile number · bas itna hi</span>
+              <span className="block text-[12px] font-semibold text-slate-400">Enter your mobile number · bas itna hi</span>
             </label>
-            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-white px-4 py-3 ${error ? 'border-red-300' : 'border-slate-300 focus-within:border-emerald-500'}`}>
-              <span className="text-[16px] font-bold text-slate-500">+91</span>
+            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-slate-900 px-4 py-3 ${error ? 'border-blocked/45' : 'border-slate-700 focus-within:border-emerald-500'}`}>
+              <span className="text-[16px] font-bold text-slate-400">+91</span>
               <input
                 type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={13} autoFocus
                 value={mobile} onChange={(e) => { setMobile(e.target.value); setError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && send()}
                 placeholder="98765 43210"
-                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-900 placeholder-slate-300 outline-none"
+                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-100 placeholder-slate-300 outline-none"
               />
             </div>
             {Err}
             <button onClick={send} disabled={busy} className={`${BIG} mt-4`} id="g2-send">{busy ? 'भेज रहे हैं…' : 'OTP भेजो →'}</button>
-            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed text-slate-500">
+            <p className="mt-3 text-center text-[13px] font-semibold leading-relaxed text-slate-400">
               OTP WhatsApp पर आएगा · न आए तो SMS पर<br />कोई पासवर्ड नहीं · कोई फॉर्म नहीं
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-1.5">
               {['🚚 Driver', '🔧 Vendor', '🏭 Customer', '🤝 Fleet Partner'].map((w) => (
-                <span key={w} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-extrabold text-slate-700">{w}</span>
+                <span key={w} className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1 text-[11px] font-extrabold text-slate-300">{w}</span>
               ))}
             </div>
-            <div className="mt-6 rounded-2xl border-2 border-dashed border-violet-300 bg-violet-50 p-3.5 text-center">
-              <p className="text-[14px] font-black text-violet-900">नए हैं? कस्टमर या गाड़ी मालिक?</p>
-              <p className="mt-0.5 text-[12px] font-semibold leading-snug text-violet-900/75">अपनी फर्म या गाड़ियाँ रजिस्टर करें — ऑफिस जाँच कर के चालू करेगा।</p>
+            <div className="mt-6 rounded-2xl border-2 border-dashed border-mamta/45 bg-mamta/10 p-3.5 text-center">
+              <p className="text-[14px] font-black text-mamta">नए हैं? कस्टमर या गाड़ी मालिक?</p>
+              <p className="mt-0.5 text-[12px] font-semibold leading-snug text-mamta/75">अपनी फर्म या गाड़ियाँ रजिस्टर करें — ऑफिस जाँच कर के चालू करेगा।</p>
               <button onClick={openRegister} className="mt-2.5 min-h-[46px] w-full rounded-xl bg-violet-600 text-[16px] font-black text-white shadow-[0_4px_0_rgba(0,0,0,0.16)] active:translate-y-0.5 active:shadow-none" id="g2-register">
                 📝 नया रजिस्ट्रेशन / Register →
               </button>
@@ -478,12 +478,12 @@ export default function UniversalLogin({ onAuthenticated }) {
                   onChange={(e) => onDigit(i, e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) boxes.current[i - 1]?.focus(); }}
                   inputMode="numeric" maxLength={6} autoComplete="one-time-code"
-                  className={`h-14 w-full rounded-xl border-2 bg-white text-center font-mono text-[24px] font-black text-slate-900 outline-none ${d ? 'border-emerald-500' : 'border-slate-300 focus:border-emerald-500'}`}
+                  className={`h-14 w-full rounded-xl border-2 bg-slate-900 text-center font-mono text-[24px] font-black text-slate-100 outline-none ${d ? 'border-emerald-500' : 'border-slate-700 focus:border-emerald-500'}`}
                 />
               ))}
             </div>
             {Err}
-            <p className="mt-3 text-center text-[13px] font-semibold text-slate-500">
+            <p className="mt-3 text-center text-[13px] font-semibold text-slate-400">
               {busy ? 'चेक हो रहा है…' : `अपने आप पढ़ लेगा · ${ttl} मिनट तक चलेगा`}
             </p>
             <button onClick={() => verify(digits.join(''))} disabled={busy || digits.join('').length !== 6} className={`${BIG} mt-4`} id="g2-verify">✅ आगे बढ़ो</button>
@@ -494,19 +494,19 @@ export default function UniversalLogin({ onAuthenticated }) {
 
         {step === 'ROUTING' && (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <span className="h-14 w-14 animate-spin rounded-full border-[6px] border-slate-200 border-t-emerald-600" />
+            <span className="h-14 w-14 animate-spin rounded-full border-[6px] border-slate-700 border-t-emerald-600" />
             <p className="mt-6 text-[18px] font-black">✅ OTP सही है</p>
-            <p className="text-[16px] font-bold text-slate-700">आपका पोर्टल खुल रहा है…</p>
-            <p className="mt-2 text-[12px] font-semibold text-slate-500">server is opening the one portal this number belongs to</p>
+            <p className="text-[16px] font-bold text-slate-300">आपका पोर्टल खुल रहा है…</p>
+            <p className="mt-2 text-[12px] font-semibold text-slate-400">server is opening the one portal this number belongs to</p>
           </div>
         )}
 
         {step === 'NO_ACCOUNT' && (
           <>
             <Brand icon="❓" title="OTP नहीं मिला?" sub={`+91 ${pretty}`} tone="from-slate-500 to-slate-700" />
-            <div className="mt-8 rounded-2xl border-2 border-red-200 bg-red-50 p-4 text-center">
-              <p className="text-[20px] font-black text-red-800">नंबर रजिस्टर नहीं है?</p>
-              <p className="mt-1 text-[14px] font-semibold leading-relaxed text-red-900/80">OTP सिर्फ़ उन्हीं नंबरों पर जाता है जो ऑफिस में ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम दर्ज हैं। नहीं आया तो ऑफिस से रजिस्टर करवाओ — या समय निकल गया हो तो दोबारा भेजो।</p>
+            <div className="mt-8 rounded-2xl border-2 border-blocked/35 bg-blocked/10 p-4 text-center">
+              <p className="text-[20px] font-black text-blocked">नंबर रजिस्टर नहीं है?</p>
+              <p className="mt-1 text-[14px] font-semibold leading-relaxed text-blocked/80">OTP सिर्फ़ उन्हीं नंबरों पर जाता है जो ऑफिस में ड्राइवर, वेंडर, कस्टमर या पार्टनर के नाम दर्ज हैं। नहीं आया तो ऑफिस से रजिस्टर करवाओ — या समय निकल गया हो तो दोबारा भेजो।</p>
             </div>
             <button onClick={openRegister} className={`${BIG} mt-5 bg-violet-600`}>📝 नया रजिस्ट्रेशन करें</button>
             {DISPATCH_MOBILE && <a href={DISPATCH_TEL} className={`${GHOST} mt-2 block text-center`}>📞 ऑफिस को कॉल करो</a>}
@@ -518,18 +518,18 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'REG_TYPE' && (
           <>
             <Brand icon="📝" title="नया रजिस्ट्रेशन" sub="New registration" tone="from-violet-500 to-purple-700" />
-            <p className="mt-5 text-center text-[14px] font-bold text-slate-700">आप क्या हैं?<span className="block text-[12px] font-semibold text-slate-500">What are you registering as?</span></p>
-            <button onClick={() => startWall('CUSTOMER')} className="mt-4 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="CUSTOMER">
-              <div className="text-[17px] font-black text-slate-900">🏭 माल भेजने वाला</div>
-              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Customer — आपको अपना माल भिजवाना है। ट्रैकिंग, POD और बिल दिखेंगे।</div>
+            <p className="mt-5 text-center text-[14px] font-bold text-slate-300">आप क्या हैं?<span className="block text-[12px] font-semibold text-slate-400">What are you registering as?</span></p>
+            <button onClick={() => startWall('CUSTOMER')} className="mt-4 rounded-2xl border-2 border-slate-700 bg-slate-900 p-4 text-left active:translate-y-0.5" data-type="CUSTOMER">
+              <div className="text-[17px] font-black text-slate-100">🏭 माल भेजने वाला</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-400">Customer — आपको अपना माल भिजवाना है। ट्रैकिंग, POD और बिल दिखेंगे।</div>
             </button>
-            <button onClick={() => startWall('FLEET_PARTNER')} className="mt-3 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="FLEET_PARTNER">
-              <div className="text-[17px] font-black text-slate-900">🚛 गाड़ी मालिक</div>
-              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Fleet Partner — आपकी अपनी गाड़ियाँ हैं और आप हमारा माल ढोना चाहते हैं। PAN, बैंक और हर गाड़ी की RC लगेगी।</div>
+            <button onClick={() => startWall('FLEET_PARTNER')} className="mt-3 rounded-2xl border-2 border-slate-700 bg-slate-900 p-4 text-left active:translate-y-0.5" data-type="FLEET_PARTNER">
+              <div className="text-[17px] font-black text-slate-100">🚛 गाड़ी मालिक</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-400">Fleet Partner — आपकी अपनी गाड़ियाँ हैं और आप हमारा माल ढोना चाहते हैं। PAN, बैंक और हर गाड़ी की RC लगेगी।</div>
             </button>
-            <button onClick={() => startWall('VENDOR')} className="mt-3 rounded-2xl border-2 border-slate-300 bg-white p-4 text-left active:translate-y-0.5" data-type="VENDOR">
-              <div className="text-[17px] font-black text-slate-900">🔧 पंप / मैकेनिक / पार्ट्स</div>
-              <div className="text-[12.5px] font-semibold leading-snug text-slate-600">Vendor — आप हमें डीज़ल, टायर, पार्ट्स या मरम्मत देते हैं और बिल भेजते हैं। PAN और बैंक लगेगा।</div>
+            <button onClick={() => startWall('VENDOR')} className="mt-3 rounded-2xl border-2 border-slate-700 bg-slate-900 p-4 text-left active:translate-y-0.5" data-type="VENDOR">
+              <div className="text-[17px] font-black text-slate-100">🔧 पंप / मैकेनिक / पार्ट्स</div>
+              <div className="text-[12.5px] font-semibold leading-snug text-slate-400">Vendor — आप हमें डीज़ल, टायर, पार्ट्स या मरम्मत देते हैं और बिल भेजते हैं। PAN और बैंक लगेगा।</div>
             </button>
             <button onClick={() => { setStep('NUMBER'); setError(''); }} className={`${GHOST} mt-4`}>‹ वापस लॉगिन पर</button>
           </>
@@ -538,21 +538,21 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'REG_OTP' && (
           <>
             <Brand icon="📱" title="पहले नंबर जाँचें" sub="Verify your mobile first" tone="from-violet-500 to-purple-700" />
-            <div className="mt-5 rounded-2xl bg-violet-50 px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-violet-900">
+            <div className="mt-5 rounded-2xl bg-mamta/10 px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-mamta">
               रजिस्ट्रेशन फ़ॉर्म खोलने से पहले हम आपके नंबर पर एक कोड भेजेंगे। यही नंबर आपका लॉगिन नंबर बनेगा।
-              <span className="mt-1 block text-[11.5px] text-violet-900/70">We send a code first — this becomes your login number.</span>
+              <span className="mt-1 block text-[11.5px] text-mamta/70">We send a code first — this becomes your login number.</span>
             </div>
             <label className="mt-5 block text-[16px] font-black">मोबाइल नंबर
-              <span className="block text-[12px] font-semibold text-slate-500">Mobile number</span>
+              <span className="block text-[12px] font-semibold text-slate-400">Mobile number</span>
             </label>
-            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-white px-4 py-3 ${error ? 'border-red-300' : 'border-slate-300 focus-within:border-violet-500'}`}>
-              <span className="text-[16px] font-bold text-slate-500">+91</span>
+            <div className={`mt-2 flex items-center gap-3 rounded-2xl border-2 bg-slate-900 px-4 py-3 ${error ? 'border-blocked/45' : 'border-slate-700 focus-within:border-violet-500'}`}>
+              <span className="text-[16px] font-bold text-slate-400">+91</span>
               <input
                 type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={13} autoFocus
                 value={regMobile} onChange={(e) => { setRegMobile(e.target.value); setError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && sendRegOtp()}
                 placeholder="98765 43210" data-reg-mobile
-                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-900 placeholder-slate-300 outline-none"
+                className="min-w-0 flex-1 bg-transparent font-mono text-[24px] font-extrabold tracking-wider text-slate-100 placeholder-slate-300 outline-none"
               />
             </div>
             {Err}
@@ -571,12 +571,12 @@ export default function UniversalLogin({ onAuthenticated }) {
                   onChange={(e) => onRegDigit(i, e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Backspace' && !d && i > 0) regBoxes.current[i - 1]?.focus(); }}
                   inputMode="numeric" maxLength={6} autoComplete="one-time-code" data-reg-code
-                  className={`h-14 w-full rounded-xl border-2 bg-white text-center font-mono text-[24px] font-black text-slate-900 outline-none ${d ? 'border-violet-500' : 'border-slate-300 focus:border-violet-500'}`}
+                  className={`h-14 w-full rounded-xl border-2 bg-slate-900 text-center font-mono text-[24px] font-black text-slate-100 outline-none ${d ? 'border-violet-500' : 'border-slate-700 focus:border-violet-500'}`}
                 />
               ))}
             </div>
             {Err}
-            <p className="mt-3 text-center text-[13px] font-semibold text-slate-500">{busy ? 'जाँच रहे हैं…' : 'कोड डालते ही फ़ॉर्म खुलेगा'}</p>
+            <p className="mt-3 text-center text-[13px] font-semibold text-slate-400">{busy ? 'जाँच रहे हैं…' : 'कोड डालते ही फ़ॉर्म खुलेगा'}</p>
             <button onClick={() => verifyRegOtp(regDigits.join(''))} disabled={busy || regDigits.join('').length !== 6} className={`${BIG} mt-4 bg-violet-600`} id="g2-reg-verify">✅ जाँचो</button>
             <button onClick={sendRegOtp} disabled={busy} className={`${GHOST} mt-2`}>🔁 कोड दोबारा भेजो</button>
             <button onClick={() => { setStep('REG_OTP'); setError(''); }} className={`${GHOST} mt-2`}>‹ नंबर बदलो</button>
@@ -586,9 +586,9 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'REGISTER' && (
           <>
             <Brand icon="🏢" title="नया कस्टमर" sub="New Customer Registration · KYC" tone="from-violet-500 to-purple-700" />
-            <div className="mt-4 rounded-2xl bg-violet-50 px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-violet-900">
+            <div className="mt-4 rounded-2xl bg-mamta/10 px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-mamta">
               यह फ़ॉर्म ऑफिस को जाता है। GSTIN, PAN और बैंक की जाँच के बाद ऑफिस आपका खाता चालू करेगा — तभी आप इस नंबर से लॉगिन कर पाएंगे.
-              <span className="mt-1 block text-[11.5px] text-violet-900/70">The office verifies your GSTIN, PAN and bank account before the app opens.</span>
+              <span className="mt-1 block text-[11.5px] text-mamta/70">The office verifies your GSTIN, PAN and bank account before the app opens.</span>
             </div>
 
             {isVendor && (
@@ -597,7 +597,7 @@ export default function UniversalLogin({ onAuthenticated }) {
                 <div className="mt-3 flex flex-wrap gap-2">
                   {VENDOR_CATS.map(([val, label]) => (
                     <button key={val} onClick={() => { setVendorCat(val); setError(''); }} data-cat={val}
-                      className={`min-h-[46px] rounded-xl border-2 px-3 text-[14px] font-extrabold ${vendorCat === val ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-slate-300 bg-white text-slate-700'}`}>
+                      className={`min-h-[46px] rounded-xl border-2 px-3 text-[14px] font-extrabold ${vendorCat === val ? 'border-emerald-500 bg-active/10 text-active' : 'border-slate-700 bg-slate-900 text-slate-300'}`}>
                       {label}
                     </button>
                   ))}
@@ -610,12 +610,12 @@ export default function UniversalLogin({ onAuthenticated }) {
               {/* Verified upstairs, so it is shown rather than asked. Editing it
                   here would only produce a form the server must reject: the
                   ticket is pinned to the number the code went to. */}
-              <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 px-3 py-2.5">
-                <div className="text-[11.5px] font-extrabold text-emerald-800">मोबाइल नंबर — जाँचा हुआ / verified</div>
-                <div className="font-mono text-[17px] font-extrabold text-emerald-900" data-reg-verified>
+              <div className="rounded-xl border-2 border-active/45 bg-active/10 px-3 py-2.5">
+                <div className="text-[11.5px] font-extrabold text-active">मोबाइल नंबर — जाँचा हुआ / verified</div>
+                <div className="font-mono text-[17px] font-extrabold text-active" data-reg-verified>
                   ✅ +91 {regClean.slice(0, 5)} {regClean.slice(5)}
                 </div>
-                <button onClick={() => { setStep('REG_OTP'); setError(''); }} className="mt-1 text-[11.5px] font-bold text-emerald-800 underline decoration-dotted underline-offset-2">नंबर बदलना है?</button>
+                <button onClick={() => { setStep('REG_OTP'); setError(''); }} className="mt-1 text-[11.5px] font-bold text-active underline decoration-dotted underline-offset-2">नंबर बदलना है?</button>
               </div>
               {REG_FIELDS.map(renderField)}
             </div>
@@ -629,33 +629,33 @@ export default function UniversalLogin({ onAuthenticated }) {
             {isPartner && (
               <>
                 {section('🚛', 'आपकी गाड़ियाँ', 'Your trucks · RC required for each')}
-                <div className="mt-2 rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">
+                <div className="mt-2 rounded-2xl bg-pending/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-pending">
                   हर गाड़ी की RC की फोटो लगाओ। ऑफिस RC जाँच कर के गाड़ी चालू करेगा — तब तक वो लोड नहीं ले सकती।
-                  <span className="mt-1 block text-[11.5px] text-amber-900/75">The office activates each truck after checking its RC.</span>
+                  <span className="mt-1 block text-[11.5px] text-pending/75">The office activates each truck after checking its RC.</span>
                 </div>
                 <div className="mt-3 space-y-3">
                   {trucks.map((tk, i) => (
-                    <div key={i} className="rounded-2xl border-2 border-slate-300 bg-white p-3" data-truck-row={i}>
+                    <div key={i} className="rounded-2xl border-2 border-slate-700 bg-slate-900 p-3" data-truck-row={i}>
                       <div className="flex items-center justify-between">
-                        <b className="text-[13px] font-extrabold text-slate-700">गाड़ी {i + 1}</b>
-                        <button onClick={() => dropTruck(i)} className="min-h-[34px] rounded-lg px-2 text-[12px] font-extrabold text-red-700">हटाओ ✕</button>
+                        <b className="text-[13px] font-extrabold text-slate-300">गाड़ी {i + 1}</b>
+                        <button onClick={() => dropTruck(i)} className="min-h-[34px] rounded-lg px-2 text-[12px] font-extrabold text-blocked">हटाओ ✕</button>
                       </div>
                       <input
                         value={tk.registration_no} onChange={(e) => setTruck(i, 'registration_no', e.target.value.toUpperCase())}
                         placeholder="AS01AB1234" data-truck-reg={i}
-                        className="mt-2 min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 font-mono text-[16px] font-bold tracking-wide outline-none focus:border-emerald-500"
+                        className="mt-2 min-h-[46px] w-full rounded-xl border-2 border-slate-700 px-3 font-mono text-[16px] font-bold tracking-wide outline-none focus:border-emerald-500"
                       />
                       <div className="mt-2 grid grid-cols-2 gap-2">
                         <input value={tk.vehicle_class} onChange={(e) => setTruck(i, 'vehicle_class', e.target.value)} placeholder="Oil Tanker"
-                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
                         <input value={tk.capacity} inputMode="decimal" onChange={(e) => setTruck(i, 'capacity', e.target.value)} placeholder="टन / T"
-                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                          className="min-h-[46px] w-full rounded-xl border-2 border-slate-700 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
                       </div>
-                      <label className="mt-2 block text-[11.5px] font-extrabold text-slate-500">RC की तारीख / RC expiry
+                      <label className="mt-2 block text-[11.5px] font-extrabold text-slate-400">RC की तारीख / RC expiry
                         <input type="date" value={tk.rc_expiry} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setTruck(i, 'rc_expiry', e.target.value)}
-                          className="mt-1 min-h-[46px] w-full rounded-xl border-2 border-slate-300 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
+                          className="mt-1 min-h-[46px] w-full rounded-xl border-2 border-slate-700 px-3 text-[15px] font-bold outline-none focus:border-emerald-500" />
                       </label>
-                      <label className={`mt-2 flex min-h-[46px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 text-[14px] font-extrabold ${tk.rc_file_key ? 'border-green-400 bg-green-50 text-green-800' : 'border-dashed border-slate-400 bg-slate-50 text-slate-700'}`}>
+                      <label className={`mt-2 flex min-h-[46px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 px-3 text-[14px] font-extrabold ${tk.rc_file_key ? 'border-green-400 bg-active/10 text-active' : 'border-dashed border-slate-400 bg-slate-900 text-slate-300'}`}>
                         {tk.uploading ? '⏳ भेज रहे हैं…' : tk.rc_file_key ? `✅ RC लगी — ${tk.name}` : '📎 RC की फोटो लगाओ'}
                         <input type="file" accept="image/*,application/pdf" hidden data-rc={i}
                           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadRc(i, f); }} />
@@ -678,17 +678,17 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'REGISTERED' && (
           <>
             <Brand icon="✅" title="फ़ॉर्म ऑफिस पहुँच गया" sub="Sent to the office" tone="from-emerald-500 to-teal-600" />
-            <div className="mt-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 text-center" data-screen="registered">
-              <p className="text-[17px] font-black text-emerald-900">{applied?.name}</p>
+            <div className="mt-6 rounded-2xl border-2 border-active/35 bg-active/10 p-4 text-center" data-screen="registered">
+              <p className="text-[17px] font-black text-active">{applied?.name}</p>
               {applied?.id && (
-                <p className="mt-1 font-mono text-[12.5px] font-bold text-emerald-800">
+                <p className="mt-1 font-mono text-[12.5px] font-bold text-active">
                   Ref: {String(applied.id).slice(0, 8).toUpperCase()}
                 </p>
               )}
-              <p className="mt-3 text-[14px] font-semibold leading-relaxed text-emerald-900/85">
+              <p className="mt-3 text-[14px] font-semibold leading-relaxed text-active/85">
                 ऑफिस आपका GSTIN, PAN और बैंक खाता जाँचेगा और फिर आपका ऐप चालू करेगा। मंज़ूरी मिलने तक इस नंबर से लॉगिन नहीं होगा — ऑफिस आपको कॉल करेगा।
               </p>
-              <p className="mt-2 text-[12px] font-semibold text-emerald-900/70">
+              <p className="mt-2 text-[12px] font-semibold text-active/70">
                 The office verifies and activates your account. You cannot sign in until they do.
               </p>
             </div>
@@ -700,9 +700,9 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'STAFF' && (
           <>
             <Brand icon="🏢" title="ऑफिस स्टाफ" sub="यह ऐप ड्राइवर, वेंडर, कस्टमर और पार्टनर के लिए है" tone="from-cyan-500 to-blue-700" />
-            <div className="mt-8 rounded-2xl border-2 border-cyan-200 bg-cyan-50 p-4 text-center">
-              <p className="text-[18px] font-black text-cyan-900">Office staff sign in on the desktop ERP</p>
-              <p className="mt-1 text-[13px] font-semibold leading-relaxed text-cyan-900/80">Username, password and the one-time code. Nothing was opened for this number here.</p>
+            <div className="mt-8 rounded-2xl border-2 border-live/35 bg-live/10 p-4 text-center">
+              <p className="text-[18px] font-black text-live">Office staff sign in on the desktop ERP</p>
+              <p className="mt-1 text-[13px] font-semibold leading-relaxed text-live/80">Username, password and the one-time code. Nothing was opened for this number here.</p>
             </div>
             <a href={GATE1_URL} className={`${BIG} mt-5 block bg-cyan-500 text-center text-[#02131a]`}>Desktop login खोलो →</a>
             <button onClick={reset} className={`${GHOST} mt-2`}>‹ दूसरा नंबर</button>
@@ -712,8 +712,8 @@ export default function UniversalLogin({ onAuthenticated }) {
         {step === 'DOWN' && (
           <>
             <Brand icon="📵" title="OTP अभी नहीं जा रहा" sub="WhatsApp / SMS का रास्ता बंद है" tone="from-amber-500 to-orange-600" />
-            <div className="mt-8 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-center">
-              <p className="text-[14px] font-semibold leading-relaxed text-amber-900">ऑफिस का OTP भेजने वाला सिस्टम अभी ऑफलाइन है। थोड़ी देर बाद कोशिश करो, या ऑफिस को बताओ।</p>
+            <div className="mt-8 rounded-2xl border-2 border-pending/35 bg-pending/10 p-4 text-center">
+              <p className="text-[14px] font-semibold leading-relaxed text-pending">ऑफिस का OTP भेजने वाला सिस्टम अभी ऑफलाइन है। थोड़ी देर बाद कोशिश करो, या ऑफिस को बताओ।</p>
             </div>
             {DISPATCH_MOBILE && <a href={DISPATCH_TEL} className={`${BIG} mt-5 block text-center`}>📞 ऑफिस को कॉल करो</a>}
             <button onClick={reset} className={`${GHOST} mt-2`}>🔁 फिर से कोशिश</button>

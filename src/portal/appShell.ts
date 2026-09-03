@@ -25,15 +25,15 @@
 
 /** The page column. Same on a phone; grows on bigger screens. */
 export const APP_SHELL =
-  'mx-auto flex min-h-screen w-full max-w-md md:max-w-2xl lg:max-w-4xl flex-col bg-[#f8fafc] text-slate-900';
+  'mx-auto flex min-h-screen w-full max-w-md md:max-w-2xl lg:max-w-4xl flex-col bg-slate-950 bg-deck-ground text-slate-100';
 
 /** The fixed bottom tab bar. Widths MUST match APP_SHELL. */
 export const APP_NAV =
-  'fixed bottom-0 left-1/2 z-40 w-full max-w-md md:max-w-2xl lg:max-w-4xl -translate-x-1/2 border-t border-slate-200 bg-white';
+  'fixed bottom-0 left-1/2 z-40 w-full max-w-md md:max-w-2xl lg:max-w-4xl -translate-x-1/2 border-t border-slate-700 bg-slate-900/95 backdrop-blur-md';
 
 /** A fixed action bar above the nav (the trip screen's one big button). */
 export const APP_BAR =
-  'fixed bottom-0 left-1/2 z-40 w-full max-w-md md:max-w-2xl lg:max-w-4xl -translate-x-1/2 border-t border-slate-200 bg-white p-3';
+  'fixed bottom-0 left-1/2 z-40 w-full max-w-md md:max-w-2xl lg:max-w-4xl -translate-x-1/2 border-t border-slate-700 bg-slate-900/95 backdrop-blur-md p-3';
 
 /** Turn a column of cards into a grid on bigger screens. Applied to the list
  *  containers only — headers, segmented controls and single wide cards keep

@@ -70,7 +70,7 @@ export default function DriverLiveRadar() {
             onClick={toggle}
             className={`relative grid place-items-center w-28 h-28 rounded-full border-4 transition-all duration-300 active:scale-95
               ${online
-                ? 'bg-gradient-to-br from-emerald-500 to-teal-700 border-emerald-300/60 shadow-[0_0_35px_rgba(52,211,153,0.5)]'
+                ? 'bg-gradient-to-br from-emerald-500 to-teal-700 border-active/40 shadow-[0_0_35px_rgba(52,211,153,0.5)]'
                 : 'bg-slate-800/80 border-slate-600/60'}`}
           >
             <Power size={34} className={online ? 'text-white' : 'text-slate-500'} />

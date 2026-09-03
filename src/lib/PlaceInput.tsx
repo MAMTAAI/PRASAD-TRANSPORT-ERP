@@ -118,7 +118,7 @@ export default function PlaceInput({
       />
       {open && suggestions.length > 0 && (
         <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-xl
-                       border border-white/10 bg-[#0b0f18]/97 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                       border border-white/10 bg-[#0b0f18]/95 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-xl">
           {suggestions.map((s, i) => (
             <li key={s.place_id}>
               <button

@@ -26,7 +26,7 @@ export default function SaveButton({ module: moduleName, action = 'UPDATE', payl
   const allowed = action === 'CREATE' ? perms.canAdd : perms.canEdit;
   if (!perms.isBoss && !allowed) {
     return (
-      <button disabled className={`flex items-center justify-center gap-2 rounded-xl border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-[12px] font-black text-slate-600 cursor-not-allowed ${className}`}>
+      <button disabled className={`flex items-center justify-center gap-2 rounded-xl border border-slate-700/50 bg-slate-800/40 px-4 py-2.5 text-[12px] font-black text-slate-400 cursor-not-allowed ${className}`}>
         <Ban size={14} /> No {action === 'CREATE' ? 'add' : 'edit'} permission
       </button>
     );

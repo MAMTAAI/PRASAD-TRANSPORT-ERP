@@ -82,18 +82,18 @@ export default function CustomerLiveTracking() {
             {marker && t.position?.progress != null && (
               <polyline
                 points={[...poly.slice(0, Math.max(1, Math.ceil(t.position.progress * (poly.length - 1)) + 0)), marker].map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="none" stroke="#34d399" strokeWidth="1.1" strokeLinecap="round" filter="url(#ctGlow)" />
+                fill="none" stroke="#2fe39b" strokeWidth="1.1" strokeLinecap="round" filter="url(#ctGlow)" />
             )}
             {/* endpoints */}
-            <circle cx={poly[0].x} cy={poly[0].y} r="2" fill="#34d399" filter="url(#ctGlow)" />
+            <circle cx={poly[0].x} cy={poly[0].y} r="2" fill="#2fe39b" filter="url(#ctGlow)" />
             <circle cx={poly[poly.length - 1].x} cy={poly[poly.length - 1].y} r="2" fill="#22d3ee" filter="url(#ctGlow)" />
             {/* live truck marker */}
             {marker && (
               <g filter="url(#ctGlow)">
-                <circle cx={marker.x} cy={marker.y} r="3.4" fill="rgba(52,211,153,0.25)">
+                <circle cx={marker.x} cy={marker.y} r="3.4" fill="rgba(47, 227, 155,0.25)">
                   <animate attributeName="r" values="3.4;5;3.4" dur="2s" repeatCount="indefinite" />
                 </circle>
-                <circle cx={marker.x} cy={marker.y} r="1.8" fill="#34d399" />
+                <circle cx={marker.x} cy={marker.y} r="1.8" fill="#2fe39b" />
               </g>
             )}
           </svg>
@@ -163,18 +163,18 @@ export default function CustomerLiveTracking() {
           { icon: MapPin, label: 'Arrival — IOCL Depot, Guwahati', time: `ETA ${eta}`, done: false },
         ].map((s, i) => (
           <div key={i} className="flex items-start gap-3 pb-3 last:pb-0">
-            <span className={`grid place-items-center w-7 h-7 rounded-full border shrink-0 ${s.done ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-400' : i === 2 ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300 mc-glow-pulse' : 'bg-white/5 border-slate-700/50 text-slate-600'}`}>
+            <span className={`grid place-items-center w-7 h-7 rounded-full border shrink-0 ${s.done ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-400' : i === 2 ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300 mc-glow-pulse' : 'bg-white/5 border-slate-700/50 text-slate-400'}`}>
               <s.icon size={13} />
             </span>
             <div className="flex-1 min-w-0">
               <p className={`text-[11px] font-bold ${s.done || i === 2 ? 'text-slate-200' : 'text-slate-500'}`}>{s.label}</p>
             </div>
-            <span className="text-[9px] font-bold text-slate-600 shrink-0">{s.time}</span>
+            <span className="text-[9px] font-bold text-slate-400 shrink-0">{s.time}</span>
           </div>
         ))}
       </GlassPanel>
 
-      <p className="text-center text-[9px] text-slate-700">Tracking {user?.full_name ? `for ${user.full_name}` : ''} · trip {SHIPMENT.trip}</p>
+      <p className="text-center text-[9px] text-slate-300">Tracking {user?.full_name ? `for ${user.full_name}` : ''} · trip {SHIPMENT.trip}</p>
     </div>
   );
 }

@@ -136,7 +136,7 @@ const EXP_TYPES = [
 const ICON = { HSD_BILL: '⛽', TYRE_BILL: '⭕', MAINTENANCE_BILL: '🔧', TOLL_BILL: '🛣️', OTHER_BILL: '🧾', LOADING_INVOICE: '📄', CHALLAN: '📄', POD: '📦', KYC: '🆔', OTHER_DOC: '📎',
   FUEL: '⛽', TYRE: '⭕', MAINTENANCE: '🔧', TOLL: '🛣️', OTHER: '📦' };
 const PILL = {
-  PENDING: 'bg-amber-100 text-amber-800', APPROVED: 'bg-green-100 text-green-800', REJECTED: 'bg-red-100 text-red-800', POSTED: 'bg-green-600 text-white',
+  PENDING: 'bg-pending/15 text-pending', APPROVED: 'bg-active/15 text-active', REJECTED: 'bg-blocked/15 text-blocked', POSTED: 'bg-green-600 text-white',
 };
 
 /** Decides which app a VENDOR login gets. */
@@ -150,7 +150,7 @@ export function VendorGate({ exit = null }) {
       setKind(r.body?.vendor_kind === 'FLEET_PARTNER' ? 'FLEET_PARTNER' : 'SERVICE');
     })();
   }, []);
-  if (kind === null) return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-[13px] text-slate-500">…</div>;
+  if (kind === null) return <div className="grid min-h-screen place-items-center bg-slate-950 bg-deck-ground text-[13px] text-slate-400">…</div>;
   // Both apps are light and full-bleed since 3-Sep, so both undo the suite
   // shell's dark padding. The Fleet Partner app carries its own Sign out under
   // Money and its own bottom nav, so the floating `exit` is not rendered over
@@ -167,7 +167,7 @@ export function VendorGate({ exit = null }) {
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
 const SHELL = APP_SHELL;
-const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
+const CARD = 'rounded-2xl border-2 border-slate-700 bg-slate-900 bg-deck-card shadow-deck';
 
 export default function ServiceVendorApp({ gateError = '' }) {
   const [lang, setLang] = useState(() => (localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'hi'));
@@ -276,14 +276,14 @@ export default function ServiceVendorApp({ gateError = '' }) {
 
   // ── small pieces ──────────────────────────────────────────────────────────
   const Bar = ({ title, sub, back }) => (
-    <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
-      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-100 px-4 text-[16px] font-bold">‹</button>}
-      <div className="min-w-0 flex-1"><div className="truncate text-[18px] font-extrabold leading-tight">{title}</div>{sub && <div className="text-[11.5px] font-semibold text-slate-500">{sub}</div>}</div>
-      <button onClick={toggleLang} className="min-h-[38px] rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+    <div className="flex items-center gap-3 border-b border-slate-700 bg-slate-900 px-4 py-2.5">
+      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-800 px-4 text-[16px] font-bold">‹</button>}
+      <div className="min-w-0 flex-1"><div className="truncate text-[18px] font-extrabold leading-tight">{title}</div>{sub && <div className="text-[11.5px] font-semibold text-slate-400">{sub}</div>}</div>
+      <button onClick={toggleLang} className="min-h-[38px] rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
     </div>
   );
-  const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-extrabold ${PILL[s] ?? 'bg-slate-100 text-slate-600'}`}>{label ?? s}</span>;
-  const Truck = ({ n }) => n ? <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-amber-900">{n}</span> : null;
+  const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-extrabold ${PILL[s] ?? 'bg-slate-800 text-slate-400'}`}>{label ?? s}</span>;
+  const Truck = ({ n }) => n ? <span className="inline-block rounded-md bg-pending/15 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-pending">{n}</span> : null;
   const Tile = ({ tone, icon, label, sub, badge, onClick }) => (
     <button onClick={onClick} className={`relative flex min-h-[104px] flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-2 shadow-[0_5px_0_rgba(0,0,0,0.18)] active:translate-y-1 active:shadow-none ${tone}`}>
       <span className="text-[32px] leading-none">{icon}</span>
@@ -293,8 +293,8 @@ export default function ServiceVendorApp({ gateError = '' }) {
     </button>
   );
   const Seg = ({ items, value, onChange }) => (
-    <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
-      {items.map(([k, l]) => <button key={k} onClick={() => onChange(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${value === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>)}
+    <div className="flex gap-1 rounded-xl bg-slate-700 p-[3px]">
+      {items.map(([k, l]) => <button key={k} onClick={() => onChange(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${value === k ? 'bg-slate-900 text-slate-100 shadow' : 'text-slate-400'}`}>{l}</button>)}
     </div>
   );
   const Steps = ({ n }) => {
@@ -303,21 +303,21 @@ export default function ServiceVendorApp({ gateError = '' }) {
       <div className="flex items-center px-0.5">
         {labels.map((l, i) => (
           <div key={l} className="relative flex flex-1 flex-col items-center gap-0.5 text-center text-[9.5px] font-extrabold">
-            <i className={`grid h-[22px] w-[22px] place-items-center rounded-full not-italic text-[11px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-200 text-slate-500'}`}>{i < n ? '✓' : i + 1}</i>
-            <span className={i <= n ? 'text-slate-900' : 'text-slate-400'}>{l}</span>
-            {i < labels.length - 1 && <span className={`absolute left-[calc(50%+12px)] top-[11px] h-[2px] w-[calc(100%-24px)] ${i < n ? 'bg-green-600' : 'bg-slate-200'}`} />}
+            <i className={`grid h-[22px] w-[22px] place-items-center rounded-full not-italic text-[11px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-700 text-slate-400'}`}>{i < n ? '✓' : i + 1}</i>
+            <span className={i <= n ? 'text-slate-100' : 'text-slate-400'}>{l}</span>
+            {i < labels.length - 1 && <span className={`absolute left-[calc(50%+12px)] top-[11px] h-[2px] w-[calc(100%-24px)] ${i < n ? 'bg-green-600' : 'bg-slate-700'}`} />}
           </div>
         ))}
       </div>
     );
   };
-  const CallBar = () => <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-slate-900 py-3 text-center text-[16px] font-extrabold text-white">📞 {t.call}</a>;
+  const CallBar = () => <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-live py-3 text-center text-[16px] font-extrabold text-slate-950">📞 {t.call}</a>;
   const Nav = () => {
     const items = [['home', '🏠', t.home, 0], ['slips', '🧾', t.slips, sum?.slips?.rejected ?? 0], ['bills', '📑', t.bills, sum?.bills?.rejected ?? 0], ['pay', '💰', t.pay, 0], ['acct', '👤', t.acct, 0]];
     return (
       <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
-          <button key={k} onClick={() => { setTab(k); setScreen('TABS'); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}>
+          <button key={k} onClick={() => { setTab(k); setScreen('TABS'); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-400'}`}>
             <span className="text-[22px] leading-none">{i}</span>{l}
             {n > 0 && <span className="absolute right-3 top-0 rounded-full bg-red-500 px-1.5 text-[9.5px] font-extrabold text-white">{n}</span>}
           </button>
@@ -327,7 +327,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
   };
 
   // ── gate screens ──────────────────────────────────────────────────────────
-  if (gate === 'loading') return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-slate-500" style={FONT}>{t.loading}</div>;
+  if (gate === 'loading') return <div className="grid min-h-screen place-items-center bg-slate-950 bg-deck-ground text-slate-400" style={FONT}>{t.loading}</div>;
   if (gate !== 'ok') {
     return (
       <div className={SHELL} style={FONT}>
@@ -335,8 +335,8 @@ export default function ServiceVendorApp({ gateError = '' }) {
         <div className="grid flex-1 place-items-center px-8 text-center">
           <div><div className="text-5xl">🏪</div>
             <h2 className="mt-3 text-[20px] font-extrabold">{gate === 'not_approved' ? t.notApproved : t.cantReach}</h2>
-            <p className="mt-2 text-[13.5px] font-semibold text-slate-500">{gateMsg}</p>
-            <a href={DISPATCH_TEL} className="mt-6 block rounded-2xl bg-slate-900 py-3 text-[16px] font-extrabold text-white">📞 {t.call}</a></div>
+            <p className="mt-2 text-[13.5px] font-semibold text-slate-400">{gateMsg}</p>
+            <a href={DISPATCH_TEL} className="mt-6 block rounded-2xl bg-live py-3 text-[16px] font-extrabold text-slate-950">📞 {t.call}</a></div>
         </div>
       </div>
     );
@@ -357,7 +357,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
         </div>
         <div className="flex items-center justify-around pb-2 pt-1">
           <button onClick={() => galRef.current?.click()} className="text-[15px] font-bold text-neutral-200">🖼️ {t.gallery}</button>
-          <button onClick={() => camRef.current?.click()} aria-label={t.shoot} className="h-[88px] w-[88px] rounded-full border-[6px] border-neutral-400 bg-white" data-shutter />
+          <button onClick={() => camRef.current?.click()} aria-label={t.shoot} className="h-[88px] w-[88px] rounded-full border-[6px] border-neutral-400 bg-slate-900" data-shutter />
           <span className="w-16" />
         </div>
         <p className="pb-6 text-center text-[18px] font-extrabold">{t.shoot}</p>
@@ -373,17 +373,17 @@ export default function ServiceVendorApp({ gateError = '' }) {
     const isPdf = shot && (shot.type === 'application/pdf' || /\.pdf$/i.test(shot.name || ''));
     const url = shot && !isPdf ? URL.createObjectURL(shot) : null;
     const chips = Array.from(new Set([...(recentTrucks), ...(form.vehicle_no ? [form.vehicle_no] : [])])).slice(0, 6);
-    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
-    const Inp = (props) => <input {...props} className={`min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white px-3 text-[16px] font-bold outline-none focus:border-blue-500 ${props.className ?? ''}`} />;
-    const Chip = ({ on, children, onClick }) => <button type="button" onClick={onClick} className={`min-h-[38px] rounded-full border-2 px-3 text-[13px] font-extrabold ${on ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-800'}`}>{children}</button>;
+    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-400">{children}</div>;
+    const Inp = (props) => <input {...props} className={`min-h-[46px] w-full rounded-xl border-2 border-slate-700 bg-slate-900 px-3 text-[16px] font-bold outline-none focus:border-blue-500 ${props.className ?? ''}`} />;
+    const Chip = ({ on, children, onClick }) => <button type="button" onClick={onClick} className={`min-h-[38px] rounded-full border-2 px-3 text-[13px] font-extrabold ${on ? 'border-slate-900 bg-live text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-200'}`}>{children}</button>;
     return (
       <div className={SHELL} style={FONT} data-screen="confirm">
         <Bar title={slip ? t.confirmSlip : t.confirmBill} sub={slip ? t.confirmSlipSub : t.confirmBillSub} back={() => setScreen('CAMERA')} />
         <div className="flex flex-1 flex-col gap-2.5 px-3 pb-6 pt-3">
-          <div className="flex items-center gap-3 rounded-2xl border-2 border-green-300 bg-green-50 px-3 py-2">
+          <div className="flex items-center gap-3 rounded-2xl border-2 border-active/45 bg-active/10 px-3 py-2">
             {url ? <img src={url} alt="" className="h-16 w-12 rounded-md object-cover shadow" onLoad={() => URL.revokeObjectURL(url)} /> : <span className="text-3xl">📄</span>}
-            <div className="min-w-0 flex-1 text-[13px] font-extrabold text-green-800">✅ {t.photoOn}<div className="truncate text-[11px] font-semibold text-green-700">{shot?.name}</div></div>
-            <button onClick={() => setScreen('CAMERA')} className="min-h-[38px] rounded-full border-2 border-slate-300 bg-white px-3 text-[12px] font-extrabold">🔁 {t.retake}</button>
+            <div className="min-w-0 flex-1 text-[13px] font-extrabold text-active">✅ {t.photoOn}<div className="truncate text-[11px] font-semibold text-active">{shot?.name}</div></div>
+            <button onClick={() => setScreen('CAMERA')} className="min-h-[38px] rounded-full border-2 border-slate-700 bg-slate-900 px-3 text-[12px] font-extrabold">🔁 {t.retake}</button>
           </div>
           <div className={`${CARD} flex flex-col gap-2.5 px-3 py-3`}>
             {slip ? (
@@ -401,7 +401,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
                     </Chip>
                   ))}
                 </div>
-                <div className="mt-1 text-[11.5px] font-semibold text-slate-500">{t.coNote}</div>
+                <div className="mt-1 text-[11.5px] font-semibold text-slate-400">{t.coNote}</div>
               </div>
             )}
             <div><Lbl>{t.truckLbl}</Lbl>
@@ -416,8 +416,8 @@ export default function ServiceVendorApp({ gateError = '' }) {
             </div>
             <div><Lbl>{t.remarks}</Lbl><Inp value={form.remarks ?? ''} onChange={(e) => F('remarks', e.target.value)} placeholder="…" /></div>
           </div>
-          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.confirmNote}{slip ? ' ' + t.ocrNote : ''}</div>
-          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.confirmNote}{slip ? ' ' + t.ocrNote : ''}</div>
+          {err && <div className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold text-blocked">{err}</div>}
           <button onClick={send} disabled={busy || viewAs} className={`min-h-[66px] rounded-2xl text-[20px] font-extrabold shadow-[0_6px_0_rgba(0,0,0,0.18)] disabled:opacity-60 ${slip ? 'bg-green-600 text-white' : 'bg-amber-500 text-[#1f1300]'}`} data-send>
             {busy ? t.sending : slip ? `✅ ${t.sendSlip}` : `📤 ${t.sendBill}`}
           </button>
@@ -428,14 +428,14 @@ export default function ServiceVendorApp({ gateError = '' }) {
 
   if (screen === 'SENT') {
     return (
-      <div className={`${SHELL} items-center justify-center bg-white px-6 text-center`} style={FONT} data-screen="sent">
+      <div className={`${SHELL} items-center justify-center bg-slate-900 px-6 text-center`} style={FONT} data-screen="sent">
         <div className="grid h-[120px] w-[120px] place-items-center rounded-full bg-green-600 text-[76px] font-black text-white">✓</div>
         <h2 className="mt-4 text-[30px] font-extrabold">{t.sent}</h2>
-        <p className="text-[17px] font-semibold text-slate-600">{t.sentSub}</p>
-        <span className="mt-3 rounded-full bg-amber-100 px-3 py-1.5 text-[12px] font-extrabold text-amber-800">{t.sentPill}</span>
-        <p className="mt-4 text-[13.5px] text-slate-500">{t.sentNote}</p>
-        <button onClick={() => openCamera(mode)} className="mt-8 w-full min-h-[64px] rounded-2xl border-[3px] border-slate-300 bg-white text-[20px] font-extrabold">📷 {t.oneMore}</button>
-        <button onClick={() => { setScreen('TABS'); setTab(mode === 'SLIP' ? 'slips' : 'bills'); }} className="mt-3 w-full min-h-[64px] rounded-2xl bg-slate-900 text-[20px] font-extrabold text-white">{t.homeBtn}</button>
+        <p className="text-[17px] font-semibold text-slate-400">{t.sentSub}</p>
+        <span className="mt-3 rounded-full bg-pending/15 px-3 py-1.5 text-[12px] font-extrabold text-pending">{t.sentPill}</span>
+        <p className="mt-4 text-[13.5px] text-slate-400">{t.sentNote}</p>
+        <button onClick={() => openCamera(mode)} className="mt-8 w-full min-h-[64px] rounded-2xl border-[3px] border-slate-700 bg-slate-900 text-[20px] font-extrabold">📷 {t.oneMore}</button>
+        <button onClick={() => { setScreen('TABS'); setTab(mode === 'SLIP' ? 'slips' : 'bills'); }} className="mt-3 w-full min-h-[64px] rounded-2xl bg-live text-[20px] font-extrabold text-slate-950">{t.homeBtn}</button>
       </div>
     );
   }
@@ -445,25 +445,25 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const Home = () => (
     <div className="flex flex-col gap-2.5 px-3 pb-28 pt-2.5">
       {notices.length > 0 && notices.map((n, i) => (
-        <div key={i} className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold leading-snug text-red-800">
+        <div key={i} className="rounded-2xl border-2 border-blocked/45 bg-blocked/10 px-3 py-2.5 text-[13px] font-extrabold leading-snug text-blocked">
           ❌ {n.kind === 'SLIP' ? t.rejectedSlip : t.rejectedBill} · {ICON[n.what] ?? ''} {n.amount ? inr(n.amount) : ''} — {t.officeSaid}: “{n.reason || '—'}”
         </div>
       ))}
       <div className="grid grid-cols-3 gap-2">
-        <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[19px] font-black text-blue-600">{sum?.slips?.month ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{t.kSlips}</div></div>
-        <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[19px] font-black text-amber-700">{sum?.bills?.pending ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{t.kPending}</div></div>
-        <div className={`${CARD} px-1.5 py-2 text-center`}><div className={`text-[19px] font-black ${showLedger ? 'text-red-600' : 'text-slate-400'}`}>{showLedger ? inrShort(ledger?.current_balance) : '🔒'}</div><div className="mt-0.5 text-[10px] font-bold text-slate-500">{showLedger ? t.kDue : t.locked}</div></div>
+        <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[19px] font-black text-blue-600">{sum?.slips?.month ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{t.kSlips}</div></div>
+        <div className={`${CARD} px-1.5 py-2 text-center`}><div className="text-[19px] font-black text-pending">{sum?.bills?.pending ?? 0}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{t.kPending}</div></div>
+        <div className={`${CARD} px-1.5 py-2 text-center`}><div className={`text-[19px] font-black ${showLedger ? 'text-red-600' : 'text-slate-400'}`}>{showLedger ? inrShort(ledger?.current_balance) : '🔒'}</div><div className="mt-0.5 text-[10px] font-bold text-slate-400">{showLedger ? t.kDue : t.locked}</div></div>
       </div>
       <div className={`${CARD} px-3 pb-1 pt-2`}>
-        <div className="flex items-center justify-between text-[12.5px] font-extrabold text-slate-700">{t.payStatus}<span className="text-[10.5px] font-semibold text-slate-500">{sum?.fy_label ?? ''}</span></div>
+        <div className="flex items-center justify-between text-[12.5px] font-extrabold text-slate-300">{t.payStatus}<span className="text-[10.5px] font-semibold text-slate-400">{sum?.fy_label ?? ''}</span></div>
         <Row ic="🧾" l={t.raised} s={`${sum?.bills?.fy_count ?? 0} ${t.bills_n} · ${sum?.bills?.pending ?? 0} ${t.pendingOffice}`} v={inr(sum?.bills?.fy_raised)} tone="text-blue-600" />
-        <Row ic="✅" l={t.approved} s="" v={inr(sum?.bills?.fy_approved)} tone="text-green-700" />
-        <Row ic="📒" l={t.posted} s={showLedger && ledger?.last_payment ? `${t.lastPay}: ${dmy(ledger.last_payment.txn_date)} · ${inr(ledger.last_payment.amount)}` : ''} v={inr(sum?.bills?.fy_posted)} tone="text-green-700" />
+        <Row ic="✅" l={t.approved} s="" v={inr(sum?.bills?.fy_approved)} tone="text-active" />
+        <Row ic="📒" l={t.posted} s={showLedger && ledger?.last_payment ? `${t.lastPay}: ${dmy(ledger.last_payment.txn_date)} · ${inr(ledger.last_payment.amount)}` : ''} v={inr(sum?.bills?.fy_posted)} tone="text-active" />
         {showLedger ? (
           <Row ic="⏳" l={t.due} s={me?.payment_terms ? `${t.terms} ${me.payment_terms}` : ''} v={inr(ledger?.current_balance)} tone="text-red-600" sub={t.officeOwes}
             bar={ledger && Number(ledger.fy_billed) > 0 ? Math.min(1, Number(ledger.fy_paid) / Number(ledger.fy_billed)) : 0} />
         ) : (
-          <div className="flex items-center gap-2 border-t border-slate-100 py-2 text-[12px] font-bold text-slate-500">🔒 {t.due} — {t.locked}</div>
+          <div className="flex items-center gap-2 border-t border-slate-800 py-2 text-[12px] font-bold text-slate-400">🔒 {t.due} — {t.locked}</div>
         )}
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -476,11 +476,11 @@ export default function ServiceVendorApp({ gateError = '' }) {
     </div>
   );
   const Row = ({ ic, l, s, v, tone, sub, bar }) => (
-    <div className="grid grid-cols-[22px_1fr_auto] items-center gap-2 border-t border-slate-100 py-1.5">
+    <div className="grid grid-cols-[22px_1fr_auto] items-center gap-2 border-t border-slate-800 py-1.5">
       <span className="text-[18px]">{ic}</span>
-      <div><div className="text-[12.5px] font-extrabold leading-tight">{l}</div>{s && <div className="text-[10.5px] font-semibold text-slate-500">{s}</div>}
-        {bar != null && <div className="mt-1 h-[5px] overflow-hidden rounded bg-slate-200"><i className="block h-full bg-blue-600" style={{ width: `${Math.round(bar * 100)}%` }} /></div>}</div>
-      <div className={`min-w-[64px] text-right text-[18px] font-black leading-none ${tone}`}>{v}{sub && <div className="mt-0.5 text-[9.5px] font-bold text-slate-500">{sub}</div>}</div>
+      <div><div className="text-[12.5px] font-extrabold leading-tight">{l}</div>{s && <div className="text-[10.5px] font-semibold text-slate-400">{s}</div>}
+        {bar != null && <div className="mt-1 h-[5px] overflow-hidden rounded bg-slate-700"><i className="block h-full bg-blue-600" style={{ width: `${Math.round(bar * 100)}%` }} /></div>}</div>
+      <div className={`min-w-[64px] text-right text-[18px] font-black leading-none ${tone}`}>{v}{sub && <div className="mt-0.5 text-[9.5px] font-bold text-slate-400">{sub}</div>}</div>
     </div>
   );
 
@@ -488,27 +488,27 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const Slips = () => (
     <div className="relative flex flex-col gap-2 px-3 pb-28 pt-2.5">
       <Seg value={seg} onChange={setSeg} items={[['ALL', t.all], ['PENDING', `${t.pending} ${sum?.slips?.pending ?? 0}`], ['APPROVED', t.approvedS], ['REJECTED', `${t.rejected} ${sum?.slips?.rejected ?? 0}`]]} />
-      {docs == null && <p className="p-4 text-center text-[13px] text-slate-500">…</p>}
-      {docs && slipList.length === 0 && <p className="p-6 text-center text-[13.5px] font-semibold text-slate-500">{t.noSlips}</p>}
+      {docs == null && <p className="p-4 text-center text-[13px] text-slate-400">…</p>}
+      {docs && slipList.length === 0 && <p className="p-6 text-center text-[13.5px] font-semibold text-slate-400">{t.noSlips}</p>}
       {slipList.map((d) => {
         const ocr = d.ocr;
         const diff = ocr && ((ocr.amount != null && d.amount != null && Math.abs(Number(ocr.amount) - Number(d.amount)) >= 1) || (ocr.qty != null && d.qty != null && Math.abs(Number(ocr.qty) - Number(d.qty)) >= 0.5));
-        const tone = d.status === 'REJECTED' ? 'border-red-300 bg-red-50' : d.status === 'PENDING' ? 'border-amber-300 bg-amber-50' : d.expense_approval_id ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-white';
+        const tone = d.status === 'REJECTED' ? 'border-blocked/45 bg-blocked/10' : d.status === 'PENDING' ? 'border-pending/45 bg-pending/10' : d.expense_approval_id ? 'border-active/45 bg-active/10' : 'border-slate-700 bg-slate-900';
         return (
           <div key={d.id} className={`flex flex-col gap-1.5 rounded-2xl border-2 px-3 py-2.5 ${tone}`} data-slip={d.id}>
             <div className="flex items-center gap-2.5">
               <span className="text-[28px] leading-none">{ICON[d.doc_type] ?? '🧾'}</span>
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-extrabold leading-tight"><Truck n={d.vehicle_no} /> {!d.vehicle_no && (t['type_' + d.doc_type] ?? d.doc_type)}</div>
-                <div className="text-[11.5px] font-semibold text-slate-500">{dmy(d.bill_date ?? d.created_at)}{d.qty != null ? ` · ${litres(d.qty)}` : ''}{d.bill_no ? ` · #${d.bill_no}` : ''} · {t['type_' + d.doc_type] ?? d.doc_type}</div>
+                <div className="text-[11.5px] font-semibold text-slate-400">{dmy(d.bill_date ?? d.created_at)}{d.qty != null ? ` · ${litres(d.qty)}` : ''}{d.bill_no ? ` · #${d.bill_no}` : ''} · {t['type_' + d.doc_type] ?? d.doc_type}</div>
               </div>
               <div className="text-right"><div className="text-[16px] font-black leading-none">{d.amount != null ? inr(d.amount) : ''}</div><div className="mt-1"><Pill s={d.status} label={d.status === 'APPROVED' && d.expense_approval_id ? 'IN BILL' : d.status} /></div></div>
             </div>
-            {d.status === 'PENDING' && d.ocr_status !== 'DONE' && <div className="text-[11px] font-bold text-slate-500">🤖 {t.ocrWait}</div>}
-            {ocr && <div className={`rounded-xl px-2.5 py-1.5 text-[11.5px] font-bold ${diff ? 'bg-amber-100 text-amber-900' : 'bg-cyan-50 text-cyan-900'}`}>🤖 {t.ocrRead}: {ocr.vehicle_no ?? ''} {ocr.qty != null ? litres(ocr.qty) : ''} {ocr.amount != null ? inr(ocr.amount) : ''}{ocr.score != null ? ` · ${ocr.score}%` : ''}{diff ? ` — ${t.ocrDiff}` : ''}</div>}
-            {d.status === 'REJECTED' && <div className="rounded-xl border-2 border-red-300 bg-white px-2.5 py-1.5 text-[12.5px] font-extrabold text-red-800">❌ {t.officeSaid}: “{d.reject_reason || '—'}”</div>}
+            {d.status === 'PENDING' && d.ocr_status !== 'DONE' && <div className="text-[11px] font-bold text-slate-400">🤖 {t.ocrWait}</div>}
+            {ocr && <div className={`rounded-xl px-2.5 py-1.5 text-[11.5px] font-bold ${diff ? 'bg-pending/15 text-pending' : 'bg-live/10 text-live'}`}>🤖 {t.ocrRead}: {ocr.vehicle_no ?? ''} {ocr.qty != null ? litres(ocr.qty) : ''} {ocr.amount != null ? inr(ocr.amount) : ''}{ocr.score != null ? ` · ${ocr.score}%` : ''}{diff ? ` — ${t.ocrDiff}` : ''}</div>}
+            {d.status === 'REJECTED' && <div className="rounded-xl border-2 border-blocked/45 bg-slate-900 px-2.5 py-1.5 text-[12.5px] font-extrabold text-blocked">❌ {t.officeSaid}: “{d.reject_reason || '—'}”</div>}
             <div className="flex gap-2">
-              <button onClick={() => openFile(`/files/${d.file_key}`).catch((e) => say(e.message))} className="min-h-[40px] flex-1 rounded-xl border-2 border-slate-300 bg-white text-[13.5px] font-extrabold">👁 {t.view}</button>
+              <button onClick={() => openFile(`/files/${d.file_key}`).catch((e) => say(e.message))} className="min-h-[40px] flex-1 rounded-xl border-2 border-slate-700 bg-slate-900 text-[13.5px] font-extrabold">👁 {t.view}</button>
               {d.status === 'REJECTED' && <button onClick={() => openCamera('SLIP', { doc_type: d.doc_type, vehicle_no: d.vehicle_no ?? '', qty: d.qty ?? '', amount: d.amount ?? '', bill_no: d.bill_no ?? '' })} className="min-h-[40px] flex-1 rounded-xl bg-blue-600 text-[13.5px] font-extrabold text-white">📷 {t.resend}</button>}
             </div>
           </div>
@@ -523,10 +523,10 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const Bills = () => (
     <div className="flex flex-col gap-2 px-3 pb-28 pt-2.5">
       <Seg value={bseg} onChange={setBseg} items={[['ALL', t.all], ['PENDING', `${t.pending} ${sum?.bills?.pending ?? 0}`], ['APPROVED', t.approvedS], ['POSTED', t.stPosted]]} />
-      {bills == null && <p className="p-4 text-center text-[13px] text-slate-500">…</p>}
-      {bills && billList.length === 0 && <p className="p-6 text-center text-[13.5px] font-semibold text-slate-500">{t.noBills}</p>}
+      {bills == null && <p className="p-4 text-center text-[13px] text-slate-400">…</p>}
+      {bills && billList.length === 0 && <p className="p-6 text-center text-[13.5px] font-semibold text-slate-400">{t.noBills}</p>}
       {billList.map((b) => {
-        const tone = b.status === 'REJECTED' ? 'border-red-300 bg-red-50' : b.posted ? 'border-green-300 bg-green-50' : b.status === 'PENDING' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white';
+        const tone = b.status === 'REJECTED' ? 'border-blocked/45 bg-blocked/10' : b.posted ? 'border-active/45 bg-active/10' : b.status === 'PENDING' ? 'border-pending/45 bg-pending/10' : 'border-slate-700 bg-slate-900';
         const open = openBill === b.id;
         return (
           <div key={b.id} className={`flex flex-col gap-1.5 rounded-2xl border-2 px-3 py-2.5 ${tone}`} onClick={() => setOpenBill(open ? null : b.id)} data-bill={b.id}>
@@ -534,24 +534,24 @@ export default function ServiceVendorApp({ gateError = '' }) {
               <span className="text-[28px] leading-none">{ICON[b.expense_type] ?? '🧾'}</span>
               <div className="min-w-0 flex-1">
                 <div className="text-[15px] font-extrabold leading-tight">{b.bill_no ? `Bill ${b.bill_no}` : b.expense_type} · {b.expense_type}</div>
-                <div className="text-[11.5px] font-semibold text-slate-500"><Truck n={b.vehicle_no} /> {dmy(b.bill_date ?? b.created_at)}{b.posted ? ' · ' + t.postedAt : ''}</div>
+                <div className="text-[11.5px] font-semibold text-slate-400"><Truck n={b.vehicle_no} /> {dmy(b.bill_date ?? b.created_at)}{b.posted ? ' · ' + t.postedAt : ''}</div>
               </div>
               <div className="text-[16px] font-black">{inr(b.amount)}</div>
             </div>
             <Steps n={stepOf(b)} />
             {b.status === 'REJECTED' && (
               <>
-                <div className="rounded-xl border-2 border-red-300 bg-white px-2.5 py-1.5 text-[12.5px] font-extrabold text-red-800">❌ {t.officeSaid}: “{b.reject_reason || '—'}”</div>
+                <div className="rounded-xl border-2 border-blocked/45 bg-slate-900 px-2.5 py-1.5 text-[12.5px] font-extrabold text-blocked">❌ {t.officeSaid}: “{b.reject_reason || '—'}”</div>
                 <button onClick={(e) => { e.stopPropagation(); openCamera('BILL', { expense_type: b.expense_type, amount: b.amount ?? '', bill_no: b.bill_no ?? '', vehicle_no: b.vehicle_no ?? '', bill_date: b.bill_date ? String(b.bill_date).slice(0, 10) : today() }); }} className="min-h-[42px] rounded-xl bg-blue-600 text-[14.5px] font-extrabold text-white">📷 {t.resend}</button>
               </>
             )}
             {open && (
-              <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 rounded-xl bg-white/70 px-2.5 py-2 text-[12.5px]">
-                <span className="text-slate-500">{t.submitted}</span><b>{dmyt(b.created_at)}</b>
-                <span className="text-slate-500">{t.approvedAt}</span><b className={b.approved_at ? '' : 'text-amber-700'}>{b.status === 'REJECTED' ? '—' : b.approved_at ? dmyt(b.approved_at) : '⏳ ' + t.reviewing}</b>
-                <span className="text-slate-500">{t.postedAt}</span><b>{b.posted ? '✓' : '—'}</b>
-                {b.description && <><span className="text-slate-500">{t.note}</span><b className="text-right">{String(b.description).replace(/^\[[^\]]*\]\s*/, '')}</b></>}
-                {b.file_key && <button onClick={(e) => { e.stopPropagation(); openFile(`/files/${b.file_key}`).catch((er) => say(er.message)); }} className="col-span-2 mt-1 min-h-[40px] rounded-xl border-2 border-slate-300 bg-white text-[13.5px] font-extrabold">👁 {t.view}</button>}
+              <div className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 rounded-xl bg-slate-800/70 px-2.5 py-2 text-[12.5px]">
+                <span className="text-slate-400">{t.submitted}</span><b>{dmyt(b.created_at)}</b>
+                <span className="text-slate-400">{t.approvedAt}</span><b className={b.approved_at ? '' : 'text-pending'}>{b.status === 'REJECTED' ? '—' : b.approved_at ? dmyt(b.approved_at) : '⏳ ' + t.reviewing}</b>
+                <span className="text-slate-400">{t.postedAt}</span><b>{b.posted ? '✓' : '—'}</b>
+                {b.description && <><span className="text-slate-400">{t.note}</span><b className="text-right">{String(b.description).replace(/^\[[^\]]*\]\s*/, '')}</b></>}
+                {b.file_key && <button onClick={(e) => { e.stopPropagation(); openFile(`/files/${b.file_key}`).catch((er) => say(er.message)); }} className="col-span-2 mt-1 min-h-[40px] rounded-xl border-2 border-slate-700 bg-slate-900 text-[13.5px] font-extrabold">👁 {t.view}</button>}
               </div>
             )}
           </div>
@@ -560,35 +560,35 @@ export default function ServiceVendorApp({ gateError = '' }) {
     </div>
   );
 
-  const TXN = { PAYMENT_GIVEN: ['🏦', 'payment', '+', 'text-green-700'], BILL_RECEIVED: ['🧾', 'billRecv', '', ''], CREDIT_NOTE: ['↩️', 'creditNote', '−', 'text-red-600'], ADJUSTMENT: ['⚖️', 'adjustment', '', ''], OPENING: ['📘', 'opening', '', ''] };
+  const TXN = { PAYMENT_GIVEN: ['🏦', 'payment', '+', 'text-active'], BILL_RECEIVED: ['🧾', 'billRecv', '', ''], CREDIT_NOTE: ['↩️', 'creditNote', '−', 'text-red-600'], ADJUSTMENT: ['⚖️', 'adjustment', '', ''], OPENING: ['📘', 'opening', '', ''] };
   const statement = async () => { try { await openFile('/portal/vendor/statement.pdf'); } catch (e) { say(e.message); } };
   const Pay = () => (
     <div className="flex flex-col gap-2.5 px-3 pb-28 pt-2.5">
       {!showLedger ? (
         <div className="grid min-h-[50vh] place-items-center text-center">
-          <div><div className="text-5xl">🔒</div><h3 className="mt-3 text-[18px] font-extrabold">{t.payLocked}</h3><p className="mt-2 text-[13px] font-semibold text-slate-500">{t.payLockedSub}</p>
-            <a href={DISPATCH_TEL} className="mt-5 block rounded-2xl bg-slate-900 py-3 text-[16px] font-extrabold text-white">📞 {t.call}</a></div>
+          <div><div className="text-5xl">🔒</div><h3 className="mt-3 text-[18px] font-extrabold">{t.payLocked}</h3><p className="mt-2 text-[13px] font-semibold text-slate-400">{t.payLockedSub}</p>
+            <a href={DISPATCH_TEL} className="mt-5 block rounded-2xl bg-live py-3 text-[16px] font-extrabold text-slate-950">📞 {t.call}</a></div>
         </div>
       ) : (
         <>
           <div className={`${CARD} px-3 pb-1 pt-2`}>
-            <div className="flex items-center justify-between text-[12.5px] font-extrabold text-slate-700">{t.account}<span className="text-[10.5px] font-semibold text-slate-500">{sum?.fy_label ?? ''}</span></div>
+            <div className="flex items-center justify-between text-[12.5px] font-extrabold text-slate-300">{t.account}<span className="text-[10.5px] font-semibold text-slate-400">{sum?.fy_label ?? ''}</span></div>
             <Row ic="🧾" l={t.billsIn} s="" v={inr(ledger?.fy_billed)} tone="text-blue-600" />
-            <Row ic="🏦" l={t.paidIn} s={`${ledger?.fy_payments ?? 0} ${t.payment}`} v={inr(ledger?.fy_paid)} tone="text-green-700" />
+            <Row ic="🏦" l={t.paidIn} s={`${ledger?.fy_payments ?? 0} ${t.payment}`} v={inr(ledger?.fy_paid)} tone="text-active" />
             <Row ic="⏳" l={t.due} s={me?.payment_terms ? `${t.terms} ${me.payment_terms}` : ''} v={inr(ledger?.current_balance)} tone="text-red-600" />
           </div>
           <button onClick={statement} className="min-h-[44px] rounded-xl bg-blue-600 text-[14.5px] font-extrabold text-white">📄 {t.statement}</button>
-          <div className="mt-1 text-[12px] font-extrabold text-slate-700">{t.txns}</div>
-          {txns == null && <p className="p-3 text-center text-[13px] text-slate-500">…</p>}
-          {txns && (txns.transactions ?? []).length === 0 && <p className="p-4 text-center text-[13px] font-semibold text-slate-500">{t.noTxns}</p>}
+          <div className="mt-1 text-[12px] font-extrabold text-slate-300">{t.txns}</div>
+          {txns == null && <p className="p-3 text-center text-[13px] text-slate-400">…</p>}
+          {txns && (txns.transactions ?? []).length === 0 && <p className="p-4 text-center text-[13px] font-semibold text-slate-400">{t.noTxns}</p>}
           {(txns?.transactions ?? []).map((x) => {
             const [ic, key, sign, tone] = TXN[x.txn_type] ?? ['📎', 'adjustment', '', ''];
             const ok = x.approval_status === 'APPROVED';
             return (
-              <div key={x.id} className={`flex items-center gap-2.5 rounded-2xl border-2 px-3 py-2.5 ${x.txn_type === 'PAYMENT_GIVEN' && ok ? 'border-green-300 bg-green-50' : 'border-slate-200 bg-white'}`}>
+              <div key={x.id} className={`flex items-center gap-2.5 rounded-2xl border-2 px-3 py-2.5 ${x.txn_type === 'PAYMENT_GIVEN' && ok ? 'border-active/45 bg-active/10' : 'border-slate-700 bg-slate-900'}`}>
                 <span className="text-[26px] leading-none">{ic}</span>
                 <div className="min-w-0 flex-1"><div className="text-[14.5px] font-extrabold leading-tight">{t[key]}{x.payment_mode ? ` · ${x.payment_mode}` : ''}</div>
-                  <div className="truncate text-[11.5px] font-semibold text-slate-500">{dmy(x.txn_date)}{x.remarks ? ` · ${x.remarks}` : ''}{!ok ? ` · ${t.awaiting}` : ''}</div></div>
+                  <div className="truncate text-[11.5px] font-semibold text-slate-400">{dmy(x.txn_date)}{x.remarks ? ` · ${x.remarks}` : ''}{!ok ? ` · ${t.awaiting}` : ''}</div></div>
                 <div className={`text-[16px] font-black ${ok ? tone : 'text-slate-400'}`}>{sign}{inr(x.amount)}</div>
               </div>
             );
@@ -603,20 +603,20 @@ export default function ServiceVendorApp({ gateError = '' }) {
     localStorage.removeItem('prasad_token');
     window.location.reload();
   };
-  const KV = ({ k, v }) => <><span className="text-slate-500">{k}</span><b className="text-right">{v ?? '—'}</b></>;
+  const KV = ({ k, v }) => <><span className="text-slate-400">{k}</span><b className="text-right">{v ?? '—'}</b></>;
   const Acct = () => (
     <div className="flex flex-col gap-2.5 px-3 pb-28 pt-2.5">
-      <div className="rounded-2xl border-2 border-green-300 bg-green-50 px-3 py-2.5 text-[13px] font-extrabold text-green-800">✅ {t.approvedPortal} · {me?.gst_no ? `GST ${me.gst_no}` : ''}</div>
+      <div className="rounded-2xl border-2 border-active/45 bg-active/10 px-3 py-2.5 text-[13px] font-extrabold text-active">✅ {t.approvedPortal} · {me?.gst_no ? `GST ${me.gst_no}` : ''}</div>
       <div className={`${CARD} grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 px-3 py-3 text-[12.5px]`}>
         <KV k={t.name} v={me?.name} /><KV k={t.type} v={`${t.vendor} · ${me?.vendor_type ?? 'SERVICE'}`} /><KV k={t.terms} v={me?.payment_terms} /><KV k={t.mobile} v={me?.mobile_no} /><KV k={t.address} v={me?.address} />
-        <span className="text-slate-500">{t.language}</span><button onClick={toggleLang} className="text-right font-extrabold text-blue-700">{lang === 'hi' ? 'हिंदी · EN' : 'English · हिं'}</button>
+        <span className="text-slate-400">{t.language}</span><button onClick={toggleLang} className="text-right font-extrabold text-live">{lang === 'hi' ? 'हिंदी · EN' : 'English · हिं'}</button>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Tile tone={showLedger ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-600'} icon="📄" label={t.tStmt} sub={showLedger ? 'PDF' : t.locked} onClick={showLedger ? statement : () => setTab('pay')} />
+        <Tile tone={showLedger ? 'bg-blue-600 text-white' : 'bg-slate-300 text-slate-400'} icon="📄" label={t.tStmt} sub={showLedger ? 'PDF' : t.locked} onClick={showLedger ? statement : () => setTab('pay')} />
         <Tile tone="bg-teal-600 text-white" icon="📞" label={t.officeSaid} sub={DISPATCH_DISPLAY} onClick={() => { window.location.href = DISPATCH_TEL; }} />
       </div>
-      <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.profileNote}</div>
-      <button onClick={logout} className="min-h-[46px] rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">🚪 {t.logout}</button>
+      <div className="rounded-2xl bg-live/10 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-live">{t.profileNote}</div>
+      <button onClick={logout} className="min-h-[46px] rounded-2xl border-2 border-slate-700 bg-slate-900 text-[15px] font-extrabold">🚪 {t.logout}</button>
     </div>
   );
 
@@ -624,19 +624,19 @@ export default function ServiceVendorApp({ gateError = '' }) {
   return (
     <div className={SHELL} style={FONT} data-screen={tab}>
       {tab === 'home' ? (
-        <div className="flex items-center gap-2.5 border-b border-slate-200 bg-white px-4 py-2.5">
-          <div className="min-w-0 flex-1"><div className="text-[10px] font-bold tracking-wide text-slate-500">{t.brand}</div><div className="truncate text-[17px] font-extrabold leading-tight">{me?.name ?? sum?.vendor?.name ?? t.vendor}</div>
-            <div className="text-[11px] font-semibold text-slate-500">{t.vendor} · {me?.vendor_type ?? 'Service'}{me?.address ? ` · ${String(me.address).split(',')[0]}` : ''}</div></div>
-          <button onClick={toggleLang} className="min-h-[38px] rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+        <div className="flex items-center gap-2.5 border-b border-slate-700 bg-slate-900 px-4 py-2.5">
+          <div className="min-w-0 flex-1"><div className="text-[10px] font-bold tracking-wide text-slate-400">{t.brand}</div><div className="truncate text-[17px] font-extrabold leading-tight">{me?.name ?? sum?.vendor?.name ?? t.vendor}</div>
+            <div className="text-[11px] font-semibold text-slate-400">{t.vendor} · {me?.vendor_type ?? 'Service'}{me?.address ? ` · ${String(me.address).split(',')[0]}` : ''}</div></div>
+          <button onClick={toggleLang} className="min-h-[38px] rounded-full bg-slate-800 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
         </div>
       ) : <Bar title={titles[tab][0]} sub={titles[tab][1]} back={() => setTab('home')} />}
-      {viewAs && <div className="mx-3 mt-2 rounded-xl border-2 border-violet-300 bg-violet-50 px-3 py-2 text-[12px] font-bold text-violet-900">👁 {t.preview}</div>}
+      {viewAs && <div className="mx-3 mt-2 rounded-xl border-2 border-mamta/45 bg-mamta/10 px-3 py-2 text-[12px] font-bold text-mamta">👁 {t.preview}</div>}
       {tab === 'home' && <Home />}
       {tab === 'slips' && <Slips />}
       {tab === 'bills' && <Bills />}
       {tab === 'pay' && <Pay />}
       {tab === 'acct' && <Acct />}
-      {toast && <div className="fixed bottom-24 left-1/2 z-50 w-[90%] max-w-md -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-[15px] font-extrabold text-white shadow-xl">{toast}</div>}
+      {toast && <div className="fixed bottom-24 left-1/2 z-50 w-[90%] max-w-md -translate-x-1/2 rounded-2xl bg-live px-4 py-3 text-[15px] font-extrabold text-slate-950 shadow-xl">{toast}</div>}
       <Nav />
     </div>
   );

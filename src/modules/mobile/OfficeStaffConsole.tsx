@@ -103,7 +103,7 @@ export default function OfficeStaffConsole() {
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-bold text-slate-100">{q.id} · <span className="text-slate-400 font-semibold">{q.module}</span></p>
                 <p className="text-[10px] text-slate-500 truncate">{q.summary || JSON.stringify(q.payload)}</p>
-                <p className="text-[9px] text-slate-600 flex items-center gap-1"><UserCog size={9} /> {q.requested_by}</p>
+                <p className="text-[9px] text-slate-400 flex items-center gap-1"><UserCog size={9} /> {q.requested_by}</p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {q.status === 'PENDING' ? (
@@ -119,7 +119,7 @@ export default function OfficeStaffConsole() {
               </div>
             </div>
           ))}
-          {!queue.length && <p className="text-center text-[11px] text-slate-600 py-3">Queue is clear.</p>}
+          {!queue.length && <p className="text-center text-[11px] text-slate-400 py-3">Queue is clear.</p>}
         </div>
         {/* TODO: GET/POST /api/v1/approvals — same queue PendingExpenses consumes */}
       </GlassPanel>

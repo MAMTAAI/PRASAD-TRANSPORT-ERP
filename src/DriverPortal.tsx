@@ -363,7 +363,7 @@ export default function DriverPortal({ onBack, preview = false, session = null }
   );
 
   // ── screens ───────────────────────────────────────────────────────────────
-  if (loadingSession) return <div className="grid min-h-screen place-items-center bg-[#f6f8fd] text-slate-500">…</div>;
+  if (loadingSession) return <div className="grid min-h-screen place-items-center bg-slate-950 bg-deck-ground text-slate-400">…</div>;
 
   // Staff preview landing (demo data) or a driver with no session: the real
   // door is Gate 2 (/app). This landing only exists for the preview.

@@ -66,7 +66,7 @@ function Router() {
 
   const exit = (
     <button onClick={signOut} title="Sign out of this workspace"
-      style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 10001, background: 'rgba(15,23,42,.92)', color: '#94a3b8', border: '1px solid #334155', padding: '8px 12px', borderRadius: 10, fontWeight: 900, fontSize: 11, cursor: 'pointer' }}>
+      style={{ position: 'fixed', bottom: 14, right: 14, zIndex: 10001, background: 'rgba(18, 28, 56,.92)', color: '#9aadd4', border: '1px solid #27395f', padding: '8px 12px', borderRadius: 10, fontWeight: 900, fontSize: 11, cursor: 'pointer' }}>
       ⏻ Sign out
     </button>
   );
@@ -129,7 +129,7 @@ export default function MobileSuiteApp() {
           `margin: -12px` so a light app can run edge to edge; drop this padding
           and that negative margin pushes the app 12 px past both edges — a
           414 px shell in a 390 px window. The two numbers are a pair. */}
-      <div className="min-h-full w-full bg-[#dfe3ea] text-slate-200 p-3 sm:p-4"
+      <div className="min-h-full w-full bg-slate-950 bg-deck-ground text-slate-200 p-3 sm:p-4"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
         {/* keyframes shared with the master-control kit */}
         <style>{`

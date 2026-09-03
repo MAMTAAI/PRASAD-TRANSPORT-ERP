@@ -780,7 +780,7 @@ export default function DispatchTripChat({ trips, offline, onExpand, onNewContac
             {attachOpen && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setAttachOpen(false)} />
-                <div className="absolute bottom-12 left-2.5 z-30 w-44 rounded-xl border border-slate-700/70 bg-slate-950/98 backdrop-blur-md p-1 shadow-2xl">
+                <div className="absolute bottom-12 left-2.5 z-30 w-44 rounded-xl border border-slate-700/70 bg-slate-950/95 backdrop-blur-md p-1 shadow-2xl">
                   <AttachItem icon={FileText} label="Document" hint="PDF ya scan"
                               onClick={() => docRef.current?.click()} />
                   {/* PHOTOS, NOT "PHOTOS & VIDEOS". The vault stores webp /

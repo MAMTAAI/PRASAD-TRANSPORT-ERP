@@ -602,8 +602,8 @@ function ShortageRow({ r, settled, max }) {
       >
         <span aria-hidden
           className={`absolute inset-y-0 left-0 transition-all duration-500
-            ${settled ? 'bg-gradient-to-r from-emerald-500/12 to-transparent'
-                      : 'bg-gradient-to-r from-red-500/18 to-transparent'}`}
+            ${settled ? 'bg-gradient-to-r from-emerald-500/10 to-transparent'
+                      : 'bg-gradient-to-r from-red-500/20 to-transparent'}`}
           style={{ width: `${pct}%` }} />
         <div className="relative flex items-center gap-2.5">
           <div className="min-w-0 flex-1">

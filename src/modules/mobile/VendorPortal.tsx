@@ -132,7 +132,7 @@ export default function VendorPortal() {
             Submit
           </button>
         </div>
-        <p className="mt-2 text-[9px] text-slate-600">Bills route to the office approval queue — payment follows approval.</p>
+        <p className="mt-2 text-[9px] text-slate-400">Bills route to the office approval queue — payment follows approval.</p>
       </GlassPanel>
 
       {/* pending approval list */}
@@ -155,7 +155,7 @@ export default function VendorPortal() {
         </div>
         <div className="mt-3">
           <ProgressBar pct={62} gradient="from-amber-500 to-orange-400" />
-          <p className="mt-1 text-[9px] text-slate-600">Monthly credit limit used: 62% of ₹10 L</p>
+          <p className="mt-1 text-[9px] text-slate-400">Monthly credit limit used: 62% of ₹10 L</p>
         </div>
       </GlassPanel>
     </div>

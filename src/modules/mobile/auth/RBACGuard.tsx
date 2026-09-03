@@ -19,7 +19,7 @@ export default function RBACGuard({ module: moduleName, children }) {
         <p className="mt-2 text-[12px] font-bold text-slate-400">
           No view permission for <span className="text-slate-200">{moduleName}</span>
         </p>
-        <p className="text-[10px] text-slate-600">Ask an Admin to grant access in UGER.</p>
+        <p className="text-[10px] text-slate-400">Ask an Admin to grant access in UGER.</p>
       </div>
     );
   }

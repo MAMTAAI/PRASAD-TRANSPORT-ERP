@@ -48,16 +48,16 @@ export default function CustomerPreview({ onExit }) {
   const current = (parties ?? []).find((c) => c.id === viewAs);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#dfe3ea', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }} /* neutral ground: the app inside is light, and near-black around it
+    <div style={{ minHeight: '100vh', background: '#0a1024', color: '#dde5f4', fontFamily: 'system-ui, sans-serif' }} /* neutral ground: the app inside is light, and near-black around it
                read as a strip in a void on a monitor (owner, 3-Sep) */>
       <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
-                    padding: '8px 14px', background: '#0b1220', borderBottom: '1px solid #1e293b', fontSize: 12 }}>
+                    padding: '8px 14px', background: '#0a1024', borderBottom: '1px solid #18244a', fontSize: 12 }}>
         <b style={{ fontSize: 13 }}>Customer App — preview</b>
-        <span style={{ color: '#94a3b8' }}>read-only · the real signed-in app, as this customer sees it</span>
+        <span style={{ color: '#9aadd4' }}>read-only · the real signed-in app, as this customer sees it</span>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filter customers…"
-          style={{ background: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, width: 160 }} />
+          style={{ background: '#121c38', border: '1px solid #18244a', color: '#dde5f4', borderRadius: 8, padding: '6px 10px', fontSize: 12, width: 160 }} />
         <select value={viewAs} onChange={(e) => choose(e.target.value)}
-          style={{ background: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: 8, padding: '6px 10px', fontSize: 12, maxWidth: 360 }}>
+          style={{ background: '#121c38', border: '1px solid #27395f', color: '#dde5f4', borderRadius: 8, padding: '6px 10px', fontSize: 12, maxWidth: 360 }}>
           <option value="">— choose a customer —</option>
           {list.map((c) => (
             <option key={c.id} value={c.id}>
@@ -65,28 +65,28 @@ export default function CustomerPreview({ onExit }) {
             </option>
           ))}
         </select>
-        {parties === null && <span style={{ color: '#94a3b8' }}>loading customers…</span>}
-        {err && <span style={{ color: '#f87171' }}>{err}</span>}
+        {parties === null && <span style={{ color: '#9aadd4' }}>loading customers…</span>}
+        {err && <span style={{ color: '#ff8b9c' }}>{err}</span>}
         {current && !current.is_approved_for_portal && (
-          <span style={{ color: '#fbbf24' }}>not portal-approved: a customer login would be refused; staff preview still shows the app</span>
+          <span style={{ color: '#ffc03d' }}>not portal-approved: a customer login would be refused; staff preview still shows the app</span>
         )}
         <button onClick={exit}
-          style={{ marginLeft: 'auto', background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
+          style={{ marginLeft: 'auto', background: '#18244a', color: '#dde5f4', border: '1px solid #27395f', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
           Exit preview
         </button>
       </div>
 
       {!viewAs ? (
-        <div style={{ padding: '48px 24px', textAlign: 'center', color: '#94a3b8', maxWidth: 560, margin: '0 auto', lineHeight: 1.6 }}>
+        <div style={{ padding: '48px 24px', textAlign: 'center', color: '#9aadd4', maxWidth: 560, margin: '0 auto', lineHeight: 1.6 }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
-          <div style={{ fontSize: 15, color: '#e2e8f0', fontWeight: 700 }}>Choose a customer above</div>
+          <div style={{ fontSize: 15, color: '#dde5f4', fontWeight: 700 }}>Choose a customer above</div>
           <div style={{ marginTop: 6, fontSize: 13 }}>
             You will see the real Customer App — loads, bids, shipment tracker, bills — scoped to that party.
             Any button that would write is refused by the server while previewing.
           </div>
         </div>
       ) : (
-        <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>Opening the app…</div>}>
+        <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#9aadd4' }}>Opening the app…</div>}>
           {/* key = party id: choosing another customer remounts the app cleanly */}
           <CustomerApp key={viewAs} />
         </Suspense>
