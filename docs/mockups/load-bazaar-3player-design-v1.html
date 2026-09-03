@@ -1,0 +1,277 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Load Bazaar — 3-Player Engine · design v1</title>
+<style>
+  /* Self-contained on purpose. mock-shared.css dresses the phone mocks — its
+     .card/.wrap rules fight a wide document and squeeze it into a column. */
+  :root{ --g:#16a34a; --a:#f59e0b; --b:#2563eb; --v:#7c3aed; --ink:#0f172a; --mut:#64748b; --line:#e2e8f0; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eef1f6;color:var(--ink);
+       font-family:"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif;line-height:1.5}
+  header{padding:20px 30px;background:#0f172a;color:#fff;display:flex;justify-content:space-between;
+         align-items:center;flex-wrap:wrap;gap:12px}
+  header h1{margin:0;font-size:23px} header p{margin:5px 0 0;color:#cbd5e1;font-size:14px}
+  .tag{background:var(--a);color:#1f1300;font-weight:800;font-size:13px;padding:6px 13px;border-radius:999px}
+  .sec{padding:26px 0 10px;font-size:19px;font-weight:800}
+  .sec small{font-weight:500;color:var(--mut);font-size:14px;margin-left:10px}
+  .card{background:#fff;border-radius:15px;padding:16px 20px;box-shadow:0 1px 3px rgba(0,0,0,.09);font-size:14.5px}
+  .card h3{margin:0 0 9px;font-size:16px} .card ul,.card ol{margin:0;padding-left:20px} .card li{margin:5px 0}
+  .card p{margin:7px 0}
+</style>
+<style>
+  .doc{max-width:1180px;margin:0 auto;padding:0 30px 60px}
+  .wrap{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .cap{font-size:13px;font-weight:700;color:#334155;margin:0 0 8px 4px} .cap span{color:var(--mut);font-weight:500}
+  /* the numbers are plain text, not chips — the shared sheet was painting them */
+  .money{background:none;border:0;padding:0}
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));align-items:start}
+  .card.full{max-width:none}
+  .k{display:inline-block;background:#0f172a;color:#fff;border-radius:6px;padding:1px 7px;font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+  .ok{color:#15803d;font-weight:800} .no{color:#b91c1c;font-weight:800} .warn{color:#b45309;font-weight:800}
+  table{border-collapse:collapse;width:100%;font-size:14px}
+  th,td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left;vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+  .desk{background:#0b1220;color:#e2e8f0;border-radius:16px;padding:18px;font-size:14px}
+  .desk h4{margin:0 0 12px;color:#38bdf8;font-size:15px}
+  .lane{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid #1e293b}
+  .lane:last-child{border:0}
+  .bid{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#111c33;border:1px solid #24344f;border-radius:10px;padding:9px 12px;margin-top:7px}
+  .bid.win{border-color:#16a34a;background:#0d2018}
+  .money{font-family:ui-monospace,Consolas,monospace;font-weight:800}
+  .pos{color:#4ade80} .neg{color:#f87171}
+  .pill{border-radius:999px;padding:2px 10px;font-size:12px;font-weight:800;display:inline-block}
+  .p-new{background:#fef3c7;color:#92400e} .p-live{background:#dbeafe;color:#1e40af}
+  .p-lock{background:#dcfce7;color:#166534} .p-run{background:#ede9fe;color:#5b21b6}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:13.5px;font-weight:700}
+  .flow i{font-style:normal;color:var(--mut)}
+  .step{background:#fff;border:2px solid var(--line);border-radius:10px;padding:6px 11px}
+  .step.b{border-color:var(--b)} .step.g{border-color:var(--g)} .step.v{border-color:var(--v)}
+  .q{background:#fff7ed;border:2px solid #fdba74;border-radius:14px;padding:14px 18px;margin:10px 0}
+  .q b{color:#9a3412}
+</style>
+
+<header>
+  <div>
+    <h1>Load Bazaar — the 3-player engine</h1>
+    <p>Design v1 · 3 September 2026 · customer posts a target, partners bid blind, the desk locks the margin</p>
+  </div>
+  <span class="tag">FOR APPROVAL — nothing built yet</span>
+</header>
+
+<div class="doc">
+
+<div class="sec">1 · What the market does, and what of it applies here <small>the R&amp;D, briefly</small></div>
+<div class="grid">
+  <div class="card">
+    <h3>Ola / Uber (passenger)</h3>
+    <ul>
+      <li><b>Algorithmic price, no negotiation.</b> The rider is quoted; the driver accepts or does not.</li>
+      <li>Live tracking share link is the trust device — a stranger opens it, sees the car move, and needs no account.</li>
+      <li><b>Applies here:</b> the share link. <b>Does not:</b> the fixed price — your customers negotiate, and a bid board is the whole point.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Uber Freight / Convoy (broker)</h3>
+    <ul>
+      <li>The shipper pays X, the carrier is paid Y, and <b>the broker keeps the spread</b>. Neither side sees the other's number.</li>
+      <li>The desk's job is the spread, not the match — matching is easy, protecting the margin is not.</li>
+      <li><b>Applies here almost exactly.</b> This is the model your directive describes.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Vahak / BlackBuck (Indian load boards)</h3>
+    <ul>
+      <li>Discovery-first: a big open board, phone numbers exchanged, the platform steps out of the deal.</li>
+      <li>Margin is a listing fee or a payments cut, not a spread.</li>
+      <li><b>Does not apply:</b> stepping out of the deal is what you are trying to avoid. You carry the customer relationship and the risk.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="card full" style="margin-top:14px">
+  <h3>The conclusion that shapes everything below</h3>
+  <p style="margin:6px 0">You are a <b>broker who also owns trucks</b>, not a listing site. So the engine has to protect two numbers that must never meet:
+  what the customer agreed to pay, and what the partner agreed to accept. Every screen below exists to keep those apart and to make the
+  difference between them — <b>the margin</b> — a thing the office decides on purpose rather than discovers afterwards.</p>
+</div>
+
+<div class="sec">2 · The three players and the one barrier <small>who may do what</small></div>
+<div class="card full">
+  <div class="flow">
+    <span class="step b">CUSTOMER posts load + target ₹</span><i>→</i>
+    <span class="step">office reviews</span><i>→</i>
+    <span class="step g">PARTNERS bid blind ₹</span><i>→</i>
+    <span class="step v">MARGIN DESK locks the spread</span><i>→</i>
+    <span class="step">LR generated · ledger posted</span><i>→</i>
+    <span class="step">truck runs · customer tracks</span>
+  </div>
+  <table style="margin-top:14px">
+    <tr><th>Player</th><th>Sees</th><th>Never sees</th><th>Decides</th></tr>
+    <tr><td><b>Customer</b></td><td>own load, own bids count, agreed freight, POD, tracking</td><td>partner names, partner bid amounts, the margin</td><td>the target rate, and whether to accept the office's quote</td></tr>
+    <tr><td><b>Fleet partner</b></td><td>the lane, weight, date; own bid; own settlement money</td><td>the customer's target, other partners' bids, the margin</td><td>its own bid amount</td></tr>
+    <tr><td><b>Office (margin desk)</b></td><td>everything, both sides, side by side</td><td>—</td><td><b>the spread, and the award</b></td></tr>
+  </table>
+  <p style="margin:12px 0 0"><b>The barrier stays.</b> A customer accepting a bid today does not award it — it raises
+  <span class="k">AWARD_REQUESTED</span> and the desk decides. That was built on 2-Sep and it is exactly the right shape for a margin desk;
+  this design puts a price on that moment instead of removing it.</p>
+</div>
+
+<div class="sec">3 · The Margin Desk <small>the one new screen — this is the heart</small></div>
+<div class="wrap">
+  <div class="frame" style="flex:1 1 520px">
+    <p class="cap">Margin Desk <span>· one load, both sides, the spread on top</span></p>
+    <div class="desk">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:10px">
+        <div>
+          <div style="font-size:17px;font-weight:800">Guwahati → Agartala</div>
+          <div style="color:#94a3b8;font-size:13px">LD90007 · Cement · 20 T · load 05 Sept · AADHAR GREEN</div>
+        </div>
+        <span class="pill p-live">3 BIDS IN</span>
+      </div>
+
+      <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:#111c33;border-radius:12px;padding:11px">
+          <div style="color:#94a3b8;font-size:12px">CUSTOMER TARGET</div>
+          <div class="money" style="font-size:22px">₹41,500</div>
+          <div style="color:#64748b;font-size:12px">what they said they would pay</div>
+        </div>
+        <div style="background:#111c33;border-radius:12px;padding:11px">
+          <div style="color:#94a3b8;font-size:12px">ROUTE (Google) · TOLL (our FASTag)</div>
+          <div class="money" style="font-size:18px">520 km · ₹2,885</div>
+          <div style="color:#64748b;font-size:12px">toll from 2 past runs on this lane</div>
+        </div>
+      </div>
+
+      <h4 style="margin-top:16px">Partner bids — blind to each other</h4>
+      <div class="bid win">
+        <div><b>BORAH CARRIERS</b><div style="color:#94a3b8;font-size:12px">AS01AB1234 · 4 trips done · L1</div></div>
+        <div style="text-align:right"><div class="money">₹36,000</div><div class="pos" style="font-size:12px">margin ₹5,500</div></div>
+      </div>
+      <div class="bid">
+        <div><b>DEKA CARRIERS</b><div style="color:#94a3b8;font-size:12px">AS03AA8289 · new partner</div></div>
+        <div style="text-align:right"><div class="money">₹38,500</div><div class="pos" style="font-size:12px">margin ₹3,000</div></div>
+      </div>
+      <div class="bid">
+        <div><b>M/S RANA TRANSPORT</b><div style="color:#94a3b8;font-size:12px">NL01Q7317 · 11 trips done</div></div>
+        <div style="text-align:right"><div class="money">₹43,000</div><div class="neg" style="font-size:12px">margin −₹1,500</div></div>
+      </div>
+
+      <div style="margin-top:14px;background:#0d2018;border:1px solid #16a34a;border-radius:12px;padding:12px">
+        <div style="display:flex;justify-content:space-between"><span>Customer pays</span><span class="money">₹41,500</span></div>
+        <div style="display:flex;justify-content:space-between"><span>Partner gets</span><span class="money">₹36,000</span></div>
+        <div style="display:flex;justify-content:space-between;border-top:1px solid #1e4d33;margin-top:6px;padding-top:6px">
+          <b>Company margin</b><b class="money pos">₹5,500 · 13.3%</b></div>
+      </div>
+      <div style="margin-top:10px;color:#94a3b8;font-size:12.5px">Both numbers are editable here. Changing either recomputes the margin live — the desk locks what it can defend, not what the board happened to produce.</div>
+      <div style="display:flex;gap:9px;margin-top:12px">
+        <div style="flex:2;background:#16a34a;border-radius:10px;padding:11px;text-align:center;font-weight:800">🔒 Lock deal &amp; award</div>
+        <div style="flex:1;background:#1e293b;border-radius:10px;padding:11px;text-align:center;font-weight:800">Counter-offer</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="flex:1 1 320px">
+    <h3>Why the desk looks like this</h3>
+    <ul>
+      <li><b>The margin is shown per bid, not once.</b> The desk's real question is "which bid, at what spread" — computing it in their head for each row is how a −₹1,500 deal gets accepted at 7 p.m.</li>
+      <li><b>A negative margin is shown in red, not hidden.</b> Sometimes you take it to keep a customer. That must be a decision, not an accident.</li>
+      <li><b>Both numbers stay editable until the lock.</b> A counter-offer to either side is the normal case, and a desk that can only accept what was typed is a desk people work around on WhatsApp.</li>
+      <li><b>Partner history is on the row</b> — "4 trips done" vs "new partner" is most of why a desk picks the second-cheapest bid.</li>
+      <li><b>Lock is one irreversible moment.</b> It writes the margin, generates the LR and posts the ledger together, so those three can never disagree.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="sec">4 · Maps <small>what we already have, and the one upgrade</small></div>
+<div class="grid">
+  <div class="card">
+    <h3>Places Autocomplete — <span class="ok">already built</span></h3>
+    <p><span class="k">src/lib/PlaceInput.tsx</span> does this today, with session tokens so a lookup is billed once instead of per keystroke.
+    It <b>degrades to free text on purpose</b> — half your lanes are depot names Google has never heard of
+    (“BONGAIGAON RC OFFICE (7R01)”), and a box that refuses them is a box the office cannot use.</p>
+    <p style="margin:6px 0 0"><b>Work:</b> wire it into the load form. Nothing to invent.</p>
+  </div>
+  <div class="card">
+    <h3>Distance — <span class="ok">already built</span>, tolls — <span class="warn">upgrade</span></h3>
+    <p><span class="k">server/lib/googleMaps.js</span> gives distance, duration and a polyline, cached per lane in <span class="k">maps_cache</span>.
+    It calls the <b>legacy Directions API, which returns no tolls</b>. Google's Routes API v2 does.</p>
+    <p style="margin:6px 0 0"><b>But we have something better for your lanes:</b> 3,883 real FASTag transactions in
+    <span class="k">toll_transactions</span>, joined to trips. Averaged per lane that is what the toll <em>actually was</em>, not an estimate.</p>
+  </div>
+  <div class="card">
+    <h3>The toll rule I propose</h3>
+    <ol>
+      <li>Lane run <b>2+ times before</b> → our own FASTag average. Label: <i>“from 2 past runs”</i>.</li>
+      <li>Otherwise → Google Routes API estimate. Label: <i>“Google estimate”</i>.</li>
+      <li>Neither → blank, never a guess.</li>
+    </ol>
+    <p style="margin:6px 0 0">The label is not decoration. A desk that cannot tell a measured number from an estimated one will treat both as fact.</p>
+  </div>
+</div>
+
+<div class="sec">5 · The customer's tracking link <small>a stranger with a URL, and nothing else</small></div>
+<div class="card full">
+  <p>Today <span class="k">/api/v1/share/:token</span> is the <b>only</b> public prefix, and it serves exactly one stored file. A live tracking page is a
+  different animal, so it gets its own narrow door rather than widening that one:</p>
+  <ul>
+    <li>A token minted at deal-lock, <b>expiring with the trip</b>, revocable, and counted on every open — the same discipline the file door already keeps.</li>
+    <li>It shows: the lane, the truck number, the last known position with <b>how old it is</b>, and the delivery status. The dot animates along the route polyline we already cache.</li>
+    <li>It never shows: the partner's name or rate, the customer's rate, the margin, the driver's phone. A link forwarded to a WhatsApp group must not leak the deal.</li>
+    <li><b>The honest limit:</b> a market truck has no GPS with us. Position comes from the partner's driver app when they use it, and the page says
+      “no live position — last seen at 11:07” rather than drawing a dot we do not have.</li>
+  </ul>
+</div>
+
+<div class="sec">6 · LR / Bilty and the ledger <small>what the lock produces</small></div>
+<div class="grid">
+  <div class="card">
+    <h3>The ledger at lock — 3 postings</h3>
+    <table>
+      <tr><th>Leg</th><th>Dr</th><th>Cr</th></tr>
+      <tr><td>Customer owes us</td><td>Sundry Debtors: customer</td><td>Market Fleet Income</td></tr>
+      <tr><td>We owe the partner</td><td>Market Fleet Expenses</td><td>Market Fleet Payables: partner</td></tr>
+      <tr><td>What we keep</td><td colspan="2">the difference — visible as margin, no separate entry needed</td></tr>
+    </table>
+    <p style="margin:8px 0 0">Posted under the <b>operating company</b> chosen on the load, exactly as the vendor bills now do.
+    The <span class="k">FLEET_CROSSOVER</span> trigger already refuses market money posted into own-fleet groups, so this cannot drift.</p>
+  </div>
+  <div class="card">
+    <h3>The LR — <span class="no">blocked on you</span></h3>
+    <p><span class="k">server/lib/lrPdf.js</span> exists but is a <b>deliberately watermarked stub</b>. The note in it says your real printed
+    LR format was coming and had not arrived on 2-Sep.</p>
+    <p>I can build a GST-compliant LR — consignor/consignee GSTIN, place of supply, HSN/SAC, reverse-charge flag, e-way bill no.,
+    the standard consignment fields — but <b>“official” means yours</b>, and I should not invent your firm's document.</p>
+    <p class="ok" style="margin:8px 0 0">Send one scan or printed sample and the generator becomes real in the same day.</p>
+  </div>
+</div>
+
+<div class="sec">7 · Honest accounting <small>what already exists vs what I would build</small></div>
+<div class="card full">
+  <table>
+    <tr><th>Piece</th><th>State</th><th>Work</th></tr>
+    <tr><td>Load posting, blind bids, L1 rank, bid close clock</td><td class="ok">built &amp; live</td><td>none</td></tr>
+    <tr><td>Award barrier (customer requests, desk decides)</td><td class="ok">built &amp; live</td><td>none</td></tr>
+    <tr><td>Settlement lifecycle, deposits, advance, balance, POD</td><td class="ok">built &amp; live</td><td>none</td></tr>
+    <tr><td>Places Autocomplete, route + distance + cache</td><td class="ok">built</td><td>wire into the load form</td></tr>
+    <tr><td>Fleet Partner app (bids, trips, money), Customer app (post, track)</td><td class="ok">built &amp; live</td><td>small additions</td></tr>
+    <tr><td><b>Margin: a column, a screen, a lock</b></td><td class="no">does not exist</td><td>migration + desk screen + lock transaction</td></tr>
+    <tr><td><b>Toll estimate (own FASTag + Routes API)</b></td><td class="warn">data exists, no estimator</td><td>one view + fallback call</td></tr>
+    <tr><td><b>Customer tracking share link</b></td><td class="no">does not exist</td><td>new narrow public door + page</td></tr>
+    <tr><td><b>Ledger posting at lock</b></td><td class="no">does not exist</td><td>one transaction, three legs</td></tr>
+    <tr><td><b>Official LR PDF</b></td><td class="no">stub only</td><td>blocked — needs your format</td></tr>
+  </table>
+</div>
+
+<div class="sec">8 · What I need from you before building</div>
+<div class="q">
+  <p><b>1 · The LR format.</b> One scan of your printed Lorry Receipt. Without it I can only produce a generic GST LR, and you told me on 2-Sep the real one was coming.</p>
+  <p><b>2 · Margin: hidden or shown to the customer?</b> My assumption — the customer sees ONE number (what they pay) and never the split. Say if you want it itemised as a service charge instead, because that changes the LR and the invoice.</p>
+  <p><b>3 · Who may lock a deal?</b> My assumption — admin only, like every other money decision. Or should a dispatcher be able to lock below a margin floor, say ≥ 8%?</p>
+  <p><b>4 · Negative margin — allowed with a reason, or blocked outright?</b> My assumption: allowed, but it demands a typed reason and is flagged on the deck.</p>
+  <p><b>5 · Load Bazaar is currently switched OFF</b> in the partner app at your instruction. Turning this on means turning that back on. Confirm when.</p>
+</div>
+
+<p style="text-align:center;color:var(--mut);font-size:13px;margin-top:26px">
+  Nothing in this document is built yet. Say which parts to build, and in what order.
+</p>
+</div>
