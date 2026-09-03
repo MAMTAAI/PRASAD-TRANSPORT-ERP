@@ -245,9 +245,17 @@ export async function registerFinanceRoutes(app) {
       // Ignored entirely when no company is selected: at group level every
       // entry belongs, named or not.
       unassigned: { type: ['string', 'null'], enum: ['include', 'exclude', 'only', null], default: 'exclude' },
+      // THE OTHER TWO TIERS (migration 147). A branch is a uuid from
+      // /reports/dimensions; a vehicle likewise. Either narrows the same
+      // routed ledger the company filter reads — company → branch → vehicle
+      // is one predicate (books_scope), not three screens disagreeing.
+      branch:  { type: ['string', 'null'], format: 'uuid' },
+      vehicle: { type: ['string', 'null'], format: 'uuid' },
     },
   };
   const bounds = (q) => [q.from || null, q.to || null, q.company || null, q.unassigned || 'exclude'];
+  const bounds3 = (q) => [q.from || null, q.to || null, q.company || null,
+                          q.branch || null, q.vehicle || null, q.unassigned || 'exclude'];
 
   // ── How much of the book can be attributed at all ─────────────────────────
   // Every company-filtered screen has to be able to say what it could not
@@ -271,12 +279,67 @@ export async function registerFinanceRoutes(app) {
     };
   });
 
+  // ── How much of the book is in SOMEBODY'S books, and by what evidence ────
+  // The old coverage said "81% names no firm". That was true and useless:
+  // the firm is on the lorry, the trip, the loan and the sibling leg, and
+  // migration 147 reads it from there at report time. This is the number the
+  // statements' banner shows now, per route so a person can see which
+  // evidence is doing the work — and 'unrouted' is the honest remainder.
+  app.get('/reports/routing-coverage', { schema: { querystring: REPORT_QS } }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query('SELECT * FROM f_routing_coverage($1::date, $2::date)',
+      [req.query.from || null, req.query.to || null]);
+    const total = rows.reduce((a, r) => a + Number(r.entries), 0);
+    const unrouted = rows.filter((r) => r.company_route === 'unrouted').reduce((a, r) => a + Number(r.entries), 0);
+    const byFirm = {};
+    for (const r of rows) if (r.company_route !== 'unrouted') {
+      byFirm[r.company_routed_name] = (byFirm[r.company_routed_name] ?? 0) + Number(r.entries);
+    }
+    return {
+      period: { from: req.query.from ?? null, to: req.query.to ?? null },
+      total_entries: total,
+      attributable: total - unrouted,
+      attributable_pct: total ? Number(((total - unrouted) * 100 / total).toFixed(1)) : 0,
+      unrouted,
+      unrouted_pct: total ? Number((unrouted * 100 / total).toFixed(1)) : 0,
+      by_route: rows,
+      by_firm: byFirm,
+    };
+  });
+
+  // The three tiers a report can be cut by, in one call. Branches carry their
+  // company so the UI can narrow the list; vehicles are the own fleet only —
+  // market lorries belong to partners and their money lives on settlements.
+  app.get('/reports/dimensions', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const [c, b, v] = await Promise.all([
+      query('SELECT id, company_name FROM companies ORDER BY company_name'),
+      query('SELECT id, branch_name, company_id FROM branches ORDER BY branch_name'),
+      query(`SELECT v.id, v.vehicle_no, v.company_id,
+                    (SELECT count(*)::int FROM ledger_entries e WHERE e.vehicle_id = v.id) AS entries
+               FROM vehicles v ORDER BY v.vehicle_no`),
+    ]);
+    return { companies: c.rows, branches: b.rows, vehicles: v.rows };
+  });
+
+  // Which entities are bound to a firm and which are not — and for vehicles,
+  // what the trips would suggest. Surfaced for a person; nothing here binds.
+  app.get('/reports/entity-bindings', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const [a, p] = await Promise.all([
+      query('SELECT * FROM f_entity_binding_audit()'),
+      query(`SELECT vehicle_no, bound_company, dominant_company, proposal, trips_total, companies_seen, trips_for_dominant
+               FROM v_vehicle_company_proposal ORDER BY proposal, vehicle_no`),
+    ]);
+    return { entities: a.rows, vehicle_proposals: p.rows };
+  });
+
   // ── Trial balance ─────────────────────────────────────────────────────────
   app.get('/reports/trial-balance', { schema: { querystring: REPORT_QS } }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
-      `SELECT * FROM f_trial_balance_scoped($1::date, $2::date, $3::text, $4::text)
-        WHERE dr <> 0 OR cr <> 0 ORDER BY sort_order`, bounds(req.query));
+      `SELECT * FROM f_trial_balance_3tier($1::date, $2::date, $3::text, $4::uuid, $5::uuid, $6::text)
+        WHERE dr <> 0 OR cr <> 0 ORDER BY sort_order`, bounds3(req.query));
     return {
       rows,
       totals: rows.reduce((a, r) => ({
@@ -292,14 +355,15 @@ export async function registerFinanceRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(
       `SELECT group_head, account_type, sort_order, amount
-         FROM f_profit_and_loss_scoped($1::date, $2::date, $3::text, $4::text)
-        WHERE amount <> 0 ORDER BY sort_order`, bounds(req.query));
+         FROM f_profit_and_loss_3tier($1::date, $2::date, $3::text, $4::uuid, $5::uuid, $6::text)
+        WHERE amount <> 0 ORDER BY sort_order`, bounds3(req.query));
     const sum = (t) => rows.filter((r) => r.account_type === t)
       .reduce((a, r) => a + Number(r.amount), 0);
     const income = sum('INCOME'), expense = sum('EXPENSE');
     return {
       period: { from: req.query.from ?? null, to: req.query.to ?? null,
                 company: req.query.company ?? null,
+                branch: req.query.branch ?? null, vehicle: req.query.vehicle ?? null,
                 unassigned: req.query.company ? (req.query.unassigned || 'exclude') : 'n/a (whole group)' },
       income:   rows.filter((r) => r.account_type === 'INCOME'),
       expenses: rows.filter((r) => r.account_type === 'EXPENSE'),
@@ -326,11 +390,13 @@ export async function registerFinanceRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const asOn = req.query.to || null;
     const company = req.query.company || null;
+    const branch = req.query.branch || null;
+    const vehicle = req.query.vehicle || null;
     const unassigned = req.query.unassigned || 'exclude';
     const [rows, split] = await Promise.all([
       query(`SELECT group_head, account_type, amount, side
-               FROM f_balance_sheet_scoped($1::date, $2::text, $3::text)
-              ORDER BY side, sort_order`, [asOn, company, unassigned]),
+               FROM f_balance_sheet_3tier($1::date, $2::text, $3::uuid, $4::uuid, $5::text)
+              ORDER BY side, sort_order`, [asOn, company, branch, vehicle, unassigned]),
       // The imbalance split has to be scoped the SAME way as the sheet above it
       // or it explains a difference in a different book. It read company_matches
       // while the sheet now reads company_in_scope, which would have made the
@@ -339,9 +405,10 @@ export async function registerFinanceRoutes(app) {
                               FILTER (WHERE voucher_id IS NOT NULL), 0)::numeric(14,2) AS voucher_imbalance,
                     COALESCE(SUM(CASE WHEN dr_cr='DR' THEN amount ELSE -amount END)
                               FILTER (WHERE voucher_id IS NULL), 0)::numeric(14,2) AS legacy_imbalance
-               FROM v_ledger_entries_resolved
+               FROM v_ledger_entries_routed
               WHERE ($1::date IS NULL OR entry_date <= $1::date)
-                AND company_in_scope(company_bucket, $2::text, $3::text)`, [asOn, company, unassigned]),
+                AND books_scope(company_routed, branch_routed, vehicle_id, $2::text, $3::uuid, $4::uuid, $5::text)`,
+            [asOn, company, branch, vehicle, unassigned]),
     ]);
     const assets = rows.rows.filter((r) => r.side === 'ASSETS');
     const liabs  = rows.rows.filter((r) => r.side === 'LIABILITIES_AND_EQUITY');

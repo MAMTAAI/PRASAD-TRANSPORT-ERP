@@ -82,6 +82,19 @@ export default function FinancialReports() {
   // below says what it cost.
   const [unassigned, setUnassigned] = useState<'exclude' | 'include' | 'only'>('exclude');
   const [coverage, setCoverage] = useState<any>(null);
+  // ── THE OTHER TWO TIERS (migration 147) ────────────────────────────────
+  // Company → Branch → Vehicle is one predicate on the server (books_scope);
+  // these two just narrow it. Branches are listed for the selected company
+  // only, because a branch of Jaiswal under a Prasad statement is a question
+  // with no answer. Vehicles are the own fleet — market lorries belong to
+  // partners and their money lives on settlements, not on a truck.
+  const [branchId, setBranchId] = useState<string>('');
+  const [vehicleId, setVehicleId] = useState<string>('');
+  const [dims, setDims] = useState<{ branches: any[]; vehicles: any[] }>({ branches: [], vehicles: [] });
+  // How much of the book the server could place in SOMEBODY's books, and by
+  // what evidence. This replaces "81% names no firm" — which was true and
+  // useless: the firm was on the lorry, the trip and the loan the whole time.
+  const [routing, setRouting] = useState<any>(null);
 
   const [pnl, setPnl] = useState<any>(null);
   const [bs, setBs] = useState<any>(null);
@@ -95,7 +108,19 @@ export default function FinancialReports() {
     fetchJson(`${FIN}/masters/companies`)
       .then((m) => setCompanies(m.companies || []))
       .catch(() => setCompanies([]));
+    fetchJson(`${FIN}/reports/dimensions`)
+      .then((d) => setDims({ branches: d.branches || [], vehicles: d.vehicles || [] }))
+      .catch(() => setDims({ branches: [], vehicles: [] }));
   }, []);
+
+  // A branch belongs to a company; switching company drops a branch that is
+  // not its own rather than silently reporting an empty book.
+  useEffect(() => {
+    if (!branchId) return;
+    const b = dims.branches.find((x) => x.id === branchId);
+    const co = companies.find((c: any) => String(c.company_name).trim() === selectedCompany);
+    if (b && co && b.company_id !== co.id) setBranchId('');
+  }, [selectedCompany, branchId, dims.branches, companies]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +132,8 @@ export default function FinancialReports() {
       q.set('company', selectedCompany);
       q.set('unassigned', unassigned);
     }
+    if (branchId) q.set('branch', branchId);
+    if (vehicleId) q.set('vehicle', vehicleId);
     try {
       const [p, b, t] = await Promise.all([
         fetchJson(`${FIN}/reports/profit-and-loss?${q}`),
@@ -127,6 +154,12 @@ export default function FinancialReports() {
       if (toDate) c.set('to', toDate);
       setCoverage(await fetchJson(`${FIN}/reports/company-coverage?${c}`));
     } catch { setCoverage(null); }
+    try {
+      const c = new URLSearchParams();
+      if (fromDate) c.set('from', fromDate);
+      if (toDate) c.set('to', toDate);
+      setRouting(await fetchJson(`${FIN}/reports/routing-coverage?${c}`));
+    } catch { setRouting(null); }
     // The accounting-health view answers 409 when something is genuinely wrong,
     // so a non-OK response here is information, not a failure to hide.
     try {
@@ -134,7 +167,7 @@ export default function FinancialReports() {
       setHealth(await res.json());
     } catch { setHealth(null); }
     setLoading(false);
-  }, [fromDate, toDate, selectedCompany, unassigned]);
+  }, [fromDate, toDate, selectedCompany, unassigned, branchId, vehicleId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -207,7 +240,7 @@ export default function FinancialReports() {
   };
 
   return (
-    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: 50, background: 'radial-gradient(circle at top right, #121c38, #0a1024)', minHeight: '100vh', padding: 30 }}>
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: 50, background: 'radial-gradient(1200px 680px at 88% -8%, rgba(34,211,238,0.10) 0%, transparent 60%), radial-gradient(900px 620px at 2% 104%, rgba(167,139,250,0.09) 0%, transparent 58%), linear-gradient(180deg, #0b1228 0%, #0a1024 100%)', backgroundAttachment: 'fixed', minHeight: '100vh', padding: 30 }}>
       <style>{`
         @media print {
           body * { visibility: hidden; }
@@ -221,9 +254,37 @@ export default function FinancialReports() {
           h2, h3, p, div, span { color: black !important; }
           .expand-icon { display: none !important; }
         }
+        /* ── INDIGO DECK — statements are read in columns, so figures are
+              mono + tabular and the hairlines do the separating. ── */
         .modern-table { width: 100%; border-collapse: collapse; }
-        .modern-table th { background: rgba(0,0,0,0.3); color: #9aadd4; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 15px; border-bottom: 2px solid #27395f; }
-        .modern-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); color: #dde5f4; font-size: 13px; }
+        .modern-table th { background: rgba(10,16,36,.55); color: #7288b3; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; padding: 12px 15px; border-bottom: 1px solid #27395f; }
+        .modern-table td { padding: 11px 15px; border-bottom: 1px solid #1c2a4d; color: #dde5f4; font-size: 13px; }
+        .modern-table tbody tr { transition: background .14s ease; }
+        .modern-table tbody tr:hover { background: rgba(24,36,74,.55); }
+        .modern-table td.num, .modern-table th.num { text-align: right; font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+        .fr-total td { background: rgba(10,16,36,.6); font-weight: 800; font-size: 14px; color: #eef3ff; border-top: 1px solid #3d548a; border-bottom: 0; }
+        .fr-verdict { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 12px; margin-bottom: 14px; font-size: 13px; font-weight: 650; }
+        .fr-verdict.ok  { background: rgba(47,227,155,.10); border: 1px solid rgba(47,227,155,.40); color: #2fe39b; box-shadow: 0 0 22px rgba(47,227,155,.14) inset; }
+        .fr-verdict.bad { background: rgba(255,178,36,.10); border: 1px solid rgba(255,178,36,.40); color: #ffb224; box-shadow: 0 0 22px rgba(255,178,36,.14) inset; }
+        .fr-verdict small { color: #9aadd4; font-weight: 500; }
+        .fr-bs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+        .fr-side { background: linear-gradient(168deg, rgba(46,66,118,.42) 0%, rgba(18,28,56,0) 58%), #121c38; border: 1px solid #27395f; border-radius: 14px; overflow: hidden; box-shadow: 0 2px 10px rgba(4,9,26,.45), inset 0 1px 0 rgba(255,255,255,.045); }
+        .fr-side > header { display: flex; justify-content: space-between; align-items: baseline; padding: 13px 16px 10px; border-bottom: 1px solid #27395f; }
+        .fr-side > header h4 { margin: 0; font-size: 13px; font-weight: 750; letter-spacing: -.01em; }
+        .fr-side > header .m { font-size: 10.5px; color: #7288b3; }
+        .fr-side.assets { border-color: rgba(34,211,238,.30); } .fr-side.assets > header h4 { color: #22d3ee; }
+        .fr-side.liab   { border-color: rgba(167,139,250,.30); } .fr-side.liab > header h4 { color: #a78bfa; }
+        .fr-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #1c2a4d; font-size: 13px; color: #dde5f4; }
+        .fr-row:hover { background: rgba(24,36,74,.55); }
+        .fr-row .k { min-width: 0; } .fr-row .k small { display: block; font-size: 10.5px; color: #7288b3; }
+        .fr-row .v { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+        .fr-row.equity .k { color: #a78bfa; }
+        .fr-foot { display: flex; justify-content: space-between; padding: 13px 16px; background: rgba(10,16,36,.6); border-top: 1px solid #3d548a; font-weight: 800; font-size: 14px; color: #eef3ff; }
+        .fr-foot .v { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+        .fr-scope { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 14px; }
+        .fr-scope span { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px; border: 1px solid #27395f; background: #18244a; color: #a9bade; }
+        .fr-scope span.on { border-color: rgba(34,211,238,.42); background: rgba(34,211,238,.13); color: #22d3ee; }
+        @media (max-width: 900px) { .fr-bs { grid-template-columns: 1fr; } }
         .expandable-row { cursor: pointer; transition: all .3s ease; background: rgba(18, 28, 56,.4); }
         .expandable-row:hover { background: rgba(34, 211, 238,.1); }
         .metric-card { background: rgba(24, 36, 74,.5); border: 1px solid rgba(255,255,255,.05); border-radius: 12px; padding: 20px; display: flex; align-items: center; justify-content: center; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,.3); }
@@ -268,7 +329,32 @@ export default function FinancialReports() {
           <label style={lbl('#9aadd4')}>Period To {activeTab === 'BS' && <span style={{ color: '#2fe39b' }}>(as on)</span>}</label>
           <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={{ ...inp('#27395f'), colorScheme: 'dark' }} />
         </div>
+        <div style={{ flex: '1 1 200px' }}>
+          <label style={lbl('#9aadd4')}>Branch</label>
+          <select value={branchId} onChange={(e) => setBranchId(e.target.value)} style={inp('#27395f')}>
+            <option value="">-- All branches --</option>
+            {dims.branches
+              .filter((b) => selectedCompany === 'ALL'
+                || b.company_id === (companies.find((c: any) => String(c.company_name).trim() === selectedCompany) || {}).id)
+              .map((b) => {
+                const co = companies.find((c: any) => c.id === b.company_id);
+                return <option key={b.id} value={b.id}>{b.branch_name}{selectedCompany === 'ALL' && co ? ` — ${String(co.company_name).replace(/^M\/S\s+/i, '')}` : ''}</option>;
+              })}
+          </select>
+        </div>
+        <div style={{ flex: '1 1 200px' }}>
+          <label style={lbl('#9aadd4')}>Vehicle</label>
+          <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} style={inp('#27395f')}>
+            <option value="">-- Whole fleet --</option>
+            {dims.vehicles.filter((v) => Number(v.entries) > 0).map((v) => (
+              <option key={v.id} value={v.id}>{v.vehicle_no} · {v.entries} postings</option>
+            ))}
+          </select>
+        </div>
         <button onClick={() => { setFromDate(fyStart); setToDate(new Date().toISOString().slice(0, 10)); }} style={btn('#27395f', '#c4d1ea')}>This FY</button>
+        {(branchId || vehicleId) && (
+          <button onClick={() => { setBranchId(''); setVehicleId(''); }} style={btn('#18244a', '#ffb224', '1px solid rgba(255,178,36,.45)')}>✕ Clear branch / vehicle</button>
+        )}
 
         {/* Only meaningful under a company filter: at group level nothing is
             excluded, because every entry belongs to the group whether or not it
@@ -292,7 +378,32 @@ export default function FinancialReports() {
           company_id, and not on their voucher — of 4,841 untagged, exactly 0
           had a tagged sibling on the same voucher. They cannot be attributed by
           any means available, so they are surfaced, never inferred. */}
-      {coverage && Number(coverage.unassigned_entries) > 0 && (
+      {routing && (
+        <div className="no-print" style={{
+          background: routing.unrouted_pct > 20 ? 'rgba(255,178,36,.08)' : 'rgba(47,227,155,.08)',
+          border: `1px solid ${routing.unrouted_pct > 20 ? '#ffb224' : '#2fe39b'}`,
+          color: routing.unrouted_pct > 20 ? '#fcd34d' : '#6ee7b7',
+          padding: '12px 18px', borderRadius: 10, marginBottom: 14, fontSize: 13, lineHeight: 1.55,
+        }}>
+          <strong>{Number(routing.attributable).toLocaleString('en-IN')} of {Number(routing.total_entries).toLocaleString('en-IN')} entries
+            ({routing.attributable_pct}%) are in a firm's books</strong>
+          {' — '}placed by the entry's own firm, its voucher, its loan account, its lorry or its trip, in that order, and every
+          statement on this page reads them that way. {Number(routing.unrouted).toLocaleString('en-IN')} ({routing.unrouted_pct}%)
+          name no firm anywhere and are in no firm's statement — choose “Only the unplaced” under a company to see exactly which.
+          Nothing is rewritten and nothing is guessed: a row with two possible firms stays unplaced.
+          {Object.keys(routing.by_firm || {}).length > 0 && (
+            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {Object.entries(routing.by_firm).map(([k, v]: any) => (
+                <span key={k} style={{ fontSize: 11, padding: '2px 9px', borderRadius: 20, border: '1px solid #27395f', background: 'rgba(24,36,74,.6)', color: '#c4d1ea' }}>
+                  {String(k).replace(/^M\/S\s+/i, '')} · {Number(v).toLocaleString('en-IN')}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!routing && coverage && Number(coverage.unassigned_entries) > 0 && (
         <div className="no-print" style={{
           background: 'rgba(255, 178, 36,0.08)', border: '1px solid #ffb224', color: '#fcd34d',
           padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13, lineHeight: 1.55,
@@ -365,6 +476,19 @@ export default function FinancialReports() {
           </div>
 
           {/* ── P&L ── */}
+          <div className="fr-scope">
+            <span className={selectedCompany !== 'ALL' ? 'on' : ''}>
+              {selectedCompany === 'ALL' ? 'Consolidated · all firms' : String(selectedCompany).replace(/^M\/S\s+/i, '')}
+            </span>
+            <span className={branchId ? 'on' : ''}>
+              {branchId ? (dims.branches.find((b) => b.id === branchId)?.branch_name ?? 'Branch') : 'All branches'}
+            </span>
+            <span className={vehicleId ? 'on' : ''}>
+              {vehicleId ? (dims.vehicles.find((v) => v.id === vehicleId)?.vehicle_no ?? 'Vehicle') : 'Whole fleet'}
+            </span>
+            {selectedCompany !== 'ALL' && <span>{unassigned === 'exclude' ? 'unplaced excluded' : unassigned === 'include' ? 'unplaced included' : 'unplaced only'}</span>}
+          </div>
+
           {activeTab === 'PNL' && (
             <>
               <div className="no-print" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 15, marginBottom: 25 }}>
@@ -483,42 +607,41 @@ export default function FinancialReports() {
                 </div>
               )}
               {bs?.balanced && (
-                <div className="no-print" style={{ background: 'rgba(47, 227, 155,0.08)', border: '1px solid #2fe39b', color: '#6ee7b7', padding: '12px 18px', borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
-                  ✅ Balanced — assets equal liabilities and equity to the paisa
+                <div className="fr-verdict ok no-print">
+                  🔒 Balanced — assets equal liabilities and equity to the paisa
                   {selectedCompany !== 'ALL' ? ' for this company slice.' : '.'}
+                  <small>· ₹{inr(totalAssets)} both sides</small>
                 </div>
               )}
 
-              <div className="glass-panel" style={panel}>
-                <table className="modern-table">
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left' }}>Liabilities & Equity</th>
-                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
-                      <th style={{ textAlign: 'left' }}>Assets</th>
-                      <th style={{ textAlign: 'right' }}>Amount (₹)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Array.from({ length: Math.max(liabs.length, assets.length) }).map((_, i) => (
-                      <tr key={i}>
-                        <td style={{ color: liabs[i]?.account_type === 'EQUITY' ? '#a78bfa' : '#dde5f4' }}>{liabs[i]?.group_head ?? ''}</td>
-                        <td style={{ textAlign: 'right', fontWeight: liabs[i] ? 'bold' : 'normal' }}>{liabs[i] ? inr(liabs[i].amount) : ''}</td>
-                        <td>{assets[i]?.group_head ?? ''}</td>
-                        <td style={{ textAlign: 'right', fontWeight: assets[i] ? 'bold' : 'normal' }}>{assets[i] ? inr(assets[i].amount) : ''}</td>
-                      </tr>
-                    ))}
-                    {liabs.length === 0 && assets.length === 0 && (
-                      <tr><td colSpan={4} style={{ textAlign: 'center', color: '#5d7196', padding: 24 }}>No balances as on this date.</td></tr>
-                    )}
-                    <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900, fontSize: 15 }}>
-                      <td>TOTAL</td>
-                      <td style={{ textAlign: 'right' }}>{inr(totalLiab)}</td>
-                      <td>TOTAL</td>
-                      <td style={{ textAlign: 'right' }}>{inr(totalAssets)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              {/* Two facing sides, the way a balance sheet is read: what the
+                  firm owes and owns, each column footing on its own. The four-
+                  column table it replaces padded the shorter side with blank
+                  rows and left the two totals sitting on the same line as if
+                  they were one figure. */}
+              <div className="fr-bs">
+                <section className="fr-side liab">
+                  <header><h4>Liabilities &amp; Equity</h4><span className="m">{liabs.length} groups</span></header>
+                  {liabs.map((r: any) => (
+                    <div key={r.group_head} className={`fr-row${r.account_type === 'EQUITY' ? ' equity' : ''}`}>
+                      <div className="k">{r.group_head}<small>{r.account_type}</small></div>
+                      <div className="v">{inr(r.amount)}</div>
+                    </div>
+                  ))}
+                  {liabs.length === 0 && <div className="fr-row" style={{ color: '#5d7196', justifyContent: 'center' }}>No balances as on this date.</div>}
+                  <div className="fr-foot"><span>Total</span><span className="v">₹{inr(totalLiab)}</span></div>
+                </section>
+                <section className="fr-side assets">
+                  <header><h4>Assets</h4><span className="m">{assets.length} groups</span></header>
+                  {assets.map((r: any) => (
+                    <div key={r.group_head} className="fr-row">
+                      <div className="k">{r.group_head}<small>{r.account_type}</small></div>
+                      <div className="v">{inr(r.amount)}</div>
+                    </div>
+                  ))}
+                  {assets.length === 0 && <div className="fr-row" style={{ color: '#5d7196', justifyContent: 'center' }}>No balances as on this date.</div>}
+                  <div className="fr-foot"><span>Total</span><span className="v">₹{inr(totalAssets)}</span></div>
+                </section>
               </div>
 
               {bsPieData.length > 0 && (
@@ -539,6 +662,15 @@ export default function FinancialReports() {
           {/* ── TRIAL BALANCE ── */}
           {activeTab === 'TB' && (
             <div className="glass-panel" style={panel}>
+              {tb?.totals && (() => {
+                const d = Math.abs(Number(tb.totals.dr_voucher_era ?? 0) - Number(tb.totals.cr_voucher_era ?? 0));
+                return (
+                  <div className={`fr-verdict ${d < 0.01 ? 'ok' : 'bad'} no-print`}>
+                    {d < 0.01 ? '🔒' : '⚠'} Voucher era {d < 0.01 ? 'balances — ΣDr = ΣCr' : `out by ₹${inr(d)}`}
+                    <small>· Dr ₹{inr(tb.totals.dr_voucher_era)} / Cr ₹{inr(tb.totals.cr_voucher_era)} · enforced per voucher by a deferred database constraint</small>
+                  </div>
+                );
+              })()}
               <p className="no-print" style={{ color: '#9aadd4', fontSize: 12.5, marginTop: 0 }}>
                 Two pairs of columns: everything posted, and the voucher era alone. The voucher-era pair must be equal —
                 it is enforced by a deferred database constraint on every voucher. The full pair can differ by the migrated
@@ -549,10 +681,10 @@ export default function FinancialReports() {
                   <tr>
                     <th style={{ textAlign: 'left' }}>Account Group</th>
                     <th style={{ textAlign: 'left' }}>Type</th>
-                    <th style={{ textAlign: 'right' }}>Debit (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Credit (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Dr — voucher era</th>
-                    <th style={{ textAlign: 'right' }}>Cr — voucher era</th>
+                    <th className="num">Debit (₹)</th>
+                    <th className="num">Credit (₹)</th>
+                    <th className="num">Dr — voucher era</th>
+                    <th className="num">Cr — voucher era</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -560,19 +692,19 @@ export default function FinancialReports() {
                     <tr key={r.group_head}>
                       <td>{r.group_head}</td>
                       <td style={{ color: '#5d7196', fontSize: 11 }}>{r.account_type}</td>
-                      <td style={{ textAlign: 'right' }}>{inr(r.dr)}</td>
-                      <td style={{ textAlign: 'right' }}>{inr(r.cr)}</td>
-                      <td style={{ textAlign: 'right', color: '#9aadd4' }}>{inr(r.dr_voucher_era)}</td>
-                      <td style={{ textAlign: 'right', color: '#9aadd4' }}>{inr(r.cr_voucher_era)}</td>
+                      <td className="num">{inr(r.dr)}</td>
+                      <td className="num">{inr(r.cr)}</td>
+                      <td className="num" style={{ color: '#9aadd4' }}>{inr(r.dr_voucher_era)}</td>
+                      <td className="num" style={{ color: '#9aadd4' }}>{inr(r.cr_voucher_era)}</td>
                     </tr>
                   ))}
                   {(tb?.rows ?? []).length === 0 && (
                     <tr><td colSpan={6} style={{ textAlign: 'center', color: '#5d7196', padding: 24 }}>No postings in this period.</td></tr>
                   )}
-                  <tr style={{ background: 'rgba(0,0,0,0.35)', fontWeight: 900 }}>
+                  <tr className="fr-total">
                     <td colSpan={2}>TOTAL</td>
-                    <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.dr)}</td>
-                    <td style={{ textAlign: 'right' }}>{inr(tb?.totals?.cr)}</td>
+                    <td className="num">{inr(tb?.totals?.dr)}</td>
+                    <td className="num">{inr(tb?.totals?.cr)}</td>
                     <td style={{ textAlign: 'right', color: Math.abs((tb?.totals?.dr_voucher_era ?? 0) - (tb?.totals?.cr_voucher_era ?? 0)) < 0.01 ? '#2fe39b' : '#f43f5e' }}>
                       {inr(tb?.totals?.dr_voucher_era)}
                     </td>
@@ -597,7 +729,11 @@ export default function FinancialReports() {
 const btn = (bg: string, color: string, border = 'none'): React.CSSProperties => ({ background: bg, color, border, padding: '10px 16px', borderRadius: 8, fontWeight: 'bold', cursor: 'pointer', fontSize: 13 });
 const lbl = (color: string): React.CSSProperties => ({ color, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', display: 'block', marginBottom: 6 });
 const inp = (border: string): React.CSSProperties => ({ width: '100%', padding: 12, background: '#121c38', border: `1px solid ${border}`, color: '#fff', borderRadius: 8, outline: 'none', boxSizing: 'border-box', fontWeight: 'bold' });
-const panel: React.CSSProperties = { background: 'rgba(24, 36, 74,0.5)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 15, padding: 20, overflowX: 'auto' };
+const panel: React.CSSProperties = {
+  background: 'linear-gradient(168deg, rgba(46,66,118,0.42) 0%, rgba(18,28,56,0) 58%), #121c38',
+  border: '1px solid #27395f', borderRadius: 14, padding: 18, overflowX: 'auto',
+  boxShadow: '0 2px 10px rgba(4,9,26,0.45), inset 0 1px 0 rgba(255,255,255,0.045)',
+};
 
 function metric(label: string, value: number, color: string) {
   return (
