@@ -666,7 +666,7 @@ export async function registerQueueRoutes(app) {
   app.get('/badges', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { rows } = await query(`
-      SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'SUBMITTED')::int AS pending_kyc,
+      SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'PENDING_KYC')::int AS pending_kyc,
              (SELECT count(*) FROM driver_requests        WHERE status = 'PENDING')::int   AS pending_requests,
              (SELECT count(*) FROM expense_approvals      WHERE status = 'PENDING')::int   AS pending_expenses,
              (SELECT count(*) FROM partner_documents      WHERE status = 'PENDING')::int   AS pending_partner_docs,

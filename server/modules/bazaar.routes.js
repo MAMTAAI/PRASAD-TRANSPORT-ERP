@@ -23,6 +23,7 @@ import { requireAdminRole } from './auth.routes.js';
 import { hashPassword, ALGO } from '../lib/auth.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
+import { checkParty, last10, upper, trimOrNull } from '../lib/partyFormats.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -490,7 +491,7 @@ export async function registerBazaarRoutes(app) {
       q(`SELECT count(*)::int AS total,
                 count(*) FILTER (WHERE is_approved_for_portal)::int AS portal
            FROM vendors WHERE vendor_kind = 'FLEET_PARTNER'`),
-      q(`SELECT type, count(*)::int AS n FROM onboarding_applications WHERE status = 'SUBMITTED' GROUP BY 1`),
+      q(`SELECT type, count(*)::int AS n FROM onboarding_applications WHERE status = 'PENDING_KYC' GROUP BY 1`),
       q(`SELECT count(*)::int AS n FROM partner_documents WHERE status = 'PENDING' AND uploader_role = 'VENDOR'`),
       q(`SELECT group_head, ledger_name, dr, cr, entries, last_entry
            FROM v_fleet_segment_totals WHERE fleet_segment = 'MARKET' ORDER BY group_head, ledger_name`),
@@ -586,6 +587,12 @@ export async function registerBazaarRoutes(app) {
   // table stores one canonical pair (see migration 041).
   const withAliases = (r) => ({ ...r, agency_name: r.corporate_name, owner_name: r.contact_person });
 
+  // The waiting state is PENDING_KYC (migration 134, the owner's name for it).
+  // 'SUBMITTED' is still accepted because a row written by an API instance that
+  // has not restarted yet must not become un-approvable for the minute between
+  // the migration and the last pod coming up.
+  const isWaiting = (s) => s === 'PENDING_KYC' || s === 'SUBMITTED';
+
   app.get('/onboarding', { preHandler: requireAdminRole }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const { status, type } = req.query ?? {};
@@ -598,6 +605,15 @@ export async function registerBazaarRoutes(app) {
     return { applications: rows.map(withAliases) };
   });
 
+  // PUBLIC. No session exists by construction — this IS the application, and
+  // the applicant has nothing to log in with yet (apiGuard PUBLIC_API).
+  //
+  // Because it is public, everything the form claims is re-checked here:
+  // src/lib/validators.ts runs in a browser we do not control, so its checks
+  // are a courtesy to the typist, not a guarantee to the database. A CUSTOMER
+  // application must carry GSTIN + PAN (the office bills against them) and the
+  // bank details the owner asked for on 3-Sep; a fleet partner's rules are
+  // unchanged, so nothing that worked yesterday starts failing today.
   app.post('/onboarding', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
@@ -607,18 +623,52 @@ export async function registerBazaarRoutes(app) {
     }
     const name = b.corporate_name ?? b.agency_name;
     if (!name) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'corporate_name (or agency_name) is required' });
+
+    const isCustomer = type === 'CUSTOMER';
+    const bad = checkParty(b, { requireGst: isCustomer, requireBank: isCustomer });
+    if (bad.length) {
+      return reply.code(400).send({ error: 'BAD_FIELDS', detail: bad[0].message, fields: bad });
+    }
+
+    const mobile = last10(b.mobile_no);
+    const gst = upper(b.gst_no);
+    // A firm that is already on the books, or already waiting, must not be able
+    // to queue itself a second time — the desk would have two applications and
+    // no way to tell which one the caller means. Answering plainly ("you are
+    // already registered, call the office") is kinder than a silent 201 and
+    // leaks nothing a stranger could not learn by ringing the office.
+    const { rows: dup } = await query(`
+      SELECT 'WAITING' AS kind FROM onboarding_applications
+        WHERE status = 'PENDING_KYC' AND (mobile_no = $1 OR ($2::text IS NOT NULL AND gst_no = $2))
+      UNION ALL
+      SELECT 'REGISTERED' FROM customers
+        WHERE ($2::text IS NOT NULL AND gst_no = $2) OR ($1::text <> '' AND right(regexp_replace(COALESCE(mobile_no,''), '\\D', '', 'g'), 10) = $1)
+      LIMIT 1`, [mobile, gst]);
+    if (dup.length) {
+      return reply.code(409).send({
+        error: dup[0].kind === 'WAITING' ? 'ALREADY_APPLIED' : 'ALREADY_REGISTERED',
+        detail: dup[0].kind === 'WAITING'
+          ? 'An application for this firm is already with the office. We will call you once it is verified.'
+          : 'This firm is already registered. Please sign in with the registered mobile number, or call the office.',
+      });
+    }
+
     // Only ever the last four digits, whatever the client sent.
     const aadhaar = String(b.aadhaar_last4 ?? '').replace(/\D/g, '').slice(-4) || null;
     try {
       const { rows } = await query(`
         INSERT INTO onboarding_applications (type, corporate_name, gst_no, pan_no, mobile_no,
-          address, contact_person, aadhaar_last4, documents, status)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::jsonb,'{}'::jsonb),'SUBMITTED')
+          address, contact_person, aadhaar_last4, documents, status,
+          email, bank_name, account_no, ifsc_code)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::jsonb,'{}'::jsonb),'PENDING_KYC',
+                $10,$11,$12,$13)
         RETURNING *`,
-        [type, String(name).toUpperCase(), b.gst_no ? String(b.gst_no).toUpperCase() : null,
-         b.pan_no ? String(b.pan_no).toUpperCase() : null, b.mobile_no ?? null, b.address ?? null,
-         b.contact_person ?? b.owner_name ?? null, aadhaar,
-         b.documents ? JSON.stringify(b.documents) : null]);
+        [type, String(name).toUpperCase(), gst,
+         upper(b.pan_no), mobile || null, trimOrNull(b.address),
+         trimOrNull(b.contact_person ?? b.owner_name), aadhaar,
+         b.documents ? JSON.stringify(b.documents) : null,
+         trimOrNull(b.email), trimOrNull(b.bank_name),
+         String(b.account_no ?? '').replace(/\s/g, '') || null, upper(b.ifsc_code)]);
       return reply.code(201).send({ application: withAliases(rows[0]) });
     } catch (e) { return pgErr(reply, e); }
   });
@@ -640,7 +690,7 @@ export async function registerBazaarRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('onboarding_applications')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
-    if (row.status !== 'SUBMITTED') return reply.code(409).send({ error: 'ALREADY_DECIDED', detail: `application is ${row.status}` });
+    if (!isWaiting(row.status)) return reply.code(409).send({ error: 'ALREADY_DECIDED', detail: `application is ${row.status}` });
     const { master_id, approved_by } = req.body ?? {};
     const masterId = UUID_RE.test(String(master_id ?? '')) ? master_id : null;
     const notes = [];
@@ -715,7 +765,7 @@ export async function registerBazaarRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const row = await byId('onboarding_applications')(req.params.id);
     if (!row) return reply.code(404).send({ error: 'NOT_FOUND' });
-    if (row.status !== 'SUBMITTED') return reply.code(409).send({ error: 'ALREADY_DECIDED', detail: `application is ${row.status}` });
+    if (!isWaiting(row.status)) return reply.code(409).send({ error: 'ALREADY_DECIDED', detail: `application is ${row.status}` });
     const { reason, rejected_by } = req.body ?? {};
     if (!reason) return reply.code(400).send({ error: 'MISSING_FIELDS', detail: 'reason is required — the applicant sees it' });
     const { rows } = await query(`
@@ -742,6 +792,83 @@ export async function registerBazaarRoutes(app) {
       'SELECT status, reject_reason, type FROM onboarding_applications WHERE id = $1::uuid', [id]);
     if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
     return { status: rows[0].status, reject_reason: rows[0].reject_reason, type: rows[0].type };
+  });
+
+  // ═══ BANK CHANGE REQUESTS ═════════════════════════════════════════════════
+  // A live party asked to change its bank account from its app (migration 134).
+  // It sits in quarantine until a human compares it with the account on file —
+  // this is the queue where that happens. Admin-only, like every other decision
+  // in this file: the customer may ask, only the office may move the master.
+
+  app.get('/bank-changes', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const status = String(req.query?.status ?? 'PENDING').toUpperCase();
+    const args = [];
+    let where = '';
+    if (status !== 'ALL') { args.push(status); where = 'WHERE r.status = $1'; }
+    const { rows } = await query(`
+      SELECT r.*, c.customer_name AS party_name, c.customer_code AS party_code,
+             c.mobile_no AS party_mobile, c.gst_no AS party_gst
+        FROM bank_change_requests r
+        LEFT JOIN customers c ON c.id = r.party_id AND r.party_type = 'CUSTOMER'
+        ${where}
+       ORDER BY r.status = 'PENDING' DESC, r.created_at DESC
+       LIMIT 200`, args);
+    return { requests: rows };
+  });
+
+  app.post('/bank-changes/:id/approve', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
+    try {
+      const out = await withTransaction(async (c) => {
+        const { rows } = await c.query(
+          `SELECT * FROM bank_change_requests WHERE id = $1::uuid FOR UPDATE`, [req.params.id]);
+        const r = rows[0];
+        if (!r) return { code: 404, body: { error: 'NOT_FOUND' } };
+        if (r.status !== 'PENDING') {
+          return { code: 409, body: { error: 'ALREADY_DECIDED', detail: `request is ${r.status}` } };
+        }
+        if (r.party_type !== 'CUSTOMER') {
+          // Only the customer app can file one today; a VENDOR row would mean
+          // a table someone extended without extending this decision.
+          return { code: 400, body: { error: 'UNSUPPORTED_PARTY', detail: `no approval path for ${r.party_type} yet` } };
+        }
+        // The master moves and the request is stamped in ONE transaction, so a
+        // crash between them cannot leave an approved request whose account
+        // never landed — the state the desk would never think to re-check.
+        const { rowCount } = await c.query(`
+          UPDATE customers
+             SET bank_name = $2, account_no = $3, ifsc_code = $4, updated_at = now()
+           WHERE id = $1::uuid`,
+          [r.party_id, r.bank_name, r.account_no, r.ifsc_code]);
+        if (!rowCount) return { code: 404, body: { error: 'NO_SUCH_PARTY', detail: 'the customer this request names is gone' } };
+        const { rows: done } = await c.query(`
+          UPDATE bank_change_requests
+             SET status = 'APPROVED', decided_by = $2, decided_at = now()
+           WHERE id = $1::uuid RETURNING *`,
+          [r.id, req.body?.decided_by ?? req.user?.name ?? req.user?.sub ?? null]);
+        return { code: 200, body: { request: done[0] } };
+      });
+      return reply.code(out.code).send(out.body);
+    } catch (e) { return pgErr(reply, e); }
+  });
+
+  app.post('/bank-changes/:id/reject', { preHandler: requireAdminRole }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
+    const reason = String(req.body?.reason ?? '').trim();
+    // A rejection the applicant cannot act on is just a closed door: the reason
+    // is what tells them which digit to fix.
+    if (!reason) return reply.code(400).send({ error: 'REASON_REQUIRED', detail: 'tell the customer what to correct' });
+    const { rows } = await query(`
+      UPDATE bank_change_requests
+         SET status = 'REJECTED', reject_reason = $2, decided_by = $3, decided_at = now()
+       WHERE id = $1::uuid AND status = 'PENDING'
+       RETURNING *`,
+      [req.params.id, reason, req.body?.decided_by ?? req.user?.name ?? req.user?.sub ?? null]);
+    if (!rows.length) return reply.code(409).send({ error: 'NOT_PENDING', detail: 'no pending request with that id' });
+    return { request: rows[0] };
   });
 
   // ═══ MARKET DRIVERS — APPROVAL ════════════════════════════════════════════

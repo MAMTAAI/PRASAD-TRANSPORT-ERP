@@ -121,6 +121,13 @@ const T = {
     podPending: 'Delivered — the paper is with the office. It appears here the moment it is verified.',
     podView: 'POD', verified: 'verified', receivedBy: 'Received by', loadedUnloaded: 'Loaded / Unloaded', openFail: 'Could not open this file. Call the office.',
     account: 'Account', readonly: 'read-only', billsHead: 'Bills', billed: 'Billed', received: 'Received', outstanding: 'Outstanding',
+    bankHead: 'Bank account', bankNone: 'No bank account on file with the office.',
+    bankUpdate: 'Update bank details', bankName: 'Bank name', bankAcct: 'Account number', bankIfsc: 'IFSC code',
+    bankWait: 'With the office', bankWaitSub: 'The office is checking the account you sent. Your details change only after they approve it.',
+    bankRejected: 'Not accepted', bankSend: 'Send to office', bankSending: 'Sending…',
+    bankNote: 'A bank account is changed by the office, never from the phone — you send it, they verify it.',
+    bankSame: 'These are the details already on file — nothing to change.',
+    bankSent: 'Sent to the office. Your account will change once they verify it.',
     terms: 'terms', days: 'days', stmt: 'Statement PDF', billsList: 'Bills list', noBills: 'No bills on record',
     code: 'Customer code', gst: 'GST', payTerms: 'Payment terms', cycle: 'Billing cycle', city: 'City', language: 'Language',
     ledgerLocked: 'Bills and outstanding show only when the office enables the Ledger module for your account.',
@@ -163,6 +170,13 @@ const T = {
     podPending: 'डिलीवर हो गई — कागज़ ऑफिस के पास है। जाँच होते ही यहाँ दिखेगा।',
     podView: 'POD', verified: 'जाँचा', receivedBy: 'प्राप्तकर्ता', loadedUnloaded: 'लोड / खाली', openFail: 'फाइल नहीं खुली। ऑफिस को कॉल करो।',
     account: 'खाता', readonly: 'सिर्फ़ देखने के लिए', billsHead: 'बिल', billed: 'बिल बना', received: 'भुगतान मिला', outstanding: 'बकाया',
+    bankHead: 'बैंक खाता', bankNone: 'ऑफिस के पास आपका बैंक खाता दर्ज नहीं है।',
+    bankUpdate: 'बैंक की जानकारी बदलो', bankName: 'बैंक का नाम', bankAcct: 'खाता नंबर', bankIfsc: 'IFSC कोड',
+    bankWait: 'ऑफिस के पास है', bankWaitSub: 'ऑफिस आपका भेजा खाता जाँच रहा है। मंज़ूरी के बाद ही बदलेगा।',
+    bankRejected: 'मंज़ूर नहीं हुआ', bankSend: 'ऑफिस को भेजो', bankSending: 'भेज रहे हैं…',
+    bankNote: 'बैंक खाता ऑफिस बदलता है, फ़ोन से नहीं — आप भेजते हैं, वे जाँच कर के लगाते हैं।',
+    bankSame: 'यही जानकारी पहले से दर्ज है — कुछ बदलने को नहीं।',
+    bankSent: 'ऑफिस को भेज दिया। जाँच के बाद आपका खाता बदल जाएगा।',
     terms: 'शर्त', days: 'दिन', stmt: 'स्टेटमेंट PDF', billsList: 'बिलों की सूची', noBills: 'कोई बिल नहीं',
     code: 'कस्टमर कोड', gst: 'GST', payTerms: 'भुगतान शर्त', cycle: 'बिलिंग', city: 'शहर', language: 'भाषा',
     ledgerLocked: 'बिल और बकाया तभी दिखेंगे जब ऑफिस लेजर मॉड्यूल चालू करे।',
@@ -225,6 +239,7 @@ export default function CustomerApp() {
   const [pods, setPods] = useState([]);
   const [loads, setLoads] = useState([]);
   const [bills, setBills] = useState([]);
+  const [bank, setBank] = useState(null);
 
   const [tab, setTab] = useState('home');
   const [view, setView] = useState({ k: 'tabs' });    // track | trip | booking | newbook | sent | podview
@@ -246,8 +261,12 @@ export default function CustomerApp() {
       v['cust.pods'] ? api('/portal/customer/pods') : Promise.resolve({ ok: false }),
       v['cust.place_order'] ? api('/portal/customer/loads') : Promise.resolve({ ok: false }),
       v['cust.ledger'] ? api('/portal/customer/bills?limit=24') : Promise.resolve({ ok: false }),
+      // Not module-gated: the bank account on file is the customer's own
+      // identity, not a feature the office switches on.
+      api('/portal/customer/bank'),
     ];
-    const [s, tr, pd, ld, bl] = await Promise.all(jobs);
+    const [s, tr, pd, ld, bl, bk] = await Promise.all(jobs);
+    if (bk.ok) setBank(bk.body);
     if (s.ok) setSum(s.body);
     if (tr.ok) { setTrips(tr.body?.trips ?? []); setWithheld(tr.body?.withheld ?? []); }
     if (pd.ok) setPods(pd.body?.pods ?? []);
@@ -490,6 +509,7 @@ export default function CustomerApp() {
   }
 
   // ══ BOOKING DETAIL ════════════════════════════════════════════════════════
+  if (view.k === 'bank') return <BankEdit />;
   if (view.k === 'booking') return <BookingDetail id={view.id} />;
 
   // ══ TABS ══════════════════════════════════════════════════════════════════
@@ -516,7 +536,11 @@ export default function CustomerApp() {
           sub={tab === 'trips' ? `${onRoad.length} ${t.segRoad.toLowerCase()} · ${sum?.trips?.delivered_month ?? doneTrips.length} ${t.kDone} ${t.month}`
             : tab === 'book' ? t.bookSub
             : tab === 'pod' ? t.podSub
-            : `${me?.name ?? ''} · ${t.readonly}`}
+            // "read-only" belongs to the staff View-As preview. On the
+            // customer's own Account tab it is now untrue — the bank card sends
+            // a change from here — and a label that says a screen does nothing
+            // is how a button goes unused.
+            : `${me?.name ?? ''}${viewAs ? ` · ${t.readonly}` : ''}`}
         />
       )}
 
@@ -677,6 +701,48 @@ export default function CustomerApp() {
                 [t.city, me?.city ?? '—'],
                 [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'en' ? 'English · हिं' : 'हिंदी · EN'}</button>],
               ]} />
+            </div>
+            {/* BANK ACCOUNT (owner directive, 2026-09-03). The customer may
+                SEND a change; only the office may make it. The account is shown
+                masked to its last four — enough to recognise, not worth reading
+                over a shoulder — and a request that is still with the office is
+                shown as such rather than as if it had already taken effect. */}
+            <div className={CARD}>
+              <div className="flex items-center justify-between px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">
+                🏦 {t.bankHead}
+                {bank?.request?.status === 'PENDING' && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10.5px] font-extrabold text-amber-800">{t.bankWait}</span>
+                )}
+              </div>
+              {bank?.on_file?.present ? (
+                <KV rows={[
+                  [t.bankName, bank.on_file.bank_name ?? '—'],
+                  [t.bankAcct, bank.on_file.account_no_masked ?? '—'],
+                  [t.bankIfsc, bank.on_file.ifsc_code ?? '—'],
+                ]} />
+              ) : (
+                <div className="px-3 py-3 text-[12.5px] font-semibold text-slate-500">{t.bankNone}</div>
+              )}
+              {bank?.request?.status === 'PENDING' && (
+                <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold leading-snug text-amber-900">
+                  {t.bankWaitSub}
+                  <div className="mt-1 font-mono text-[11.5px] font-bold">
+                    {bank.request.bank_name} · {bank.request.account_no_masked} · {bank.request.ifsc_code}
+                  </div>
+                </div>
+              )}
+              {bank?.request?.status === 'REJECTED' && bank.request.reject_reason && (
+                <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-semibold leading-snug text-red-800">
+                  <b>{t.bankRejected}:</b> {bank.request.reject_reason}
+                </div>
+              )}
+              <div className="px-3 pb-3">
+                <button
+                  onClick={() => setView({ k: 'bank' })} disabled={viewAs}
+                  className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white text-[14px] font-extrabold disabled:opacity-50"
+                  data-bank-edit
+                >✏️ {t.bankUpdate}</button>
+              </div>
             </div>
             <CallBar />
             <button onClick={logout} className="min-h-[46px] rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">🚪 {t.logout}</button>
@@ -899,6 +965,85 @@ export default function CustomerApp() {
           <CallBar />
         </div>
         <Toast />
+      </div>
+    );
+  }
+
+  // ══ BANK DETAILS — SEND A CHANGE ══════════════════════════════════════════
+  // The customer types their account; the office moves it. Nothing here edits
+  // the master: the POST lands a bank_change_requests row (quarantine fence,
+  // 2026-09-02) and the screen says so in the words the owner used — "sent to
+  // office". Under a staff View-As preview the button never appears, and the
+  // server would refuse the POST anyway (405 VIEW_AS_READ_ONLY).
+  function BankEdit() {
+    const on = bank?.on_file ?? {};
+    const pend = bank?.request?.status === 'PENDING' ? bank.request : null;
+    const [f, setF] = useState({
+      bank_name: pend?.bank_name ?? on.bank_name ?? '',
+      account_no: '',
+      ifsc_code: pend?.ifsc_code ?? on.ifsc_code ?? '',
+    });
+    const [err, setErr] = useState({});
+    const [busy, setBusy] = useState(false);
+    const [msg, setMsg] = useState('');
+    const set = (k, v) => { setF((x) => ({ ...x, [k]: v })); setErr((e) => ({ ...e, [k]: '' })); };
+
+    const send = async () => {
+      const e = {};
+      if (!String(f.bank_name).trim()) e.bank_name = 'required';
+      if (!/^\d{9,18}$/.test(String(f.account_no).replace(/\s/g, ''))) e.account_no = '9-18 digits';
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(f.ifsc_code).toUpperCase())) e.ifsc_code = 'e.g. SBIN0001234';
+      setErr(e);
+      if (Object.keys(e).length) return;
+      setBusy(true); setMsg('');
+      const r = await api('/portal/customer/bank', { method: 'POST', body: JSON.stringify(f) });
+      setBusy(false);
+      if (!r.ok) {
+        // The server runs the same checks and its answer wins.
+        if (r.body?.fields?.length) setErr(Object.fromEntries(r.body.fields.map((x) => [x.field, x.message])));
+        setMsg(r.body?.detail ?? `API ${r.status}`);
+        return;
+      }
+      const fresh = await api('/portal/customer/bank');
+      if (fresh.ok) setBank(fresh.body);
+      say(r.body?.unchanged ? t.bankSame : t.bankSent);
+      setView({ k: 'tabs' });
+    };
+
+    const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
+    // `invalid` is ours, not the DOM's — spreading it onto <input> makes React
+    // warn about a non-boolean attribute, so it is pulled out of the rest.
+    const Inp = ({ invalid, className, ...rest }) => (
+      <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-white px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-300 focus:border-blue-500'} ${className ?? ''}`} />
+    );
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="bankedit">
+        <Bar title={t.bankUpdate} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.bankNote}</div>
+          {on.present && (
+            <div className={`${CARD} px-3 py-2.5`}>
+              <div className="text-[11px] font-extrabold text-slate-500">{lang === 'en' ? 'On file now' : 'अभी दर्ज है'}</div>
+              <div className="mt-0.5 font-mono text-[13px] font-bold">{on.bank_name} · {on.account_no_masked} · {on.ifsc_code}</div>
+            </div>
+          )}
+          <div><Lbl>{t.bankName}</Lbl><Inp value={f.bank_name} invalid={!!err.bank_name} onChange={(e) => set('bank_name', e.target.value)} placeholder="State Bank of India" data-bank="bank_name" /></div>
+          <div>
+            <Lbl>{t.bankAcct}</Lbl>
+            <Inp value={f.account_no} invalid={!!err.account_no} inputMode="numeric" onChange={(e) => set('account_no', e.target.value.replace(/[^0-9]/g, ''))} placeholder="30123456789" className="font-mono tracking-wide" data-bank="account_no" />
+            {err.account_no && <div className="mt-1 text-[11.5px] font-bold text-red-700">{err.account_no}</div>}
+          </div>
+          <div>
+            <Lbl>{t.bankIfsc}</Lbl>
+            <Inp value={f.ifsc_code} invalid={!!err.ifsc_code} onChange={(e) => set('ifsc_code', e.target.value.toUpperCase())} placeholder="SBIN0001234" className="font-mono tracking-wide" data-bank="ifsc_code" />
+            {err.ifsc_code && <div className="mt-1 text-[11.5px] font-bold text-red-700">{err.ifsc_code}</div>}
+          </div>
+          {msg && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{msg}</div>}
+          <button onClick={send} disabled={busy} className="min-h-[62px] w-full rounded-2xl bg-blue-600 text-[19px] font-extrabold text-white shadow-[0_6px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-bank-send>
+            {busy ? t.bankSending : `📤 ${t.bankSend}`}
+          </button>
+        </div>
       </div>
     );
   }

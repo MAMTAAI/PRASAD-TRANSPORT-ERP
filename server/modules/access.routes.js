@@ -233,7 +233,7 @@ export function registerAccessRoutes(app) {
                       live_sessions: rows.reduce((s, r) => s + (r.live_sessions ?? 0), 0) };
     }
     const { rows: [staging] } = await query(`
-      SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'SUBMITTED')::int          AS kyc,
+      SELECT (SELECT count(*) FROM onboarding_applications WHERE status = 'PENDING_KYC')::int          AS kyc,
              (SELECT count(*) FROM partner_documents WHERE status = 'PENDING')::int                  AS app_uploads,
              (SELECT count(*) FROM expense_approvals WHERE status = 'PENDING')::int                  AS expense_bills,
              (SELECT count(*) FROM driver_requests WHERE status = 'PENDING')::int                    AS driver_requests,

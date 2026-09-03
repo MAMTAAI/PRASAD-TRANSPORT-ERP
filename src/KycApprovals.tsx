@@ -31,12 +31,17 @@ const bazaarFetch = async (path: string, opts?: RequestInit) => {
   return json;
 };
 
-import { vGstin, vPan, vMobile, gstinPanMatch, runChecks } from './lib/validators';
+import { vGstin, vPan, vMobile, vIfsc, vAccountNo, gstinPanMatch, runChecks } from './lib/validators';
 import { logAudit } from './lib/audit';
 import { useIsMobile } from './hooks/useIsMobile';
 
+// The waiting state is PENDING_KYC since migration 134 (the owner's name for
+// it, 3-Sep). SUBMITTED is kept so a row written before the deploy still paints.
+const WAITING = 'PENDING_KYC';
+const isWaiting = (st) => st === 'PENDING_KYC' || st === 'SUBMITTED' || !st;
 const STATUS_META = {
-  SUBMITTED: { label: '📨 Pending Review', color: '#f59e0b' },
+  PENDING_KYC: { label: '📨 Pending KYC', color: '#f59e0b' },
+  SUBMITTED: { label: '📨 Pending KYC', color: '#f59e0b' },
   APPROVED: { label: '✅ Approved', color: '#10b981' },
   REJECTED: { label: '❌ Rejected', color: '#ef4444' },
 };
@@ -44,9 +49,13 @@ const STATUS_META = {
 export default function KycApprovals() {
   const { isMobile } = useIsMobile();
   const [apps, setApps] = useState([]);
-  const [filter, setFilter] = useState('SUBMITTED');
+  const [filter, setFilter] = useState(WAITING);
   const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The second queue on this desk (migration 134): a LIVE customer asking to
+  // change the bank account already on its master. Same screen because it is
+  // the same job — a human comparing a claimed account with the one on file.
+  const [bankReqs, setBankReqs] = useState([]);
 
   // Firestore's onSnapshot pushed changes; PostgreSQL has no browser socket
   // here, so the queue refreshes on mount, after every decision, and on a slow
@@ -60,11 +69,40 @@ export default function KycApprovals() {
     } catch (e) { console.error(e); }
   };
 
+  const loadBankReqs = async () => {
+    try { setBankReqs((await bazaarFetch('/bank-changes?status=PENDING')).requests ?? []); }
+    catch (e) { console.error(e); }
+  };
+
+  const refreshAll = () => { loadApps(); loadBankReqs(); };
+
   useEffect(() => {
-    loadApps();
-    const t = setInterval(() => { if (document.visibilityState === 'visible') loadApps(); }, 30000);
+    refreshAll();
+    const t = setInterval(() => { if (document.visibilityState === 'visible') refreshAll(); }, 30000);
     return () => clearInterval(t);
   }, []);
+
+  const decideBank = async (r, ok) => {
+    if (busy) return;
+    let reason = '';
+    if (!ok) {
+      reason = (window.prompt(`❌ "${r.party_name}" ka bank change kyun reject kar rahe hain? (customer ko yahi dikhega)`) || '').trim();
+      if (!reason) return;
+    } else if (!window.confirm(`✅ "${r.party_name}" ka bank account badal kar
+${r.bank_name} · ${r.account_no} · ${r.ifsc_code}
+kar dein? Yeh master par turant lag jayega.`)) return;
+    setBusy(true);
+    try {
+      await bazaarFetch(`/bank-changes/${r.id}/${ok ? 'approve' : 'reject'}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ok ? {} : { reason }),
+      });
+      logAudit({ action: ok ? 'BANK_CHANGE_APPROVE' : 'BANK_CHANGE_REJECT', target: r.party_name,
+                 details: ok ? `${r.bank_name} ${r.account_no} ${r.ifsc_code}` : reason });
+      await loadBankReqs();
+    } catch (e) { alert('❌ ' + e.message); }
+    setBusy(false);
+  };
 
   const checksFor = (a) => {
     const list = [
@@ -73,6 +111,12 @@ export default function KycApprovals() {
       { name: 'PAN format', c: vPan(a.pan_no, a.type === 'FLEET_PARTNER') },
       { name: 'GSTIN ↔ PAN match', c: gstinPanMatch(a.gst_no, a.pan_no) },
     ];
+    // The bank account is only asked of a customer (migration 134), so the
+    // fleet-partner queue is not suddenly shown three checks it must fail.
+    if (a.type === 'CUSTOMER') {
+      list.push({ name: 'IFSC format', c: vIfsc(a.ifsc_code, true) });
+      list.push({ name: 'Account number', c: vAccountNo(a.account_no, true) });
+    }
     return list.map(x => ({ name: x.name, ok: x.c.ok, msg: x.c.message }));
   };
 
@@ -103,6 +147,14 @@ export default function KycApprovals() {
             mobile_no: a.mobile_no || '',
             address: a.address || '',
             contact_person: a.contact_person || '',
+            email: a.email || null,
+            // migration 134 — the account the applicant gave on the form. If
+            // it did not land here, an approved customer would arrive on the
+            // master with no bank details and the office would have to chase
+            // the applicant for something they already sent.
+            bank_name: a.bank_name || null,
+            account_no: a.account_no || null,
+            ifsc_code: a.ifsc_code || null,
             status: 'ACTIVE',
             customer_source: 'PORTAL',
             approval_status: 'APPROVED',
@@ -156,7 +208,7 @@ export default function KycApprovals() {
     setBusy(false);
   };
 
-  const shown = apps.filter(a => filter === 'ALL' || (a.status || 'SUBMITTED') === filter);
+  const shown = apps.filter(a => filter === 'ALL' || (filter === WAITING ? isWaiting(a.status) : a.status === filter));
   const S = {
     page: { padding: 'clamp(12px, 3vw, 30px)', minHeight: '100vh', background: 'radial-gradient(circle at top left, #0f172a, #020617)', color: 'white', fontFamily: "'Inter', sans-serif" },
     card: { background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '14px', padding: 'clamp(14px,3vw,22px)', marginBottom: '14px' },
@@ -169,21 +221,45 @@ export default function KycApprovals() {
       <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#38bdf8' }}>🪪 KYC Approvals</h1>
       <p style={{ color: '#94a3b8', margin: '0 0 16px 0', fontSize: '13px' }}>Portal se aayi customer/fleet-partner applications — approve par master + ledger apne aap banta hai. Live updates.</p>
 
+      {bankReqs.length > 0 && (
+        <div style={{ ...S.card, borderLeft: '4px solid #a855f7' }}>
+          <b style={{ fontSize: '15px' }}>🏦 Bank account change requests ({bankReqs.length})</b>
+          <div style={{ color: '#94a3b8', fontSize: '12px', margin: '4px 0 12px 0' }}>
+            Live customers ne apne app se bheja hai. Approve karte hi master par lag jayega — pehle account verify karein.
+          </div>
+          {bankReqs.map(r => (
+            <div key={r.id} style={{ borderTop: '1px solid #1e293b', paddingTop: '10px', marginTop: '10px' }}>
+              <b style={{ fontSize: '14px' }}>🏢 {r.party_name || '—'}</b>
+              <span style={{ color: '#64748b', fontSize: '12px' }}> · {r.party_code || ''} · 📱 {r.party_mobile || '—'}</span>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '4px 20px', fontSize: '13px', marginTop: '6px' }}>
+                <div><span style={{ color: '#64748b' }}>New:</span> <b style={{ fontFamily: 'monospace' }}>{r.bank_name} · {r.account_no} · {r.ifsc_code}</b></div>
+                <div><span style={{ color: '#64748b' }}>Old:</span> <span style={{ fontFamily: 'monospace' }}>{r.prev_account_no ? `${r.prev_bank_name || ''} · ${r.prev_account_no} · ${r.prev_ifsc_code || ''}` : 'kuch darj nahi tha'}</span></div>
+                {r.note ? <div style={{ gridColumn: '1 / -1', color: '#94a3b8' }}>Note: {r.note}</div> : null}
+              </div>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '10px', flexWrap: 'wrap' }}>
+                <button onClick={() => decideBank(r, true)} disabled={busy} style={S.btn('#10b981', busy)}>✅ Approve &amp; update master</button>
+                <button onClick={() => decideBank(r, false)} disabled={busy} style={S.btn('#ef4444', busy)}>❌ Reject (reason ke saath)</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        {['SUBMITTED', 'APPROVED', 'REJECTED', 'ALL'].map(f => (
+        {[WAITING, 'APPROVED', 'REJECTED', 'ALL'].map(f => (
           <button key={f} onClick={() => setFilter(f)} style={{ ...S.btn(filter === f ? '#2563eb' : '#1e293b', false), padding: '9px 16px', minHeight: '40px', fontSize: '13px' }}>
-            {f === 'SUBMITTED' ? `📨 Pending (${apps.filter(a => (a.status || 'SUBMITTED') === 'SUBMITTED').length})` : f}
+            {f === WAITING ? `📨 Pending KYC (${apps.filter(a => isWaiting(a.status)).length})` : f}
           </button>
         ))}
       </div>
 
       {shown.length === 0 ? (
         <div style={{ ...S.card, textAlign: 'center', color: '#64748b', padding: '40px' }}>
-          {filter === 'SUBMITTED' ? '✨ Koi pending application nahi. Portal se submissions yahan live aayengi.' : 'Kuch nahi mila.'}
+          {filter === WAITING ? '✨ Koi pending application nahi. Portal se submissions yahan live aayengi.' : 'Kuch nahi mila.'}
         </div>
       ) : shown.map(a => {
         const name = a.type === 'CUSTOMER' ? a.corporate_name : a.agency_name;
-        const st = STATUS_META[a.status || 'SUBMITTED'] || STATUS_META.SUBMITTED;
+        const st = STATUS_META[a.status || WAITING] || STATUS_META[WAITING];
         const checks = checksFor(a);
         const passed = checks.filter(c => c.ok).length;
         const open = openId === a.id;
@@ -208,6 +284,13 @@ export default function KycApprovals() {
                   {a.contact_person ? <div><span style={{ color: '#64748b' }}>Contact:</span> {a.contact_person}</div> : null}
                   {a.address ? <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#64748b' }}>Address:</span> {a.address}</div> : null}
                   {a.aadhaar_last4 ? <div><span style={{ color: '#64748b' }}>Aadhaar:</span> XXXX-XXXX-{a.aadhaar_last4}</div> : null}
+                  {a.email ? <div><span style={{ color: '#64748b' }}>Email:</span> {a.email}</div> : null}
+                  {/* The bank account the applicant gave (migration 134) — the
+                      thing the desk is being asked to verify, so it is shown in
+                      full rather than masked. */}
+                  {a.bank_name ? <div><span style={{ color: '#64748b' }}>Bank:</span> <b>{a.bank_name}</b></div> : null}
+                  {a.account_no ? <div><span style={{ color: '#64748b' }}>A/c:</span> <b style={{ fontFamily: 'monospace' }}>{a.account_no}</b></div> : null}
+                  {a.ifsc_code ? <div><span style={{ color: '#64748b' }}>IFSC:</span> <b style={{ fontFamily: 'monospace' }}>{a.ifsc_code}</b></div> : null}
                   {a.reject_reason ? <div style={{ gridColumn: '1 / -1', color: '#ef4444' }}>Reject reason: {a.reject_reason}</div> : null}
                 </div>
                 <div style={{ marginTop: '10px' }}>
@@ -217,7 +300,7 @@ export default function KycApprovals() {
                     </div>
                   ))}
                 </div>
-                {(a.status || 'SUBMITTED') === 'SUBMITTED' && (
+                {isWaiting(a.status) && (
                   <div style={{ display: 'flex', gap: '10px', marginTop: '14px', flexWrap: 'wrap' }}>
                     <button onClick={() => approve(a)} disabled={busy} style={{ ...S.btn('#10b981', busy), flex: isMobile ? 1 : 'none' }}>✅ Approve → Master + Ledger</button>
                     <button onClick={() => reject(a)} disabled={busy} style={{ ...S.btn('#ef4444', busy), flex: isMobile ? 1 : 'none' }}>❌ Reject (reason ke saath)</button>

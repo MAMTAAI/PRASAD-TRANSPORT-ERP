@@ -21,6 +21,7 @@ import { resolveParty, needsModule, visibleModules } from './portal.routes.js';
 import { getRoute, geocode, getDistanceMatrix } from '../lib/googleMaps.js';
 import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
+import { checkParty } from '../lib/partyFormats.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -421,5 +422,135 @@ export function registerCustomerPortalRoutes(app) {
       [req.params.loadId, req.party.customerId]);
     if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no settlement on this load of yours' });
     return { load_id: req.params.loadId, settlement: rows[0] };
+  });
+  // ═══ MY BANK ACCOUNT ══════════════════════════════════════════════════════
+  //
+  // Owner, 2026-09-03: "Allow active customers to update their Bank Details
+  // from within their Customer App profile."
+  //
+  // A bank account is a master field, and the quarantine fence refuses a
+  // CUSTOMER session any write to `customers` (server/lib/staging.js) — which
+  // is the right answer for the most attractive three fields in this database
+  // to a stranger holding a borrowed handset. So the phone files a REQUEST and
+  // the office moves it onto the master. The customer is told exactly that.
+  //
+  // Not module-gated: a party's own identity is not a feature the office
+  // switches off, so this is `customerOnly` — the role, not a module key.
+  // Under a staff View-As preview the POST never runs at all: portal.routes
+  // refuses every non-GET with 405 VIEW_AS_READ_ONLY.
+
+  /** Their own account, masked the way a bank statement masks it — enough to
+   *  recognise, not enough to be worth reading over a shoulder. */
+  const maskAccount = (n) => {
+    const s = String(n ?? '').replace(/\s/g, '');
+    if (!s) return null;
+    return s.length <= 4 ? s : '·'.repeat(Math.min(s.length - 4, 12)) + s.slice(-4);
+  };
+
+  app.get('/portal/customer/bank', { preHandler: customerOnly }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const [{ rows: cust }, { rows: pend }] = await Promise.all([
+      query(`SELECT customer_name, bank_name, account_no, ifsc_code
+               FROM customers WHERE id = $1::uuid`, [req.party.customerId]),
+      query(`SELECT id, bank_name, account_no, ifsc_code, status, note, created_at,
+                    reject_reason, decided_at
+               FROM bank_change_requests
+              WHERE party_type = 'CUSTOMER' AND party_id = $1::uuid
+              ORDER BY created_at DESC LIMIT 1`, [req.party.customerId]),
+    ]);
+    const c = cust[0] ?? {};
+    const p = pend[0] ?? null;
+    return {
+      on_file: {
+        bank_name: c.bank_name ?? null,
+        account_no_masked: maskAccount(c.account_no),
+        account_no_last4: c.account_no ? String(c.account_no).slice(-4) : null,
+        ifsc_code: c.ifsc_code ?? null,
+        // Nothing on file is a fact, not an error: most customers were created
+        // from the old books, which never held an account number.
+        present: !!(c.bank_name || c.account_no || c.ifsc_code),
+      },
+      // Only a request still waiting blocks a new one; a decided one is shown
+      // so the customer learns the outcome without ringing the office.
+      request: p && {
+        id: p.id, status: p.status, bank_name: p.bank_name,
+        account_no_masked: maskAccount(p.account_no), ifsc_code: p.ifsc_code,
+        note: p.note, reject_reason: p.reject_reason,
+        created_at: p.created_at, decided_at: p.decided_at,
+      },
+    };
+  });
+
+  app.post('/portal/customer/bank', { preHandler: customerOnly }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    // Same checks the public registration form runs, for the same reason: the
+    // browser's validators are a courtesy to the typist.
+    const bad = checkParty({ ...b, mobile_no: b.mobile_no ?? '9999999999' }, { requireBank: true })
+      .filter((x) => ['bank_name', 'account_no', 'ifsc_code'].includes(x.field));
+    if (bad.length) return reply.code(400).send({ error: 'BAD_FIELDS', detail: bad[0].message, fields: bad });
+
+    const account = String(b.account_no ?? '').replace(/\s/g, '');
+    const ifsc = String(b.ifsc_code ?? '').trim().toUpperCase();
+    const bankName = String(b.bank_name ?? '').trim();
+
+    try {
+      const out = await withTransaction(async (c) => {
+        const { rows: cur } = await c.query(
+          `SELECT bank_name, account_no, ifsc_code FROM customers WHERE id = $1::uuid`,
+          [req.party.customerId]);
+        const now = cur[0] ?? {};
+        // Asking for what is already on file is not a request — it is a no-op
+        // that would put a pointless card on the desk.
+        if (String(now.account_no ?? '') === account && String(now.ifsc_code ?? '') === ifsc
+            && String(now.bank_name ?? '') === bankName) {
+          return { unchanged: true };
+        }
+        // One open request per party (uq_bank_change_open): a second submission
+        // REPLACES the first, so the desk never holds two accounts for one firm
+        // and the customer can correct a typo before anyone looks.
+        const { rows: open } = await c.query(
+          `SELECT id FROM bank_change_requests
+            WHERE party_type = 'CUSTOMER' AND party_id = $1::uuid AND status = 'PENDING'
+            FOR UPDATE`, [req.party.customerId]);
+        if (open.length) {
+          const { rows } = await c.query(`
+            UPDATE bank_change_requests
+               SET bank_name = $2, account_no = $3, ifsc_code = $4, note = $5,
+                   prev_bank_name = $6, prev_account_no = $7, prev_ifsc_code = $8,
+                   created_at = now()
+             WHERE id = $1::uuid RETURNING *`,
+            [open[0].id, bankName, account, ifsc, b.note ?? null,
+             now.bank_name ?? null, now.account_no ?? null, now.ifsc_code ?? null]);
+          return { replaced: true, row: rows[0] };
+        }
+        const { rows } = await c.query(`
+          INSERT INTO bank_change_requests
+            (party_type, party_id, bank_name, account_no, ifsc_code, note,
+             prev_bank_name, prev_account_no, prev_ifsc_code, requested_by, requested_name)
+          VALUES ('CUSTOMER', $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::uuid, $10)
+          RETURNING *`,
+          [req.party.customerId, bankName, account, ifsc, b.note ?? null,
+           now.bank_name ?? null, now.account_no ?? null, now.ifsc_code ?? null,
+           req.user?.sub ?? null, req.user?.name ?? null]);
+        return { row: rows[0] };
+      });
+
+      if (out.unchanged) {
+        return reply.code(200).send({ unchanged: true, message: 'These are the details already on file — nothing to change.' });
+      }
+      return reply.code(201).send({
+        request: { id: out.row.id, status: out.row.status,
+                   bank_name: out.row.bank_name, account_no_masked: maskAccount(out.row.account_no),
+                   ifsc_code: out.row.ifsc_code, created_at: out.row.created_at },
+        replaced: !!out.replaced,
+        // Every external write reads as "sent to office", because that is what
+        // the fence makes true.
+        message: 'Sent to the office. Your account will change once they verify it.',
+      });
+    } catch (e) {
+      req.log?.error?.({ err: e }, 'bank change request failed');
+      return reply.code(500).send({ error: 'BANK_REQUEST_FAILED', detail: e.message });
+    }
   });
 }

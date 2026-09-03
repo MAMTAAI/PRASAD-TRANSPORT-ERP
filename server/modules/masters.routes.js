@@ -847,7 +847,12 @@ export async function registerMastersRoutes(app) {
     'consignees', 'locations', 'portal_features', 'status', 'customer_source', 'approval_status',
     'portal_enabled', 'portal_email',
     // migration 029 — contract terms the CRM screen collects
-    'credit_limit', 'account_manager', 'billing_cycle', 'detention_applicable', 'city'];
+    'credit_limit', 'account_manager', 'billing_cycle', 'detention_applicable', 'city',
+    // migration 134 — the bank account the KYC application carried. Staff-only:
+    // a CUSTOMER session cannot reach /masters at all (apiGuard confines
+    // external roles to /portal/*), and from the app a change to these three is
+    // a bank_change_requests row the office approves, never an edit.
+    'bank_name', 'account_no', 'ifsc_code'];
 
   app.get(
     '/customers',

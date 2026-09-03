@@ -36,6 +36,7 @@ export const EXTERNAL_ROLES = new Set(['DRIVER', 'VENDOR', 'CUSTOMER']);
 export const STAGING_TABLES = new Set([
   // ── quarantine: every row waits for a staff APPROVE ──────────────────────
   'onboarding_applications',   // public KYC form → KYC Approvals
+  'bank_change_requests',      // a live party's new bank account → KYC Approvals (2026-09-03)
   'partner_documents',         // driver / partner app uploads → Pending Expenses desk
   'driver_notices',            // in-app banners; the phone only stamps seen_at (2026-09-03)
   'expense_approvals',         // service-vendor bills → Pending Expenses desk (TARA posts on approve)
