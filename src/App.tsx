@@ -9,6 +9,7 @@ const API = API_BASE;
 import SIDEBAR from './SIDEBAR';
 import PublicWebsite from './PublicWebsite';
 import Login from './Login';
+import { DriverControlHost } from './components/DriverControlDrawer';
 import ProfileMenu from './ui/ProfileMenu';
 import PortalSwitcher from './ui/PortalSwitcher';
 import AccountHoldScreen from './ui/AccountHoldScreen';
@@ -758,6 +759,10 @@ function AppShell() {
         {/* 📝 MAIN CONTENT */}
         <div className="fade-content" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '10px' : '25px', paddingBottom: isMobile ? '80px' : '25px', background: 'radial-gradient(circle at top right, #0f172a, #020617)' }}>
             <Suspense fallback={<ModuleLoader />}>{renderActiveComponent()}</Suspense>
+            {/* Driver Control Dashboard (owner, 2026-09-03): mounted ONCE for the
+                whole ERP, so a driver's name on any screen — Command Center,
+                dispatch chat, fleet map, Driver Master — slides it out in place. */}
+            <DriverControlHost />
         </div>
 
         {/* 📱 NATIVE APP BOTTOM NAVIGATION BAR (ONLY VISIBLE ON MOBILE) */}

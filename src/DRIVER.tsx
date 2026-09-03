@@ -21,6 +21,7 @@ import { uploadMedia, slug } from './lib/uploadMedia';
 import { sendWhatsApp, waResultText } from './lib/waSend';
 
 import { API_BASE } from './lib/apiBase';
+import { openDriverControl } from './components/DriverControlDrawer';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 
@@ -841,7 +842,13 @@ export default function DriverMgmt() {
                           {<AuthImg src={d.profile_pic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} fallback={<span style={{ fontSize: '20px' }}>👨‍✈️</span>} />}
                         </div>
                         <div>
-                          <b style={{ color: '#fff', fontSize: '16px' }}>{d.name}</b><br/>
+                          {/* The name opens the Driver Control Dashboard — status,
+                              ledger, locker, map — as a slide-out (owner, 2026-09-03). */}
+                          <b role="button" data-driver-link={d.id} title="Driver Control Dashboard"
+                            onClick={() => openDriverControl(d.id, d.name)}
+                            style={{ color: '#fff', fontSize: '16px', cursor: 'pointer', textDecoration: 'underline dotted rgba(34,211,238,0.7)', textUnderlineOffset: '3px' }}>{d.name}</b>
+                          <button onClick={() => openDriverControl(d.id, d.name)} title="Driver Control Dashboard"
+                            style={{ marginLeft: '8px', background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)', padding: '1px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 900, cursor: 'pointer' }}>⚙ CONTROL</button><br/>
                           <span style={{ color: '#94a3b8', fontSize: '12px' }}>📱 {d.mobile}</span><br/>
                           {linkedVehicles(d).length > 0 && <span style={{ color: '#38bdf8', fontSize: '11px', fontWeight: 'bold' }}>🚛 {linkedVehicles(d).join(', ')}</span>}
                           {linkedVehicles(d).length > 0 && <br/>}
