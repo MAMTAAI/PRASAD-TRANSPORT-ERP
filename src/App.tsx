@@ -575,7 +575,7 @@ function AppShell() {
       // 📱 1-App/5-Role Super App (Ola/Uber-style live fleet) — full-screen like the portals
       case 'SUPER_APP':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', overflowY: 'auto' }}>
             <button onClick={() => handleComponentChange('MASTER_CONTROL_V5')} style={{ position: 'fixed', top: 12, right: 14, zIndex: 10000, background: 'rgba(24, 36, 74,0.9)', color: '#9aadd4', border: '1px solid #27395f', padding: '8px 14px', borderRadius: '10px', fontWeight: 900, fontSize: '11px', cursor: 'pointer' }}>✕ EXIT SUPER APP</button>
             <MobileSuiteApp />
           </div>
@@ -590,7 +590,7 @@ function AppShell() {
       // 🔥 PREVIEW PORTALS RENDER
       case 'PARTNER_PORTAL_PREVIEW': 
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', overflowY: 'auto' }}>
             {/* The REAL signed-in Fleet Partner App, scoped read-only to a chosen
                 partner (2026-09-02). FleetPartnerPortal.tsx stays as the
                 pre-login onboarding door only. */}
@@ -599,7 +599,7 @@ function AppShell() {
         );
       case 'CUSTOMER_PORTAL_PREVIEW': 
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', overflowY: 'auto' }}>
             {/* The REAL signed-in Customer App, scoped read-only to a chosen
                 customer (2026-09-02). The legacy CustomerPortal.tsx stays as
                 the pre-login onboarding door only. */}
@@ -608,13 +608,13 @@ function AppShell() {
         );
       case 'SERVICE_VENDOR_PORTAL_PREVIEW':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', overflowY: 'auto' }}>
             <ServiceVendorPreview onExit={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
       case 'DRIVER_PORTAL_PREVIEW':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#0a1024', overflowY: 'auto' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', overflowY: 'auto' }}>
             <DriverPortal preview onBack={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );

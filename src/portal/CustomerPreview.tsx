@@ -48,7 +48,12 @@ export default function CustomerPreview({ onExit }) {
   const current = (parties ?? []).find((c) => c.id === viewAs);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#0a1024', color: '#dde5f4', fontFamily: 'system-ui, sans-serif' }} /* neutral ground: the app inside is light, and near-black around it
+    <div style={{ minHeight: '100vh', background: 'radial-gradient(rgba(154,173,212,0.07) 1px, transparent 1px) 0 0/22px 22px, radial-gradient(1100px 700px at 50% 0%, rgba(34,211,238,0.06) 0%, transparent 60%), #05070e', color: '#dde5f4', fontFamily: 'system-ui, sans-serif' }} /* THE DESK, not the app. The app column is navy with its own frame, so
+                 this has to sit a step BELOW it: same tone on both sides and the
+                 app reads as a strip in a void on a monitor, which is the owner's
+                 3-Sep complaint. It used to be a light grey because the app used
+                 to be light; both went dark on 3-Sep and only one of them was
+                 re-thought. Keep them one step apart. old comment: near-black around it
                read as a strip in a void on a monitor (owner, 3-Sep) */>
       <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
                     padding: '8px 14px', background: '#0a1024', borderBottom: '1px solid #18244a', fontSize: 12 }}>
