@@ -1,1411 +1,1117 @@
 // @ts-nocheck
 // ============================================================================
-// FLEET PARTNER APP — the vendor's phone.
+// FLEET PARTNER APP v2 — the market partner's phone (Super-App role 4 of 4)
 //
-// BUILT FOR A THUMB IN A TRUCK CAB. Every primary action is a full-width target
-// at the bottom of the screen, where a thumb already is; nothing important sits
-// in a corner. Type sizes start at 13px because this is read in daylight
-// through a windscreen, not on a desk.
+// Built to docs/mockups/fleet-partner-app-mock-v1.html, approved by the owner
+// on 2026-09-03, with these rules from that approval and the same day's
+// follow-ups:
 //
-// THE BID SHEET IS A BOTTOM SHEET, not a centred dialog. A modal in the middle
-// of a phone screen puts the keyboard over the input and the confirm button
-// under the keyboard. A sheet that rises from the bottom keeps the amount and
-// the confirm together above the keyboard, which is the only arrangement that
-// works one-handed.
+//   · HOME ANSWERS ONE QUESTION: "which of my trucks is earning right now".
+//     Not a wall of totals — the running trips, each showing the one thing the
+//     partner has to do next.
+//   · ONE BUTTON PER STAGE, NOTHING ELSE. A settlement walks
+//     AWAITING_CONFIRM → CONFIRMED → VEHICLE_ASSIGNED → ADVANCE_PAID →
+//     POD_SUBMITTED → POD_VERIFIED → SETTLED, and at any moment exactly one of
+//     those belongs to the partner. The rest are the office's and are drawn as
+//     waiting, never as a button that would fail.
+//   · MONEY IS HONEST. The deposit line appears only when a deposit was taken,
+//     and the advance and balance are greyed until the office has actually
+//     released them. `vend.bills` gates the ledger view entirely.
+//   · POD IS UPLOADED BY EITHER THE DRIVER OR THE PARTNER — the desk verifies
+//     once, so this screen offers the upload even when a POD is already in.
+//   · A BLOCKED TRUCK GETS THE REASON AND A PHONE NUMBER, NOT A FORM (owner,
+//     3-Sep). No re-submit from the app: re-applying in a loop is how a partner
+//     spends a week not ringing the office that already told them why.
+//   · THE LOAD BAZAAR IS OFF (owner, 3-Sep) — shown as a tab that says so
+//     rather than a tab that vanished. A partner who used it yesterday is owed
+//     an explanation, not an absence.
+//   · VEHICLE MANAGEMENT (owner, 3-Sep, after the first build): a truck opens
+//     into its own screen with its five papers, their expiry, and a renewal
+//     upload — plus the details the partner may edit. Expiry dates are NOT
+//     typed here: a renewal is a document, and the office's approval is what
+//     moves the date. That is the whole difference between a date and a fact.
 //
-// BLIND BIDDING IS SAID OUT LOUD. The board shows how many partners have bid and
-// never what they bid — and the sheet says so, because a partner who suspects
-// the screen is hiding a number will assume the worst about the auction. The
-// server enforces it regardless (v_bazaar_load_feed carries no amounts); this is
-// the part that makes it believable.
+// NO LIVE POSITION, AND IT SAYS SO. trip_gps_pings is keyed by trips.id — an
+// own-fleet trip. A bazaar settlement has no row there, so this app has no
+// position to draw for a market truck and draws the absence instead of a
+// plausible dot.
 //
-// EVERY WRITE LANDS IN PENDING. Trucks, drivers and bids all go to the office's
-// approval desk, and the UI never shows a submitted thing as live. Showing a
-// pending truck as active is how a partner sends it to a loading point that is
-// not expecting it.
+// Hindi first (the readers are truck owners, not oil-company officers), same
+// family as DriverPortal v4 / ServiceVendorApp: light, Segoe/Nirmala UI, emoji,
+// 46 px targets.
 // ============================================================================
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Gavel, Truck, Wallet, Plus, X, MapPin, Package, CalendarDays, Users,
-  ShieldCheck, Clock, CheckCircle2, XCircle, Loader2, ArrowRight, Upload, Info,
-  ClipboardList, Zap, FileCheck2, IndianRupee, UserRound,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
-import ChangePasswordCard from '../ui/ChangePasswordCard';
+import { uploadMedia } from '../lib/uploadMedia';
+import { DISPATCH_TEL, DISPATCH_DISPLAY } from '../lib/dispatchContact';
 
-// ── money & dates ───────────────────────────────────────────────────────────
-const inr = (n) => {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return '—';
-  return v.toLocaleString('en-IN', { maximumFractionDigits: 0 });
-};
-const dmy = (d) => {
-  if (!d) return '—';
-  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); }
-  catch { return '—'; }
+const API = API_BASE;
+const LANG_KEY = 'prasad_partner_lang';
+
+const authHeaders = () => {
+  const tok = localStorage.getItem('prasad_token');
+  const h = { 'Content-Type': 'application/json' };
+  if (tok) h.Authorization = `Bearer ${tok}`;
+  const viewAs = localStorage.getItem('prasad_view_as_vendor');
+  if (viewAs) h['X-View-As-Vendor'] = viewAs;
+  return h;
 };
 
 const api = async (path, opts = {}) => {
-  const token = localStorage.getItem('prasad_token');
-  const headers = { ...(opts.headers ?? {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  // Staff preview (FleetPartnerPreview.tsx): the server scopes every read to
-  // this partner and refuses every write. Absent for a real partner session.
-  const viewAs = localStorage.getItem('prasad_view_as_vendor');
-  if (viewAs) headers['X-View-As-Vendor'] = viewAs;
-  if (opts.body) headers['Content-Type'] = 'application/json';
-  const r = await fetch(`${API_BASE}/api/v1${path}`, { ...opts, headers });
-  let body = null;
-  try { body = await r.json(); } catch { /* empty body */ }
-  return { ok: r.ok, status: r.status, body };
+  try {
+    const res = await fetch(`${API}/api/v1${path}`, { ...opts, headers: { ...authHeaders(), ...(opts.headers ?? {}) } });
+    const body = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, body };
+  } catch (e) {
+    return { ok: false, status: 0, body: { detail: String(e?.message ?? e) } };
+  }
 };
 
-// ── skeletons ───────────────────────────────────────────────────────────────
-// A skeleton in the SHAPE of the card that is coming, so the page does not jump
-// when it arrives. A spinner tells you to wait; this tells you what for.
-function CardSkeleton({ lines = 3 }) {
-  return (
-    <div className="rounded-2xl border border-white/5 bg-white/[0.03] p-4">
-      <div className="mb-3 h-3 w-24 animate-pulse rounded bg-white/10" />
-      {[...Array(lines)].map((_, i) => (
-        <div key={i} className="mb-2 h-2.5 animate-pulse rounded bg-white/[0.07]"
-             style={{ width: `${88 - i * 18}%`, animationDelay: `${i * 90}ms` }} />
-      ))}
-    </div>
-  );
-}
-
-// ── bottom sheet ────────────────────────────────────────────────────────────
-function Sheet({ open, onClose, title, subtitle, children, footer }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    // Focus the first input so the keyboard opens without a second tap.
-    const t = setTimeout(() => ref.current?.querySelector('input,select,textarea')?.focus(), 220);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prev;
-      clearTimeout(t);
-    };
-  }, [open, onClose]);
-
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[9000] flex items-end justify-center" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm fp-fade" onClick={onClose} />
-      <div
-        ref={ref}
-        className="fp-sheet relative w-full max-w-md rounded-t-[28px] border-t border-white/10
-                   bg-[#0b0f18]/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-20px_60px_rgba(0,0,0,0.7)]
-                   backdrop-blur-2xl"
-      >
-        {/* grab handle — the affordance that says this can be dragged/dismissed */}
-        <div className="flex justify-center pt-2.5 pb-1">
-          <span className="h-1 w-10 rounded-full bg-white/20" />
-        </div>
-        <div className="flex items-start gap-3 px-5 pb-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-[17px] font-black tracking-tight text-white">{title}</h2>
-            {subtitle && <p className="mt-0.5 text-[12px] leading-snug text-white/45">{subtitle}</p>}
-          </div>
-          <button onClick={onClose} aria-label="Close"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/5 text-white/50
-                       transition-colors active:bg-white/10">
-            <X size={17} />
-          </button>
-        </div>
-        <div className="max-h-[62vh] overflow-y-auto px-5">{children}</div>
-        {footer && <div className="border-t border-white/5 px-5 py-4">{footer}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ── shared bits ─────────────────────────────────────────────────────────────
-const STATUS = {
-  'PENDING APPROVAL': { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Awaiting office' },
-  'System Active': { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Approved' },
-  BLOCKED: { t: 'text-red-300', b: 'bg-red-400/10 border-red-400/25', i: XCircle, l: 'Blocked' },
-  REJECTED: { t: 'text-red-300', b: 'bg-red-400/10 border-red-400/25', i: XCircle, l: 'Rejected' },
-  PENDING: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Pending' },
-  ACCEPTED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Won' },
-  WITHDRAWN: { t: 'text-white/40', b: 'bg-white/5 border-white/10', i: XCircle, l: 'Withdrawn' },
-  // Settlement lifecycle (Phase 2) — the same pill component, more stations.
-  AWAITING_CONFIRM: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: Clock, l: 'Confirm needed' },
-  CONFIRMED: { t: 'text-cyan-300', b: 'bg-cyan-400/10 border-cyan-400/25', i: CheckCircle2, l: 'Confirmed' },
-  VEHICLE_ASSIGNED: { t: 'text-cyan-300', b: 'bg-cyan-400/10 border-cyan-400/25', i: Truck, l: 'Truck assigned' },
-  ADVANCE_PAID: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: IndianRupee, l: 'Advance paid' },
-  POD_SUBMITTED: { t: 'text-amber-300', b: 'bg-amber-400/10 border-amber-400/25', i: FileCheck2, l: 'POD checking' },
-  POD_VERIFIED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: FileCheck2, l: 'POD verified' },
-  SETTLED: { t: 'text-emerald-300', b: 'bg-emerald-400/10 border-emerald-400/25', i: CheckCircle2, l: 'Settled' },
-  CANCELLED: { t: 'text-red-300', b: 'bg-red-400/10 border-red-400/25', i: XCircle, l: 'Cancelled' },
-};
-
-// How long until the auction clock runs out — said in human time.
-const closesIn = (iso) => {
+// ── formatting ──────────────────────────────────────────────────────────────
+const inr = (n) => (Number.isFinite(Number(n)) ? '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }) : '—');
+const inrShort = (n) => { const v = Number(n); if (!Number.isFinite(v)) return '—'; return Math.abs(v) >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : inr(v); };
+const dmy = (v) => { try { return v ? new Date(v).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'; } catch { return '—'; } };
+const dmyt = (v) => { try { return v ? new Date(v).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'; } catch { return '—'; } };
+const today = () => new Date().toISOString().slice(0, 10);
+const daysTo = (d) => { if (!d) return null; const ms = new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0); return Math.round(ms / 86400000); };
+// "2 din 4 ghante" — a deadline a partner can act on, not a timestamp.
+const leftFor = (iso) => {
   if (!iso) return null;
   const ms = new Date(iso).getTime() - Date.now();
   if (!Number.isFinite(ms)) return null;
-  if (ms <= 0) return 'closed';
-  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h left` : h > 0 ? `${h}h ${m}m left` : `${m}m left`;
+  if (ms <= 0) return { over: true, h: 0, m: 0 };
+  return { over: false, h: Math.floor(ms / 3600000), m: Math.floor((ms % 3600000) / 60000) };
 };
 
-function Pill({ status }) {
-  const s = STATUS[status] ?? STATUS.PENDING;
-  const Icon = s.i;
-  return (
-    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5
-                      text-[10px] font-bold ${s.b} ${s.t}`}>
-      <Icon size={10} /> {s.l}
-    </span>
-  );
-}
+const T = {
+  hi: {
+    brand: 'प्रसाद ट्रांसपोर्ट · पार्टनर', partner: 'फ्लीट पार्टनर',
+    home: 'होम', loads: 'लोड', trips: 'ट्रिप', money: 'पैसा', fleet: 'गाड़ी',
+    running: 'अभी चल रही हैं', nothingRunning: 'अभी कोई ट्रिप नहीं चल रही।',
+    nothingRunningSub: 'ऑफिस जब आपकी गाड़ी को लोड देगा, वो यहाँ दिखेगा।',
+    kRunning: 'चल रही', kTrucks: 'चालू गाड़ी', kPending: 'मंज़ूरी बाकी',
+    doNow: 'आपको यह करना है', officeSide: 'ऑफिस के पास है',
+    stConfirm: 'हाँ, लोड लूँगा', stAssign: 'गाड़ी और ड्राइवर लगाओ', stPod: 'POD (रसीद) भेजो',
+    waitAdvance: 'ऑफिस एडवांस भेज रहा है', waitPod: 'ऑफिस POD जाँच रहा है',
+    waitBalance: 'ऑफिस बाकी पैसा भेज रहा है', doneAll: 'पूरा हो गया',
+    tripsTitle: 'मेरी ट्रिप', tripsSub: 'चल रही और पुरानी', segLive: 'चल रही', segDone: 'पूरी', segAll: 'सब',
+    noTrips: 'कोई ट्रिप नहीं मिली।',
+    route: 'रास्ता', material: 'माल', loadDate: 'लोडिंग तारीख', truck: 'गाड़ी', driver: 'ड्राइवर',
+    amount: 'तय भाड़ा', deposit: 'जमा (डिपॉज़िट)', advance: 'एडवांस', balance: 'बाकी',
+    moneyNote: 'एडवांस और बाकी पैसा ऑफिस भेजता है — POD जाँचने के बाद बाकी रकम मिलती है।',
+    noPosition: 'गाड़ी की लाइव लोकेशन नहीं है',
+    noPositionSub: 'मार्केट गाड़ी की GPS हमारे पास नहीं आती। ड्राइवर से पूछें या ऑफिस को कॉल करें।',
+    confirmBy: 'तक जवाब दें', overdue: 'समय निकल गया — ऑफिस को कॉल करें',
+    assignTitle: 'गाड़ी लगाओ', pickTruck: 'गाड़ी चुनो', pickDriver: 'ड्राइवर चुनो (ज़रूरी नहीं)',
+    onlyApproved: 'सिर्फ़ मंज़ूर गाड़ियाँ ही लोड ले सकती हैं।', noApproved: 'कोई मंज़ूर गाड़ी नहीं है — पहले गाड़ी जुड़वाएँ।',
+    podTitle: 'POD भेजो', podBody: 'डिलीवरी की रसीद की फोटो खींचो या फ़ाइल चुनो। ऑफिस जाँच कर के बाकी पैसा भेजेगा।',
+    podAlready: 'POD पहले ही भेजा जा चुका है — ऑफिस जाँच रहा है। ज़रूरत हो तो दोबारा भेज सकते हैं।',
+    camera: '📷 फोटो खींचो', gallery: '🖼 फ़ाइल चुनो', send: 'भेजो', sending: 'भेज रहे हैं…',
+    sent: 'ऑफिस को भेज दिया', needPhoto: 'पहले फोटो या फ़ाइल चुनो',
+    moneyTitle: 'पैसा', moneySub: 'कमाई और खाता',
+    billed: 'कुल बिल', posted: 'खाते में चढ़ा', awaiting: 'मंज़ूरी बाकी', bal: 'मौजूदा बकाया',
+    moneyLocked: 'पैसे का हिसाब तभी दिखेगा जब ऑफिस आपके लिए यह चालू करे।',
+    payTerms: 'भुगतान शर्तें', myName: 'नाम',
+    fleetTitle: 'मेरी गाड़ियाँ', fleetSub: 'गाड़ी, कागज़ और ड्राइवर', trucksTab: 'गाड़ियाँ', driversTab: 'ड्राइवर',
+    addTruck: '+ नई गाड़ी', addDriver: '+ नया ड्राइवर',
+    noTrucks: 'कोई गाड़ी नहीं जुड़ी।', noDrivers: 'कोई ड्राइवर नहीं जुड़ा।',
+    regNo: 'गाड़ी नंबर', vclass: 'गाड़ी का प्रकार', capacity: 'क्षमता (टन)',
+    engineNo: 'इंजन नंबर', chassisNo: 'चेसिस नंबर',
+    dName: 'ड्राइवर का नाम', dMobile: 'मोबाइल नंबर', dLicence: 'लाइसेंस नंबर', dLicExp: 'लाइसेंस की तारीख',
+    pendingNote: 'ऑफिस जाँच कर के चालू करेगा। तब तक यह गाड़ी लोड नहीं ले सकती।',
+    blockedTitle: 'यह गाड़ी रोकी गई है', blockedDriver: 'यह ड्राइवर रोका गया है',
+    blockedNote: 'ऑफिस से बात किए बिना यह दोबारा नहीं जुड़ेगी।',
+    callOffice: 'ऑफिस को कॉल करो',
+    papers: 'गाड़ी के कागज़', paperNote: 'तारीख हाथ से नहीं बदलती — नया कागज़ भेजो, ऑफिस जाँच कर के तारीख चढ़ाएगा।',
+    RC: 'RC', INSURANCE: 'बीमा', FITNESS: 'फिटनेस', PERMIT: 'परमिट', PUC: 'PUC',
+    valid: 'वैध', expiringIn: 'दिन बचे', expired: 'तारीख निकल गई', noDate: 'तारीख दर्ज नहीं',
+    renew: 'नया कागज़ भेजो', renewTitle: 'कागज़ भेजो', withOffice: 'ऑफिस के पास है',
+    rejected: 'वापस आया', newExpiry: 'नई तारीख (कागज़ पर जो लिखी है)', docNo: 'नंबर (पॉलिसी / सर्टिफिकेट)',
+    editTruck: 'गाड़ी की जानकारी बदलो', saved: 'बदलाव सेव हो गया',
+    detailsNote: 'ये जानकारी सीधे बदल जाती है। गाड़ी नंबर नहीं बदल सकता — उसके लिए ऑफिस से बात करें।',
+    docHistory: 'भेजे हुए कागज़', noDocs: 'अभी कोई कागज़ नहीं भेजा।', view: 'देखो',
+    loadsSoon: 'लोड बाज़ार जल्द आ रहा है',
+    loadsSoonSub: 'बोली लगाने वाला हिस्सा ऑफिस ने अभी बंद रखा है। आपकी चल रही ट्रिप और पैसा वैसे ही चलता रहेगा — ऑफिस लोड देगा तो होम पर दिखेगा।',
+    logout: 'साइन आउट', language: 'भाषा', call: `ऑफिस — ${DISPATCH_DISPLAY}`,
+    viewAs: 'स्टाफ़ प्रीव्यू — सिर्फ़ देखने के लिए। यहाँ से कुछ भी पार्टनर के नाम पर नहीं जाता।',
+    notApproved: 'आपका पोर्टल अभी चालू नहीं हुआ', save: 'भेजो', saveEdit: 'सेव करो',
+  },
+  en: {
+    brand: 'Prasad Transport · Partner', partner: 'Fleet Partner',
+    home: 'Home', loads: 'Loads', trips: 'Trips', money: 'Money', fleet: 'Fleet',
+    running: 'Running now', nothingRunning: 'No trip is running right now.',
+    nothingRunningSub: 'When the office gives your truck a load, it shows here.',
+    kRunning: 'running', kTrucks: 'active trucks', kPending: 'awaiting approval',
+    doNow: 'Your move', officeSide: 'With the office',
+    stConfirm: 'Yes, I will take it', stAssign: 'Assign truck & driver', stPod: 'Send POD',
+    waitAdvance: 'Office is releasing the advance', waitPod: 'Office is verifying the POD',
+    waitBalance: 'Office is releasing the balance', doneAll: 'Settled',
+    tripsTitle: 'My trips', tripsSub: 'Running and past', segLive: 'Running', segDone: 'Done', segAll: 'All',
+    noTrips: 'No trips found.',
+    route: 'Route', material: 'Material', loadDate: 'Loading date', truck: 'Truck', driver: 'Driver',
+    amount: 'Agreed freight', deposit: 'Deposit', advance: 'Advance', balance: 'Balance',
+    moneyNote: 'The office releases the advance and the balance — the balance after it verifies the POD.',
+    noPosition: 'No live location for this truck',
+    noPositionSub: 'We do not receive GPS from a market truck. Ask the driver, or call the office.',
+    confirmBy: 'reply by', overdue: 'Time is up — please call the office',
+    assignTitle: 'Assign a truck', pickTruck: 'Pick a truck', pickDriver: 'Pick a driver (optional)',
+    onlyApproved: 'Only an approved truck can take a load.', noApproved: 'No approved truck yet — add one first.',
+    podTitle: 'Send the POD', podBody: 'Photograph the delivery receipt or pick a file. The office verifies it and releases the balance.',
+    podAlready: 'A POD is already with the office. You can send another if needed.',
+    camera: '📷 Take a photo', gallery: '🖼 Pick a file', send: 'Send', sending: 'Sending…',
+    sent: 'Sent to the office', needPhoto: 'Pick a photo or a file first',
+    moneyTitle: 'Money', moneySub: 'Earnings and account',
+    billed: 'Billed', posted: 'Posted to ledger', awaiting: 'Awaiting approval', bal: 'Current balance',
+    moneyLocked: 'The money view appears only when the office enables it for you.',
+    payTerms: 'Payment terms', myName: 'Name',
+    fleetTitle: 'My fleet', fleetSub: 'Trucks, papers and drivers', trucksTab: 'Trucks', driversTab: 'Drivers',
+    addTruck: '+ Add truck', addDriver: '+ Add driver',
+    noTrucks: 'No trucks added.', noDrivers: 'No drivers added.',
+    regNo: 'Registration no', vclass: 'Vehicle type', capacity: 'Capacity (T)',
+    engineNo: 'Engine no', chassisNo: 'Chassis no',
+    dName: 'Driver name', dMobile: 'Mobile number', dLicence: 'Licence no', dLicExp: 'Licence expiry',
+    pendingNote: 'The office verifies and activates it. Until then this truck cannot take a load.',
+    blockedTitle: 'This truck is blocked', blockedDriver: 'This driver is blocked',
+    blockedNote: 'It will not go back on the fleet without speaking to the office.',
+    callOffice: 'Call the office',
+    papers: 'Vehicle papers', paperNote: 'Dates are not typed here — send the new paper and the office puts the date on the truck.',
+    RC: 'RC', INSURANCE: 'Insurance', FITNESS: 'Fitness', PERMIT: 'Permit', PUC: 'PUC',
+    valid: 'valid', expiringIn: 'days left', expired: 'expired', noDate: 'no date on file',
+    renew: 'Send new paper', renewTitle: 'Send the paper', withOffice: 'With the office',
+    rejected: 'Came back', newExpiry: 'New expiry (as printed on the paper)', docNo: 'Number (policy / certificate)',
+    editTruck: 'Edit truck details', saved: 'Saved',
+    detailsNote: 'These change straight away. The registration number cannot change — call the office for that.',
+    docHistory: 'Papers sent', noDocs: 'No paper sent yet.', view: 'View',
+    loadsSoon: 'Load Bazaar is coming soon',
+    loadsSoonSub: 'The bidding side is switched off by the office for now. Your running trips and your money are unaffected — a load the office gives you appears on Home.',
+    logout: 'Sign out', language: 'Language', call: `Office — ${DISPATCH_DISPLAY}`,
+    viewAs: 'Staff preview — read-only. Nothing you press here is sent in the partner’s name.',
+    notApproved: 'Your portal is not active yet', save: 'Send', saveEdit: 'Save',
+  },
+};
 
-function Field({ label, hint, children }) {
-  return (
-    <label className="mb-3 block">
-      <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-white/40">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-[11px] leading-snug text-white/30">{hint}</span>}
-    </label>
-  );
-}
+const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
+const SHELL = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
 
-const inputCls =
-  'w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3.5 text-[15px] font-semibold text-white '
-  + 'outline-none transition-colors placeholder:text-white/20 focus:border-cyan-400/60';
+// The settlement's own vocabulary, and who owns each step. `nextMove` below is
+// the whole point of the screen: it decides whether the partner sees a button
+// or is told to wait, derived from the status alone — never from a local flag
+// that could disagree with the server.
+const STAGES = ['AWAITING_CONFIRM', 'CONFIRMED', 'VEHICLE_ASSIGNED', 'ADVANCE_PAID', 'POD_SUBMITTED', 'POD_VERIFIED', 'SETTLED'];
+const stageIndex = (s) => Math.max(0, STAGES.indexOf(s));
+const LIVE = new Set(STAGES.slice(0, 6));
+const DOC_TYPES = ['RC', 'INSURANCE', 'FITNESS', 'PERMIT', 'PUC'];
 
-// ── document upload with a skeleton while it flies ──────────────────────────
-function DocUpload({ label, value, onUploaded, hint, pathPrefix = 'partner-docs' }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const id = useMemo(() => `up-${Math.random().toString(36).slice(2)}`, []);
+const PILL = {
+  AWAITING_CONFIRM: 'bg-amber-100 text-amber-800',
+  CONFIRMED: 'bg-blue-100 text-blue-800',
+  VEHICLE_ASSIGNED: 'bg-indigo-100 text-indigo-800',
+  ADVANCE_PAID: 'bg-violet-100 text-violet-800',
+  POD_SUBMITTED: 'bg-cyan-100 text-cyan-800',
+  POD_VERIFIED: 'bg-teal-100 text-teal-800',
+  SETTLED: 'bg-green-100 text-green-800',
+  CANCELLED: 'bg-red-100 text-red-700',
+  'System Active': 'bg-green-100 text-green-800',
+  'PENDING APPROVAL': 'bg-amber-100 text-amber-800',
+  BLOCKED: 'bg-red-100 text-red-700',
+  REJECTED: 'bg-red-100 text-red-700',
+  PENDING: 'bg-amber-100 text-amber-800',
+  APPROVED: 'bg-green-100 text-green-800',
+  NEEDS_CORRECTION: 'bg-red-100 text-red-700',
+};
 
-  const pick = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setBusy(true); setErr('');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('path', `${pathPrefix}/${Date.now()}-${file.name}`);
-      const token = localStorage.getItem('prasad_token');
-      const r = await fetch(`${API_BASE}/api/v1/files`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
-      });
-      const j = await r.json().catch(() => null);
-      if (!r.ok) { setErr(j?.detail ?? `upload failed (${r.status})`); return; }
-      onUploaded(j.key ?? j.path ?? j.url ?? '');
-    } catch (e2) { setErr(e2.message); }
-    finally { setBusy(false); }
-  };
-
-  return (
-    <div className="mb-3">
-      <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-white/40">{label}</span>
-      {busy ? (
-        // The skeleton occupies exactly the button's box, so nothing reflows
-        // when the upload lands.
-        <div className="flex h-[52px] items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4">
-          <Loader2 size={16} className="animate-spin text-cyan-400" />
-          <div className="h-2.5 flex-1 animate-pulse rounded bg-white/10" />
-        </div>
-      ) : value ? (
-        <div className="flex h-[52px] items-center gap-3 rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4">
-          <CheckCircle2 size={17} className="text-emerald-400" />
-          <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-emerald-200">Uploaded</span>
-          <button onClick={() => onUploaded('')} className="text-[12px] font-bold text-white/40">Change</button>
-        </div>
-      ) : (
-        <>
-          <input id={id} type="file" accept="image/*,application/pdf" capture="environment"
-                 onChange={pick} className="sr-only" />
-          <label htmlFor={id}
-            className="flex h-[52px] cursor-pointer items-center justify-center gap-2 rounded-2xl border
-                       border-dashed border-white/15 bg-white/[0.03] text-[13px] font-bold text-white/50
-                       transition-colors active:bg-white/[0.07]">
-            <Upload size={16} /> Take photo or choose file
-          </label>
-        </>
-      )}
-      {hint && !value && <span className="mt-1 block text-[11px] text-white/30">{hint}</span>}
-      {err && <span className="mt-1 block text-[11px] font-semibold text-red-400">{err}</span>}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 export default function FleetPartnerApp() {
-  const [tab, setTab] = useState('board');
-  const [gate, setGate] = useState('loading');   // loading | ok | not_approved | error
+  const [lang, setLang] = useState(() => (localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'hi'));
+  const t = T[lang];
+  const toggleLang = () => { const n = lang === 'hi' ? 'en' : 'hi'; setLang(n); try { localStorage.setItem(LANG_KEY, n); } catch { /* private mode */ } };
+
+  const [gate, setGate] = useState('loading');      // loading | ok | not_approved | error
   const [gateMsg, setGateMsg] = useState('');
-  const [caps, setCaps] = useState({});
-
-  const [loads, setLoads] = useState(null);
-  const [targetVisible, setTargetVisible] = useState(false);
-  const [bids, setBids] = useState(null);
-  const [fleet, setFleet] = useState(null);
+  const [vis, setVis] = useState({});
+  const [me, setMe] = useState(null);
   const [earn, setEarn] = useState(null);
-  const [trips, setTrips] = useState(null);       // settlements — the won loads
+  const [setts, setSetts] = useState([]);
+  const [fleet, setFleet] = useState({ vehicles: [], drivers: [], pending: 0 });
 
-  const [docs, setDocs] = useState(null);         // partner_documents — my uploaded bills
-  const [billSheet, setBillSheet] = useState(false);
+  const [tab, setTab] = useState('home');
+  const [view, setView] = useState({ k: 'tabs' });
+  const [seg, setSeg] = useState('LIVE');
+  const [fleetSeg, setFleetSeg] = useState('TRUCKS');
+  const [toast, setToast] = useState('');
+  const viewAs = !!localStorage.getItem('prasad_view_as_vendor');
 
-  const [bidFor, setBidFor] = useState(null);
-  const [bookFor, setBookFor] = useState(null);   // Book-Now confirmation sheet
-  const [assignFor, setAssignFor] = useState(null); // settlement getting a truck
-  const [podFor, setPodFor] = useState(null);     // settlement getting its POD
-  const [addWhat, setAddWhat] = useState(null);   // 'vehicle' | 'driver'
-  const [toast, setToast] = useState(null);
+  const say = (m) => { setToast(m); setTimeout(() => setToast(''), 3500); };
+  const showMoney = !!vis['vend.bills'];
 
-  const flash = (msg, tone = 'ok') => {
-    setToast({ msg, tone });
-    setTimeout(() => setToast(null), 4200);
-  };
+  const loadAll = useCallback(async (v) => {
+    const [e, s, f] = await Promise.all([
+      api('/portal/vendor/earnings'),
+      api('/portal/vendor/settlements'),
+      v['vend.vehicles'] ? api('/portal/vendor/fleet') : Promise.resolve({ ok: false }),
+    ]);
+    if (e.ok) setEarn(e.body);
+    if (s.ok) setSetts(s.body?.settlements ?? []);
+    if (f.ok) setFleet(f.body ?? { vehicles: [], drivers: [], pending: 0 });
+  }, []);
 
-  // ── boot: the gate first ──────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const r = await api('/portal/capabilities');
-      if (r.status === 403 && r.body?.error === 'PORTAL_NOT_APPROVED') {
-        setGate('not_approved'); setGateMsg(r.body.detail); return;
-      }
+      if (r.status === 403 && r.body?.error === 'PORTAL_NOT_APPROVED') { setGate('not_approved'); setGateMsg(r.body.detail); return; }
       if (!r.ok) { setGate('error'); setGateMsg(r.body?.detail ?? `API ${r.status}`); return; }
-      setCaps(r.body.visible ?? {});
+      const v = r.body?.visible ?? {};
+      setVis(v);
+      const m = await api('/portal/me');
+      setMe(m.body?.party ?? null);
       setGate('ok');
+      await loadAll(v);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadBoard = useCallback(async () => {
-    const r = await api('/portal/vendor/loads');
-    if (r.ok) { setLoads(r.body.loads ?? []); setTargetVisible(!!r.body.target_visible); }
-    else setLoads([]);
-    const b = await api('/portal/vendor/bids');
-    setBids(b.ok ? (b.body.bids ?? []) : []);
-  }, []);
-  const loadFleet = useCallback(async () => {
-    const r = await api('/portal/vendor/fleet');
-    setFleet(r.ok ? r.body : { vehicles: [], drivers: [], pending: 0 });
-  }, []);
-  const loadEarn = useCallback(async () => {
-    const r = await api('/portal/vendor/earnings');
-    setEarn(r.ok ? r.body : null);
-    const d = await api('/portal/vendor/documents');
-    setDocs(d.ok ? (d.body.documents ?? []) : []);
-  }, []);
-  const loadTrips = useCallback(async () => {
-    const r = await api('/portal/vendor/settlements');
-    setTrips(r.ok ? (r.body.settlements ?? []) : []);
-    // The assign sheet needs the approved fleet even if the fleet tab was
-    // never opened.
-    const f = await api('/portal/vendor/fleet');
-    if (f.ok) setFleet(f.body);
-  }, []);
+  const refresh = async () => { await loadAll(vis); };
 
-  useEffect(() => {
-    if (gate !== 'ok') return;
-    if (tab === 'board') loadBoard();
-    if (tab === 'trips') loadTrips();
-    if (tab === 'fleet') loadFleet();
-    if (tab === 'wallet') loadEarn();
-  }, [gate, tab, loadBoard, loadTrips, loadFleet, loadEarn]);
+  // ── shared bits ───────────────────────────────────────────────────────────
+  const Bar = ({ title, sub, back }) => (
+    <div className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-200 bg-white px-3 py-2.5">
+      {back && <button onClick={back} className="min-h-[42px] rounded-full bg-slate-100 px-3.5 text-[16px] font-bold">‹</button>}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[17px] font-extrabold leading-tight">{title}</div>
+        {sub && <div className="truncate text-[11.5px] font-semibold text-slate-500">{sub}</div>}
+      </div>
+      <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+    </div>
+  );
+  const Pill = ({ s, label }) => <span className={`inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-extrabold ${PILL[s] ?? 'bg-slate-100 text-slate-600'}`}>{label ?? s}</span>;
+  const TruckNo = ({ n }) => (n ? <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 font-mono text-[11.5px] font-bold text-amber-900">{n}</span> : null);
+  const KV = ({ rows }) => (
+    <div className="px-3 py-2">
+      {rows.filter(Boolean).map(([k, v, cls]) => (
+        <div key={k} className="flex items-baseline justify-between gap-3 border-b border-slate-100 py-1.5 last:border-0">
+          <span className="shrink-0 text-[12px] font-semibold text-slate-500">{k}</span>
+          <span className={`min-w-0 truncate text-right text-[13.5px] font-extrabold ${cls ?? ''}`}>{v}</span>
+        </div>
+      ))}
+    </div>
+  );
+  const CallBar = () => <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-slate-900 py-3 text-center text-[15px] font-extrabold text-white">📞 {t.call}</a>;
+  const Lbl = ({ children }) => <div className="mb-1 text-[11px] font-extrabold text-slate-500">{children}</div>;
+  // `invalid` is ours, not the DOM's — spreading it onto <input> makes React
+  // warn about a non-boolean attribute.
+  const Inp = ({ invalid, className, ...rest }) => (
+    <input {...rest} className={`min-h-[46px] w-full rounded-xl border-2 bg-white px-3 text-[16px] font-bold outline-none ${invalid ? 'border-red-400' : 'border-slate-300 focus:border-blue-500'} ${className ?? ''}`} />
+  );
 
-  const confirmTrip = async (s) => {
-    const r = await api(`/portal/vendor/settlements/${s.id}/confirm`, { method: 'POST' });
-    if (!r.ok) { flash(r.body?.detail ?? `Could not confirm (${r.status})`, 'err'); return; }
-    flash(r.body.detail ?? 'Trip confirmed.');
-    loadTrips();
+  const Steps = ({ n }) => {
+    const labels = lang === 'hi'
+      ? ['मिला', 'हाँ', 'गाड़ी', 'एडवांस', 'POD', 'जाँचा', 'पूरा']
+      : ['Offered', 'Yes', 'Truck', 'Advance', 'POD', 'Verified', 'Settled'];
+    return (
+      <div className="flex items-start px-0.5 py-1">
+        {labels.map((l, i) => (
+          <div key={l} className="relative flex flex-1 flex-col items-center gap-0.5 text-center text-[8.5px] font-extrabold">
+            <i className={`grid h-[20px] w-[20px] place-items-center rounded-full not-italic text-[10px] ${i < n ? 'bg-green-600 text-white' : i === n ? 'bg-blue-600 text-white ring-4 ring-blue-200' : 'bg-slate-200 text-slate-500'}`}>{i < n ? '✓' : i + 1}</i>
+            <span className={i <= n ? 'text-slate-900' : 'text-slate-400'}>{l}</span>
+            {i < labels.length - 1 && <span className={`absolute left-[calc(50%+10px)] top-[9px] h-[2px] w-[calc(100%-20px)] ${i < n ? 'bg-green-600' : 'bg-slate-200'}`} />}
+          </div>
+        ))}
+      </div>
+    );
   };
 
-  // ── the gate ──────────────────────────────────────────────────────────────
-  if (gate === 'loading') {
-    return (
-      <Shell>
-        <div className="space-y-3 px-4 pt-6">
-          <CardSkeleton /><CardSkeleton /><CardSkeleton lines={2} />
-        </div>
-      </Shell>
-    );
+  /** The one action that belongs to the partner right now, or null when the
+   *  ball is with the office. One place, so no screen can offer a button the
+   *  server would refuse. */
+  const nextMove = (s) => {
+    if (s.status === 'AWAITING_CONFIRM') return { key: 'confirm', label: t.stConfirm, tone: 'bg-green-600' };
+    if (s.status === 'CONFIRMED') return { key: 'assign', label: t.stAssign, tone: 'bg-blue-600' };
+    if (s.status === 'VEHICLE_ASSIGNED' || s.status === 'ADVANCE_PAID') return { key: 'pod', label: t.stPod, tone: 'bg-violet-600' };
+    return null;
+  };
+  const waitingLine = (s) => ({
+    VEHICLE_ASSIGNED: t.waitAdvance, POD_SUBMITTED: t.waitPod,
+    POD_VERIFIED: t.waitBalance, SETTLED: t.doneAll,
+  }[s.status] ?? null);
+
+  function Toast() {
+    return <div className="fixed bottom-24 left-1/2 z-50 w-[86%] max-w-sm -translate-x-1/2 rounded-2xl bg-slate-900 px-4 py-3 text-center text-[14px] font-extrabold text-white shadow-lg">{toast}</div>;
   }
+
+  // ══ GATES ═════════════════════════════════════════════════════════════════
+  if (gate === 'loading') return <div className={`${SHELL} items-center justify-center`} style={FONT}><div className="text-[13px] font-semibold text-slate-500">…</div></div>;
   if (gate !== 'ok') {
     return (
-      <Shell>
-        <div className="flex min-h-[70vh] flex-col items-center justify-center px-8 text-center">
-          <div className="mb-5 grid h-16 w-16 place-items-center rounded-3xl border border-amber-400/25 bg-amber-400/10">
-            <ShieldCheck size={28} className="text-amber-300" />
-          </div>
-          <h2 className="text-[19px] font-black text-white">
-            {gate === 'not_approved' ? 'Awaiting office approval' : 'Cannot reach the office'}
-          </h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-white/45">{gateMsg}</p>
-          {gate === 'not_approved' && (
-            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-[12px] leading-relaxed text-white/40">
-              Nothing is hidden from you here — the account simply is not switched on yet.
-              Prasad Transport office enables it once your papers are checked.
-            </p>
-          )}
-        </div>
-      </Shell>
+      <div className={`${SHELL} items-center justify-center px-6 text-center`} style={FONT} data-screen="gate">
+        <div className="text-5xl">{gate === 'not_approved' ? '⏳' : '⚠️'}</div>
+        <div className="mt-3 text-[19px] font-extrabold">{gate === 'not_approved' ? t.notApproved : '—'}</div>
+        <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-600">{gateMsg}</div>
+        <a href={DISPATCH_TEL} className="mt-5 min-h-[52px] w-full rounded-2xl bg-slate-900 py-3.5 text-[16px] font-extrabold text-white">📞 {t.call}</a>
+      </div>
     );
   }
 
-  const bidByLoad = {};
-  for (const b of bids ?? []) if (b.status === 'PENDING') bidByLoad[b.load_id] = b;
+  // ══ SUB-SCREENS ═══════════════════════════════════════════════════════════
+  if (view.k === 'trip') return <TripDetail id={view.id} />;
+  if (view.k === 'assign') return <AssignScreen id={view.id} />;
+  if (view.k === 'pod') return <PodScreen id={view.id} />;
+  if (view.k === 'truck') return <TruckDetail id={view.id} />;
+  if (view.k === 'renew') return <RenewScreen id={view.id} docType={view.docType} />;
+  if (view.k === 'editTruck') return <EditTruck id={view.id} />;
+  if (view.k === 'addTruck') return <AddTruck />;
+  if (view.k === 'addDriver') return <AddDriver />;
 
-  return (
-    <Shell>
-      {/* ── LOAD BOARD ─────────────────────────────────────────────────── */}
-      {tab === 'board' && (
-        <div className="px-4 pt-4">
-          <Header
-            title="Load Board"
-            sub={loads == null ? 'loading…' : `${loads.length} open ${loads.length === 1 ? 'load' : 'loads'}`}
-          />
-
-          {/* The promise, made explicitly. A partner who suspects the screen is
-              hiding a number assumes the worst about the auction. */}
-          <div className="mb-4 flex items-start gap-2.5 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.06] px-4 py-3">
-            <Info size={15} className="mt-0.5 shrink-0 text-cyan-400" />
-            <p className="text-[12px] leading-relaxed text-cyan-100/70">
-              <span className="font-black text-cyan-200">Blind bidding.</span> You can see how many
-              partners have bid on a load, never what they bid — and they cannot see yours.
-              {!targetVisible && ' The office target rate is not shown to anyone.'}
-            </p>
+  function TripDetail({ id }) {
+    const s = setts.find((x) => x.id === id);
+    if (!s) { setView({ k: 'tabs' }); return null; }
+    const mv = nextMove(s);
+    const wait = waitingLine(s);
+    const dl = leftFor(s.confirm_deadline);
+    const act = async () => {
+      const r = await api(`/portal/vendor/settlements/${s.id}/confirm`, { method: 'POST', body: '{}' });
+      if (!r.ok) { say(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.sent);
+    };
+    return (
+      <div className={SHELL} style={FONT} data-screen="trip">
+        <Bar title={`${s.origin ?? '—'} → ${s.destination ?? '—'}`} sub={`${s.load_id} · ${dmy(s.loading_date)}`} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-2.5 overflow-y-auto p-3 pb-32">
+          <div className={`${CARD} px-1 py-2`}><Steps n={stageIndex(s.status)} /></div>
+          <div className={CARD}>
+            <KV rows={[
+              [t.route, `${s.origin ?? '—'} → ${s.destination ?? '—'}`],
+              [t.material, [s.material, s.weight ? `${s.weight} T` : null].filter(Boolean).join(' · ') || '—'],
+              [t.loadDate, dmy(s.loading_date)],
+              [t.truck, s.vehicle_reg ? <TruckNo n={s.vehicle_reg} /> : '—'],
+              [t.driver, s.driver_name ?? '—'],
+            ]} />
           </div>
 
-          {loads == null && <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div>}
-          {loads?.length === 0 && (
-            <Empty icon={Package} title="No open loads"
-                   body="When the office posts a load to the bazaar it appears here straight away." />
+          {/* Money, and only what the office has actually done. The deposit line
+              appears only when a deposit was taken (owner's rule from the mock). */}
+          <div className={CARD}>
+            <div className="px-3 pt-2.5 text-[12.5px] font-extrabold text-slate-700">💰 {t.amount}</div>
+            <KV rows={[
+              [t.amount, inr(s.awarded_amount), 'text-slate-900'],
+              Number(s.deposit_amount) > 0 ? [t.deposit, inr(s.deposit_amount), 'text-amber-700'] : null,
+              [t.advance, inr(s.advance_amount), stageIndex(s.status) >= 3 ? 'text-green-700' : 'text-slate-400'],
+              [t.balance, inr(s.balance_amount), s.status === 'SETTLED' ? 'text-green-700' : 'text-slate-400'],
+            ]} />
+            <div className="mx-3 mb-2.5 rounded-xl bg-blue-50 px-3 py-2 text-[12px] font-semibold leading-snug text-blue-900">{t.moneyNote}</div>
+          </div>
+
+          {LIVE.has(s.status) && (
+            <div className={`${CARD} px-3 py-3 text-center`}>
+              <div className="text-2xl">📍</div>
+              <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.noPosition}</div>
+              <div className="mt-0.5 text-[11.5px] font-semibold leading-snug text-slate-500">{t.noPositionSub}</div>
+            </div>
           )}
 
-          <div className="space-y-3">
-            {loads?.map((l) => {
-              const mine = bidByLoad[l.load_id];
-              const clock = closesIn(l.bid_close_at);
-              const closed = clock === 'closed';
-              return (
-                <div key={l.load_id}
-                  className="fp-rise overflow-hidden rounded-[22px] border border-white/[0.07]
-                             bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl">
-                  <div className="flex items-start gap-3 px-4 pt-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 text-[15px] font-black text-white">
-                        <span className="truncate">{l.origin}</span>
-                        <ArrowRight size={14} className="shrink-0 text-cyan-400" />
-                        <span className="truncate">{l.destination}</span>
-                      </div>
-                      <p className="mt-0.5 truncate text-[12px] text-white/40">{l.customer_name}</p>
-                    </div>
-                    {mine && <Pill status={mine.status} />}
-                  </div>
+          {s.status === 'AWAITING_CONFIRM' && dl && (
+            <div className={`rounded-2xl px-3 py-2.5 text-[12.5px] font-extrabold ${dl.over ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-900'}`}>
+              {dl.over ? `⏰ ${t.overdue}` : `⏰ ${dl.h}h ${dl.m}m — ${t.confirmBy} ${dmyt(s.confirm_deadline)}`}
+            </div>
+          )}
+          {s.cancel_reason && <div className="rounded-2xl bg-red-50 px-3 py-2.5 text-[12.5px] font-extrabold text-red-800">{s.cancel_reason}</div>}
+          <CallBar />
+        </div>
 
-                  <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden border-y border-white/5 bg-white/5">
-                    <Cell icon={Package} label="Material" value={l.material || '—'} />
-                    <Cell icon={Truck} label="Weight" value={l.weight || '—'} />
-                    <Cell icon={CalendarDays} label="Loading" value={dmy(l.loading_date)} />
-                  </div>
-
-                  {/* Book-Now: the one PUBLIC rate. Take the load instantly. */}
-                  {Number(l.book_now_rate) > 0 && (
-                    <button onClick={() => setBookFor(l)}
-                      className="mx-4 mt-3 flex w-[calc(100%-2rem)] items-center justify-between rounded-2xl
-                                 border border-amber-400/30 bg-gradient-to-r from-amber-400/15 to-amber-400/[0.06]
-                                 px-4 py-3 transition-transform active:scale-[0.98]">
-                      <span className="flex items-center gap-2 text-[13px] font-black text-amber-200">
-                        <Zap size={15} className="text-amber-300" /> Book Now — no bidding
-                      </span>
-                      <span className="text-[16px] font-black text-amber-300">₹{inr(l.book_now_rate)}</span>
-                    </button>
-                  )}
-
-                  <div className="flex items-center gap-3 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      {mine ? (
-                        <>
-                          <p className="text-[11px] uppercase tracking-wider text-white/35">Your bid</p>
-                          <p className="text-[17px] font-black text-emerald-300">₹{inr(mine.bid_amount)}</p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[11px] uppercase tracking-wider text-white/35">
-                            {l.bid_count === 0 ? 'No bids yet' : `${l.bid_count} partner${l.bid_count === 1 ? '' : 's'} bidding`}
-                          </p>
-                          <p className="text-[12px] text-white/30">
-                            {l.distance_km ? `${inr(l.distance_km)} km` : 'distance not set'}
-                            {targetVisible && l.target_rate ? ` · target ₹${inr(l.target_rate)}` : ''}
-                          </p>
-                        </>
-                      )}
-                      {clock && (
-                        <p className={`mt-0.5 flex items-center gap-1 text-[11px] font-bold
-                                       ${closed ? 'text-red-300' : 'text-amber-300/80'}`}>
-                          <Clock size={11} /> {closed ? 'Bidding closed' : `Bidding ${clock}`}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setBidFor(l)}
-                      disabled={closed}
-                      className="shrink-0 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-3
-                                 text-[13px] font-black text-white shadow-[0_8px_24px_rgba(34,211,238,0.25)]
-                                 transition-transform active:scale-[0.97] disabled:opacity-40 disabled:shadow-none">
-                      {mine ? 'Revise bid' : 'Submit bid'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {(bids?.length ?? 0) > 0 && (
+        <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white p-3">
+          {mv ? (
             <>
-              <Header title="My bids" sub={`${bids.length} submitted`} className="mt-7" />
-              <div className="space-y-2 pb-4">
-                {bids.map((b) => (
-                  <div key={b.id} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-bold text-white">{b.origin} → {b.destination}</p>
-                      <p className="text-[11px] text-white/35">{b.load_id} · {dmy(b.created_at)}</p>
-                      {/* L-rank: your standing among the live offers — L1 is
-                          lowest. No amounts leak; only where you stand. */}
-                      {b.status === 'PENDING' && b.l_rank != null && (
-                        <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-black
-                          ${b.l_rank === 1
-                            ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
-                            : 'border-amber-400/25 bg-amber-400/10 text-amber-300'}`}>
-                          L{b.l_rank}{b.l_rank === 1 ? ' — lowest offer' : ' — you can revise'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-[14px] font-black text-white">₹{inr(b.bid_amount)}</p>
-                      <Pill status={b.status} />
-                    </div>
-                  </div>
-                ))}
+              <div className="mb-1.5 text-center text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{t.doNow}</div>
+              <button
+                onClick={() => { if (mv.key === 'confirm') act(); else if (mv.key === 'assign') setView({ k: 'assign', id: s.id }); else setView({ k: 'pod', id: s.id }); }}
+                disabled={viewAs}
+                className={`min-h-[58px] w-full rounded-2xl text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] active:translate-y-1 active:shadow-none disabled:opacity-50 ${mv.tone}`}
+                data-act={mv.key}
+              >{mv.label}</button>
+            </>
+          ) : (
+            <div className="rounded-2xl bg-slate-100 px-3 py-3 text-center">
+              <div className="text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{t.officeSide}</div>
+              <div className="text-[15px] font-extrabold text-slate-700">{wait ?? '—'}</div>
+            </div>
+          )}
+        </div>
+        {toast && <Toast />}
+      </div>
+    );
+  }
+
+  function AssignScreen({ id }) {
+    const s = setts.find((x) => x.id === id);
+    // Only an approved truck may take a load — the server refuses anything else
+    // (409 VEHICLE_NOT_APPROVED), so the picker never lists one.
+    const trucks = (fleet.vehicles ?? []).filter((v) => v.system_status === 'System Active');
+    const drivers = (fleet.drivers ?? []).filter((d) => d.system_status === 'System Active');
+    const [truck, setTruck] = useState(trucks[0]?.id ?? '');
+    const [driver, setDriver] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    if (!s) { setView({ k: 'tabs' }); return null; }
+
+    const send = async () => {
+      if (!truck) { setErr(t.noApproved); return; }
+      setBusy(true); setErr('');
+      const r = await api(`/portal/vendor/settlements/${s.id}/assign`, {
+        method: 'POST', body: JSON.stringify({ market_vehicle_id: truck, market_driver_id: driver || null }),
+      });
+      setBusy(false);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.sent); setView({ k: 'trip', id: s.id });
+    };
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="assign">
+        <Bar title={t.assignTitle} sub={`${s.origin} → ${s.destination}`} back={() => setView({ k: 'trip', id: s.id })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.onlyApproved}</div>
+          {trucks.length === 0 ? (
+            <div className={`${CARD} px-3 py-5 text-center`}>
+              <div className="text-3xl">🚛</div>
+              <div className="mt-1 text-[13.5px] font-extrabold text-slate-700">{t.noApproved}</div>
+              <button onClick={() => setView({ k: 'addTruck' })} className="mt-3 min-h-[46px] w-full rounded-xl bg-blue-600 text-[15px] font-extrabold text-white">{t.addTruck}</button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <Lbl>{t.pickTruck}</Lbl>
+                <div className="space-y-2">
+                  {trucks.map((v) => (
+                    <button key={v.id} onClick={() => setTruck(v.id)} data-truck={v.registration_no}
+                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${truck === v.id ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+                      <span className="text-[20px]">{truck === v.id ? '🔘' : '⚪'}</span>
+                      <span className="min-w-0 flex-1">
+                        <TruckNo n={v.registration_no} />
+                        <span className="ml-1.5 text-[11.5px] font-semibold text-slate-500">{[v.vehicle_class, v.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ')}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
+              <div>
+                <Lbl>{t.pickDriver}</Lbl>
+                <div className="space-y-2">
+                  {drivers.map((d) => (
+                    <button key={d.id} onClick={() => setDriver(driver === d.id ? '' : d.id)}
+                      className={`flex w-full items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-left ${driver === d.id ? 'border-blue-500 bg-blue-50' : 'border-slate-300 bg-white'}`}>
+                      <span className="text-[20px]">{driver === d.id ? '🔘' : '⚪'}</span>
+                      <span className="min-w-0 flex-1 text-[14px] font-extrabold">{d.name}<span className="ml-1.5 font-mono text-[11.5px] font-semibold text-slate-500">{d.mobile}</span></span>
+                    </button>
+                  ))}
+                  {drivers.length === 0 && <div className="rounded-xl bg-slate-100 px-3 py-2 text-[12px] font-semibold text-slate-500">{t.noDrivers}</div>}
+                </div>
+              </div>
+              {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+              <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-assign-send>
+                {busy ? t.sending : t.save}
+              </button>
             </>
           )}
         </div>
-      )}
+        {toast && <Toast />}
+      </div>
+    );
+  }
 
-      {/* ── MY TRIPS — won loads through the money lifecycle ───────────── */}
-      {tab === 'trips' && (
-        <div className="px-4 pt-4">
-          <Header title="My Trips"
-            sub={trips == null ? 'loading…' : `${trips.length} won ${trips.length === 1 ? 'load' : 'loads'}`} />
+  /** Shared by the POD screen and the paper-renewal screen: pick a file, send
+   *  it somewhere. Both are "photograph a piece of paper and hand it to the
+   *  office", so they are one component with two destinations. */
+  function Uploader({ onSend, busy, err, file, setFile }) {
+    const cam = useRef(null), gal = useRef(null);
+    const take = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setFile(f); };
+    return (
+      <>
+        <input ref={cam} type="file" accept="image/*" capture="environment" hidden data-cam onChange={take} />
+        <input ref={gal} type="file" accept="image/*,application/pdf" hidden data-gal onChange={take} />
+        <button onClick={() => cam.current?.click()} className="min-h-[58px] w-full rounded-2xl bg-slate-900 text-[17px] font-extrabold text-white">{t.camera}</button>
+        <button onClick={() => gal.current?.click()} className="min-h-[50px] w-full rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">{t.gallery}</button>
+        {file && (
+          <div className={`${CARD} px-3 py-2.5`}>
+            <div className="text-[11px] font-extrabold text-slate-500">📎</div>
+            <div className="truncate text-[13.5px] font-extrabold">{file.name || 'photo.jpg'}</div>
+          </div>
+        )}
+        {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+        <button onClick={onSend} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-violet-600 text-[18px] font-extrabold text-white shadow-[0_5px_0_rgba(0,0,0,0.18)] disabled:opacity-60" data-send>
+          {busy ? t.sending : `📤 ${t.send}`}
+        </button>
+      </>
+    );
+  }
 
-          {trips == null && <div className="space-y-3"><CardSkeleton /><CardSkeleton /></div>}
-          {trips?.length === 0 && (
-            <Empty icon={ClipboardList} title="No trips yet"
-                   body="When a bid of yours is accepted — or you Book-Now a load — the trip appears here to confirm, truck-up and deliver." />
-          )}
+  function PodScreen({ id }) {
+    const s = setts.find((x) => x.id === id);
+    const [file, setFile] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    if (!s) { setView({ k: 'tabs' }); return null; }
 
-          <div className="space-y-3 pb-4">
-            {trips?.map((s) => (
-              <div key={s.id}
-                className="fp-rise overflow-hidden rounded-[22px] border border-white/[0.07]
-                           bg-gradient-to-b from-white/[0.06] to-white/[0.02] backdrop-blur-xl">
-                <div className="flex items-start gap-3 px-4 pt-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 text-[15px] font-black text-white">
-                      <span className="truncate">{s.origin}</span>
-                      <ArrowRight size={14} className="shrink-0 text-cyan-400" />
-                      <span className="truncate">{s.destination}</span>
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-white/40">
-                      {s.load_id} · loading {dmy(s.loading_date)}
-                    </p>
-                  </div>
-                  <Pill status={s.status} />
+    const send = async () => {
+      if (!file) { setErr(t.needPhoto); return; }
+      setBusy(true); setErr('');
+      try {
+        const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+        const up = await uploadMedia(file, `bazaar-pod/pod_${s.load_id}_${Date.now()}${isPdf ? '.pdf' : '.jpg'}`);
+        const r = await api(`/portal/vendor/settlements/${s.id}/pod`, { method: 'POST', body: JSON.stringify({ pod_file: up.path }) });
+        if (!r.ok) throw new Error(r.body?.detail ?? r.body?.error ?? `API ${r.status}`);
+        await refresh(); say(t.sent); setView({ k: 'trip', id: s.id });
+      } catch (e) { setErr(String(e?.message ?? e)); }
+      setBusy(false);
+    };
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="pod">
+        <Bar title={t.podTitle} sub={`${s.load_id} · ${s.origin} → ${s.destination}`} back={() => setView({ k: 'trip', id: s.id })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-violet-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-violet-900">{t.podBody}</div>
+          {/* The driver may already have sent one — the desk verifies once, and
+              whoever gets to it first is fine (owner's rule). */}
+          {s.pod_submitted_at && <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold text-amber-900">{t.podAlready} · {dmyt(s.pod_submitted_at)}</div>}
+          <Uploader onSend={send} busy={busy} err={err} file={file} setFile={(f) => { setFile(f); setErr(''); }} />
+        </div>
+        {toast && <Toast />}
+      </div>
+    );
+  }
+
+  // ══ VEHICLE MANAGEMENT (owner, 3-Sep) ═════════════════════════════════════
+
+  /** One truck: its papers, their dates, and what is in flight for each. */
+  function TruckDetail({ id }) {
+    const [d, setD] = useState(null);
+    const [err, setErr] = useState('');
+    const load = useCallback(async () => {
+      const r = await api(`/portal/vendor/fleet/vehicle/${id}`);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      setD(r.body);
+    }, [id]);
+    useEffect(() => { load(); }, [load]);
+
+    const v = d?.vehicle;
+    const blocked = v && (v.system_status === 'BLOCKED' || v.system_status === 'REJECTED');
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="truck">
+        <Bar title={v?.registration_no ?? '—'} sub={[v?.vehicle_class, v?.capacity ? `${v.capacity} T` : null].filter(Boolean).join(' · ')} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-2.5 overflow-y-auto p-3 pb-24">
+          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          {!d && !err && <div className="py-8 text-center text-[13px] font-semibold text-slate-500">…</div>}
+
+          {v && (
+            <>
+              <div className={CARD}>
+                <div className="flex items-center justify-between px-3 pt-2.5">
+                  <span className="text-[12.5px] font-extrabold text-slate-700">🚛 {t.truck}</span>
+                  <Pill s={v.system_status} />
                 </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden border-y border-white/5 bg-white/5">
-                  <Cell icon={IndianRupee} label="Awarded" value={`₹${inr(s.awarded_amount)}`} />
-                  <Cell icon={IndianRupee} label="Advance"
-                        value={s.advance_amount ? `₹${inr(s.advance_amount)}` : `${inr(s.advance_pct)}% at loading`} />
-                  <Cell icon={Truck} label="Truck" value={s.vehicle_reg || '—'} />
-                </div>
-
-                <div className="space-y-2 px-4 py-3">
-                  {s.status === 'AWAITING_CONFIRM' && (
-                    <>
-                      {s.confirm_deadline && (
-                        <p className="flex items-center gap-1.5 text-[11.5px] font-bold text-amber-300/80">
-                          <Clock size={12} /> Confirm by {new Date(s.confirm_deadline).toLocaleString('en-IN',
-                            { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </p>
-                      )}
-                      <button onClick={() => confirmTrip(s)}
-                        className="w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 py-3.5
-                                   text-[14px] font-black text-white shadow-[0_8px_24px_rgba(16,185,129,0.25)]
-                                   transition-transform active:scale-[0.98]">
-                        Confirm this trip
-                      </button>
-                    </>
-                  )}
-
-                  {s.status === 'CONFIRMED' && (
-                    <button onClick={() => setAssignFor(s)}
-                      className="w-full rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3.5
-                                 text-[14px] font-black text-white shadow-[0_8px_24px_rgba(34,211,238,0.25)]
-                                 transition-transform active:scale-[0.98]">
-                      Assign truck & driver
+                <KV rows={[
+                  [t.regNo, <TruckNo n={v.registration_no} />],
+                  [t.vclass, v.vehicle_class ?? '—'],
+                  [t.capacity, v.capacity ? `${v.capacity} T` : '—'],
+                  [t.engineNo, v.engine_no ?? '—'],
+                  [t.chassisNo, v.chassis_no ?? '—'],
+                  [t.driver, v.driver_name ?? '—'],
+                ]} />
+                {!blocked && (
+                  <div className="px-3 pb-3">
+                    <button onClick={() => setView({ k: 'editTruck', id: v.id })} disabled={viewAs}
+                      className="min-h-[46px] w-full rounded-xl border-2 border-slate-300 bg-white text-[14px] font-extrabold disabled:opacity-50" data-edit-truck>
+                      ✏️ {t.editTruck}
                     </button>
-                  )}
+                  </div>
+                )}
+              </div>
 
-                  {['VEHICLE_ASSIGNED', 'ADVANCE_PAID', 'POD_SUBMITTED'].includes(s.status) && (
-                    <>
-                      {s.status === 'VEHICLE_ASSIGNED' && (
-                        <p className="text-[11.5px] leading-relaxed text-white/40">
-                          Truck named. The office releases the {inr(s.advance_pct)}% advance at loading.
-                          You can change the truck until then.
-                        </p>
-                      )}
-                      <div className="grid grid-cols-2 gap-2">
-                        {s.status !== 'POD_SUBMITTED' && (
-                          <button onClick={() => setAssignFor(s)}
-                            className="rounded-2xl border border-white/10 bg-white/[0.04] py-3 text-[12.5px]
-                                       font-black text-white/70 transition-transform active:scale-[0.98]">
-                            Change truck
+              {blocked && (
+                <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-3">
+                  <div className="text-[14px] font-extrabold text-red-800">🚫 {t.blockedTitle}</div>
+                  {v.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-red-900">{v.reject_reason}</div>}
+                  <div className="mt-1 text-[11.5px] font-semibold text-red-900/75">{t.blockedNote}</div>
+                  <a href={DISPATCH_TEL} className="mt-2 block min-h-[46px] rounded-xl bg-red-600 py-3 text-center text-[15px] font-extrabold text-white">📞 {t.callOffice}</a>
+                </div>
+              )}
+
+              {/* THE PAPERS. Each row is one document: the live date, how close
+                  it is, and either a renewal button or what is already with the
+                  office for it. The date itself is never an input here. */}
+              <div className="mt-1 flex items-baseline justify-between">
+                <span className="text-[13px] font-extrabold text-slate-700">📄 {t.papers}</span>
+              </div>
+              <div className="rounded-2xl bg-blue-50 px-3 py-2 text-[12px] font-semibold leading-snug text-blue-900">{t.paperNote}</div>
+
+              {(d.papers ?? []).map((p) => {
+                const n = daysTo(p.expiry);
+                const tone = p.expiry == null ? 'bg-slate-100 text-slate-600'
+                  : n < 0 ? 'bg-red-100 text-red-700'
+                  : n <= 30 ? 'bg-amber-100 text-amber-800'
+                  : 'bg-green-100 text-green-800';
+                const note = p.expiry == null ? t.noDate
+                  : n < 0 ? `${t.expired} · ${dmy(p.expiry)}`
+                  : `${n} ${t.expiringIn} · ${dmy(p.expiry)}`;
+                return (
+                  <div key={p.doc_type} className={CARD} data-paper={p.doc_type}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-extrabold">{t[p.doc_type]}</div>
+                        <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-extrabold ${tone}`}>{note}</span>
+                      </div>
+                      {p.pending
+                        ? <Pill s="PENDING" label={`⏳ ${t.withOffice}`} />
+                        : (
+                          <button onClick={() => setView({ k: 'renew', id: v.id, docType: p.doc_type })} disabled={viewAs}
+                            className="min-h-[42px] shrink-0 rounded-xl bg-blue-600 px-3 text-[13px] font-extrabold text-white disabled:opacity-50"
+                            data-renew={p.doc_type}>
+                            {t.renew}
                           </button>
                         )}
-                        <button onClick={() => setPodFor(s)}
-                          className={`rounded-2xl bg-gradient-to-r from-violet-500 to-fuchsia-600 py-3 text-[12.5px]
-                                      font-black text-white transition-transform active:scale-[0.98]
-                                      ${s.status === 'POD_SUBMITTED' ? 'col-span-2' : ''}`}>
-                          {s.pod_file ? 'Replace POD photo' : 'Upload POD'}
-                        </button>
+                    </div>
+                    {p.pending && (
+                      <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold text-amber-900">
+                        {dmy(p.pending.expiry_date)} · {dmyt(p.pending.created_at)}
                       </div>
-                      {s.status === 'POD_SUBMITTED' && (
-                        <p className="text-[11.5px] leading-relaxed text-white/40">
-                          POD received {dmy(s.pod_submitted_at)} — the office is checking it. The balance
-                          releases after verification.
-                        </p>
-                      )}
-                    </>
-                  )}
-
-                  {s.status === 'POD_VERIFIED' && (
-                    <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2.5
-                                  text-[12px] leading-relaxed text-emerald-100/80">
-                      POD verified {dmy(s.pod_verified_at)}. The balance of
-                      ₹{inr(Number(s.awarded_amount) - Number(s.advance_amount ?? 0))} is being released.
-                    </p>
-                  )}
-
-                  {s.status === 'SETTLED' && (
-                    <p className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-2.5
-                                  text-[12px] leading-relaxed text-emerald-100/80">
-                      Fully settled — advance ₹{inr(s.advance_amount ?? 0)} + balance ₹{inr(s.balance_amount ?? 0)}.
-                      Thank you for the trip.
-                    </p>
-                  )}
-
-                  {s.status === 'CANCELLED' && s.cancel_reason && (
-                    <p className="rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3 py-2.5
-                                  text-[12px] leading-relaxed text-red-200/80">
-                      Office note: {s.cancel_reason}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── MY FLEET ───────────────────────────────────────────────────── */}
-      {tab === 'fleet' && (
-        <div className="px-4 pt-4">
-          <Header title="My Fleet" sub={fleet == null ? 'loading…'
-            : `${fleet.vehicles.length} trucks · ${fleet.drivers.length} drivers`} />
-
-          {fleet?.pending > 0 && (
-            <div className="mb-4 flex items-start gap-2.5 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3">
-              <Clock size={15} className="mt-0.5 shrink-0 text-amber-400" />
-              <p className="text-[12px] leading-relaxed text-amber-100/70">
-                <span className="font-black text-amber-200">{fleet.pending} waiting on the office.</span>{' '}
-                Nothing you add can take a trip until it is approved — so it is not shown as
-                available anywhere until then.
-              </p>
-            </div>
-          )}
-
-          <div className="mb-4 grid grid-cols-2 gap-3">
-            <button onClick={() => setAddWhat('vehicle')}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-white/10
-                         bg-white/[0.04] py-4 text-[13px] font-black text-white transition-transform active:scale-[0.97]">
-              <Plus size={16} className="text-cyan-400" /> Add truck
-            </button>
-            <button onClick={() => setAddWhat('driver')}
-              className="flex items-center justify-center gap-2 rounded-2xl border border-white/10
-                         bg-white/[0.04] py-4 text-[13px] font-black text-white transition-transform active:scale-[0.97]">
-              <Plus size={16} className="text-violet-400" /> Add driver
-            </button>
-          </div>
-
-          {fleet == null && <div className="space-y-3"><CardSkeleton lines={2} /><CardSkeleton lines={2} /></div>}
-
-          {fleet?.vehicles.length === 0 && fleet?.drivers.length === 0 && (
-            <Empty icon={Truck} title="Nothing added yet"
-                   body="Add your trucks and drivers here. Each one goes to the office for approval before it can be given a load." />
-          )}
-
-          {fleet?.vehicles.map((v) => (
-            <div key={v.id} className="mb-2 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-              <div className="flex items-center gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[14px] font-black tracking-wide text-white">{v.registration_no}</p>
-                  <p className="truncate text-[11px] text-white/35">
-                    {[v.vehicle_class, v.capacity, v.driver_name].filter(Boolean).join(' · ') || 'no details yet'}
-                  </p>
-                </div>
-                <Pill status={v.system_status} />
-              </div>
-              {v.reject_reason && (
-                <p className="mt-2 rounded-xl border border-red-400/20 bg-red-400/[0.07] px-3 py-2 text-[11.5px] text-red-200/80">
-                  Office note: {v.reject_reason}
-                </p>
-              )}
-            </div>
-          ))}
-
-          {fleet?.drivers.map((d) => (
-            <div key={d.id} className="mb-2 flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-violet-500/15 text-[12px] font-black text-violet-300">
-                {d.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13.5px] font-bold text-white">{d.name}</p>
-                <p className="truncate text-[11px] text-white/35">
-                  {d.mobile || 'no mobile'}{d.aadhaar_last4 ? ` · Aadhaar ••••${d.aadhaar_last4}` : ''}
-                </p>
-              </div>
-              <Pill status={d.system_status} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── WALLET ─────────────────────────────────────────────────────── */}
-      {tab === 'wallet' && (
-        <div className="px-4 pt-4">
-          <Header title="Earnings" sub={earn?.vendor ?? 'loading…'} />
-          {earn == null && <div className="space-y-3"><CardSkeleton /><CardSkeleton lines={2} /></div>}
-
-          {earn && (
-            <>
-              {earn.ledger_visible && earn.ledger ? (
-                <div className="mb-4 overflow-hidden rounded-[24px] border border-emerald-400/20
-                                bg-gradient-to-br from-emerald-500/[0.13] via-emerald-500/[0.05] to-transparent
-                                p-5 backdrop-blur-xl">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300/60">Ledger balance</p>
-                  <p className="mt-1 text-[34px] font-black leading-none text-white">
-                    ₹{inr(earn.ledger.current_balance)}
-                  </p>
-                  <p className="mt-1 text-[12px] text-white/40">
-                    {earn.payment_terms ? `Terms: ${earn.payment_terms}` : 'Payment terms not set'}
-                  </p>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <Mini label="Posted to books" value={`₹${inr(earn.ledger.posted)}`} tone="text-emerald-300" />
-                    <Mini label="Awaiting approval" value={`₹${inr(earn.ledger.awaiting_approval)}`} tone="text-amber-300" />
-                  </div>
-                  <p className="mt-3 text-[11px] leading-relaxed text-white/30">
-                    “Awaiting approval” is money you have billed that the office has not yet passed.
-                    It is not owed to you until it clears.
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-4 rounded-[24px] border border-white/10 bg-white/[0.03] p-5">
-                  <p className="text-[13px] font-bold text-white/70">Ledger not shared</p>
-                  <p className="mt-1 text-[12px] leading-relaxed text-white/35">
-                    The office has not enabled ledger visibility for partners. Your trips and bids are below.
-                  </p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label="Trucks" value={earn.fleet.total} sub={`${earn.fleet.active} approved`} />
-                <Stat label="Bids won" value={earn.bids.won} sub={`${earn.bids.pending} pending`} tone="text-emerald-300" />
-                <Stat label="Pending" value={earn.fleet.pending} sub="awaiting office" tone="text-amber-300" />
-              </div>
-
-              {earn.ledger_visible && <StatementButton />}
-
-              {/* Bills from the phone — staged, office-verified, then filed. */}
-              <button onClick={() => setBillSheet(true)}
-                className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                           from-amber-500 to-orange-600 py-3.5 text-[14px] font-black text-white
-                           shadow-[0_8px_24px_rgba(245,158,11,0.25)] transition-transform active:scale-[0.98]">
-                <Upload size={16} /> Upload a bill (HSD / tyre / repair)
-              </button>
-
-              {(docs?.length ?? 0) > 0 && (
-                <>
-                  <Header title="My submitted bills" sub={`${docs.length} sent`} className="mt-6" />
-                  <div className="space-y-2 pb-4">
-                    {docs.map((d) => (
-                      <div key={d.id} className="flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-bold text-white">
-                            {d.doc_type.replaceAll('_', ' ')}{d.bill_no ? ` · ${d.bill_no}` : ''}
-                          </p>
-                          <p className="truncate text-[11px] text-white/35">
-                            {dmy(d.created_at)}{d.reject_reason ? ` · ${d.reject_reason}` : ''}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          {d.amount != null && <p className="text-[13px] font-black text-white">₹{inr(d.amount)}</p>}
-                          <span className={`text-[10px] font-black ${
-                            d.status === 'APPROVED' ? 'text-emerald-300' : d.status === 'REJECTED' ? 'text-red-300' : 'text-amber-300'}`}>
-                            {d.status === 'APPROVED' ? '✓ Verified' : d.status === 'REJECTED' ? '✗ Returned' : '⏳ In review'}
-                          </span>
-                        </div>
+                    )}
+                    {p.last_reject && (
+                      <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2 text-[12px] font-semibold text-red-800">
+                        <b>{t.rejected}:</b> {p.last_reject.reject_reason ?? '—'}
                       </div>
-                    ))}
+                    )}
                   </div>
-                </>
-              )}
+                );
+              })}
+
+              <div className="mt-1 text-[13px] font-extrabold text-slate-700">🗂 {t.docHistory}</div>
+              {(d.documents ?? []).length === 0
+                ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500`}>{t.noDocs}</div>
+                : (d.documents ?? []).slice(0, 15).map((x) => (
+                  <div key={x.id} className={`${CARD} flex items-center gap-2 px-3 py-2`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-extrabold">{t[x.doc_type] ?? x.doc_type}{x.doc_no ? ` · ${x.doc_no}` : ''}</div>
+                      <div className="truncate text-[11px] font-semibold text-slate-500">{dmy(x.expiry_date)} · {dmyt(x.created_at)}</div>
+                    </div>
+                    <Pill s={x.status} />
+                  </div>
+                ))}
+              <CallBar />
             </>
           )}
         </div>
-      )}
+        {toast && <Toast />}
+      </div>
+    );
+  }
 
-      {tab === 'account' && (
-        <div className="px-4 pt-4">
-          <Header title="Account" sub="Profile Settings" />
-          {/* 🔑 Self-service password change (2026-08-31 mandate) — the OTP
-              goes to the mobile this account is registered with. */}
-          <ChangePasswordCard />
+  /** Send one renewed paper. The expiry typed here is a CLAIM: it rides with
+   *  the document and only reaches the truck when the office approves it. */
+  function RenewScreen({ id, docType }) {
+    const [file, setFile] = useState(null);
+    const [expiry, setExpiry] = useState('');
+    const [docNo, setDocNo] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+
+    const send = async () => {
+      if (!file) { setErr(t.needPhoto); return; }
+      if (!expiry) { setErr(t.newExpiry); return; }
+      setBusy(true); setErr('');
+      try {
+        const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+        const up = await uploadMedia(file, `vehicle-docs/${docType.toLowerCase()}_${Date.now()}${isPdf ? '.pdf' : '.jpg'}`);
+        const r = await api(`/portal/vendor/fleet/vehicle/${id}/document`, {
+          method: 'POST',
+          body: JSON.stringify({ doc_type: docType, file_key: up.path, expiry_date: expiry, doc_no: docNo || null }),
+        });
+        if (!r.ok) throw new Error(r.body?.detail ?? r.body?.error ?? `API ${r.status}`);
+        await refresh(); say(t.sent); setView({ k: 'truck', id });
+      } catch (e) { setErr(String(e?.message ?? e)); }
+      setBusy(false);
+    };
+
+    return (
+      <div className={SHELL} style={FONT} data-screen="renew">
+        <Bar title={`${t.renewTitle} — ${t[docType]}`} back={() => setView({ k: 'truck', id })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-blue-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-blue-900">{t.paperNote}</div>
+          <div><Lbl>{t.newExpiry}</Lbl><Inp type="date" value={expiry} min={today()} onChange={(e) => { setExpiry(e.target.value); setErr(''); }} data-expiry /></div>
+          <div><Lbl>{t.docNo}</Lbl><Inp value={docNo} onChange={(e) => setDocNo(e.target.value.toUpperCase())} placeholder="POL-123456" className="font-mono" data-docno /></div>
+          <Uploader onSend={send} busy={busy} err={err} file={file} setFile={(f) => { setFile(f); setErr(''); }} />
         </div>
-      )}
+        {toast && <Toast />}
+      </div>
+    );
+  }
 
-      {/* ── BID SHEET ──────────────────────────────────────────────────── */}
-      <BidSheet
-        load={bidFor}
-        existing={bidFor ? bidByLoad[bidFor.load_id] : null}
-        onClose={() => setBidFor(null)}
-        onDone={(msg) => { setBidFor(null); flash(msg); loadBoard(); }}
-      />
+  /** The details the partner knows better than we do. Not the plate, and not
+   *  the expiry dates — those two are the office's by design. */
+  function EditTruck({ id }) {
+    const v = (fleet.vehicles ?? []).find((x) => x.id === id);
+    const [f, setF] = useState({
+      vehicle_class: v?.vehicle_class ?? '', capacity: v?.capacity ?? '',
+      engine_no: v?.engine_no ?? '', chassis_no: v?.chassis_no ?? '',
+    });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const set = (k, x) => setF((o) => ({ ...o, [k]: x }));
+    if (!v) { setView({ k: 'tabs' }); return null; }
 
-      <AddSheet
-        what={addWhat}
-        drivers={fleet?.drivers ?? []}
-        onClose={() => setAddWhat(null)}
-        onDone={(msg) => { setAddWhat(null); flash(msg); loadFleet(); }}
-      />
+    const save = async () => {
+      setBusy(true); setErr('');
+      const r = await api(`/portal/vendor/fleet/vehicle/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ...f, capacity: f.capacity === '' ? null : Number(f.capacity) }),
+      });
+      setBusy(false);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.saved); setView({ k: 'truck', id });
+    };
 
-      <BookNowSheet
-        load={bookFor}
-        onClose={() => setBookFor(null)}
-        onDone={(msg) => { setBookFor(null); flash(msg); loadBoard(); setTab('trips'); }}
-      />
-
-      <AssignSheet
-        settlement={assignFor}
-        vehicles={(fleet?.vehicles ?? []).filter((v) => v.system_status === 'System Active')}
-        drivers={(fleet?.drivers ?? []).filter((d) => d.system_status === 'System Active')}
-        onClose={() => setAssignFor(null)}
-        onDone={(msg) => { setAssignFor(null); flash(msg); loadTrips(); }}
-      />
-
-      <PodSheet
-        settlement={podFor}
-        onClose={() => setPodFor(null)}
-        onDone={(msg) => { setPodFor(null); flash(msg); loadTrips(); }}
-      />
-
-      <BillUploadSheet
-        open={billSheet}
-        onClose={() => setBillSheet(false)}
-        onDone={(msg) => { setBillSheet(false); flash(msg); loadEarn(); }}
-      />
-
-      {toast && (
-        <div className="fixed inset-x-4 bottom-24 z-[9500] fp-rise">
-          <div className={`rounded-2xl border px-4 py-3 text-[12.5px] font-semibold backdrop-blur-xl
-            ${toast.tone === 'err'
-              ? 'border-red-400/30 bg-red-500/15 text-red-100'
-              : 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100'}`}>
-            {toast.msg}
+    return (
+      <div className={SHELL} style={FONT} data-screen="edittruck">
+        <Bar title={t.editTruck} sub={v.registration_no} back={() => setView({ k: 'truck', id })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-slate-100 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-slate-700">{t.detailsNote}</div>
+          <div><Lbl>{t.regNo}</Lbl><Inp value={v.registration_no} disabled className="font-mono opacity-60" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Lbl>{t.vclass}</Lbl><Inp value={f.vehicle_class ?? ''} onChange={(e) => set('vehicle_class', e.target.value)} placeholder="Oil Tanker" data-e="vehicle_class" /></div>
+            <div><Lbl>{t.capacity}</Lbl><Inp inputMode="decimal" value={f.capacity ?? ''} onChange={(e) => set('capacity', e.target.value)} placeholder="20" data-e="capacity" /></div>
           </div>
+          <div><Lbl>{t.engineNo}</Lbl><Inp value={f.engine_no ?? ''} onChange={(e) => set('engine_no', e.target.value.toUpperCase())} className="font-mono" data-e="engine_no" /></div>
+          <div><Lbl>{t.chassisNo}</Lbl><Inp value={f.chassis_no ?? ''} onChange={(e) => set('chassis_no', e.target.value.toUpperCase())} className="font-mono" data-e="chassis_no" /></div>
+          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          <button onClick={save} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-edit-send>
+            {busy ? t.sending : `💾 ${t.saveEdit}`}
+          </button>
         </div>
-      )}
-
-      {/* ── BOTTOM NAV — where the thumb already is ────────────────────── */}
-      <nav className="fixed inset-x-0 bottom-0 z-[8000] border-t border-white/[0.07]
-                      bg-[#0b0f18]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-2xl">
-        <div className="mx-auto flex max-w-md">
-          {[
-            { k: 'board', icon: Gavel, label: 'Loads' },
-            { k: 'trips', icon: ClipboardList, label: 'My Trips' },
-            { k: 'fleet', icon: Truck, label: 'My Fleet' },
-            { k: 'wallet', icon: Wallet, label: 'Earnings' },
-            { k: 'account', icon: UserRound, label: 'Account' },
-          ].map((t) => {
-            const on = tab === t.k;
-            return (
-              <button key={t.k} onClick={() => setTab(t.k)}
-                className={`relative flex flex-1 flex-col items-center gap-1 py-3 transition-colors
-                            ${on ? 'text-cyan-300' : 'text-white/35'}`}>
-                {on && <span className="absolute top-0 h-0.5 w-9 rounded-full bg-cyan-400" />}
-                <t.icon size={19} />
-                <span className="text-[10.5px] font-bold">{t.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-    </Shell>
-  );
-}
-
-// ── the bid sheet ───────────────────────────────────────────────────────────
-function BidSheet({ load, existing, onClose, onDone }) {
-  const [amount, setAmount] = useState('');
-  const [remarks, setRemarks] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-
-  useEffect(() => {
-    setAmount(existing ? String(existing.bid_amount ?? '') : '');
-    setRemarks(''); setErr('');
-  }, [load, existing]);
-
-  if (!load) return null;
-  const n = Number(amount);
-  const valid = Number.isFinite(n) && n > 0;
-
-  const submit = async () => {
-    if (!valid) { setErr('Enter the rate you want for this load.'); return; }
-    setBusy(true); setErr('');
-    const r = await api(`/portal/vendor/loads/${encodeURIComponent(load.load_id)}/bid`, {
-      method: 'POST',
-      body: JSON.stringify({ bid_amount: n, remarks: remarks || null }),
-    });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
-    onDone(r.body.revised ? 'Bid revised and sent to the office.' : 'Bid sent to the office.');
-  };
-
-  return (
-    <Sheet
-      open={!!load}
-      onClose={onClose}
-      title={existing ? 'Revise your bid' : 'Submit a bid'}
-      subtitle={`${load.origin} → ${load.destination}`}
-      footer={
-        <button onClick={submit} disabled={busy || !valid}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-cyan-500 to-blue-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(34,211,238,0.3)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</>
-                : existing ? 'Replace my bid' : 'Send bid to office'}
-        </button>
-      }
-    >
-      <div className="mb-3 grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-white/5 bg-white/5">
-        <Cell icon={Package} label="Material" value={load.material || '—'} />
-        <Cell icon={Truck} label="Weight" value={load.weight || '—'} />
-        <Cell icon={MapPin} label="Distance" value={load.distance_km ? `${inr(load.distance_km)} km` : '—'} />
+        {toast && <Toast />}
       </div>
+    );
+  }
 
-      <Field label="Your rate (₹)" hint="The all-in figure you want for this trip.">
-        <input
-          type="number" inputMode="decimal" min="1" value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="e.g. 42000" className={inputCls} />
-      </Field>
-
-      <Field label="Note to the office (optional)">
-        <input value={remarks} onChange={(e) => setRemarks(e.target.value)}
-               placeholder="Empty truck at Bongaigaon" className={inputCls} />
-      </Field>
-
-      {existing && (
-        <p className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3 text-[12px] leading-relaxed text-amber-100/70">
-          You already have a live bid of <b className="text-amber-200">₹{inr(existing.bid_amount)}</b>.
-          Sending a new one withdraws it — the office sees one offer from you, not two.
-        </p>
-      )}
-
-      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
-        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-cyan-400/70" />
-        Sealed bid. No other partner sees this figure, and you do not see theirs.
-        It goes straight to the office's approval desk — it is not an award, and nothing is agreed until they respond.
-      </p>
-
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── full statement PDF — server-built, FY to date, own account only ─────────
-function StatementButton() {
-  const [busy, setBusy] = useState(false);
-  const download = async () => {
-    setBusy(true);
-    try {
-      const token = localStorage.getItem('prasad_token');
-      const r = await fetch(`${API_BASE}/api/v1/portal/vendor/statement.pdf`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      if (!r.ok) return;
-      const blob = await r.blob();
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'account-statement.pdf';
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } finally { setBusy(false); }
-  };
-  return (
-    <button onClick={download} disabled={busy}
-      className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-400/30
-                 bg-emerald-400/10 py-3 text-[13px] font-black text-emerald-300 disabled:opacity-40">
-      {busy ? <Loader2 size={15} className="animate-spin" /> : <Wallet size={15} />}
-      Download full statement (PDF)
-    </button>
-  );
-}
-
-// ── upload a bill — staged for office verification, never straight to books ─
-const BILL_KINDS = [
-  ['HSD_BILL', 'Diesel / HSD bill'], ['TYRE_BILL', 'Tyre bill'],
-  ['MAINTENANCE_BILL', 'Repair / maintenance bill'], ['TOLL_BILL', 'Toll receipt'],
-  ['OTHER_BILL', 'Other bill'], ['OTHER_DOC', 'Document (no amount)'],
-];
-function BillUploadSheet({ open, onClose, onDone }) {
-  const [f, setF] = useState({ doc_type: 'HSD_BILL' });
-  const [fileKey, setFileKey] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { if (open) { setF({ doc_type: 'HSD_BILL' }); setFileKey(''); setErr(''); } }, [open]);
-  if (!open) return null;
-  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
-  const isBill = f.doc_type !== 'OTHER_DOC';
-
-  const submit = async () => {
-    if (!fileKey) { setErr('Photograph the bill first.'); return; }
-    if (isBill && !(Number(f.amount) > 0)) { setErr('Enter the bill amount.'); return; }
-    setBusy(true); setErr('');
-    const r = await api('/portal/vendor/documents', {
-      method: 'POST',
-      body: JSON.stringify({ ...f, file_key: fileKey, amount: isBill ? Number(f.amount) : null }),
-    });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
-    onDone(r.body.detail ?? 'Bill sent to the office for verification.');
-  };
-
-  return (
-    <Sheet open onClose={onClose} title="Upload a bill"
-      subtitle="The office verifies the photo; only then does it enter the books."
-      footer={
-        <button onClick={submit} disabled={busy || !fileKey}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-amber-500 to-orange-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(245,158,11,0.3)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : 'Send to office'}
-        </button>
-      }>
-      <Field label="What is this?">
-        <select value={f.doc_type} onChange={set('doc_type')} className={inputCls}>
-          {BILL_KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-        </select>
-      </Field>
-      {isBill && (
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount (₹)">
-            <input type="number" inputMode="decimal" value={f.amount ?? ''} onChange={set('amount')}
-                   placeholder="e.g. 12500" className={inputCls} />
-          </Field>
-          <Field label="Bill no (optional)">
-            <input value={f.bill_no ?? ''} onChange={set('bill_no')} className={inputCls} />
-          </Field>
-        </div>
-      )}
-      {isBill && (
-        <Field label="Bill date (optional)">
-          <input type="date" value={f.bill_date ?? ''} onChange={set('bill_date')}
-                 className={inputCls} style={{ colorScheme: 'dark' }} />
-        </Field>
-      )}
-      <DocUpload label="Bill photo / PDF" value={fileKey} onUploaded={setFileKey}
-                 pathPrefix="bills"
-                 hint="Clear photo — amount and bill number readable. A blurry bill is the usual reason one bounces." />
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── book now — instant award at the public price ────────────────────────────
-// A separate confirmation sheet, not a browser confirm(): booking is binding,
-// so the rate, the route and the consequence are all on screen when the thumb
-// commits.
-function BookNowSheet({ load, onClose, onDone }) {
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { setErr(''); }, [load]);
-  if (!load) return null;
-
-  const book = async () => {
-    setBusy(true); setErr('');
-    const r = await api(`/portal/vendor/loads/${encodeURIComponent(load.load_id)}/book-now`, { method: 'POST' });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not book (${r.status})`); return; }
-    onDone(r.body?.detail ?? 'Book-Now request sent — the office confirms the award, then the load appears under My Trips.');
-  };
-
-  return (
-    <Sheet
-      open={!!load}
-      onClose={onClose}
-      title="Book this load now"
-      subtitle={`${load.origin} → ${load.destination}`}
-      footer={
-        <button onClick={book} disabled={busy}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-amber-500 to-orange-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(245,158,11,0.3)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Booking…</>
-                : <><Zap size={17} /> Book at ₹{inr(load.book_now_rate)}</>}
-        </button>
-      }
-    >
-      <div className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-4 text-center">
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-300/60">Book-Now rate</p>
-        <p className="mt-1 text-[32px] font-black leading-none text-amber-300">₹{inr(load.book_now_rate)}</p>
-      </div>
-      <div className="mb-3 grid grid-cols-3 gap-px overflow-hidden rounded-2xl border border-white/5 bg-white/5">
-        <Cell icon={Package} label="Material" value={load.material || '—'} />
-        <Cell icon={Truck} label="Weight" value={load.weight || '—'} />
-        <Cell icon={CalendarDays} label="Loading" value={dmy(load.loading_date)} />
-      </div>
-      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
-        <Info size={14} className="mt-0.5 shrink-0 text-amber-400/70" />
-        Booking is instant and binding — the load is awarded to you at this rate the moment you tap,
-        and every open bid on it closes. You then confirm the trip and name the truck under My Trips.
-      </p>
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── assign an approved truck (and driver) to a won trip ─────────────────────
-function AssignSheet({ settlement, vehicles, drivers, onClose, onDone }) {
-  const [vehicleId, setVehicleId] = useState('');
-  const [driverId, setDriverId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => {
-    setVehicleId(settlement?.market_vehicle_id ?? '');
-    setDriverId(settlement?.market_driver_id ?? '');
-    setErr('');
-  }, [settlement]);
-  if (!settlement) return null;
-
-  const submit = async () => {
-    if (!vehicleId) { setErr('Pick the truck that will run this trip.'); return; }
-    setBusy(true); setErr('');
-    const r = await api(`/portal/vendor/settlements/${settlement.id}/assign`, {
-      method: 'POST',
-      body: JSON.stringify({ market_vehicle_id: vehicleId, market_driver_id: driverId || null }),
-    });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not assign (${r.status})`); return; }
-    onDone(r.body.detail ?? 'Truck assigned.');
-  };
-
-  return (
-    <Sheet
-      open={!!settlement}
-      onClose={onClose}
-      title="Assign truck & driver"
-      subtitle={`${settlement.origin} → ${settlement.destination} · ${settlement.load_id}`}
-      footer={
-        <button onClick={submit} disabled={busy || !vehicleId}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-cyan-500 to-blue-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(34,211,238,0.3)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Assigning…</> : 'Assign to this trip'}
-        </button>
-      }
-    >
-      {vehicles.length === 0 ? (
-        <p className="mb-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.07] px-4 py-3
-                      text-[12.5px] leading-relaxed text-amber-100/70">
-          You have no approved trucks yet. Add one under <b>My Fleet</b> — the office approves it,
-          then it can carry this load.
-        </p>
-      ) : (
-        <Field label="Truck" hint="Only office-approved trucks are listed.">
-          <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} className={inputCls}>
-            <option value="">Select truck…</option>
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.registration_no}{v.vehicle_class ? ` · ${v.vehicle_class}` : ''}{v.capacity ? ` · ${v.capacity}` : ''}
-              </option>
+  function AddTruck() {
+    const [f, setF] = useState({ registration_no: '', vehicle_class: '', capacity: '', rc_expiry: '', ins_expiry: '', fit_expiry: '', np_expiry: '', puc_expiry: '' });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+    const send = async () => {
+      if (!String(f.registration_no).trim()) { setErr(t.regNo); return; }
+      setBusy(true); setErr('');
+      const r = await api('/portal/vendor/fleet/vehicle', { method: 'POST', body: JSON.stringify({ ...f, capacity: f.capacity === '' ? null : Number(f.capacity) }) });
+      setBusy(false);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.sent); setView({ k: 'tabs' });
+    };
+    return (
+      <div className={SHELL} style={FONT} data-screen="addtruck">
+        <Bar title={t.addTruck} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">{t.pendingNote}</div>
+          <div><Lbl>{t.regNo}</Lbl><Inp value={f.registration_no} onChange={(e) => set('registration_no', e.target.value.toUpperCase())} placeholder="AS01AB1234" className="font-mono tracking-wide" data-v="registration_no" /></div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><Lbl>{t.vclass}</Lbl><Inp value={f.vehicle_class} onChange={(e) => set('vehicle_class', e.target.value)} placeholder="Oil Tanker" data-v="vehicle_class" /></div>
+            <div><Lbl>{t.capacity}</Lbl><Inp inputMode="decimal" value={f.capacity} onChange={(e) => set('capacity', e.target.value)} placeholder="20" data-v="capacity" /></div>
+          </div>
+          <div className="text-[11px] font-extrabold text-slate-500">{t.papers}</div>
+          <div className="grid grid-cols-2 gap-2">
+            {[['rc_expiry', t.RC], ['ins_expiry', t.INSURANCE], ['fit_expiry', t.FITNESS], ['np_expiry', t.PERMIT], ['puc_expiry', t.PUC]].map(([k, l]) => (
+              <div key={k}><Lbl>{l}</Lbl><Inp type="date" value={f[k]} min={today()} onChange={(e) => set(k, e.target.value)} /></div>
             ))}
-          </select>
-        </Field>
-      )}
-      <Field label="Driver (optional)" hint="Only office-approved drivers are listed.">
-        <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className={inputCls}>
-          <option value="">Name later</option>
-          {drivers.map((d) => <option key={d.id} value={d.id}>{d.name}{d.mobile ? ` · ${d.mobile}` : ''}</option>)}
-        </select>
-      </Field>
-      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
-        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-cyan-400/70" />
-        The office releases the advance only after a verified truck is on the trip — naming it here
-        is what unlocks that step.
-      </p>
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── POD upload — camera-first, then the storage key lands on the settlement ─
-function PodSheet({ settlement, onClose, onDone }) {
-  const [podKey, setPodKey] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { setPodKey(''); setErr(''); }, [settlement]);
-  if (!settlement) return null;
-
-  const submit = async () => {
-    if (!podKey) { setErr('Photograph the signed POD first.'); return; }
-    setBusy(true); setErr('');
-    const r = await api(`/portal/vendor/settlements/${settlement.id}/pod`, {
-      method: 'POST',
-      body: JSON.stringify({ pod_file: podKey }),
-    });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
-    onDone(r.body.detail ?? 'POD submitted for verification.');
-  };
-
-  return (
-    <Sheet
-      open={!!settlement}
-      onClose={onClose}
-      title="Upload proof of delivery"
-      subtitle={`${settlement.origin} → ${settlement.destination} · ${settlement.load_id}`}
-      footer={
-        <button onClick={submit} disabled={busy || !podKey}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-violet-500 to-fuchsia-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(167,139,250,0.28)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : 'Send POD to office'}
-        </button>
-      }
-    >
-      <DocUpload
-        label="Signed POD / delivery challan"
-        value={podKey}
-        onUploaded={setPodKey}
-        pathPrefix={`bazaar-pods/${settlement.load_id}`}
-        hint="Photograph the stamped and signed copy — clear enough to read the stamp."
-      />
-      <p className="mb-2 flex items-start gap-2 text-[11.5px] leading-relaxed text-white/35">
-        <FileCheck2 size={14} className="mt-0.5 shrink-0 text-violet-400/70" />
-        The office verifies this photo, the customer is informed, and your balance
-        {settlement.advance_amount
-          ? ` (₹${inr(Number(settlement.awarded_amount) - Number(settlement.advance_amount))})`
-          : ''} releases after verification. A blurry stamp is the usual reason a POD bounces.
-      </p>
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── add truck / driver ──────────────────────────────────────────────────────
-function AddSheet({ what, drivers, onClose, onDone }) {
-  const [f, setF] = useState({});
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  useEffect(() => { setF({}); setErr(''); }, [what]);
-  if (!what) return null;
-
-  const isVehicle = what === 'vehicle';
-  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
-
-  const submit = async () => {
-    setBusy(true); setErr('');
-    const path = isVehicle ? '/portal/vendor/fleet/vehicle' : '/portal/vendor/fleet/driver';
-    const r = await api(path, { method: 'POST', body: JSON.stringify(f) });
-    setBusy(false);
-    if (!r.ok) { setErr(r.body?.detail ?? `Could not submit (${r.status})`); return; }
-    onDone(r.body.detail ?? 'Sent to the office for approval.');
-  };
-
-  const ok = isVehicle ? !!f.registration_no?.trim() : !!f.name?.trim();
-
-  return (
-    <Sheet
-      open
-      onClose={onClose}
-      title={isVehicle ? 'Add a truck' : 'Add a driver'}
-      subtitle="Goes to the office for approval before it can take a load"
-      footer={
-        <button onClick={submit} disabled={busy || !ok}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r
-                     from-violet-500 to-fuchsia-600 py-4 text-[15px] font-black text-white
-                     shadow-[0_10px_30px_rgba(167,139,250,0.28)] transition-transform
-                     active:scale-[0.98] disabled:opacity-40 disabled:shadow-none">
-          {busy ? <><Loader2 size={17} className="animate-spin" /> Sending…</> : 'Send for approval'}
-        </button>
-      }
-    >
-      {isVehicle ? (
-        <>
-          <Field label="Registration number" hint="As printed on the RC.">
-            {/* uppercase + no autocorrect: a plate is not a word */}
-            <input value={f.registration_no ?? ''} onChange={set('registration_no')}
-                   autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-                   placeholder="AS 25C 9908" className={`${inputCls} uppercase tracking-wider`} />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Type">
-              <select value={f.vehicle_class ?? ''} onChange={set('vehicle_class')} className={inputCls}>
-                <option value="">Select…</option>
-                {['Tanker', 'Trailer', 'Open Body', 'Container', 'Tipper'].map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </Field>
-            <Field label="Capacity">
-              <select value={f.capacity ?? ''} onChange={set('capacity')} className={inputCls}>
-                <option value="">Select…</option>
-                {['9 MT', '16 MT', '21 MT', '25 MT', '12 KL', '16 KL', '20 KL', '24 KL'].map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </Field>
           </div>
-          {drivers.length > 0 && (
-            <Field label="Driver" hint="Only drivers the office has approved can be assigned.">
-              <select value={f.market_driver_id ?? ''} onChange={set('market_driver_id')} className={inputCls}>
-                <option value="">Assign later</option>
-                {drivers.filter((d) => d.system_status === 'System Active')
-                  .map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </Field>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Insurance expiry"><input type="date" value={f.ins_expiry ?? ''} onChange={set('ins_expiry')} className={inputCls} style={{ colorScheme: 'dark' }} /></Field>
-            <Field label="Fitness expiry"><input type="date" value={f.fit_expiry ?? ''} onChange={set('fit_expiry')} className={inputCls} style={{ colorScheme: 'dark' }} /></Field>
-          </div>
-        </>
-      ) : (
-        <>
-          <Field label="Driver name">
-            <input value={f.name ?? ''} onChange={set('name')} autoCapitalize="words"
-                   placeholder="Full name as on the licence" className={inputCls} />
-          </Field>
-          <Field label="Mobile">
-            <input type="tel" inputMode="numeric" value={f.mobile ?? ''} onChange={set('mobile')}
-                   placeholder="10 digits" className={inputCls} />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Licence no"><input value={f.licence_no ?? ''} onChange={set('licence_no')} autoCapitalize="characters" className={`${inputCls} uppercase`} /></Field>
-            <Field label="Licence expiry"><input type="date" value={f.licence_expiry ?? ''} onChange={set('licence_expiry')} className={inputCls} style={{ colorScheme: 'dark' }} /></Field>
-          </div>
-          <Field label="Aadhaar" hint="Stored as a one-way hash. Only the last four digits are kept.">
-            <input inputMode="numeric" value={f.aadhaar ?? ''} onChange={set('aadhaar')}
-                   placeholder="12 digits" className={inputCls} />
-          </Field>
-          <DocUpload label="Licence photo" value={f.licence_photo_url}
-                     onUploaded={(v) => setF((p) => ({ ...p, licence_photo_url: v }))}
-                     hint="Photograph the licence — the office checks it before approving." />
-        </>
-      )}
-      {err && <p className="mb-2 text-[12px] font-semibold text-red-400">{err}</p>}
-    </Sheet>
-  );
-}
-
-// ── layout bits ─────────────────────────────────────────────────────────────
-function Shell({ children }) {
-  return (
-    <div className="min-h-screen bg-[#070a11] pb-24 text-white"
-         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <style>{`
-        @keyframes fpRise { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:none; } }
-        .fp-rise { animation: fpRise .28s cubic-bezier(.22,1,.36,1); }
-        @keyframes fpSheet { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        .fp-sheet { animation: fpSheet .32s cubic-bezier(.22,1,.36,1); }
-        @keyframes fpFade { from { opacity:0; } to { opacity:1; } }
-        .fp-fade { animation: fpFade .2s ease-out; }
-        @media (prefers-reduced-motion: reduce) {
-          .fp-rise, .fp-sheet, .fp-fade { animation: none; }
-        }
-        /* A bid is money. Nothing here should be draggable or long-press
-           selectable by accident on a phone in a moving cab. */
-        .fp-sheet input, .fp-sheet select { font-size: 16px; } /* iOS zooms below 16 */
-      `}</style>
-      <div className="mx-auto max-w-md">{children}</div>
-    </div>
-  );
-}
-
-function Header({ title, sub, className = '' }) {
-  return (
-    <div className={`mb-3 ${className}`}>
-      <h1 className="text-[22px] font-black tracking-tight text-white">{title}</h1>
-      {sub && <p className="text-[12.5px] text-white/40">{sub}</p>}
-    </div>
-  );
-}
-
-function Cell({ icon: Icon, label, value }) {
-  return (
-    <div className="bg-[#0b0f18] px-3 py-2.5">
-      <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-white/30">
-        <Icon size={10} /> {label}
-      </p>
-      <p className="mt-0.5 truncate text-[12.5px] font-bold text-white/85">{value}</p>
-    </div>
-  );
-}
-
-function Mini({ label, value, tone = 'text-white' }) {
-  return (
-    <div className="rounded-2xl border border-white/[0.07] bg-black/25 px-3 py-2.5">
-      <p className="text-[10px] uppercase tracking-wider text-white/35">{label}</p>
-      <p className={`mt-0.5 text-[15px] font-black ${tone}`}>{value}</p>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub, tone = 'text-white' }) {
-  return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-3 py-3.5 text-center">
-      <p className={`text-[22px] font-black leading-none ${tone}`}>{value}</p>
-      <p className="mt-1 text-[10.5px] font-bold uppercase tracking-wider text-white/40">{label}</p>
-      {sub && <p className="text-[10px] text-white/25">{sub}</p>}
-    </div>
-  );
-}
-
-function Empty({ icon: Icon, title, body }) {
-  return (
-    <div className="flex flex-col items-center px-6 py-12 text-center">
-      <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-white/10 bg-white/[0.03]">
-        <Icon size={24} className="text-white/25" />
+          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-truck-send>{busy ? t.sending : `📤 ${t.save}`}</button>
+        </div>
+        {toast && <Toast />}
       </div>
-      <p className="text-[15px] font-black text-white/70">{title}</p>
-      <p className="mt-1 text-[12.5px] leading-relaxed text-white/35">{body}</p>
+    );
+  }
+
+  function AddDriver() {
+    const [f, setF] = useState({ name: '', mobile: '', licence_no: '', licence_expiry: '' });
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState('');
+    const set = (k, v) => setF((x) => ({ ...x, [k]: v }));
+    const send = async () => {
+      const m = String(f.mobile).replace(/\D/g, '').slice(-10);
+      if (!String(f.name).trim() || !/^[6-9]\d{9}$/.test(m)) { setErr(`${t.dName} · ${t.dMobile}`); return; }
+      setBusy(true); setErr('');
+      const r = await api('/portal/vendor/fleet/driver', { method: 'POST', body: JSON.stringify({ ...f, mobile: m }) });
+      setBusy(false);
+      if (!r.ok) { setErr(r.body?.detail ?? r.body?.error ?? `API ${r.status}`); return; }
+      await refresh(); say(t.sent); setView({ k: 'tabs' });
+    };
+    return (
+      <div className={SHELL} style={FONT} data-screen="adddriver">
+        <Bar title={t.addDriver} back={() => setView({ k: 'tabs' })} />
+        <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="rounded-2xl bg-amber-50 px-3 py-2.5 text-[12.5px] font-semibold leading-snug text-amber-900">{t.pendingNote}</div>
+          <div><Lbl>{t.dName}</Lbl><Inp value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ramesh Das" data-d="name" /></div>
+          <div><Lbl>{t.dMobile}</Lbl><Inp inputMode="numeric" maxLength={13} value={f.mobile} onChange={(e) => set('mobile', e.target.value)} placeholder="98765 43210" className="font-mono tracking-wide" data-d="mobile" /></div>
+          <div><Lbl>{t.dLicence}</Lbl><Inp value={f.licence_no} onChange={(e) => set('licence_no', e.target.value.toUpperCase())} placeholder="AS0120200001234" className="font-mono" data-d="licence_no" /></div>
+          <div><Lbl>{t.dLicExp}</Lbl><Inp type="date" value={f.licence_expiry} min={today()} onChange={(e) => set('licence_expiry', e.target.value)} /></div>
+          {err && <div className="rounded-2xl border-2 border-red-300 bg-red-50 px-3 py-2.5 text-[13px] font-extrabold text-red-800">{err}</div>}
+          <button onClick={send} disabled={busy || viewAs} className="min-h-[58px] w-full rounded-2xl bg-blue-600 text-[18px] font-extrabold text-white disabled:opacity-60" data-driver-send>{busy ? t.sending : `📤 ${t.save}`}</button>
+        </div>
+        {toast && <Toast />}
+      </div>
+    );
+  }
+
+  // ══ TABS ══════════════════════════════════════════════════════════════════
+  const live = setts.filter((s) => LIVE.has(s.status));
+  const done = setts.filter((s) => !LIVE.has(s.status));
+  const segList = seg === 'LIVE' ? live : seg === 'DONE' ? done : setts;
+  const mine = live.filter((s) => nextMove(s));
+  // Papers that need the partner's attention, counted for the Fleet badge: an
+  // expiry inside 30 days, or already gone.
+  const paperAlerts = (fleet.vehicles ?? []).reduce((n, v) => {
+    const dates = [v.rc_expiry, v.ins_expiry, v.fit_expiry, v.np_expiry, v.puc_expiry].filter(Boolean);
+    return n + dates.filter((d) => daysTo(d) <= 30).length;
+  }, 0);
+
+  const TripCard = ({ s }) => {
+    const mv = nextMove(s);
+    return (
+      <button onClick={() => setView({ k: 'trip', id: s.id })} className={`${CARD} w-full px-3 py-2.5 text-left`} data-trip={s.load_id}>
+        <div className="flex items-start gap-2">
+          <span className="text-[22px] leading-none">🚛</span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14.5px] font-extrabold">{s.origin ?? '—'} → {s.destination ?? '—'}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-500">
+              {s.load_id}{s.vehicle_reg ? ` · ${s.vehicle_reg}` : ''}{s.material ? ` · ${s.material}` : ''}{s.weight ? ` · ${s.weight} T` : ''}
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <Pill s={s.status} />
+            <div className="mt-1 text-[13.5px] font-extrabold">{inrShort(s.awarded_amount)}</div>
+          </div>
+        </div>
+        {mv
+          ? <div className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-center text-[13.5px] font-extrabold text-white">{mv.label} ›</div>
+          : waitingLine(s) && <div className="mt-2 rounded-xl bg-slate-100 px-3 py-1.5 text-center text-[12px] font-extrabold text-slate-600">⏳ {waitingLine(s)}</div>}
+      </button>
+    );
+  };
+
+  /** One card for a truck or a driver in the list. A blocked one gets the
+   *  office's reason and a phone number and NOTHING ELSE (owner, 3-Sep). */
+  const PartyCard = ({ row, kind }) => {
+    const st = row.system_status;
+    const blocked = st === 'BLOCKED' || st === 'REJECTED';
+    const pending = st === 'PENDING APPROVAL';
+    const dates = kind === 'TRUCK'
+      ? [[t.RC, row.rc_expiry], [t.INSURANCE, row.ins_expiry], [t.FITNESS, row.fit_expiry], [t.PERMIT, row.np_expiry], [t.PUC, row.puc_expiry]].filter(([, d]) => d)
+      : [];
+    const body = (
+      <>
+        <div className="flex items-start gap-2 px-3 py-2.5">
+          <span className="text-[22px] leading-none">{kind === 'TRUCK' ? '🚛' : '🧑‍✈️'}</span>
+          <div className="min-w-0 flex-1">
+            {kind === 'TRUCK'
+              ? <><TruckNo n={row.registration_no} /><div className="mt-0.5 truncate text-[11.5px] font-semibold text-slate-500">{[row.vehicle_class, row.capacity ? `${row.capacity} T` : null, row.driver_name].filter(Boolean).join(' · ') || '—'}</div></>
+              : <><div className="truncate text-[14.5px] font-extrabold">{row.name}</div><div className="truncate font-mono text-[11.5px] font-semibold text-slate-500">{row.mobile}{row.licence_no ? ` · ${row.licence_no}` : ''}</div></>}
+          </div>
+          <Pill s={st} />
+        </div>
+        {pending && <div className="mx-3 mb-2.5 rounded-xl bg-amber-50 px-3 py-2 text-[12px] font-semibold leading-snug text-amber-900">⏳ {t.pendingNote}</div>}
+        {blocked && (
+          <div className="mx-3 mb-2.5 rounded-xl bg-red-50 px-3 py-2.5">
+            <div className="text-[13px] font-extrabold text-red-800">🚫 {kind === 'TRUCK' ? t.blockedTitle : t.blockedDriver}</div>
+            {row.reject_reason && <div className="mt-1 text-[12.5px] font-semibold leading-snug text-red-900">{row.reject_reason}</div>}
+            <div className="mt-1 text-[11.5px] font-semibold text-red-900/75">{t.blockedNote}</div>
+            <a href={DISPATCH_TEL} onClick={(e) => e.stopPropagation()} className="mt-2 block min-h-[44px] rounded-xl bg-red-600 py-2.5 text-center text-[14px] font-extrabold text-white">📞 {t.callOffice}</a>
+          </div>
+        )}
+        {dates.length > 0 && !blocked && (
+          <div className="border-t border-slate-100 px-3 py-2">
+            <div className="flex flex-wrap gap-1.5">
+              {dates.map(([l, d]) => {
+                const n = daysTo(d);
+                return <span key={l} className={`rounded-full px-2 py-0.5 text-[10.5px] font-extrabold ${n < 0 ? 'bg-red-100 text-red-700' : n <= 30 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{l} {dmy(d)}</span>;
+              })}
+            </div>
+          </div>
+        )}
+      </>
+    );
+    // A truck opens; a driver has nothing behind it yet, so it does not pretend
+    // to be a link.
+    return kind === 'TRUCK'
+      ? <button onClick={() => setView({ k: 'truck', id: row.id })} className={`${CARD} w-full text-left ${blocked ? 'border-red-300' : ''}`} data-vehicle={row.registration_no}>{body}</button>
+      : <div className={`${CARD} ${blocked ? 'border-red-300' : ''}`}>{body}</div>;
+  };
+
+  const Nav = () => {
+    const items = [
+      ['home', '🏠', t.home, mine.length],
+      ['loads', '📦', t.loads, 0],
+      ['trips', '🚛', t.trips, 0],
+      ['money', '💰', t.money, 0],
+      ['fleet', '🔧', t.fleet, (fleet.pending ?? 0) + paperAlerts],
+    ];
+    return (
+      <nav className="fixed bottom-0 left-1/2 z-40 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white px-1 pb-2.5 pt-1.5">
+        {items.map(([k, i, l, n]) => (
+          <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }}
+            className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : k === 'loads' ? 'text-slate-300' : 'text-slate-500'}`}
+            data-nav={k}>
+            <span className="text-[22px] leading-none">{i}</span>{l}
+            {n > 0 && <span className="absolute right-[18%] top-0 rounded-full bg-red-500 px-1.5 text-[10px] font-extrabold text-white">{n}</span>}
+          </button>
+        ))}
+      </nav>
+    );
+  };
+
+  return (
+    <div className={SHELL} style={FONT} data-screen={tab}>
+      {tab === 'home' ? (
+        <div className="sticky top-0 z-30 flex items-start gap-2 border-b border-slate-200 bg-white px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{t.brand}</div>
+            <div className="truncate text-[18px] font-extrabold leading-tight">{me?.name ?? earn?.vendor ?? '—'}</div>
+            <div className="truncate text-[11.5px] font-semibold text-slate-500">{t.partner}</div>
+          </div>
+          <button onClick={toggleLang} className="min-h-[38px] shrink-0 rounded-full bg-slate-100 px-3 text-[12px] font-bold">{lang === 'hi' ? 'हिं · EN' : 'EN · हिं'}</button>
+        </div>
+      ) : (
+        <Bar
+          title={tab === 'trips' ? t.tripsTitle : tab === 'money' ? t.moneyTitle : tab === 'fleet' ? t.fleetTitle : t.loads}
+          sub={tab === 'trips' ? t.tripsSub : tab === 'money' ? t.moneySub : tab === 'fleet' ? t.fleetSub : ''}
+        />
+      )}
+
+      {viewAs && <div className="mx-3 mt-2 rounded-2xl border-2 border-cyan-300 bg-cyan-50 px-3 py-2 text-[12px] font-extrabold text-cyan-900">👁 {t.viewAs}</div>}
+
+      <div className="flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5">
+        {tab === 'home' && (
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {[[live.length, t.kRunning, 'text-blue-700'], [earn?.fleet?.active ?? 0, t.kTrucks, 'text-green-700'], [earn?.fleet?.pending ?? 0, t.kPending, 'text-amber-700']].map(([n, l, c]) => (
+                <div key={l} className={`${CARD} px-2 py-2.5 text-center`}>
+                  <div className={`text-[22px] font-extrabold ${c}`}>{n}</div>
+                  <div className="text-[10.5px] font-semibold leading-tight text-slate-500">{l}</div>
+                </div>
+              ))}
+            </div>
+
+            {paperAlerts > 0 && (
+              <button onClick={() => setTab('fleet')} className="rounded-2xl border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-left" data-paper-alert>
+                <div className="text-[13.5px] font-extrabold text-amber-900">📄 {paperAlerts} — {t.papers}</div>
+                <div className="text-[11.5px] font-semibold text-amber-900/80">{t.paperNote}</div>
+              </button>
+            )}
+
+            <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.running}</div>
+            {live.length === 0 ? (
+              <div className={`${CARD} px-3 py-6 text-center`}>
+                {/* 🚛, not 🛻 — the pickup emoji has no glyph in Nirmala UI and
+                    renders as a tofu box on the office machines. */}
+                <div className="text-4xl">🚛</div>
+                <div className="mt-2 text-[14px] font-extrabold text-slate-700">{t.nothingRunning}</div>
+                <div className="mt-1 text-[12px] font-semibold leading-snug text-slate-500">{t.nothingRunningSub}</div>
+              </div>
+            ) : live.map((s) => <TripCard key={s.id} s={s} />)}
+            <CallBar />
+          </>
+        )}
+
+        {tab === 'loads' && (
+          <div className={`${CARD} px-4 py-8 text-center`} data-screen="loads-soon">
+            <div className="text-5xl">🚧</div>
+            <div className="mt-3 text-[18px] font-extrabold text-slate-800">{t.loadsSoon}</div>
+            <div className="mt-2 text-[13px] font-semibold leading-relaxed text-slate-600">{t.loadsSoonSub}</div>
+            <button onClick={() => setTab('home')} className="mt-5 min-h-[46px] w-full rounded-xl bg-blue-600 text-[15px] font-extrabold text-white">‹ {t.home}</button>
+          </div>
+        )}
+
+        {tab === 'trips' && (
+          <>
+            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
+              {[['LIVE', `${t.segLive} ${live.length}`], ['DONE', `${t.segDone} ${done.length}`], ['ALL', t.segAll]].map(([k, l]) => (
+                <button key={k} onClick={() => setSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${seg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
+              ))}
+            </div>
+            {segList.length === 0
+              ? <div className={`${CARD} px-3 py-6 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrips}</div>
+              : segList.map((s) => <TripCard key={s.id} s={s} />)}
+          </>
+        )}
+
+        {tab === 'money' && (
+          <>
+            {showMoney && earn?.ledger ? (
+              <div className={CARD}>
+                <KV rows={[
+                  [t.billed, inr(earn.ledger.billed), 'text-blue-700'],
+                  [t.posted, inr(earn.ledger.posted), 'text-green-700'],
+                  [t.awaiting, inr(earn.ledger.awaiting_approval), 'text-amber-700'],
+                  [t.bal, inr(earn.ledger.current_balance), 'text-slate-900'],
+                ]} />
+              </div>
+            ) : (
+              <div className={`${CARD} px-3 py-5 text-center`}>
+                <div className="text-3xl">🔒</div>
+                <div className="mt-1 text-[13px] font-semibold leading-snug text-slate-600">{t.moneyLocked}</div>
+              </div>
+            )}
+
+            <div className="mt-1 text-[13px] font-extrabold text-slate-700">{t.tripsTitle}</div>
+            {done.length === 0
+              ? <div className={`${CARD} px-3 py-4 text-center text-[12.5px] font-semibold text-slate-500`}>{t.noTrips}</div>
+              : done.slice(0, 12).map((s) => (
+                <div key={s.id} className={`${CARD} flex items-center gap-2 px-3 py-2`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-extrabold">{s.origin} → {s.destination}</div>
+                    <div className="truncate text-[11px] font-semibold text-slate-500">{s.load_id} · {dmy(s.loading_date)}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[13px] font-extrabold">{inrShort(s.awarded_amount)}</div>
+                    <Pill s={s.status} />
+                  </div>
+                </div>
+              ))}
+
+            <div className={CARD}>
+              <KV rows={[
+                [t.myName, me?.name ?? earn?.vendor ?? '—'],
+                [t.payTerms, earn?.payment_terms ?? '—'],
+                [t.language, <button onClick={toggleLang} className="rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-extrabold">{lang === 'hi' ? 'हिंदी · EN' : 'English · हिं'}</button>],
+              ]} />
+            </div>
+            <CallBar />
+            <button onClick={() => { for (const k of ['prasad_token', 'prasad_user', 'prasad_view_as_vendor']) localStorage.removeItem(k); location.reload(); }}
+              className="min-h-[46px] rounded-2xl border-2 border-slate-300 bg-white text-[15px] font-extrabold">🚪 {t.logout}</button>
+          </>
+        )}
+
+        {tab === 'fleet' && (
+          <>
+            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
+              {[['TRUCKS', `${t.trucksTab} ${fleet.vehicles?.length ?? 0}`], ['DRIVERS', `${t.driversTab} ${fleet.drivers?.length ?? 0}`]].map(([k, l]) => (
+                <button key={k} onClick={() => setFleetSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${fleetSeg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
+              ))}
+            </div>
+
+            {fleetSeg === 'TRUCKS' ? (
+              <>
+                <button onClick={() => setView({ k: 'addTruck' })} disabled={viewAs} className="min-h-[50px] rounded-2xl bg-blue-600 text-[15px] font-extrabold text-white disabled:opacity-50" data-add-truck>{t.addTruck}</button>
+                {(fleet.vehicles ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-500`}>{t.noTrucks}</div>}
+                {(fleet.vehicles ?? []).map((v) => <PartyCard key={v.id} row={v} kind="TRUCK" />)}
+              </>
+            ) : (
+              <>
+                <button onClick={() => setView({ k: 'addDriver' })} disabled={viewAs} className="min-h-[50px] rounded-2xl bg-blue-600 text-[15px] font-extrabold text-white disabled:opacity-50" data-add-driver>{t.addDriver}</button>
+                {(fleet.drivers ?? []).length === 0 && <div className={`${CARD} px-3 py-5 text-center text-[13px] font-semibold text-slate-500`}>{t.noDrivers}</div>}
+                {(fleet.drivers ?? []).map((d) => <PartyCard key={d.id} row={d} kind="DRIVER" />)}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      <Nav />
+      {toast && <Toast />}
     </div>
   );
 }

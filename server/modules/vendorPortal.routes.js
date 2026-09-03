@@ -25,6 +25,11 @@ import { notifyWhatsApp } from '../lib/notify.js';
 import { openSettlementInTx } from './bazaarSettlement.routes.js';
 import { emit } from '../agents/bus.js';
 
+// Route params arrive as text; anything not shaped like a uuid is refused
+// before it reaches a ::uuid cast, which would otherwise be a 500 rather than
+// a 400. (Added 3-Sep with the vehicle-management routes.)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
 
@@ -465,6 +470,137 @@ export function registerVendorPortalRoutes(app) {
       }
       throw e;
     }
+  });
+
+  // ═══ ONE TRUCK: DETAILS AND ITS PAPERS ════════════════════════════════════
+  // Owner, 2026-09-03: "fleet partner ko vehicle management ke liye subidha ho
+  // — doc renewal and vehicle details management."
+  //
+  // Two kinds of change, kept apart on purpose:
+  //   · DETAILS the partner knows better than we do — the truck's class, its
+  //     capacity, engine and chassis numbers. Edited directly: market_vehicles
+  //     is a quarantine table so the fence already allows it, and none of those
+  //     fields decides whether the truck may take a load.
+  //   · EXPIRY DATES are NOT editable here, and that is the point. A date typed
+  //     into a box proves nothing, which is exactly what the five expiry columns
+  //     have been until today. A renewal now arrives as a DOCUMENT carrying the
+  //     new date, waits in partner_documents, and the office's APPROVE is what
+  //     moves the date onto the truck (queues.routes applyToCore). After this,
+  //     every live date on this fleet has a paper behind it.
+  const VEHICLE_DOCS = {
+    RC: 'rc_expiry', INSURANCE: 'ins_expiry', FITNESS: 'fit_expiry',
+    PERMIT: 'np_expiry', PUC: 'puc_expiry',
+  };
+
+  const myVehicle = async (req, id) => {
+    const { rows } = await query(
+      `SELECT * FROM market_vehicles WHERE id = $1::uuid AND vendor_id = $2::uuid`,
+      [id, req.party.vendorId]);
+    return rows[0] ?? null;
+  };
+
+  app.get('/portal/vendor/fleet/vehicle/:id', { preHandler: needsModule('vend.vehicles') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
+    const v = await myVehicle(req, req.params.id);
+    if (!v) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'that truck is not on your fleet' });
+
+    // Every renewal ever sent for this truck, newest first, so the partner can
+    // see what is with the office and what came back rejected, with the reason.
+    const { rows: docs } = await query(`
+      SELECT id, doc_type, doc_no, expiry_date, file_key, status, reject_reason,
+             created_at, reviewed_at, ocr_status
+        FROM partner_documents
+       WHERE market_vehicle_id = $1::uuid AND vendor_id = $2::uuid
+       ORDER BY created_at DESC LIMIT 60`, [v.id, req.party.vendorId]);
+
+    // The five papers, each with the live date and whatever is in flight for it.
+    const papers = Object.entries(VEHICLE_DOCS).map(([doc_type, col]) => {
+      const pending = docs.find((d) => d.doc_type === doc_type && d.status === 'PENDING');
+      const lastReject = docs.find((d) => d.doc_type === doc_type
+        && (d.status === 'REJECTED' || d.status === 'NEEDS_CORRECTION'));
+      return {
+        doc_type,
+        expiry: v[col],
+        pending: pending ?? null,
+        last_reject: pending ? null : (lastReject ?? null),
+      };
+    });
+    return { vehicle: v, papers, documents: docs };
+  });
+
+  app.patch('/portal/vendor/fleet/vehicle/:id', { preHandler: needsModule('vend.vehicles') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
+    const v = await myVehicle(req, req.params.id);
+    if (!v) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'that truck is not on your fleet' });
+    if (v.system_status === 'BLOCKED' || v.system_status === 'REJECTED') {
+      // Owner's rule, 3-Sep: a blocked truck gets the reason and a phone number,
+      // not a form. An edit here would be the re-submit loop by another name —
+      // the partner tidying fields instead of ringing the office.
+      return reply.code(409).send({
+        error: 'VEHICLE_BLOCKED',
+        detail: v.reject_reason
+          ? `This truck is ${String(v.system_status).toLowerCase()}: ${v.reject_reason}. Please call the office.`
+          : `This truck is ${String(v.system_status).toLowerCase()}. Please call the office.`,
+      });
+    }
+    // registration_no is absent from this list on purpose: changing the plate
+    // makes it a different truck, and the office approved THIS one.
+    const ALLOWED = ['vehicle_class', 'capacity', 'engine_no', 'chassis_no', 'market_driver_id'];
+    const cols = ALLOWED.filter((c) => req.body?.[c] !== undefined);
+    if (!cols.length) return { vehicle: v, changed: [] };
+    if (req.body.market_driver_id) {
+      const { rows: d } = await query(
+        `SELECT id FROM market_drivers WHERE id = $1::uuid AND vendor_id = $2::uuid`,
+        [req.body.market_driver_id, req.party.vendorId]);
+      if (!d.length) return reply.code(404).send({ error: 'NO_SUCH_DRIVER', detail: 'that driver is not on your fleet' });
+    }
+    const sets = cols.map((c, i) => `${c} = $${i + 2}${c === 'market_driver_id' ? '::uuid' : ''}`).join(', ');
+    const { rows } = await query(
+      `UPDATE market_vehicles SET ${sets}, updated_at = now()
+        WHERE id = $1::uuid RETURNING *`,
+      [v.id, ...cols.map((c) => (req.body[c] === '' ? null : req.body[c]))]);
+    return { vehicle: rows[0], changed: cols };
+  });
+
+  app.post('/portal/vendor/fleet/vehicle/:id/document', { preHandler: needsModule('vend.vehicles') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    if (!UUID_RE.test(String(req.params.id))) return reply.code(400).send({ error: 'BAD_ID' });
+    const v = await myVehicle(req, req.params.id);
+    if (!v) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'that truck is not on your fleet' });
+
+    const docType = String(req.body?.doc_type ?? '').toUpperCase();
+    if (!VEHICLE_DOCS[docType]) {
+      return reply.code(400).send({
+        error: 'BAD_DOC_TYPE',
+        detail: `doc_type must be one of ${Object.keys(VEHICLE_DOCS).join(', ')}`,
+      });
+    }
+    const fileKey = String(req.body?.file_key ?? '').trim();
+    // The same prefix rule the file vault enforces (31-Aug): a party may only
+    // point at something it uploaded into its own folder.
+    if (!fileKey || !fileKey.startsWith(`up/vendor/${req.user.sub}/`)) {
+      return reply.code(400).send({ error: 'BAD_FILE_KEY', detail: 'upload the document first; the file must be your own upload' });
+    }
+    const expiry = String(req.body?.expiry_date ?? '').trim() || null;
+    if (!expiry) return reply.code(400).send({ error: 'NO_EXPIRY', detail: 'the new expiry date on the document is required' });
+
+    const { rows: vend } = await query(`SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
+    const { rows } = await query(`
+      INSERT INTO partner_documents
+        (doc_type, file_key, vendor_id, uploader_role, uploader_name,
+         vehicle_no, market_vehicle_id, expiry_date, doc_no, remarks, status)
+      VALUES ($1,$2,$3::uuid,'VENDOR',$4,$5,$6::uuid,$7::date,$8,$9,'PENDING')
+      RETURNING id, doc_type, status, expiry_date, created_at`,
+      [docType, fileKey, req.party.vendorId, `portal:${vend[0]?.vendor_name ?? ''}`,
+       v.registration_no, v.id, expiry, req.body?.doc_no ?? null,
+       `fleet partner app · ${docType} renewal for ${v.registration_no}`]);
+
+    return reply.code(201).send({
+      ...rows[0],
+      detail: 'Sent to the office. The new date goes on the truck once they verify the document.',
+    });
   });
 
   app.post('/portal/vendor/fleet/driver', { preHandler: needsModule('vend.vehicles') }, async (req, reply) => {

@@ -148,8 +148,17 @@ export function VendorGate({ exit = null }) {
     })();
   }, []);
   if (kind === null) return <div className="grid min-h-screen place-items-center bg-[#f8fafc] text-[13px] text-slate-500">…</div>;
-  if (kind === 'FLEET_PARTNER') return <Suspense fallback={null}><FleetPartnerApp />{exit}</Suspense>;
-  // Undo the suite shell's dark padding: this app paints its own light screen.
+  // Both apps are light and full-bleed since 3-Sep, so both undo the suite
+  // shell's dark padding. The Fleet Partner app carries its own Sign out under
+  // Money and its own bottom nav, so the floating `exit` is not rendered over
+  // it — the same call the vendor app made when it went light.
+  if (kind === 'FLEET_PARTNER') {
+    return (
+      <div style={{ margin: '-12px -12px 0', minHeight: '100vh' }}>
+        <Suspense fallback={null}><FleetPartnerApp /></Suspense>
+      </div>
+    );
+  }
   return <div style={{ margin: '-12px -12px 0', minHeight: '100vh' }}><ServiceVendorApp gateError={err} /></div>;
 }
 

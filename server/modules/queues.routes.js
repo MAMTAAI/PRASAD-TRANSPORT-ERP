@@ -534,6 +534,23 @@ export async function registerQueueRoutes(app) {
       }
       return applied;
     }
+    // A fleet partner's vehicle paper (migration 136). The date the partner
+    // typed has been sitting in partner_documents.expiry_date doing nothing;
+    // THIS is where it becomes the truck's expiry, because a human just looked
+    // at the document that claims it. The reviewer may correct the date in the
+    // approval body — what they saw on the paper wins over what was typed.
+    if (doc.uploader_role === 'VENDOR' && doc.market_vehicle_id
+        && ['RC', 'INSURANCE', 'FITNESS', 'PERMIT', 'PUC'].includes(doc.doc_type)) {
+      const COL = { RC: 'rc_expiry', INSURANCE: 'ins_expiry', FITNESS: 'fit_expiry', PERMIT: 'np_expiry', PUC: 'puc_expiry' }[doc.doc_type];
+      const expiry = val('expiry_date') ?? doc.expiry_date ?? null;
+      if (!expiry) throw Object.assign(new Error('this renewal has no expiry date to apply'), { code: 'BAD_EXPIRY' });
+      await t.query(
+        `UPDATE market_vehicles SET ${COL} = $2::date, updated_at = now() WHERE id = $1::uuid`,
+        [doc.market_vehicle_id, expiry]);
+      applied.table = 'market_vehicles';
+      applied.columns = [COL];
+      return applied;
+    }
     applied.note = 'verified only — this kind of paper writes no core column';
     return applied;
   };

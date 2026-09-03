@@ -796,12 +796,27 @@ export async function registerBazaarRoutes(app) {
       const email = String(party[0].email ?? '').trim().toLowerCase()
         || `portal-${String(partyId).slice(0, 8)}@login.prasadtransport.com`;
       const { saltHex, hashHex } = hashPassword(randomBytes(14).toString('base64url'));
+      // account_status MUST be set here, not left to its default.
+      //
+      // The column defaults to PENDING, and the users_status_mirror trigger
+      // (049/050) then rewrites status to INACTIVE — overriding the 'ACTIVE'
+      // this INSERT asks for, because on INSERT the trigger only honours
+      // `status` when account_status is NULL, and a DEFAULT is not NULL. So
+      // every party approved through KYC was handed a login it could not use:
+      // /auth/otp/request filters on status='ACTIVE', found nothing, and
+      // (correctly refusing to say whether the number is known) answered a
+      // cheerful "sent" while sending nothing. The applicant then sat on an OTP
+      // screen that would never accept a code. Found 3-Sep-2026 boot-testing
+      // the Fleet Partner app, and it applied to approved CUSTOMERS too.
       await c.query(`
         INSERT INTO users (full_name, email, mobile, password_hash, password_salt, password_algo,
-                           role, permissions, status, must_change_password, ${linkCol})
-        VALUES ($1, $2::citext, $3, $4, $5, $6, $7::user_role, '{"grants":[]}'::jsonb, 'ACTIVE', true, $8::uuid)`,
-        [party[0].name, email, mobile, hashHex, saltHex, ALGO, role, partyId]);
-      notes.push(`portal login created — OTP login on ${mobile}`);
+                           role, permissions, status, account_status, approved_at, approved_by,
+                           must_change_password, ${linkCol})
+        VALUES ($1, $2::citext, $3, $4, $5, $6, $7::user_role, '{"grants":[]}'::jsonb,
+                'ACTIVE', 'ACTIVE'::account_status, now(), $9, true, $8::uuid)`,
+        [party[0].name, email, mobile, hashHex, saltHex, ALGO, role, partyId,
+         approved_by ?? 'kyc-approval']);
+      notes.push(`portal login created and activated — OTP login on ${mobile}`);
       return app0;
     });
 
