@@ -40,6 +40,7 @@ const api = async (path: string, opts: RequestInit = {}) => {
 };
 
 import { DISPATCH_TEL, DISPATCH_DISPLAY } from './lib/dispatchContact';
+import { APP_SHELL } from './portal/appShell';
 const LANG_KEY = 'prasad_driver_lang';
 
 // ── words, Hindi first ──────────────────────────────────────────────────────
@@ -388,7 +389,7 @@ export default function DriverPortal({ onBack, preview = false, session = null }
     );
   }
 
-  const shell = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+  const shell = APP_SHELL;
   const font = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
 
   if (screen === 'CAMERA') {

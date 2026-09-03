@@ -27,6 +27,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from 'react';
 import { API_BASE } from '../lib/apiBase';
 import { uploadMedia } from '../lib/uploadMedia';
+import { APP_SHELL, APP_NAV, APP_GRID_2 } from './appShell';
 import { DISPATCH_TEL, DISPATCH_DISPLAY } from '../lib/dispatchContact';
 
 const FleetPartnerApp = lazy(() => import('./FleetPartnerApp'));
@@ -165,7 +166,7 @@ export function VendorGate({ exit = null }) {
 }
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
-const SHELL = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+const SHELL = APP_SHELL;
 const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
 
 export default function ServiceVendorApp({ gateError = '' }) {
@@ -314,7 +315,7 @@ export default function ServiceVendorApp({ gateError = '' }) {
   const Nav = () => {
     const items = [['home', '🏠', t.home, 0], ['slips', '🧾', t.slips, sum?.slips?.rejected ?? 0], ['bills', '📑', t.bills, sum?.bills?.rejected ?? 0], ['pay', '💰', t.pay, 0], ['acct', '👤', t.acct, 0]];
     return (
-      <nav className="fixed bottom-0 left-1/2 z-40 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white px-1 pb-2.5 pt-1.5">
+      <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
           <button key={k} onClick={() => { setTab(k); setScreen('TABS'); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="text-[22px] leading-none">{i}</span>{l}

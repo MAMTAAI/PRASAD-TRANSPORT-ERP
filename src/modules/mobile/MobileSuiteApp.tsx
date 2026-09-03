@@ -122,7 +122,14 @@ function Router() {
 export default function MobileSuiteApp() {
   return (
     <AuthProvider>
-      <div className="min-h-full w-full bg-[#080c14] text-slate-200 p-3 sm:p-5"
+      {/* Near-black behind a light app makes it look like a strip in a void on
+          a monitor (owner, 3-Sep). A neutral ground reads as a centred
+          document instead, and costs the phone nothing. */}
+      {/* KEEP p-3 ON PHONES. The gates below un-pad themselves with
+          `margin: -12px` so a light app can run edge to edge; drop this padding
+          and that negative margin pushes the app 12 px past both edges — a
+          414 px shell in a 390 px window. The two numbers are a pair. */}
+      <div className="min-h-full w-full bg-[#dfe3ea] text-slate-200 p-3 sm:p-4"
         style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
         {/* keyframes shared with the master-control kit */}
         <style>{`

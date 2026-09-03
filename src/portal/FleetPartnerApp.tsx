@@ -44,6 +44,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
 import { uploadMedia } from '../lib/uploadMedia';
 import { DISPATCH_TEL, DISPATCH_DISPLAY } from '../lib/dispatchContact';
+import { APP_SHELL, APP_NAV, APP_BAR, APP_GRID_2 } from './appShell';
 
 const API = API_BASE;
 const LANG_KEY = 'prasad_partner_lang';
@@ -201,7 +202,7 @@ const T = {
 };
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
-const SHELL = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+const SHELL = APP_SHELL;
 const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
 
 // The settlement's own vocabulary, and who owns each step. `nextMove` below is
@@ -433,7 +434,7 @@ export default function FleetPartnerApp() {
           <CallBar />
         </div>
 
-        <div className="fixed bottom-0 left-1/2 z-40 w-full max-w-md -translate-x-1/2 border-t border-slate-200 bg-white p-3">
+        <div className={APP_BAR}>
           {mv ? (
             <>
               <div className="mb-1.5 text-center text-[11px] font-extrabold uppercase tracking-wide text-slate-400">{t.doNow}</div>
@@ -1017,7 +1018,7 @@ export default function FleetPartnerApp() {
       ['fleet', '🔧', t.fleet, (fleet.pending ?? 0) + paperAlerts],
     ];
     return (
-      <nav className="fixed bottom-0 left-1/2 z-40 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white px-1 pb-2.5 pt-1.5">
+      <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
           <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }}
             className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}
@@ -1050,7 +1051,7 @@ export default function FleetPartnerApp() {
 
       {viewAs && <div className="mx-3 mt-2 rounded-2xl border-2 border-cyan-300 bg-cyan-50 px-3 py-2 text-[12px] font-extrabold text-cyan-900">👁 {t.viewAs}</div>}
 
-      <div className="flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5">
+      <div className={`flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5 ${['trips', 'loads', 'fleet'].includes(tab) ? 'md:grid md:auto-rows-min md:grid-cols-2 md:items-start' : ''}`}>
         {tab === 'home' && (
           <>
             <div className="grid grid-cols-3 gap-2">
@@ -1131,7 +1132,7 @@ export default function FleetPartnerApp() {
 
         {tab === 'trips' && (
           <>
-            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
+            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
               {[['LIVE', `${t.segLive} ${live.length}`], ['DONE', `${t.segDone} ${done.length}`], ['ALL', t.segAll]].map(([k, l]) => (
                 <button key={k} onClick={() => setSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${seg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
               ))}
@@ -1191,7 +1192,7 @@ export default function FleetPartnerApp() {
 
         {tab === 'fleet' && (
           <>
-            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
+            <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
               {[['TRUCKS', `${t.trucksTab} ${fleet.vehicles?.length ?? 0}`], ['DRIVERS', `${t.driversTab} ${fleet.drivers?.length ?? 0}`]].map(([k, l]) => (
                 <button key={k} onClick={() => setFleetSeg(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${fleetSeg === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>
               ))}

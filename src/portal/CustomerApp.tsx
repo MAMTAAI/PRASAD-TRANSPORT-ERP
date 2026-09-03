@@ -33,6 +33,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '../lib/apiBase';
 import RouteMap from '../lib/RouteMap';
 import PlaceInput from '../lib/PlaceInput';
+import { APP_SHELL, APP_NAV, APP_GRID_2 } from './appShell';
 import { DISPATCH_TEL, DISPATCH_DISPLAY } from '../lib/dispatchContact';
 
 const API = API_BASE;
@@ -194,7 +195,7 @@ const T = {
 };
 
 const FONT = { fontFamily: '"Segoe UI","Nirmala UI",system-ui,-apple-system,Roboto,sans-serif' };
-const SHELL = 'mx-auto flex min-h-screen w-full max-w-md flex-col bg-[#f8fafc] text-slate-900';
+const SHELL = APP_SHELL;
 const CARD = 'rounded-2xl border-2 border-slate-200 bg-white';
 const PILL = {
   IN_TRANSIT: 'bg-blue-100 text-blue-800', LOADED: 'bg-blue-100 text-blue-800', UNLOADING: 'bg-amber-100 text-amber-800',
@@ -352,7 +353,7 @@ export default function CustomerApp() {
     <a href={DISPATCH_TEL} className="block min-h-[46px] rounded-2xl bg-slate-900 py-3 text-center text-[16px] font-extrabold text-white">📞 {t.call}</a>
   );
   const Seg = ({ items, value, onChange }) => (
-    <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px]">
+    <div className="flex gap-1 rounded-xl bg-slate-200 p-[3px] md:col-span-2">
       {items.map(([k, l]) => <button key={k} onClick={() => onChange(k)} className={`min-h-[38px] flex-1 rounded-[10px] px-1 text-[12.5px] font-extrabold ${value === k ? 'bg-white text-slate-900 shadow' : 'text-slate-600'}`}>{l}</button>)}
     </div>
   );
@@ -373,7 +374,7 @@ export default function CustomerApp() {
       ['acct', '👤', t.acct, 0],
     ];
     return (
-      <nav className="fixed bottom-0 left-1/2 z-40 grid w-full max-w-md -translate-x-1/2 grid-cols-5 border-t border-slate-200 bg-white px-1 pb-2.5 pt-1.5">
+      <nav className={`${APP_NAV} grid grid-cols-5 px-1 pb-2.5 pt-1.5`}>
         {items.map(([k, i, l, n]) => (
           <button key={k} onClick={() => { setTab(k); setView({ k: 'tabs' }); }} className={`relative flex min-h-[48px] flex-col items-center gap-0.5 py-1 text-[10.5px] font-extrabold ${tab === k ? 'text-blue-600' : 'text-slate-500'}`}>
             <span className="text-[21px] leading-none">{i}</span>{l}
@@ -551,8 +552,17 @@ export default function CustomerApp() {
         />
       )}
 
-      <div className="flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5">
-        <PreviewNote />
+      {/* On a phone this is a column; from md it becomes a two-up grid so a
+          wide screen shows more of the list instead of more whitespace.
+          `auto-rows-min` keeps a short card from stretching to match a
+          tall neighbour, which is what makes a card grid look broken. */}
+      {/* From md the LIST tabs lay their cards two-up so a wide screen shows
+          more list instead of more whitespace. Home and Account stay a
+          single column: they are a dashboard and a form, and neither reads
+          better cut in half. Anything inside a gridded tab that is not a
+          card — a filter strip, a heading — carries md:col-span-2. */}
+      <div className={`flex flex-1 flex-col gap-2.5 px-3 pb-28 pt-2.5 ${['trips', 'book', 'pod'].includes(tab) ? 'md:grid md:auto-rows-min md:grid-cols-2 md:items-start' : ''}`}>
+        <div className="md:col-span-2"><PreviewNote /></div>
 
         {/* ── HOME ─────────────────────────────────────────────────────── */}
         {tab === 'home' && (

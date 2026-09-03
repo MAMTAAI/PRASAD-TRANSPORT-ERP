@@ -48,7 +48,8 @@ export default function CustomerPreview({ onExit }) {
   const current = (parties ?? []).find((c) => c.id === viewAs);
 
   return (
-    <div style={{ minHeight: '100vh', background: '#020617', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: '#dfe3ea', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }} /* neutral ground: the app inside is light, and near-black around it
+               read as a strip in a void on a monitor (owner, 3-Sep) */>
       <div style={{ position: 'sticky', top: 0, zIndex: 50, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10,
                     padding: '8px 14px', background: '#0b1220', borderBottom: '1px solid #1e293b', fontSize: 12 }}>
         <b style={{ fontSize: 13 }}>Customer App — preview</b>

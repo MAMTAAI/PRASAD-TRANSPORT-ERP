@@ -590,7 +590,7 @@ function AppShell() {
       // 🔥 PREVIEW PORTALS RENDER
       case 'PARTNER_PORTAL_PREVIEW': 
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#dfe3ea', overflowY: 'auto' }}>
             {/* The REAL signed-in Fleet Partner App, scoped read-only to a chosen
                 partner (2026-09-02). FleetPartnerPortal.tsx stays as the
                 pre-login onboarding door only. */}
@@ -599,7 +599,7 @@ function AppShell() {
         );
       case 'CUSTOMER_PORTAL_PREVIEW': 
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#dfe3ea', overflowY: 'auto' }}>
             {/* The REAL signed-in Customer App, scoped read-only to a chosen
                 customer (2026-09-02). The legacy CustomerPortal.tsx stays as
                 the pre-login onboarding door only. */}
@@ -608,13 +608,13 @@ function AppShell() {
         );
       case 'SERVICE_VENDOR_PORTAL_PREVIEW':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#dfe3ea', overflowY: 'auto' }}>
             <ServiceVendorPreview onExit={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
       case 'DRIVER_PORTAL_PREVIEW':
         return (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#020617' }}>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#dfe3ea', overflowY: 'auto' }}>
             <DriverPortal preview onBack={() => handleComponentChange('MASTER_CONTROL_V5')} />
           </div>
         );
