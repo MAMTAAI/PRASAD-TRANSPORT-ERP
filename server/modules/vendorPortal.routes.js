@@ -511,9 +511,22 @@ export function registerVendorPortalRoutes(app) {
 
   app.get('/portal/vendor/documents', { preHandler: needsModule('vend.submit_bill') }, async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
+    // The vendor app (v1, 3-Sep-2026) draws each slip with the truck, the
+    // litres and — once BHUVANESHWARI has read the photo — what OCR saw next to
+    // what the vendor typed. Only the proposal and the score travel; the raw
+    // text stays on the desk.
     const { rows } = await query(
-      `SELECT id, doc_type, file_key, amount, bill_no, bill_date, remarks,
-              status, reject_reason, created_at, reviewed_at
+      `SELECT id, doc_type, file_key, amount, qty, vehicle_no, bill_no, bill_date, remarks,
+              status, reject_reason, created_at, reviewed_at, expense_approval_id,
+              ocr_status,
+              CASE WHEN ocr_status = 'DONE' THEN jsonb_build_object(
+                     'amount',     ocr_data->'suggest'->'amount',
+                     'qty',        ocr_data->'suggest'->'qty',
+                     'vehicle_no', ocr_data->'suggest'->'vehicle_no',
+                     'bill_no',    ocr_data->'suggest'->'bill_no',
+                     'bill_date',  ocr_data->'suggest'->'bill_date',
+                     'score',      ocr_data->'match'->'score')
+                   END AS ocr
          FROM partner_documents
         WHERE vendor_id = $1::uuid
         ORDER BY created_at DESC LIMIT 100`, [req.party.vendorId]);
@@ -536,16 +549,23 @@ export function registerVendorPortalRoutes(app) {
     if (amount !== null && !(Number.isFinite(amount) && amount >= 0)) {
       return reply.code(400).send({ error: 'BAD_AMOUNT' });
     }
+    // qty = litres on a pump slip (the owner's "loading slip", 3-Sep-2026);
+    // optional everywhere else. Milan compares it with what OCR reads.
+    const qty = b.qty == null || b.qty === '' ? null : Number(b.qty);
+    if (qty !== null && !(Number.isFinite(qty) && qty >= 0)) {
+      return reply.code(400).send({ error: 'BAD_QTY', detail: 'litres must be a number' });
+    }
+    const vehicleNo = b.vehicle_no ? String(b.vehicle_no).toUpperCase().replace(/\s+/g, ' ').trim().slice(0, 20) : null;
     const { rows: vend } = await query(
       `SELECT vendor_name FROM vendors WHERE id = $1::uuid`, [req.party.vendorId]);
     const { rows } = await query(
       `INSERT INTO partner_documents
          (uploader_role, vendor_id, uploader_name, doc_type, file_key,
-          vehicle_no, amount, bill_no, bill_date, remarks)
-       VALUES ('VENDOR', $1::uuid, $2, $3, $4, $5, $6, $7, $8::date, $9)
+          vehicle_no, amount, qty, bill_no, bill_date, remarks)
+       VALUES ('VENDOR', $1::uuid, $2, $3, $4, $5, $6, $7, $8, $9::date, $10)
        RETURNING id, doc_type, status, created_at`,
       [req.party.vendorId, vend[0]?.vendor_name ?? 'partner', docType, fileKey,
-       b.vehicle_no ?? null, amount, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
+       vehicleNo, amount, qty, b.bill_no ?? null, b.bill_date || null, b.remarks ?? null]);
     // BHUVANESHWARI reads the paper off the request path (migration 132).
     try {
       await emit('partner.document.submitted', {
@@ -632,6 +652,94 @@ export function registerVendorPortalRoutes(app) {
       detail: 'Bill sent to the Prasad Transport office — it is in the Expenses queue now. '
             + 'You will be told when it is approved and when it is paid.',
     });
+  });
+
+  // ═══ SERVICE VENDOR HOME (vendor app v1, approved 3-Sep-2026) ═══════════
+  // One call paints the home screen: this month's slip and bill counts, the
+  // financial-year money card (bills raised → approved → posted), and — ONLY
+  // when vend.bills is on for this vendor — the payments received and the
+  // running balance. The balance is a per-vendor switch by the owner's rule:
+  // the role matrix is the ceiling and portal_features.bills the per-party
+  // restrictor; a vendor whose switch is off gets ledger = null, not zeros.
+  // Recent trucks feed the chips on the slip form; recent rejections feed the
+  // home banner so a pump owner learns why a slip bounced without a call.
+  app.get('/portal/vendor/summary', { preHandler: needsModule('vend.dashboard') }, async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const vid = req.party.vendorId;
+    const vis = req.visible ?? await visibleModules(req.party);
+    const showLedger = !!vis['vend.bills'];
+
+    const { rows: v } = await query(
+      `SELECT vendor_name, vendor_type, vendor_kind, payment_terms, gst_no, mobile_no, address,
+              is_approved_for_portal, current_balance
+         FROM vendors WHERE id = $1::uuid`, [vid]);
+
+    // Indian financial year: 1 April → 31 March.
+    const FY = `(CASE WHEN extract(month FROM now()) >= 4
+                     THEN make_date(extract(year FROM now())::int, 4, 1)
+                     ELSE make_date(extract(year FROM now())::int - 1, 4, 1) END)`;
+
+    const { rows: [slips] } = await query(`
+      SELECT count(*) FILTER (WHERE created_at >= date_trunc('month', now()))::int AS month,
+             count(*) FILTER (WHERE status = 'PENDING')::int                       AS pending,
+             count(*) FILTER (WHERE status = 'REJECTED')::int                      AS rejected,
+             count(*) FILTER (WHERE status = 'APPROVED')::int                      AS approved
+        FROM partner_documents WHERE vendor_id = $1::uuid AND uploader_role = 'VENDOR'`, [vid]);
+
+    const { rows: [bills] } = await query(`
+      SELECT count(*) FILTER (WHERE created_at >= date_trunc('month', now()))::int AS month,
+             count(*) FILTER (WHERE status = 'PENDING')::int                       AS pending,
+             count(*) FILTER (WHERE status = 'REJECTED')::int                      AS rejected,
+             count(*) FILTER (WHERE status <> 'REJECTED' AND created_at >= ${FY})::int AS fy_count,
+             COALESCE(sum(amount) FILTER (WHERE status <> 'REJECTED' AND created_at >= ${FY}), 0)::numeric(14,2) AS fy_raised,
+             COALESCE(sum(amount) FILTER (WHERE status = 'APPROVED' AND created_at >= ${FY}), 0)::numeric(14,2)  AS fy_approved,
+             COALESCE(sum(amount) FILTER (WHERE voucher_id IS NOT NULL AND created_at >= ${FY}), 0)::numeric(14,2) AS fy_posted
+        FROM expense_approvals WHERE vendor_id = $1::uuid`, [vid]);
+
+    let ledger = null;
+    if (showLedger) {
+      const { rows: [t] } = await query(`
+        SELECT COALESCE(sum(amount) FILTER (WHERE txn_type = 'PAYMENT_GIVEN' AND approval_status = 'APPROVED' AND txn_date >= ${FY}), 0)::numeric(14,2) AS fy_paid,
+               COALESCE(sum(amount) FILTER (WHERE txn_type = 'BILL_RECEIVED' AND approval_status = 'APPROVED' AND txn_date >= ${FY}), 0)::numeric(14,2) AS fy_billed,
+               count(*) FILTER (WHERE txn_type = 'PAYMENT_GIVEN' AND approval_status = 'APPROVED' AND txn_date >= ${FY})::int AS fy_payments
+          FROM vendor_txns WHERE vendor_id = $1::uuid`, [vid]);
+      const { rows: last } = await query(`
+        SELECT txn_date, amount, payment_mode, remarks
+          FROM vendor_txns
+         WHERE vendor_id = $1::uuid AND txn_type = 'PAYMENT_GIVEN' AND approval_status = 'APPROVED'
+         ORDER BY txn_date DESC NULLS LAST, created_at DESC LIMIT 1`, [vid]);
+      ledger = { ...t, last_payment: last[0] ?? null, current_balance: v[0]?.current_balance ?? '0.00' };
+    }
+
+    const { rows: trucks } = await query(`
+      SELECT vehicle_no FROM (
+        SELECT vehicle_no, max(created_at) AS at FROM partner_documents
+         WHERE vendor_id = $1::uuid AND vehicle_no IS NOT NULL AND vehicle_no <> '' GROUP BY 1
+        UNION ALL
+        SELECT vehicle_no, max(created_at) FROM expense_approvals
+         WHERE vendor_id = $1::uuid AND vehicle_no IS NOT NULL AND vehicle_no <> '' GROUP BY 1) x
+       GROUP BY vehicle_no ORDER BY max(at) DESC LIMIT 6`, [vid]);
+
+    const { rows: notices } = await query(`
+      SELECT * FROM (
+        SELECT 'SLIP' AS kind, doc_type AS what, reject_reason AS reason, reviewed_at AS at, amount
+          FROM partner_documents WHERE vendor_id = $1::uuid AND status = 'REJECTED' AND reviewed_at > now() - interval '30 days'
+        UNION ALL
+        SELECT 'BILL', expense_type, COALESCE(reject_reason, rejection_reason), approved_at, amount
+          FROM expense_approvals WHERE vendor_id = $1::uuid AND status = 'REJECTED' AND approved_at > now() - interval '30 days') n
+       ORDER BY at DESC NULLS LAST LIMIT 3`, [vid]);
+
+    const d = new Date(); const fyY = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+    return {
+      vendor: v[0] ? {
+        name: v[0].vendor_name, vendor_type: v[0].vendor_type, vendor_kind: v[0].vendor_kind,
+        payment_terms: v[0].payment_terms, gst_no: v[0].gst_no, mobile_no: v[0].mobile_no, address: v[0].address,
+      } : null,
+      slips, bills, ledger, ledger_visible: showLedger,
+      recent_vehicles: trucks.map((r) => r.vehicle_no),
+      notices,
+      fy_label: `FY ${String(fyY).slice(2)}-${String(fyY + 1).slice(2)}`,
+    };
   });
 
   app.get('/portal/vendor/earnings', { preHandler: needsModule('vend.dashboard') }, async (req, reply) => {

@@ -104,8 +104,11 @@ function Router() {
       )}
       {role === 'VENDOR' && (
         <ProtectedRoute allowedRoles={['VENDOR']} onDenied={refresh}>
-          <VendorGate />
-          {exit}
+          {/* The Service Vendor app (v1, 3-Sep-2026) is light, full-bleed and
+              carries its own Logout under Account — the floating sign-out
+              would sit on its bottom nav. VendorGate keeps it for the Fleet
+              Partner app, which still relies on it. */}
+          <VendorGate exit={exit} />
         </ProtectedRoute>
       )}
     </Suspense>

@@ -296,10 +296,11 @@ export function registerPortalRoutes(app) {
     if (isDegraded()) return dbGate(reply);
     const limit = pageSize(req.query?.limit);
     const { rows } = await query(
-      `SELECT txn_date, txn_type, amount, payment_mode, remarks
+      `SELECT id, txn_date, txn_type, amount, payment_mode, remarks,
+              approval_status, (voucher_id IS NOT NULL) AS posted
          FROM vendor_txns
         WHERE vendor_id = $1::uuid
-        ORDER BY txn_date DESC NULLS LAST
+        ORDER BY txn_date DESC NULLS LAST, created_at DESC
         LIMIT $2`, [req.party.vendorId, limit]);
     const { rows: bal } = await query(
       'SELECT current_balance FROM vendors WHERE id = $1::uuid', [req.party.vendorId]);

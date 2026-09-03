@@ -160,6 +160,15 @@ export async function uploadMedia(
   const result = await new Promise<UploadResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${API}/api/v1/files`);
+    // The bearer has to be set HERE. authFetch.ts wraps window.fetch and adds
+    // it to every ERP call, but this is XHR (for upload progress) and the
+    // wrapper never sees it — every upload went out anonymous and the server
+    // answered 401 (found 3-Sep-2026 boot-testing the vendor app: 39 × 401 on
+    // POST /files in two days of production logs, zero driver photos since the
+    // driver app v4 release). Staff and portal sessions keep the token under
+    // prasad_token; the driver app also keeps its own copy.
+    const token = localStorage.getItem('prasad_token') || localStorage.getItem('prasad_driver_token');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgress?.(Math.round((e.loaded / e.total) * 100));
     };
