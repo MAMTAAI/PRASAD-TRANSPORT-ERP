@@ -170,10 +170,49 @@ export async function getDistanceMatrix(origins, destinations) {
 }
 
 // ── Geocode, for markers on an address the ERP only holds as text ──────────
+// A GEOCODE THAT LANDS ON THE WHOLE COUNTRY IS NOT AN ANSWER.
+//
+// Depot names here are codes — "2377", "P2663 - CHAMPARAN LPG PLANT". Ask
+// Google for "2377, India" and it cheerfully returns India: types ['country'],
+// centre 20.5937, 78.9629. Taking results[0] blindly then hands the map a real
+// pair of coordinates, so nothing downstream can tell it apart from a depot —
+// and fitBounds over (centre of India ∪ Guwahati) frames the subcontinent.
+// That is the "world ka map show ho rahi hai" the owner reported.
+//
+// Two guards, because one is not enough:
+//   1. TYPES, for fresh lookups: country / state / district level is refused.
+//   2. THE CENTROID, for rows already sitting in maps_cache from before this
+//      check existed. Anything within ~1 km of 20.5937,78.9629 is that
+//      fallback, not a plant, whatever the cache says.
+// Refusing is the useful answer: the map then draws nothing for that end and
+// says the name was not recognised, instead of planting a pin in Maharashtra.
+const INDIA_CENTROID = { lat: 20.5937, lng: 78.9629 };
+const TOO_COARSE_TYPES = new Set([
+  'country', 'administrative_area_level_1', 'administrative_area_level_2', 'political',
+]);
+
+function coarseReason(payload, types) {
+  if (payload.lat == null || payload.lng == null) return 'ZERO_RESULTS';
+  if (Math.abs(payload.lat - INDIA_CENTROID.lat) < 0.01
+   && Math.abs(payload.lng - INDIA_CENTROID.lng) < 0.01) return 'TOO_COARSE';
+  // 'political' alone is a country/state marker; it also tags real localities,
+  // so it only disqualifies when nothing more specific came back with it.
+  if (Array.isArray(types) && types.length
+      && types.every((t) => TOO_COARSE_TYPES.has(t))) return 'TOO_COARSE';
+  return null;
+}
+
 export async function geocode(address) {
   if (!norm(address)) return { ok: false, reason: 'BAD_INPUT' };
   const hit = await readCache('GEOCODE', address, '');
-  if (hit) return { ok: true, cached: true, ...hit.payload };
+  if (hit) {
+    const bad = coarseReason(hit.payload, hit.payload?.types);
+    if (bad) {
+      return { ok: false, reason: bad, cached: true,
+               detail: `"${address}" only resolves to ${hit.payload?.formatted ?? 'a whole region'} — too coarse to put on a map` };
+    }
+    return { ok: true, cached: true, ...hit.payload };
+  }
 
   const res = await call('/geocode/json', { address, region: 'in' });
   if (!res.ok) return res;
@@ -183,7 +222,17 @@ export async function geocode(address) {
     lat: g.geometry?.location?.lat ?? null,
     lng: g.geometry?.location?.lng ?? null,
     formatted: g.formatted_address ?? null,
+    // Kept so the guard above can judge a CACHED row on the same evidence as a
+    // fresh one, instead of re-asking Google to find out what it already said.
+    types: Array.isArray(g.types) ? g.types : null,
   };
+  const bad = coarseReason(payload, payload.types);
+  // Still cached — a refusal is worth remembering too, or every map click
+  // re-asks Google the same unanswerable question and pays for it.
   await writeCache('GEOCODE', address, '', payload, null, null);
+  if (bad) {
+    return { ok: false, reason: bad,
+             detail: `"${address}" only resolves to ${payload.formatted ?? 'a whole region'} — too coarse to put on a map` };
+  }
   return { ok: true, cached: false, ...payload };
 }

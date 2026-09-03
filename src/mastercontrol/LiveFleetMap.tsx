@@ -428,11 +428,32 @@ export default function LiveFleetMap() {
     setFocusNote('Route dekha ja raha hai…');
 
     (async () => {
-      const g = await loadGoogleMaps();
-      const r = await getRoute(trip.loading_point, trip.destination);
+      // `?? window.google` is belt-and-braces. The loader now resolves with the
+      // namespace, but this line is the one that broke click-to-zoom for a
+      // whole day, and every other map in the app reads window.google directly.
+      // If the loader's contract ever changes back, the camera still works.
+      const g = (await loadGoogleMaps()) ?? window.google;
+
+      // ONE SERVER CALL FOR THE WHOLE LANE, not a browser geocode per click.
+      // /maps/trip/:id/route returns the geocoded ORIGIN and DESTINATION as
+      // well as the road polyline, all served from maps_cache after the first
+      // fetch. That distinction is the fix the owner asked for: the endpoints
+      // resolve even when the road does not, so the camera can always frame
+      // loading → unloading instead of leaving the map on the world view.
+      // (The trip tracker already reads this endpoint; the dispatch board was
+      // geocoding in the browser and getting nothing back for these depots.)
+      const lane = await fetch(`${API_BASE}/api/v1/maps/trip/${trip.id}/route`)
+        .then((x) => (x.ok ? x.json() : null)).catch(() => null);
       if (dead) return;
 
-      const path = r?.polyline ? g.maps.geometry.encoding.decodePath(r.polyline) : null;
+      // decodePath lives in the `geometry` library. It is requested in the SDK
+      // URL, but optional chaining here means a library that failed to load
+      // costs us the polyline — not the whole camera move, which is the part
+      // the desk actually needs.
+      const encoded = lane?.route?.polyline ?? null;
+      const path = encoded
+        ? (g?.maps?.geometry?.encoding?.decodePath?.(encoded) ?? null)
+        : null;
       const pts = [];
       const mk = (pos, color, title) => new g.maps.Marker({
         map: mapRef.current, position: pos, title,
@@ -444,22 +465,39 @@ export default function LiveFleetMap() {
         focusRef.current.line = new g.maps.Polyline({
           map: mapRef.current, path, strokeColor: '#22d3ee', strokeOpacity: 0.75, strokeWeight: 4,
         });
-        focusRef.current.marks.push(mk(path[0], '#22d3ee', `Loading: ${trip.loading_point}`));
-        focusRef.current.marks.push(mk(path[path.length - 1], '#ffb224', `Unloading: ${trip.destination}`));
         pts.push(...path);
+      }
+
+      // THE TWO ENDS, drawn from the geocoder rather than from the polyline, so
+      // a lane with no drivable route still gets its pins and its bounding box.
+      // No straight line is drawn between them — an invented line would imply a
+      // road that is not there, which is the same rule the polyline follows.
+      const o = lane?.origin, d = lane?.destination;
+      if (o && Number.isFinite(Number(o.lat))) {
+        const at = { lat: Number(o.lat), lng: Number(o.lng) };
+        focusRef.current.marks.push(mk(at, '#22d3ee', `Loading: ${o.label ?? trip.loading_point}`));
+        pts.push(at);
+      }
+      if (d && Number.isFinite(Number(d.lat))) {
+        const at = { lat: Number(d.lat), lng: Number(d.lng) };
+        focusRef.current.marks.push(mk(at, '#ffb224', `Unloading: ${d.label ?? trip.destination}`));
+        pts.push(at);
       }
 
       // A truck is drawn ONLY with a real fix — the same rule the fleet view
       // follows. A pin at the origin "for now" reads as "the lorry is still at
       // the refinery", which is a statement nobody has the data to make.
-      if (trip.lat != null && trip.lng != null) {
-        const at = { lat: Number(trip.lat), lng: Number(trip.lng) };
-        focusRef.current.marks.push(mk(at, '#2fe39b', `${trip.vehicle_no} — ${trip.source ?? 'fix'}`));
+      const fix = (trip.lat != null && trip.lng != null)
+        ? { lat: Number(trip.lat), lng: Number(trip.lng), source: trip.source }
+        : (lane?.truck && Number.isFinite(Number(lane.truck.lat)) ? lane.truck : null);
+      if (fix) {
+        const at = { lat: Number(fix.lat), lng: Number(fix.lng) };
+        focusRef.current.marks.push(mk(at, '#2fe39b', `${trip.vehicle_no} — ${fix.source ?? 'fix'}`));
         pts.push(at);
       }
 
       if (!pts.length) {
-        setFocusNote(`${trip.vehicle_no}: "${trip.loading_point ?? '?'}" se "${trip.destination ?? '?'}" ka rasta nahi mila — naam se jagah nahi pehchani gayi.`);
+        setFocusNote(`${trip.vehicle_no}: "${trip.loading_point ?? '?'}" se "${trip.destination ?? '?'}" — dono jagah ka naam Google se nahi mila, isliye map par nahi dikha sakte.`);
         return;
       }
 
@@ -469,10 +507,11 @@ export default function LiveFleetMap() {
       if (pts.length === 1) { mapRef.current.setCenter(pts[0]); mapRef.current.setZoom(11); }
       else mapRef.current.fitBounds(b, 56);
 
-      const km = r?.distance_m ? ` · ${Math.round(r.distance_m / 1000)} km` : '';
+      const km = lane?.route?.distance_km ? ` · ${Math.round(lane.route.distance_km)} km` : '';
       setFocusNote(
         `${trip.vehicle_no} · ${trip.loading_point ?? '?'} → ${trip.destination ?? '?'}${km}`
-        + (trip.lat == null ? ' · abhi koi GPS fix nahi, sirf route dikhaya hai' : ` · fix ${trip.source ?? ''}`));
+        + (!path ? ' · sadak ka rasta nahi mila, sirf dono point dikhaye hain' : '')
+        + (!fix ? ' · abhi koi GPS fix nahi' : ` · fix ${fix.source ?? ''}`));
 
       // ── STEP B — telematics ON TOP of the route, never instead of it ───────
       // Deliberately after the camera has settled: the route is what makes the

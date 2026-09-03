@@ -5,18 +5,45 @@
 
 const API_KEY = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || '';
 
-let loadPromise: Promise<void> | null = null;
+let loadPromise: Promise<any> | null = null;
 
-/** Lazy-load the Maps JS SDK exactly once. */
-export function loadGoogleMaps(): Promise<void> {
+/**
+ * Lazy-load the Maps JS SDK exactly once, and RESOLVE WITH THE `google`
+ * NAMESPACE.
+ *
+ * IT USED TO RESOLVE WITH NOTHING, and that broke click-to-zoom on the
+ * dispatch board (owner, 3-Sep-2026: "click karne par zoom nahi hoti, balki
+ * world ka map show ho rahi hai"). Every other caller happens to write
+ *
+ *     await loadGoogleMaps(); const g = (window as any).google;
+ *
+ * and so never noticed. LiveFleetMap's trip-focus effect — the one that draws
+ * the loading→unloading route and then calls fitBounds — wrote the natural
+ * thing instead:
+ *
+ *     const g = await loadGoogleMaps();   // undefined
+ *     g.maps.geometry...                  // TypeError: reading 'maps'
+ *
+ * It threw on the first line that touched `g`, so it never reached fitBounds,
+ * and the camera stayed on the world view it was built with. The board still
+ * LOOKED fine — tiles, markers and truck rows all come from code paths that
+ * read window.google directly — so the failure was visible only as a small
+ * "Route nahi bana" note under the trip list.
+ *
+ * Returning the namespace makes `const g = await loadGoogleMaps()` correct,
+ * costs the existing `.then(() => …)` callers nothing, and removes the trap
+ * for the next person who writes the obvious thing.
+ */
+export function loadGoogleMaps(): Promise<any> {
   if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
-  if ((window as any).google?.maps?.DirectionsService) return Promise.resolve();
+  const ready = () => (window as any).google;
+  if ((window as any).google?.maps?.DirectionsService) return Promise.resolve(ready());
   if (loadPromise) return loadPromise;
   if (!API_KEY) return Promise.reject(new Error('Google Maps API key missing (VITE_GOOGLE_MAPS_API_KEY)'));
 
-  loadPromise = new Promise<void>((resolve, reject) => {
+  loadPromise = new Promise<any>((resolve, reject) => {
     const existing = document.getElementById('gmaps-sdk') as HTMLScriptElement | null;
-    if (existing) { existing.addEventListener('load', () => resolve()); return; }
+    if (existing) { existing.addEventListener('load', () => resolve(ready())); return; }
     const s = document.createElement('script');
     s.id = 'gmaps-sdk';
     // `geometry` is required for encoding.decodePath — the dispatch map draws
@@ -40,7 +67,7 @@ export function loadGoogleMaps(): Promise<void> {
     s.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=geometry,places`;
     s.async = true;
     s.defer = true;
-    s.onload = () => resolve();
+    s.onload = () => resolve(ready());
     s.onerror = () => reject(new Error('Failed to load Google Maps SDK'));
     document.head.appendChild(s);
   });
