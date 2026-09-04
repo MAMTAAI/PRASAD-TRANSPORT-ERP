@@ -161,6 +161,22 @@ export async function registerOpsRoutes(app) {
                COALESCE(d.given, 0)::numeric(14,2)        AS driver_advances,
                COALESCE(d.net, 0)::numeric(14,2)          AS driver_net,
                COALESCE(tl.toll_amount, 0)::numeric(14,2) AS toll_amount,
+               -- ROUND TRIP OR ONE SIDE, ANSWERED BY THE REGISTER (owner, 4-Sep).
+               -- Oil-company work returns and pays its tolls twice; a MARKET
+               -- vehicle runs the owner's side once. Leaving that to a switch
+               -- somebody remembers to flip on every market trip is the same as
+               -- not implementing the rule, so it is derived here and
+               -- trips.trip_leg_kind stays the OVERRIDE rather than the input.
+               --
+               -- Matched on the registration with spacing and case removed:
+               -- "AS 26C 9804" and "AS26C9804" are one lorry, and the two
+               -- tables are typed by different people.
+               EXISTS (
+                 SELECT 1 FROM market_vehicles mv
+                  WHERE regexp_replace(upper(mv.registration_no), '[^A-Z0-9]', '', 'g')
+                      = regexp_replace(upper(COALESCE(t.vehicle_no, '')), '[^A-Z0-9]', '', 'g')
+                    AND COALESCE(t.vehicle_no, '') <> ''
+               )                                          AS is_market_vehicle,
                b.bill_no
           FROM trips t
           LEFT JOIN LATERAL (
@@ -230,7 +246,18 @@ export async function registerOpsRoutes(app) {
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
       const [trip, fuel, txns, tolls] = await Promise.all([
-        query('SELECT * FROM trips WHERE id = $1::uuid', [req.params.id]),
+        // is_market_vehicle mirrors the list query above — the tracking sheet
+        // re-reads one trip after a GPS refresh and would otherwise lose the
+        // flag, silently flipping a market trip back to ROUND and doubling its
+        // toll on screen.
+        query(`SELECT t.*,
+                      EXISTS (
+                        SELECT 1 FROM market_vehicles mv
+                         WHERE regexp_replace(upper(mv.registration_no), '[^A-Z0-9]', '', 'g')
+                             = regexp_replace(upper(COALESCE(t.vehicle_no, '')), '[^A-Z0-9]', '', 'g')
+                           AND COALESCE(t.vehicle_no, '') <> ''
+                      ) AS is_market_vehicle
+                 FROM trips t WHERE t.id = $1::uuid`, [req.params.id]),
         query(`SELECT id, entry_date, vehicle_no, memo_no, fuel_type, liters, rate, amount,
                       cash_given_to_pump, vendor_name, vendor_id, bill_status
                  FROM fuel_entries WHERE trip_id = $1::uuid ORDER BY entry_date, created_at`, [req.params.id]),

@@ -1195,15 +1195,36 @@ export default function TripManagment() {
                       </span>
                     )}
 
+                    {/* WHAT HAS ACTUALLY BEEN CHARGED, next to what we expect.
+                        The estimate is the road; this is FASTag. Two numbers
+                        side by side is how a wrong estimate gets noticed —
+                        and how a toll nobody expected gets questioned. */}
+                    {Number(activeTrip.toll_amount) > 0 && (
+                      <span style={{ color: '#c4d1ea', fontSize: '12px' }}>
+                        · अब तक कटा <b style={{ color: '#2fe39b' }}>₹{Number(activeTrip.toll_amount).toLocaleString('en-IN')}</b>
+                      </span>
+                    )}
+
                     {/* ROUND vs ONE WAY. Oil-company trips return and pay again;
-                        a market vehicle runs one side. Saved on the trip. */}
-                    <div style={{ marginLeft: 'auto', display: 'flex', border: '1px solid #27395f', borderRadius: '7px', overflow: 'hidden' }}>
+                        a market vehicle runs one side. Derived from the vehicle
+                        (is_market_vehicle) unless dispatch has said otherwise;
+                        what they choose is saved on the trip. */}
+                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ color: '#5d7196', fontSize: '10px' }} title="Yeh kaise decide hua">
+                        {activeTrip.trip_leg_kind || legOverride
+                          ? 'आपने चुना'
+                          : activeTrip.is_market_vehicle
+                            ? 'market gaadi'
+                            : 'oil company'}
+                      </span>
+                      <div style={{ display: 'flex', border: '1px solid #27395f', borderRadius: '7px', overflow: 'hidden' }}>
                       {[['ROUND', 'आना-जाना'], ['ONE_WAY', 'एक तरफ़']].map(([k, label]) => (
                         <button key={k} onClick={() => setLegKind(k)}
                           style={{ padding: '5px 11px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
                                    background: legKind === k ? '#ffb224' : 'transparent',
                                    color: legKind === k ? '#121c38' : '#9aadd4' }}>{label}</button>
                       ))}
+                      </div>
                     </div>
                   </div>
 
