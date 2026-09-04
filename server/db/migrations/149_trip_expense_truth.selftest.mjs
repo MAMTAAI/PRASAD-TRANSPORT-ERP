@@ -224,6 +224,29 @@ try {
     `SELECT amount::float8 FROM v_trip_expense_audit WHERE finding = 'FUEL_TWICE'`);
   check('a fuel bill on a trip that has fuel slips is raised', dup.map((r) => r.amount), [40000]);
 
+  console.log('\nTWO TRIPS OF ONE LORRY OPEN ON THE SAME DAY');
+  // The toll importer matches on vehicle + date window with LIMIT 1. When two
+  // windows overlap, one of them was picked and nothing recorded that there was
+  // a choice — and the vehicle guard cannot see it, because both trips are the
+  // same lorry. This is the finding that puts that coin flip in front of a person.
+  const { rows: [C] } = await db.query(`
+    INSERT INTO trips (trip_code, vehicle_no, status, loading_date, unloading_date, freight_amount)
+    VALUES ('PT003', 'AS 26C 9804', 'IN_TRANSIT', '2026-08-02', '2026-08-06', 70000) RETURNING id`);
+  await db.query(`INSERT INTO toll_transactions (trip_id, vehicle_no, plaza_name, amount, txn_date)
+                  VALUES ($1, 'AS 26C 9804', 'Overlap Plaza', 300, '2026-08-03')`, [C.id]);
+  const { rows: amb } = await db.query(
+    `SELECT amount::float8, detail FROM v_trip_expense_audit
+      WHERE finding = 'AMBIGUOUS_TRIP_WINDOW' ORDER BY amount`);
+  check('an overlapping-window expense is raised', amb.some((r) => r.amount === 300), true);
+  check('and the other candidate is named',
+        /PT001/.test(amb.find((r) => r.amount === 300)?.detail ?? ''), true);
+  // A lorry with only one trip open must NOT be flagged. A report that cries
+  // wolf on every row is a report nobody opens.
+  const { rows: [solo] } = await db.query(
+    `SELECT count(*)::int AS n FROM v_trip_expense_audit
+      WHERE finding = 'AMBIGUOUS_TRIP_WINDOW' AND trip_id = $1`, [B.id]);
+  check('a lorry with one open trip is not flagged', solo.n, 0);
+
   console.log('\nRE-RUNNABLE');
   const before = (await db.query('SELECT count(*)::int n FROM v_trip_expense_audit')).rows[0].n;
   await db.query(SQL);

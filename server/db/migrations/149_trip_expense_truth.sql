@@ -279,6 +279,33 @@ SELECT 'FUEL_TWICE', 'BILL', e.id, e.trip_id, t.trip_code, e.vehicle_no, 'HSD',
    AND EXISTS (SELECT 1 FROM fuel_entries f WHERE f.trip_id = e.trip_id AND COALESCE(f.amount,0) > 0)
 
 UNION ALL
+-- A COIN FLIP THAT ALREADY HAPPENED.
+--
+-- tollImport matches a crossing to a trip with
+--   WHERE vehicle_id = $1 AND $2 BETWEEN loading_date AND COALESCE(unloading_date, loading_date + 15)
+--   ORDER BY loading_date DESC LIMIT 1
+-- and the dispatch board shows lorries with two trips open at once. When two
+-- windows for the SAME lorry contain the same day, that LIMIT 1 picked one of
+-- them and nothing recorded that there was a choice. The vehicle guard cannot
+-- catch this — both trips are the same lorry — so it is raised here instead,
+-- with the other candidate named so a person can move it if it went to the
+-- wrong one.
+SELECT 'AMBIGUOUS_TRIP_WINDOW', l.source, l.source_id, l.trip_id, t.trip_code,
+       l.vehicle_no, l.expense_type, l.amount, l.dated,
+       format('%s trips of %s were open on %s (%s) — this was matched to %s automatically',
+              c.n, t.vehicle_no, l.dated, c.codes, t.trip_code)
+  FROM v_trip_expense_lines l
+  JOIN trips t ON t.id = l.trip_id
+  JOIN LATERAL (
+    SELECT count(*)::int AS n, string_agg(o.trip_code, ', ' ORDER BY o.loading_date) AS codes
+      FROM trips o
+     WHERE reg_key(o.vehicle_no) = reg_key(t.vehicle_no)
+       AND o.loading_date IS NOT NULL
+       AND l.dated BETWEEN o.loading_date AND COALESCE(o.unloading_date, o.loading_date + 15)
+  ) c ON c.n > 1
+ WHERE l.kind = 'EXPENSE' AND l.dated IS NOT NULL AND t.loading_date IS NOT NULL
+
+UNION ALL
 -- The cache against the registers. Where these disagree, one of the screens
 -- reading the cache is showing a number nothing can explain.
 SELECT 'STORED_DRIFT', 'TRIP', p.trip_id, p.trip_id, p.trip_code, p.vehicle_no,

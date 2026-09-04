@@ -360,6 +360,7 @@ export async function registerOpsRoutes(app) {
           WRONG_VEHICLE: "expense filed on a trip that ran a different lorry",
           DATE_OUTSIDE_TRIP: 'bill dated outside the trip it is attached to',
           FUEL_TWICE: 'an approved FUEL bill on a trip that also has fuel slips',
+          AMBIGUOUS_TRIP_WINDOW: 'the same lorry had two trips open that day — the match was automatic, check it went to the right one',
           STORED_DRIFT: 'trips.total_expense disagrees with the registers',
         },
       };
