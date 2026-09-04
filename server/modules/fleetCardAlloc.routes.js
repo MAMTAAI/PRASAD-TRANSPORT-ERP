@@ -28,8 +28,11 @@ export async function registerFleetCardAllocationRoutes(app) {
       vehicle:  { type: ['string', 'null'], maxLength: 20 },
       from:     { type: ['string', 'null'], format: 'date' },
       to:       { type: ['string', 'null'], format: 'date' },
-      limit:    { type: 'integer', minimum: 1, maximum: 1000, default: 200 },
+      limit:    { type: 'integer', minimum: 1, maximum: 1000, default: 10 },
       offset:   { type: 'integer', minimum: 0, default: 0 },
+      search:   { type: ['string', 'null'], maxLength: 60 },
+      sort:     { type: ['string', 'null'], maxLength: 20 },
+      dir:      { type: ['string', 'null'], enum: ['asc', 'desc', null] },
     } } } },
     async (req, reply) => {
       if (isDegraded()) return dbGate(reply);
@@ -43,13 +46,38 @@ export async function registerFleetCardAllocationRoutes(app) {
       if (q.vehicle)  add('reg_key(COALESCE(vehicle_no, vehicle_raw)) = reg_key(?)', q.vehicle);
       if (q.from)     add('txn_date >= ?::date', q.from);
       if (q.to)       add('txn_date <= ?::date', q.to);
+      // Free text over the columns a clerk actually squints at. Server-side so
+      // it searches the whole queue, not the ten rows the page is holding.
+      if (q.search) {
+        p.push(`%${q.search.trim()}%`);
+        where.push(`(COALESCE(vehicle_no,'') ILIKE $${p.length}
+                  OR COALESCE(vehicle_raw,'') ILIKE $${p.length}
+                  OR COALESCE(merchant_name,'') ILIKE $${p.length}
+                  OR COALESCE(account_no,'') ILIKE $${p.length})`);
+      }
       const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+      // SORT COLUMNS ARE WHITELISTED, never interpolated from the request. The
+      // sort key arrives from a clickable header, and a header is still user
+      // input — an ORDER BY built from a string is a SQL injection with extra
+      // steps.
+      const SORTABLE = {
+        txn_date: 'txn_date', amount: 'amount', unallocated: 'unallocated',
+        quantity: 'quantity', vehicle: 'COALESCE(vehicle_no, vehicle_raw)',
+        merchant: 'merchant_name', reason: 'reason',
+      };
+      const col = SORTABLE[q.sort] ?? 'txn_date';
+      const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+      // Newest first is the default the owner asked for, and the second key
+      // keeps paging stable when many swipes share a date — without it, rows
+      // shuffle between page 1 and page 2 and a clerk sees the same swipe twice.
+      const order = `${col} ${dir} NULLS LAST, txn_date DESC, txn_id`;
 
       const { rows } = await query(
         `SELECT * FROM v_fleet_card_unallocated ${clause}
-          ORDER BY txn_date DESC, unallocated DESC
+          ORDER BY ${order}
           LIMIT $${p.length + 1} OFFSET $${p.length + 2}`,
-        [...p, q.limit ?? 200, q.offset ?? 0]);
+        [...p, q.limit ?? 10, q.offset ?? 0]);
 
       // The totals cover the WHOLE filtered set, not the page. A queue that
       // says "200 waiting" when 995 are waiting is worse than no number.
@@ -57,12 +85,49 @@ export async function registerFleetCardAllocationRoutes(app) {
         `SELECT count(*)::int rows, COALESCE(sum(unallocated),0)::numeric(16,2) amount
            FROM v_fleet_card_unallocated ${clause}`, p);
 
+      // The reason chips count the queue WITHOUT the reason filter — otherwise
+      // clicking "15-din bill settlement" makes every other chip read (0) and
+      // the clerk cannot see what else is waiting or click back out to it.
+      const chipWhere = [];
+      const cp = [];
+      const cadd = (sql, val) => { cp.push(val); chipWhere.push(sql.replace('?', `$${cp.length}`)); };
+      if (q.provider) cadd('provider = ?', q.provider);
+      if (q.company)  cadd('operating_company = ?', q.company);
+      if (q.vehicle)  cadd('reg_key(COALESCE(vehicle_no, vehicle_raw)) = reg_key(?)', q.vehicle);
+      if (q.from)     cadd('txn_date >= ?::date', q.from);
+      if (q.to)       cadd('txn_date <= ?::date', q.to);
+      if (q.search) {
+        cp.push(`%${q.search.trim()}%`);
+        chipWhere.push(`(COALESCE(vehicle_no,'') ILIKE $${cp.length}
+                      OR COALESCE(vehicle_raw,'') ILIKE $${cp.length}
+                      OR COALESCE(merchant_name,'') ILIKE $${cp.length}
+                      OR COALESCE(account_no,'') ILIKE $${cp.length})`);
+      }
+      const chipClause = chipWhere.length ? `WHERE ${chipWhere.join(' AND ')}` : '';
+
       const { rows: byReason } = await query(
         `SELECT reason, count(*)::int rows, sum(unallocated)::numeric(16,2) amount
-           FROM v_fleet_card_unallocated ${clause}
-          GROUP BY reason ORDER BY 3 DESC`, p);
+           FROM v_fleet_card_unallocated ${chipClause}
+          GROUP BY reason ORDER BY 3 DESC`, cp);
 
-      return { queue: rows, total: tot, by_reason: byReason, shown: rows.length };
+      const { rows: [all] } = await query(
+        `SELECT count(*)::int rows, COALESCE(sum(unallocated),0)::numeric(16,2) amount
+           FROM v_fleet_card_unallocated ${chipClause}`, cp);
+
+      return {
+        queue: rows,
+        total: tot,            // matches the filters actually applied
+        unfiltered: all,       // the same set before the reason chip
+        by_reason: byReason,
+        shown: rows.length,
+        page: {
+          limit: q.limit ?? 10,
+          offset: q.offset ?? 0,
+          pages: Math.max(1, Math.ceil(Number(tot.rows) / (q.limit ?? 10))),
+          sort: q.sort ?? 'txn_date',
+          dir: q.dir ?? 'desc',
+        },
+      };
     }
   );
 
