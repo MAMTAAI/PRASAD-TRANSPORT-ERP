@@ -47,6 +47,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './maps';
 import { placeOf, routeAppUrl } from './tripPlaces';
+import { plazasOnRoute, tollTotals } from './tollRoute.mjs';
 
 // Night styling, matched to the ERP shell. Roads and water only: a dispatch map
 // is read at a glance and POI pins, transit lines and business labels are noise
@@ -96,6 +97,7 @@ const truckIcon = (heading = 0) => ({
   anchor: { x: 0, y: 0 },
 });
 
+// A FASTag crossing — where the lorry demonstrably WAS.
 const tollIcon = {
   path: 0, // SymbolPath.CIRCLE
   fillColor: '#ffb224',
@@ -104,6 +106,31 @@ const tollIcon = {
   strokeWeight: 2,
   scale: 6.5,
 };
+
+// A toll GATE on the road ahead — what the trip will PAY. Deliberately a
+// different shape from the crossing above: one is a fact about the past and the
+// other is an estimate about the future, and a dispatcher reading the map at a
+// glance must never confuse the two. Green once the lorry has passed it.
+// A PILL, NOT A DOT, because the rate is written INSIDE it — that is the whole
+// point of the owner's "toll gate rate ke saath". A 14px square clipped "₹210"
+// to "21", which is a wrong number rather than a small one. Sized for the
+// widest realistic rate (₹1,250) so nothing has to be truncated.
+const GATE = 'M -21 -9 L 21 -9 L 21 9 L -21 9 Z';
+const gateIcon = (crossed: boolean, known: boolean) => ({
+  path: GATE,
+  fillColor: crossed ? '#2fe39b' : (known ? '#ffb224' : '#64748b'),
+  fillOpacity: 1,
+  strokeColor: '#0a1024',
+  strokeWeight: 2,
+  scale: 1,
+  labelOrigin: { x: 0, y: 0 },
+});
+
+/** The same normalisation toll_plaza_key() uses in the database, so a crossing
+ *  and the gate it happened at are recognised as one place on both sides. */
+const plazaKey = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '') || null;
+
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 const num = (v: unknown) => {
   const n = Number(v);
@@ -137,6 +164,9 @@ export default function TripRouteMap({
   height = '100%',
   focus = 'ROUTE',      // 'ROUTE' | 'TRUCK' — which one the camera opens on
   onRoute,              // (info) => void; parent gets km / duration once resolved
+  plazaMaster = [],     // toll_plazas — every gate we know, with its rate
+  roundTrip = true,     // oil company work returns; a market vehicle runs one side
+  onGates,              // (gates, totals) => void — the parent draws the editable list
 }) {
   const box = useRef(null);
   const map = useRef(null);
@@ -150,6 +180,8 @@ export default function TripRouteMap({
   const [detail, setDetail] = useState('');
   const [route, setRoute] = useState(null);        // { bounds, distance_m, duration_s, summary, start, end }
   const [routeErr, setRouteErr] = useState('');
+  const [gates, setGates] = useState([]);         // toll gates this road passes
+  const gateMarks = useRef([]);
 
   const a = placeOf(origin);
   const b = placeOf(destination);
@@ -203,6 +235,8 @@ export default function TripRouteMap({
       marks.current = {};
       tollMarks.current.forEach((m) => m.setMap(null));
       tollMarks.current = [];
+      gateMarks.current.forEach((m) => m.setMap(null));
+      gateMarks.current = [];
       Object.values(lines.current).forEach((l) => l?.setMap?.(null));
       lines.current = { casing: null, main: null, trail: null };
       info.current?.close?.();
@@ -309,6 +343,10 @@ export default function TripRouteMap({
 
       const summary = {
         bounds: r.bounds,
+        // Kept so the toll match runs against the ROAD, not a straight line
+        // between the depots. Plain {lat,lng} rather than Google's LatLng, so
+        // tollRoute.mjs stays free of the Maps SDK and testable in node.
+        path: path.map((pt: any) => ({ lat: pt.lat(), lng: pt.lng() })),
         distance_m: leg.distance?.value ?? null,
         duration_s: leg.duration?.value ?? null,
         via: r.summary || null,
@@ -374,8 +412,16 @@ export default function TripRouteMap({
     // FASTag crossings. Amber, numbered in the order they were crossed, so the
     // map shows how far along the lane the lorry actually got when nothing else
     // is reporting.
+    //
+    // A CROSSING AT A GATE WE ALREADY DREW IS NOT DRAWN TWICE. The gate turns
+    // green and says "cross ho chuka" — stacking a second marker on the same
+    // point just hides the rate underneath it, which is the one thing the gate
+    // was put there to show.
+    const drawnGates = new Set(gates.map((x: any) => x.name_key || plazaKey(x.plaza_name)));
     tollMarks.current.forEach((m) => m.setMap(null));
-    tollMarks.current = (tolls || []).filter(isPt).map((t: any, i: number) => {
+    tollMarks.current = (tolls || [])
+      .filter((t: any) => isPt(t) && !drawnGates.has(plazaKey(t.plaza)))
+      .map((t: any, i: number) => {
       const m = new g.maps.Marker({
         map: map.current,
         position: { lat: num(t.lat), lng: num(t.lng) },
@@ -407,11 +453,79 @@ export default function TripRouteMap({
       else lines.current.trail = new g.maps.Polyline({ map: map.current, ...opts });
     } else if (lines.current.trail) { lines.current.trail.setMap(null); lines.current.trail = null; }
   }, [phase, route, truck?.lat, truck?.lng, truck?.heading, truck?.speed_kmh, truck?.at,
-      tollKey, trailKey, trip?.vehicle_no, trip?.driver_name, trip?.trip_code, a.label, b.label]);
+      tollKey, trailKey, trip?.vehicle_no, trip?.driver_name, trip?.trip_code, a.label, b.label,
+      gates]);
   // The lists themselves are deliberately absent from that array — see tollKey
   // / trailKey above. exhaustive-deps wants `tolls`, `trail` and `truck`; adding
   // them is what re-created every marker on every parent render.
 
+
+  // ── TOLL GATES ────────────────────────────────────────────────────────────
+  //
+  // Owner, 4-Sep: "trip route may toll gate and toll rate ... total trip par
+  // kitna toll tax lag rahi hay yah map may show karay."
+  //
+  // The gates come from toll_plazas, which the database learns from this
+  // fleet's own FASTag crossings — so every rate drawn here is one our trucks
+  // have actually been charged at that gate, not a published tariff. A gate we
+  // have never paid at is not on the map, and the strip below says how many
+  // are unpriced rather than quietly leaving them out of the total.
+  const tollKeys = (tolls || []).map((t: any) => plazaKey(t?.plaza)).filter(Boolean);
+
+  useEffect(() => {
+    if (phase !== 'ready' || !map.current) return;
+    const g = (window as any).google;
+
+    const found = route?.path ? plazasOnRoute(route.path, plazaMaster || []) : [];
+    // Which of them this lorry has already been through, per FASTag.
+    const crossed = new Set(tollKeys);
+    const marked = found.map((x: any) => ({
+      ...x,
+      crossed: crossed.has(x.name_key || plazaKey(x.plaza_name)),
+    }));
+
+    gateMarks.current.forEach((m: any) => m.setMap(null));
+    gateMarks.current = marked.map((gate: any, i: number) => {
+      const known = gate.rate !== null && gate.rate !== undefined && gate.rate !== '';
+      const m = new g.maps.Marker({
+        map: map.current,
+        position: { lat: Number(gate.lat), lng: Number(gate.lng) },
+        icon: gateIcon(gate.crossed, known),
+        // The rate ON the gate. This is the whole ask: an operator should read
+        // the toll off the map without opening anything.
+        label: { text: known ? inr(Number(gate.rate)) : '?',
+                 color: '#0a1024', fontSize: '10px', fontWeight: '800' },
+        title: `${i + 1}. ${gate.plaza_name}`,
+        zIndex: 25,
+      });
+      m.addListener('click', () => {
+        info.current.setContent(`
+          <div style="font-family:Inter,system-ui,sans-serif;color:#0f172a;min-width:190px;max-width:260px">
+            <div style="font-weight:800;font-size:13px;color:#b45309">🛣️ ${esc(gate.plaza_name)}</div>
+            <div style="font-size:12px;margin-top:2px">
+              ${known ? `Ek baar ka rate: <b>${inr(Number(gate.rate))}</b>` : '<b style="color:#b45309">Rate system mein nahi hai</b>'}
+            </div>
+            ${known ? `<div style="font-size:11px;color:#475569">${
+              gate.rate_source === 'MANUAL'
+                ? 'Haath se bhara gaya rate'
+                : `Apni FASTag history se · ${gate.observations || 0} baar${
+                    gate.rate_min != null && gate.rate_max != null && Number(gate.rate_min) !== Number(gate.rate_max)
+                      ? ` · ${inr(Number(gate.rate_min))}–${inr(Number(gate.rate_max))}` : ''}`
+            }</div>` : ''}
+            <div style="font-size:11px;color:${gate.crossed ? '#047857' : '#475569'};margin-top:3px">
+              ${gate.crossed ? '✅ Is trip par cross ho chuka' : '⏳ Abhi cross nahi hua'}
+            </div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:3px">Road se ${gate.distance_m} m</div>
+          </div>`);
+        info.current.open(map.current, m);
+      });
+      return m;
+    });
+
+    setGates(marked);
+    onGates?.(marked, tollTotals(marked, { roundTrip }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, route, plazaMaster, roundTrip, tollKeys.join('|')]);
 
   // ── the camera ────────────────────────────────────────────────────────────
   // THIS IS "zoom nahi ho rahi". The old frame never resolved anything, so
@@ -461,6 +575,7 @@ export default function TripRouteMap({
   const dur = hmText(route?.duration_s ?? null);
   const eta = etaText(route?.duration_s ?? null);
   const unplaceable = !a.query || !b.query;
+  const toll = tollTotals(gates, { roundTrip });
 
   return (
     <div style={{ position: 'relative', width: '100%', height, background: '#0a1024', overflow: 'hidden' }}>
@@ -488,6 +603,37 @@ export default function TripRouteMap({
               <span style={{ color: '#3d548a' }}> → </span>
               <span style={{ color: '#f472b6' }}>●</span> {b.label}
             </div>
+
+            {/* THE TOLL, ON THE MAP. One way and the return are shown SEPARATELY
+                and both are labelled, because the difference between them is the
+                owner's whole point: an oil-company lorry comes back and pays
+                again, a market vehicle does not. The estimate says out loud when
+                it is short — a gate with no known rate is counted as a gate and
+                not as zero rupees. */}
+            {toll.gates > 0 && (
+              <div style={{
+                marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.08)',
+                display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', fontSize: 12,
+              }}>
+                <span style={{ color: '#ffb224', fontWeight: 800 }}>🛣️ {toll.gates} गेट</span>
+                <span style={{ color: '#dde5f4' }}>एक तरफ़ <b style={{ color: '#ffb224' }}>{inr(toll.one_way)}</b></span>
+                {roundTrip && (
+                  <span style={{ color: '#dde5f4' }}>
+                    आना-जाना <b style={{ color: '#ffb224', fontSize: 13 }}>{inr(toll.total)}</b>
+                  </span>
+                )}
+                <span style={{
+                  color: roundTrip ? '#2fe39b' : '#a78bfa', fontSize: 10.5, fontWeight: 700,
+                  border: `1px solid ${roundTrip ? 'rgba(47,227,155,.4)' : 'rgba(167,139,250,.4)'}`,
+                  borderRadius: 6, padding: '1px 6px',
+                }}>{roundTrip ? 'ROUND TRIP' : 'ONE WAY'}</span>
+                {toll.incomplete && (
+                  <span style={{ color: '#ff9b9b', fontSize: 11 }}>
+                    · {toll.unknown} गेट का rate system में नहीं — असली toll इससे ज़्यादा है
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

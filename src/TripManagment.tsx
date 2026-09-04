@@ -26,6 +26,7 @@ import { getDrivingDistance } from './lib/maps';
 import { placeOf, routeAppUrl } from './lib/tripPlaces';
 import TripRouteMap from './lib/TripRouteMap';
 import PlaceInput from './lib/PlaceInput';
+import { legKindOf, tollTotals } from './lib/tollRoute.mjs';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -235,6 +236,20 @@ export default function TripManagment() {
   const [tollLoaded, setTollLoaded] = useState(false);
   const [modalToll, setModalToll] = useState<any>(undefined); // undefined=loading, null=none
 
+  // ── TOLL GATES ON THE ROUTE (owner, 4-Sep-2026) ──────────────────────────
+  // The master is every gate this fleet has ever paid at, with the rate it was
+  // charged. Fetched ONCE when the tracking sheet first opens — it is a few
+  // hundred rows, it changes only when a new crossing lands, and re-fetching it
+  // per trip would be a request per click for an answer that never differs.
+  const [plazaMaster, setPlazaMaster] = useState<any[]>([]);
+  const [plazaErr, setPlazaErr] = useState('');
+  const [tripGates, setTripGates] = useState<any[]>([]);
+  const [tollOpen, setTollOpen] = useState(false);
+  const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
+  const [savingRate, setSavingRate] = useState('');
+  // What the operator has said about THIS trip, before it is saved.
+  const [legOverride, setLegOverride] = useState<string | null>(null);
+
   /** Latest toll for ONE trip. Optimized: equality-only query (no composite
    *  index needed) on trip_db_id — a trip crosses a bounded set of plazas — then
    *  pick the max toll_reader time (txn_datetime) client-side. */
@@ -260,6 +275,77 @@ export default function TripManagment() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // Lazy: nobody who never opens a map should pay for this call.
+  useEffect(() => {
+    if (!showTrackModal || plazaMaster.length || plazaErr) return;
+    fetchJson(`${API}/api/v1/toll/plazas?located=true`)
+      .then((j: any) => setPlazaMaster(j.plazas ?? []))
+      // A missing master is not a broken map. The route, the pins and the
+      // distance all still draw; only the toll strip goes quiet, and it says
+      // why rather than showing ₹0 as though the lane were free.
+      .catch((e: any) => setPlazaErr(e?.message || 'toll plaza master unavailable'));
+  }, [showTrackModal, plazaMaster.length, plazaErr]);
+
+  // Reset the per-trip toll view when the sheet moves to another lorry.
+  useEffect(() => { setTripGates([]); setRateDraft({}); setLegOverride(null); }, [activeTrip?.id]);
+
+  /** ROUND TRIP OR ONE SIDE — see legKindOf(). Oil-company work returns and is
+   *  only complete on return, so its toll is paid twice; a market vehicle runs
+   *  the owner's side once. The operator can override it on the sheet and what
+   *  they choose is written to the trip. */
+  const legKind = legOverride
+    ?? (activeTrip ? legKindOf(activeTrip).kind : 'ROUND');
+  const isRoundTrip = legKind === 'ROUND';
+
+  const setLegKind = async (kind: string) => {
+    setLegOverride(kind);
+    if (!activeTrip?.id) return;
+    try {
+      await fetchJson(`${OPS}/trips/${activeTrip.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_leg_kind: kind }),
+      });
+      setActiveTrip((t: any) => (t ? { ...t, trip_leg_kind: kind } : t));
+      setTrips((all: any[]) => all.map((t) => (t.id === activeTrip.id ? { ...t, trip_leg_kind: kind } : t)));
+    } catch (e: any) {
+      // The map keeps the operator's choice either way — losing it because a
+      // write failed would be worse than a total that is right on screen and
+      // not yet saved.
+      console.error('trip_leg_kind not saved:', e?.message);
+    }
+  };
+
+  /** A gate whose rate nobody has ever paid, typed in by hand. It goes to the
+   *  master, not to this trip — so the next trip down the same road already has
+   *  it. That is the owner's "auto add kar le ... next time show ho". */
+  const saveGateRate = async (gate: any) => {
+    const raw = rateDraft[gate.name_key];
+    const rate = Number(raw);
+    if (!(rate > 0)) return alert('⚠️ Toll rate ek number hona chahiye (₹).');
+    setSavingRate(gate.name_key);
+    try {
+      const j: any = await fetchJson(`${API}/api/v1/toll/plazas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plaza_name: gate.plaza_name,
+          lat: gate.lat === null ? null : Number(gate.lat),
+          lng: gate.lng === null ? null : Number(gate.lng),
+          rate,
+        }),
+      });
+      const saved = j.plaza;
+      // Update the master in place so the map redraws with the new rate without
+      // a round trip for the whole list.
+      setPlazaMaster((m) => m.map((x) => (x.name_key === saved.name_key ? { ...x, ...saved } : x)));
+      setRateDraft((d) => { const n = { ...d }; delete n[gate.name_key]; return n; });
+    } catch (e: any) {
+      alert(`❌ Rate save nahi hua.\n\n${e?.message || ''}`);
+    }
+    setSavingRate('');
+  };
 
   // ── ARRIVING FROM THE DASHBOARD WITH A TRIP ALREADY CHOSEN ────────────────
   //
@@ -1043,6 +1129,9 @@ export default function TripManagment() {
                   }}
                   focus={trackMode === 'GPRS' ? 'TRUCK' : 'ROUTE'}
                   height="100%"
+                  plazaMaster={plazaMaster}
+                  roundTrip={isRoundTrip}
+                  onGates={setTripGates}
                 />
               )}
               {trackMode === 'MOBILE' && (
@@ -1057,6 +1146,112 @@ export default function TripManagment() {
                 </div>
               )}
             </div>
+
+            {/* ── TOLL: THE GATES, THEIR RATES, AND THE TRIP'S TOTAL ──────────
+                Owner, 4-Sep-2026: "trip route may toll gate and toll rate ...
+                total trip par kitna toll tax lag rahi hay ... one way and
+                return ... aur jo system may nahi aayi, wo rate add ho to auto
+                add kar le taaki next time show ho."
+
+                The rates are not a published tariff — they are what THIS
+                fleet's own trucks were charged at those gates, read off
+                toll_transactions. So a gate we have never crossed has no rate,
+                and this panel is where somebody types it in once. It goes to
+                the plaza master, not to this trip: the next lorry down the same
+                road already has it, on the map, without anyone doing anything. */}
+            {trackMode !== 'MOBILE' && (() => {
+              const t = tollTotals(tripGates, { roundTrip: isRoundTrip });
+              return (
+                <div style={{ marginTop: '12px', border: '1px solid #27395f', borderRadius: '10px', background: 'rgba(24,36,74,0.5)', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', padding: '9px 12px' }}>
+                    <button onClick={() => setTollOpen((v) => !v)} disabled={!t.gates}
+                      style={{ background: 'none', border: 'none', color: t.gates ? '#ffb224' : '#5d7196', fontWeight: 'bold', fontSize: '13px', cursor: t.gates ? 'pointer' : 'default', padding: 0 }}>
+                      🛣️ {t.gates ? `${t.gates} toll gate` : 'Toll gate'} {t.gates ? (tollOpen ? '▲' : '▼') : ''}
+                    </button>
+
+                    {t.gates > 0 ? (
+                      <>
+                        <span style={{ color: '#c4d1ea', fontSize: '12px' }}>
+                          एक तरफ़ <b style={{ color: '#ffb224' }}>₹{t.one_way.toLocaleString('en-IN')}</b>
+                        </span>
+                        {isRoundTrip && (
+                          <span style={{ color: '#c4d1ea', fontSize: '12px' }}>
+                            आना-जाना <b style={{ color: '#ffb224', fontSize: '14px' }}>₹{t.total.toLocaleString('en-IN')}</b>
+                          </span>
+                        )}
+                        {t.incomplete && (
+                          <span style={{ color: '#ff9b9b', fontSize: '11px' }}>
+                            {t.unknown} गेट का rate नहीं — नीचे भर दें
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span style={{ color: '#9aadd4', fontSize: '12px' }}>
+                        {plazaErr
+                          ? 'Toll master abhi nahi mila — rasta phir bhi sahi hai.'
+                          : plazaMaster.length
+                            ? 'Is raste par apna koi toll gate record mein nahi hai.'
+                            : 'Toll gates dhoondh rahe hain…'}
+                      </span>
+                    )}
+
+                    {/* ROUND vs ONE WAY. Oil-company trips return and pay again;
+                        a market vehicle runs one side. Saved on the trip. */}
+                    <div style={{ marginLeft: 'auto', display: 'flex', border: '1px solid #27395f', borderRadius: '7px', overflow: 'hidden' }}>
+                      {[['ROUND', 'आना-जाना'], ['ONE_WAY', 'एक तरफ़']].map(([k, label]) => (
+                        <button key={k} onClick={() => setLegKind(k)}
+                          style={{ padding: '5px 11px', border: 'none', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold',
+                                   background: legKind === k ? '#ffb224' : 'transparent',
+                                   color: legKind === k ? '#121c38' : '#9aadd4' }}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {tollOpen && t.gates > 0 && (
+                    <div style={{ borderTop: '1px solid #27395f', maxHeight: '190px', overflowY: 'auto' }}>
+                      {tripGates.map((g: any, i: number) => {
+                        const known = g.rate !== null && g.rate !== undefined && g.rate !== '';
+                        return (
+                          <div key={g.name_key || i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 12px', borderBottom: '1px solid rgba(39,57,95,0.5)', flexWrap: 'wrap' }}>
+                            <span style={{ color: g.crossed ? '#2fe39b' : '#5d7196', fontSize: '11px', fontWeight: 'bold', minWidth: '22px' }}>{i + 1}.</span>
+                            <span style={{ color: '#dde5f4', fontSize: '12px', flex: 1, minWidth: '150px' }}>
+                              {g.plaza_name}
+                              {g.crossed && <span style={{ color: '#2fe39b', fontSize: '10px', marginLeft: '6px' }}>✅ cross हो चुका</span>}
+                            </span>
+                            {known ? (
+                              <>
+                                <b style={{ color: '#ffb224', fontSize: '12px' }}>₹{Number(g.rate).toLocaleString('en-IN')}</b>
+                                {/* Where the number came from, so nobody has to trust it blindly. */}
+                                <span style={{ color: '#5d7196', fontSize: '10px', minWidth: '92px', textAlign: 'right' }}>
+                                  {g.rate_source === 'MANUAL' ? 'हाथ से भरा' : `FASTag · ${g.observations || 0}×`}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <input
+                                  type="number" placeholder="₹ rate"
+                                  value={rateDraft[g.name_key] ?? ''}
+                                  onChange={(e) => setRateDraft((d) => ({ ...d, [g.name_key]: e.target.value }))}
+                                  style={{ width: '86px', background: 'rgba(18,28,56,0.8)', border: '1px solid #ffb224', borderRadius: '6px', color: '#ffb224', padding: '4px 7px', fontSize: '12px', outline: 'none' }} />
+                                <button onClick={() => saveGateRate(g)} disabled={savingRate === g.name_key}
+                                  style={{ background: '#ffb224', color: '#121c38', border: 'none', borderRadius: '6px', padding: '4px 11px', fontWeight: 'bold', fontSize: '11px', cursor: 'pointer' }}>
+                                  {savingRate === g.name_key ? '⌛' : 'Save'}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div style={{ padding: '7px 12px', color: '#5d7196', fontSize: '10.5px', lineHeight: 1.5 }}>
+                        Rate हमारी अपनी FASTag history से आते हैं — यानी इन्हीं gates पर हमारे trucks ने जो असल में दिया।
+                        {isRoundTrip && ' आना-जाना = वही रास्ता, वही rate, दो बार (अनुमान).'}
+                        {' '}यहाँ भरा हुआ rate master में जाता है, तो अगली बार अपने आप दिखेगा.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* The same route in the real app — one tap to turn-by-turn on a
                 phone, and the deep link opens the installed Google Maps rather

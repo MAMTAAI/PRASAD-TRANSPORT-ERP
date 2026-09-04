@@ -31,6 +31,8 @@
     "auth:selftest": "node server/lib/apiGuard.selftest.js",
     "wa:selftest": "node whatsapp-server/describeMedia.selftest.js",
     "places:selftest": "node src/lib/tripPlaces.selftest.mjs",
+    "toll:selftest": "node src/lib/tollRoute.selftest.mjs",
+    "migrate:selftest": "node server/db/migrations/148_toll_plaza_master.selftest.mjs",
     "check:refs": "node scripts/check-undefined-refs.mjs"
   },
   "dependencies": {

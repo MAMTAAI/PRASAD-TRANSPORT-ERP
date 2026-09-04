@@ -288,6 +288,11 @@ export async function registerOpsRoutes(app) {
     office_approved_loading: { type: ['boolean', 'null'] },
     office_approved_unloading: { type: ['boolean', 'null'] },
     status: { type: ['string', 'null'], maxLength: 20 },
+    // ROUND = loaded out and back (oil company work; rtkm is round-trip km and
+    // the trip closes on return). ONE_WAY = one side only (market vehicle).
+    // NULL means "derive from the vehicle" — see legKindOf() in tollRoute.mjs.
+    // It is here because the toll a trip pays is doubled or not on this word.
+    trip_leg_kind: { type: ['string', 'null'], enum: ['ROUND', 'ONE_WAY', null] },
     // Loading advice: a trip that exists before it is loaded, holding a reserved
     // LR number so early advances never need re-linking (migration 025).
     advice_no: { type: ['string', 'null'], maxLength: 60 },

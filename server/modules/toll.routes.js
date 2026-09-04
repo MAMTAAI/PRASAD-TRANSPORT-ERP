@@ -821,4 +821,126 @@ export async function registerTollRoutes(app) {
     if (!rows.length) return reply.code(409).send({ error: 'FILED_OR_MISSING', detail: 'a filed TDS entry cannot be deleted' });
     return { deleted: true };
   });
+
+  // ═══ TOLL PLAZA MASTER ════════════════════════════════════════════════════
+  //
+  // The gates themselves — where they are and what one crossing costs us — so
+  // the trip route map can draw them and add them up (owner, 4-Sep-2026).
+  //
+  // The table LEARNS from toll_transactions by trigger (migration 148), so this
+  // is mostly a read. The write below exists for the gap the history cannot
+  // close on its own: a plaza on a lane this fleet has crossed but whose rate
+  // never came through the FASTag feed, or a new gate somebody knows about
+  // because they drove past it this morning. Typed once, known for ever — and a
+  // MANUAL rate is never overwritten by a later median.
+
+  app.get(
+    '/plazas',
+    { schema: { querystring: { type: 'object', properties: {
+      // The map only needs the ones it can place. Everything else is the
+      // "rate missing / no coordinates" worklist, asked for explicitly.
+      located: { type: ['boolean', 'null'] },
+      priced: { type: ['boolean', 'null'] },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { located, priced } = req.query ?? {};
+      const { rows } = await query(
+        `SELECT id, name_key, plaza_name, lat, lng, rate, rate_source, observations,
+                rate_min, rate_max, first_seen, last_seen, highway, notes,
+                verified_by, verified_at
+           FROM toll_plazas
+          WHERE ($1::boolean IS NULL
+                 OR ($1 AND lat IS NOT NULL AND lng IS NOT NULL)
+                 OR (NOT $1 AND (lat IS NULL OR lng IS NULL)))
+            AND ($2::boolean IS NULL
+                 OR ($2 AND rate IS NOT NULL)
+                 OR (NOT $2 AND rate IS NULL))
+          ORDER BY plaza_name`,
+        [located ?? null, priced ?? null]);
+      return {
+        count: rows.length,
+        plazas: rows,
+        // Said out loud so a screen can explain a small number rather than
+        // present it as the whole truth. These gates are the ones OUR trucks
+        // have paid at; a corridor we have never run has none.
+        basis: 'learned from this fleet\'s own FASTag crossings, plus rates entered by hand',
+      };
+    }
+  );
+
+  // Add or correct one gate by hand. `rate` here outranks the median for good:
+  // somebody read the board at the plaza.
+  app.post(
+    '/plazas',
+    { schema: { body: { type: 'object', required: ['plaza_name'], properties: {
+      plaza_name: { type: 'string', minLength: 2, maxLength: 120 },
+      lat: { type: ['number', 'null'], minimum: -90, maximum: 90 },
+      lng: { type: ['number', 'null'], minimum: -180, maximum: 180 },
+      rate: { type: ['number', 'null'], minimum: 0, maximum: 100000 },
+      highway: { type: ['string', 'null'], maxLength: 40 },
+      notes: { type: ['string', 'null'], maxLength: 400 },
+      verified_by: { type: ['string', 'null'], maxLength: 60 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body ?? {};
+      // The name key is what makes one gate one row, and a name with no letters
+      // or digits ("---", "??") produces no key at all. The column is NOT NULL,
+      // so without this the insert dies as a 23502 and the operator gets a 500
+      // for a typo. Verified against a real PostgreSQL before this guard existed.
+      if (!String(b.plaza_name).toUpperCase().replace(/[^A-Z0-9]+/g, '')) {
+        return reply.code(400).send({ error: 'BAD_NAME', detail: 'plaza name needs at least one letter or digit' });
+      }
+      // A rate with no coordinates cannot be drawn, but it is still worth
+      // keeping: the next FASTag crossing at that gate supplies the point and
+      // the rate is already there.
+      try {
+        const { rows } = await query(
+          `INSERT INTO toll_plazas (name_key, plaza_name, lat, lng, rate, rate_source,
+                                    highway, notes, verified_by, verified_at)
+           VALUES (toll_plaza_key($1), $1, $2, $3, $4,
+                   CASE WHEN $4::numeric IS NULL THEN 'FASTAG_HISTORY' ELSE 'MANUAL' END,
+                   $5, $6, $7, CASE WHEN $4::numeric IS NULL THEN NULL ELSE now() END)
+           ON CONFLICT (name_key) DO UPDATE SET
+             plaza_name  = EXCLUDED.plaza_name,
+             lat         = COALESCE(EXCLUDED.lat, toll_plazas.lat),
+             lng         = COALESCE(EXCLUDED.lng, toll_plazas.lng),
+             rate        = COALESCE(EXCLUDED.rate, toll_plazas.rate),
+             rate_source = CASE WHEN EXCLUDED.rate IS NULL THEN toll_plazas.rate_source ELSE 'MANUAL' END,
+             highway     = COALESCE(EXCLUDED.highway, toll_plazas.highway),
+             notes       = COALESCE(EXCLUDED.notes, toll_plazas.notes),
+             verified_by = COALESCE(EXCLUDED.verified_by, toll_plazas.verified_by),
+             verified_at = COALESCE(EXCLUDED.verified_at, toll_plazas.verified_at)
+           RETURNING *`,
+          [String(b.plaza_name).trim(), b.lat ?? null, b.lng ?? null, b.rate ?? null,
+           b.highway ?? null, b.notes ?? null, b.verified_by ?? null]);
+        if (!rows.length) return reply.code(400).send({ error: 'BAD_NAME', detail: 'plaza name has no letters or digits' });
+        reply.code(201);
+        return { saved: true, plaza: rows[0] };
+      } catch (err) { return pgErr(reply, err); }
+    }
+  );
+
+  // Re-derive every learned rate from the crossings. The trigger keeps this
+  // current on its own; the button exists for after a bulk correction, and
+  // because "recompute it and show me" is the first thing anyone asks when a
+  // rate looks wrong. MANUAL rates are left alone by toll_plaza_learn itself.
+  app.post('/plazas/relearn', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    await query(`
+      DO $do$
+      DECLARE k text;
+      BEGIN
+        FOR k IN SELECT DISTINCT toll_plaza_key(plaza_name) FROM toll_transactions
+                  WHERE toll_plaza_key(plaza_name) IS NOT NULL
+        LOOP PERFORM toll_plaza_learn(k); END LOOP;
+      END $do$;`);
+    const { rows } = await query(
+      `SELECT count(*)::int AS plazas,
+              count(*) FILTER (WHERE rate IS NOT NULL)::int AS priced,
+              count(*) FILTER (WHERE lat IS NOT NULL AND lng IS NOT NULL)::int AS located
+         FROM toll_plazas`);
+    return { relearned: true, ...rows[0] };
+  });
 }
