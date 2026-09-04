@@ -57,6 +57,7 @@ function fortnightsBetween(from, to) {
 
 export async function registerPumpBillingRoutes(app, opts = {}) {
   const guard = opts.requireAdmin || requireAdminOrService;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // ── Plan: every pump x fortnight with unbilled slips, priced ───────────────
   app.post('/pump-bill-plan', { preHandler: guard }, async (req, reply) => {
@@ -399,5 +400,213 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
         ORDER BY period_from DESC, vendor_name
         LIMIT 200`, [req.query?.status ?? null]);
     return { ok: true, count: rows.length, drafts: rows };
+  });
+
+  /**
+   * Settle one 15-day pump bill: consolidate, post, lock.
+   *
+   * THE PAYABLE IS THE BILL LESS WHAT IS DISPUTED, and that is the whole point
+   * of this endpoint existing rather than the screen calling /fuel-reconcile
+   * directly. The screen used to post the FULL physical amount even when the
+   * desk had marked lines as disputed — crediting the pump for exactly the
+   * money the office was refusing to pay.
+   *
+   * The disputed lines' slips are left out of the slip set too, so the pro-rata
+   * distribution inside /fuel-reconcile stays consistent: the slips that are
+   * paid for are the slips that are posted.
+   *
+   * THE LEDGER LEGS ARE NOT REBUILT HERE. /queues/fuel-reconcile already posts
+   * the one journal (Dr Direct Expenses - Fuel & HSD, Cr Creditors: <pump>)
+   * under a deterministic ref, moves each trip by the delta, and writes the
+   * pump's khata row. This wraps it, records the fortnight, and closes it.
+   */
+  app.post('/pump-bill-settle', { preHandler: guard }, async (req, reply) => {
+        const b = req.body ?? {};
+    const vendorId = String(b.vendor_id ?? '');
+    if (!UUID_RE.test(vendorId)) return reply.code(400).send({ error: 'BAD_VENDOR' });
+    if (!b.period_from || !b.period_to) return reply.code(400).send({ error: 'NO_PERIOD' });
+
+    const slipIds = Array.isArray(b.slip_ids) ? b.slip_ids.filter((x) => UUID_RE.test(String(x))) : [];
+    const billAmount = Number(b.bill_amount);
+    const disputed = Math.max(0, Number(b.disputed_amount) || 0);
+    const payable = Number((billAmount - disputed).toFixed(2));
+
+    if (!(billAmount > 0)) return reply.code(400).send({ error: 'BAD_AMOUNT' });
+    if (payable < 0) {
+      return reply.code(400).send({
+        error: 'DISPUTE_EXCEEDS_BILL',
+        detail: `disputed ${disputed} is more than the bill ${billAmount}`,
+      });
+    }
+
+    const { rows: vRows } = await query(
+      'SELECT id, vendor_name FROM vendors WHERE id = $1::uuid', [vendorId]);
+    if (!vRows.length) return reply.code(404).send({ error: 'NO_SUCH_VENDOR' });
+    const vendor = vRows[0];
+
+    // ── THE LOCK, checked before anything is posted ────────────────────────
+    const { rows: already } = await query(`
+      SELECT id, invoice_no, locked_at, payable_amount
+        FROM pump_bill_drafts
+       WHERE vendor_id = $1::uuid AND period_from = $2::date AND period_to = $3::date
+         AND locked_at IS NOT NULL`, [vendorId, b.period_from, b.period_to]);
+    if (already.length) {
+      return reply.code(409).send({
+        error: 'PERIOD_LOCKED',
+        detail: `${vendor.vendor_name} ${b.period_from} to ${b.period_to} is already settled `
+              + `and locked as ${already[0].invoice_no ?? already[0].id}`,
+        bill: already[0],
+      });
+    }
+
+    if (!slipIds.length) {
+      return reply.code(400).send({
+        error: 'NO_SLIPS',
+        detail: 'no slip was selected to post against this bill',
+      });
+    }
+    // NOTHING PAYABLE MEANS NOTHING TO SETTLE. The schema says a bill is
+    // APPROVED if and only if it carries a voucher (073's
+    // pump_draft_approved_has_voucher), so a fully disputed fortnight cannot be
+    // "settled" — there is no posting to attach. The dispute IS the outcome,
+    // and the bill stays open until the pump answers it.
+    if (payable <= 0) {
+      return reply.code(409).send({
+        error: 'NOTHING_PAYABLE',
+        detail: `the whole bill of ₹${billAmount.toFixed(2)} is disputed — there is nothing to `
+              + 'post, so the fortnight stays open until the pump answers it',
+      });
+    }
+
+    // ── post the payable through the path that already works ───────────────
+    let recon = null;
+    if (payable > 0) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/queues/fuel-reconcile',
+        headers: { 'content-type': 'application/json',
+                   authorization: req.headers.authorization ?? '' },
+        payload: {
+          vendor_id: vendorId,
+          slip_ids: slipIds,
+          bill_amount: payable,
+          from: b.period_from,
+          to: b.period_to,
+          created_by: b.created_by ?? null,
+        },
+      });
+      recon = res.json();
+      if (res.statusCode >= 400) {
+        return reply.code(res.statusCode).send(recon);
+      }
+    }
+
+    // ── record the fortnight and close it ──────────────────────────────────
+    const { rows: [bill] } = await query(`
+      INSERT INTO pump_bill_drafts
+        (vendor_id, vendor_name, ref_no, invoice_no, period_from, period_to, half, status,
+         slip_count, system_liters, system_amount, physical_liters, physical_amount,
+         disputed_amount, payable_amount, resolutions, lines, voucher_id,
+         locked_at, locked_by, created_by, approved_by, approved_at)
+      VALUES ($1::uuid, $2,
+              COALESCE($3, pump_invoice_no($2, $4::date)),
+              pump_invoice_no($2, $4::date),
+              $4::date, $5::date,
+              CASE WHEN extract(day FROM $4::date) <= 15 THEN 'FIRST' ELSE 'SECOND' END,
+              'APPROVED',
+              $6, $7, $8, $7, $9, $10, $11, $12::jsonb, $13::jsonb, $14::uuid,
+              now(), $15, $15, $15, now())
+      ON CONFLICT (vendor_id, period_from, period_to) WHERE status IN ('DRAFT','PENDING')
+      DO UPDATE SET
+        invoice_no      = EXCLUDED.invoice_no,
+        status          = 'APPROVED',
+        slip_count      = EXCLUDED.slip_count,
+        system_liters   = EXCLUDED.system_liters,
+        system_amount   = EXCLUDED.system_amount,
+        physical_amount = EXCLUDED.physical_amount,
+        disputed_amount = EXCLUDED.disputed_amount,
+        payable_amount  = EXCLUDED.payable_amount,
+        resolutions     = EXCLUDED.resolutions,
+        lines           = EXCLUDED.lines,
+        voucher_id      = EXCLUDED.voucher_id,
+        locked_at       = now(),
+        locked_by       = EXCLUDED.locked_by,
+        updated_at      = now()
+      RETURNING *`,
+      [vendorId, vendor.vendor_name, b.ref_no ?? null, b.period_from, b.period_to,
+       Number(b.slip_count) || slipIds.length,
+       Number(b.total_liters) || 0, payable,
+       billAmount, disputed, payable,
+       JSON.stringify(b.resolutions ?? {}), JSON.stringify(b.lines ?? []),
+       recon?.voucher_id ?? null, b.created_by ?? 'desk']);
+
+    const { rows: [out] } = await query(
+      `SELECT * FROM v_pump_outstanding WHERE vendor_id = $1::uuid`, [vendorId]);
+
+    return {
+      settled: true,
+      bill: {
+        id: bill.id,
+        invoice_no: bill.invoice_no,
+        vendor_name: bill.vendor_name,
+        period: { from: bill.period_from, to: bill.period_to },
+        total_liters: Number(bill.system_liters) || 0,
+        bill_amount: Number(bill.physical_amount) || 0,
+        disputed_amount: Number(bill.disputed_amount) || 0,
+        payable_amount: Number(bill.payable_amount) || 0,
+        locked: true,
+        locked_at: bill.locked_at,
+      },
+      voucher_id: recon?.voucher_id ?? null,
+      slips_posted: recon?.slips ?? 0,
+      trips_adjusted: recon?.trips_adjusted ?? 0,
+      pump_outstanding: out ?? null,
+      note: disputed > 0
+        ? `₹${disputed.toFixed(2)} disputed — not posted, and the pump is not credited for it.`
+        : null,
+    };
+  });
+
+  /** Every settled fortnight, and what each pump is still owed. */
+  app.get('/pump-bill-settled', { preHandler: guard }, async (req, reply) => {
+        const { rows: bills } = await query(
+      `SELECT * FROM v_pump_fortnight_bill
+        WHERE ($1::uuid IS NULL OR vendor_id = $1::uuid)
+        ORDER BY period_to DESC, vendor_name LIMIT 200`,
+      [UUID_RE.test(String(req.query?.vendor_id ?? '')) ? req.query.vendor_id : null]);
+    const { rows: outstanding } = await query(
+      `SELECT * FROM v_pump_outstanding ORDER BY outstanding DESC`);
+    return { bills, outstanding };
+  });
+
+  /**
+   * Unlock a settled fortnight. Deliberate, reasoned, and recorded.
+   *
+   * The voucher it posted is NOT reversed here — a posted voucher is undone by
+   * a correcting entry through TARA, never by editing history. Unlocking only
+   * reopens the bill so the desk can restate it.
+   */
+  app.post('/pump-bill-unlock/:id', { preHandler: guard }, async (req, reply) => {
+        const reason = String(req.body?.reason ?? '').trim();
+    if (reason.length < 6) {
+      return reply.code(400).send({
+        error: 'REASON_REQUIRED',
+        detail: 'unlocking a settled fortnight has to say why',
+      });
+    }
+    const { rows } = await query(`
+      UPDATE pump_bill_drafts
+         SET locked_at = NULL,
+             notes = COALESCE(notes, '') || ' | unlocked: ' || $2,
+             updated_at = now()
+       WHERE id = $1::uuid AND locked_at IS NOT NULL
+      RETURNING id, invoice_no, voucher_id`, [req.params.id, reason]);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_LOCKED' });
+    return {
+      unlocked: rows[0],
+      note: rows[0].voucher_id
+        ? 'The voucher this bill posted still stands. Reverse it through TARA if the money was wrong.'
+        : null,
+    };
   });
 }

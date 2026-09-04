@@ -631,19 +631,59 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       const vendor = fuelVendors.find(v => v.id === reconVendor);
       const vName = vendor ? vendor.vendor_name : 'Unknown Vendor';
 
-      const recon = await apiJson(`${QUEUES_API}/fuel-reconcile`, {
+      // ── DISPUTED MONEY IS NOT PAID ────────────────────────────────────
+      //
+      // The bill amount is what the pump asked for; the PAYABLE is that less
+      // whatever the desk disputed. Posting the full amount would credit the
+      // pump for exactly the money the office is refusing — which is what the
+      // Dispute button exists to prevent. The disputed lines' slips are held
+      // back too, so the pro-rata split stays consistent with what is paid.
+      const disputedIdx = new Set(Object.entries(billResolutions)
+        .filter(([, v]) => v === 'DISPUTED').map(([k]) => Number(k)));
+      const disputedAmount = billAudit
+        ? Number(billAudit.lines.filter((l: any) => disputedIdx.has(l.idx))
+            .reduce((a: number, l: any) => a + (Number(l.amount) || 0), 0).toFixed(2))
+        : 0;
+      const heldSlipIds = new Set(billAudit
+        ? billAudit.lines.filter((l: any) => disputedIdx.has(l.idx) && l.slip_id)
+            .map((l: any) => String(l.slip_id))
+        : []);
+      const postSlipIds = selectedSlips.filter((id) => !heldSlipIds.has(String(id)));
+
+      const settled = await apiJson(`${API}/api/v1/fuel/pump-bill-settle`, {
         method: 'POST',
         body: JSON.stringify({
           vendor_id: reconVendor,
-          slip_ids: selectedSlips,
+          slip_ids: postSlipIds,
           bill_amount: parseFloat(vendorBillAmount) || 0,
-          from: reconFromDate || undefined,
-          to: reconToDate || undefined,
+          disputed_amount: disputedAmount,
+          period_from: reconFromDate || undefined,
+          period_to: reconToDate || undefined,
+          slip_count: billAudit?.summary?.lines ?? postSlipIds.length,
+          total_liters: billAudit
+            ? Number(billAudit.lines.reduce((a: number, l: any) => a + (Number(l.qty) || 0), 0).toFixed(3))
+            : 0,
+          resolutions: billResolutions,
+          lines: billAudit?.lines ?? [],
+          created_by: 'desk',
         }),
       });
-      const tripsBumped = recon.trips_adjusted ?? 0;
+      const recon = settled;
+      const tripsBumped = settled.trips_adjusted ?? 0;
 
-      alert(`✅ SUCCESS: Slips Reconciled!\n\n₹${vendorBillAmount} POSTED to ${vName}'s Ledger Account.\n🚛 ${tripsBumped} trips ke kharche me diesel value update ho gayi (P&L me dikhega).`);
+      const NL = String.fromCharCode(10);
+      alert('✅ 15-din ka bill settle ho gaya' + NL + NL
+        + 'Invoice: ' + settled.bill.invoice_no + NL
+        + 'Pump ne laga: ₹' + Number(settled.bill.bill_amount).toLocaleString('en-IN') + NL
+        + (disputedAmount > 0
+            ? 'Dispute me roka: ₹' + disputedAmount.toLocaleString('en-IN') + NL : '')
+        + 'Payable posted: ₹' + Number(settled.bill.payable_amount).toLocaleString('en-IN')
+        + ' → ' + vName + NL
+        + (settled.pump_outstanding
+            ? 'Pump ka bakaya ab: ₹' + Number(settled.pump_outstanding.outstanding).toLocaleString('en-IN') + NL : '')
+        + '🚛 ' + tripsBumped + ' trip ke kharche me diesel value update hui.' + NL
+        + '🔒 Yeh 15-din ab lock ho gaya — dobara post nahi hoga.');
+      setScannedPumpItems([]); setScanMeta(null); setBillResolutions({});
       
       setVendorBillAmount('');
       setSelectedSlips([]);
@@ -653,6 +693,10 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
     } catch (e: any) {
       alert(e?.code === 'ALREADY_POSTED'
         ? "⚠️ Ye bill pehle hi verify ho chuka hai — dobara post nahi hoga."
+        : e?.code === 'PERIOD_LOCKED'
+        ? "🔒 Yeh 15-din pehle hi settle aur lock ho chuka hai. " + (e?.message ?? '')
+        : e?.code === 'NOTHING_PAYABLE'
+        ? "⚠️ Poora bill dispute me hai — post karne ko kuch bacha hi nahi. " + (e?.message ?? '')
         : "❌ Error updating slips and ledger: " + (e?.message || ''));
     }
   };
@@ -1376,6 +1420,9 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
               </>
             )}
           </div>
+
+          {/* Every fortnight already settled, and one click into any of them. */}
+          <SettledBills vendorId={reconVendor || null} />
           </div>
         </div>
       )}
@@ -1477,6 +1524,344 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
         </div>
       )}
 
+    </div>
+  );
+}
+
+// ══ SETTLED 15-DAY BILLS, AND THE DRILL-DOWN ════════════════════════════════
+//
+// A settled fortnight is a document someone will be asked about months later —
+// by the pump, by an auditor, or by the owner. So the modal shows what it was
+// built from: every printed line, what our memo said beside it, what the desk
+// decided, and who decided it. Nothing is recomputed here; it is read back from
+// the bill's own `lines` and `resolutions`, exactly as they were at settlement.
+// Recomputing would quietly restate history every time the screen is opened.
+function SettledBills({ vendorId }: any) {
+  const [bills, setBills] = useState<any[]>([]);
+  const [outstanding, setOutstanding] = useState<any[]>([]);
+  const [open, setOpen] = useState<any>(null);
+  const [busy, setBusy] = useState(true);
+
+  const load = React.useCallback(async () => {
+    setBusy(true);
+    try {
+      const j = await apiJson(`${API}/api/v1/fuel/pump-bill-settled`
+        + (vendorId ? `?vendor_id=${vendorId}` : ''));
+      setBills(j.bills ?? []);
+      setOutstanding(j.outstanding ?? []);
+    } catch { /* the panel just stays empty */ }
+    setBusy(false);
+  }, [vendorId]);
+  useEffect(() => { load(); }, [load]);
+
+  const inr = (n: any) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`;
+  const day = (d: any) => (d ? new Date(d).toLocaleDateString('en-IN',
+    { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+
+  return (
+    <div className="glass-card" style={{ padding: '20px', marginTop: '20px' }}>
+      <h3 style={{ color: '#2fe39b', marginTop: 0, marginBottom: '4px' }}>🧾 Settled 15-Day Bills</h3>
+      <p style={{ color: '#9aadd4', fontSize: '12px', marginTop: 0 }}>
+        Kisi bhi bill par click karein — poori line-by-line audit khulegi.
+      </p>
+
+      {/* what each pump is still owed, live off its own khata */}
+      {outstanding.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))',
+                      gap: '10px', margin: '14px 0' }}>
+          {outstanding.slice(0, 6).map((o: any) => (
+            <div key={o.vendor_id} style={{ background: 'rgba(18,28,56,0.6)', border: '1px solid #27395f',
+                                            borderRadius: '10px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '12px', color: '#c4d1ea' }}>{o.vendor_name}</div>
+              <div style={{ fontSize: '19px', fontWeight: 800,
+                            color: Number(o.outstanding) > 0 ? '#ffb224' : '#2fe39b',
+                            fontVariantNumeric: 'tabular-nums' }}>
+                {inr(o.outstanding)}
+              </div>
+              <div style={{ fontSize: '10.5px', color: '#5d7196' }}>
+                bill {inr(o.billed)} · diya {inr(o.paid)} · {o.settled_fortnights} pakhwade settled
+              </div>
+              {Number(o.adjustment_count) > 0 && (
+                <div style={{ fontSize: '10.5px', color: '#a78bfa' }}>
+                  {o.adjustment_count} adjustment ({inr(o.adjustments)}) — balance me nahi joda gaya
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {busy ? <p style={{ color: '#5d7196' }}>Loading…</p> : bills.length === 0 ? (
+        <p style={{ color: '#5d7196', fontSize: '13px' }}>Abhi koi 15-din ka bill settle nahi hua.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', fontSize: '13px' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: '#5d7196', fontSize: '10.5px', textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px' }}>Invoice</th>
+                <th style={{ padding: '10px' }}>Pump</th>
+                <th style={{ padding: '10px' }}>Cycle</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>Litre</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>Bill</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>Dispute</th>
+                <th style={{ padding: '10px', textAlign: 'right' }}>Payable</th>
+                <th style={{ padding: '10px' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bills.map((b: any) => (
+                <tr key={b.id} onClick={() => setOpen(b)}
+                    style={{ borderBottom: '1px solid #18244a', cursor: 'pointer' }}
+                    title="Click to view details">
+                  <td style={{ padding: '10px', fontFamily: 'monospace', color: '#22d3ee' }}>{b.invoice_no}</td>
+                  <td style={{ padding: '10px', color: '#c4d1ea' }}>{b.vendor_name}</td>
+                  <td style={{ padding: '10px', color: '#9aadd4' }}>{b.cycle_label}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: '#9aadd4', fontVariantNumeric: 'tabular-nums' }}>
+                    {Number(b.total_liters || 0).toLocaleString('en-IN')}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: '#eef3ff', fontVariantNumeric: 'tabular-nums' }}>{inr(b.bill_amount)}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                               color: Number(b.disputed_amount) > 0 ? '#ff6b81' : '#5d7196' }}>
+                    {Number(b.disputed_amount) > 0 ? inr(b.disputed_amount) : '—'}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'right', color: '#2fe39b', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{inr(b.payable_amount)}</td>
+                  <td style={{ padding: '10px' }}>
+                    <span style={{ border: '1px solid ' + (b.locked ? '#2fe39b' : '#ffb224'),
+                                   color: b.locked ? '#2fe39b' : '#ffb224', borderRadius: '99px',
+                                   padding: '2px 8px', fontSize: '10px', fontWeight: 700 }}>
+                      {b.locked ? '🔒 LOCKED' : b.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {open && <BillDrillDown bill={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+// ══ THE DRILL-DOWN ══════════════════════════════════════════════════════════
+function BillDrillDown({ bill, onClose }: any) {
+  useEffect(() => {
+    const h = (e: any) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const inr = (n: any) => `₹${(Number(n) || 0).toLocaleString('en-IN',
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const lines: any[] = Array.isArray(bill.resolutions?.__lines) ? bill.resolutions.__lines
+    : Array.isArray(bill.lines) ? bill.lines : [];
+  const res: any = bill.resolutions ?? {};
+
+  const STATUS = (l: any) => {
+    const d = res[String(l.idx)];
+    if (d === 'DISPUTED') return { t: '⚠️ Disputed', c: '#ff6b81' };
+    if (d === 'ACCEPTED') return { t: '✅ Accepted as billed', c: '#2fe39b' };
+    if (d === 'LINKED') return { t: '✏️ Adjusted', c: '#a78bfa' };
+    if (l.verdict === 'MATCHED') return { t: '✅ Matched', c: '#2fe39b' };
+    return { t: l.verdict ?? '—', c: '#ffb224' };
+  };
+
+  const disputedLines = lines.filter((l: any) => res[String(l.idx)] === 'DISPUTED');
+  const adjusted = lines.filter((l: any) => res[String(l.idx)] === 'LINKED' || l._edited);
+
+  /** Print just this sheet. The browser's own dialog also saves it as a PDF. */
+  const printSheet = () => {
+    const w = window.open('', '_blank', 'width=1000,height=800');
+    if (!w) { alert('Print window block ho gayi — popup allow karein.'); return; }
+    const esc = (t: any) => String(t ?? '').replace(/[&<>]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]);
+    const rows = lines.map((l: any) => {
+      const st = STATUS(l);
+      return `<tr>
+        <td>${esc(l.sno)}</td><td>${esc(l.date)}</td><td>${esc(l.vehicle_raw)}</td>
+        <td class="n">${esc(l.qty)}</td><td class="n">${esc(l.rate)}</td>
+        <td class="n">${esc(l.slip_rate ?? '—')}</td>
+        <td class="n">${Number(l.amount || 0).toFixed(2)}</td>
+        <td>${esc(l.slip?.memo_no ?? l.slip_id ?? '—')}</td>
+        <td>${esc(st.t)}</td>
+        <td>${esc((l.notes || []).join(' · '))}</td></tr>`;
+    }).join('');
+    w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(bill.invoice_no)}</title>
+      <style>
+        body{font:12px/1.45 system-ui,sans-serif;color:#111;margin:24px}
+        h1{font-size:17px;margin:0 0 2px} h2{font-size:12px;font-weight:400;color:#555;margin:0 0 14px}
+        table{border-collapse:collapse;width:100%;font-size:11px}
+        th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}
+        th{background:#eee} .n{text-align:right;font-variant-numeric:tabular-nums}
+        .sum{display:flex;gap:22px;margin:12px 0;font-size:12px}
+        .sum b{display:block;font-size:15px}
+        .foot{margin-top:16px;font-size:10.5px;color:#555}
+      </style>
+      <h1>15-Day Consolidated Bill — ${esc(bill.invoice_no)}</h1>
+      <h2>${esc(bill.vendor_name)} · ${esc(bill.cycle_label)} · ${esc(bill.period_from)} to ${esc(bill.period_to)}</h2>
+      <div class="sum">
+        <span>Total litres <b>${Number(bill.total_liters || 0).toLocaleString('en-IN')}</b></span>
+        <span>Pump billed <b>${inr(bill.bill_amount)}</b></span>
+        <span>Disputed <b>${inr(bill.disputed_amount)}</b></span>
+        <span>Net payable <b>${inr(bill.payable_amount)}</b></span>
+      </div>
+      <table><thead><tr>
+        <th>#</th><th>Date</th><th>Lorry</th><th class="n">Litres</th>
+        <th class="n">Billed rate</th><th class="n">Authorised rate</th>
+        <th class="n">Amount</th><th>Memo</th><th>Status</th><th>Note</th>
+      </tr></thead><tbody>${rows}</tbody></table>
+      <div class="foot">
+        Settled ${esc(bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN') : '—')}
+        by ${esc(bill.locked_by ?? '—')} · voucher ${esc(bill.voucher_id ?? '—')}
+        ${bill.locked ? '· LOCKED' : ''}
+      </div>`);
+    w.document.close();
+    w.focus();
+    w.print();
+  };
+
+  const th = { padding: '8px 10px', textAlign: 'left' as const, fontSize: '10px',
+               textTransform: 'uppercase' as const, letterSpacing: '0.08em', color: '#5d7196',
+               borderBottom: '1px solid #27395f', whiteSpace: 'nowrap' as const };
+  const td = { padding: '8px 10px', borderBottom: '1px solid #18244a', color: '#c4d1ea' };
+
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(5,9,20,0.82)',
+               backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start',
+               justifyContent: 'center', overflowY: 'auto', padding: '24px' }}>
+      <div onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(1180px, 100%)', background: '#0d1530', border: '1px solid #27395f',
+                 borderRadius: '14px', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,0.6)' }}>
+
+        {/* ── header ─────────────────────────────────────────────────────── */}
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid #27395f',
+                      display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '10.5px', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#5d7196' }}>
+              15-Day Consolidated Bill Audit Details
+            </div>
+            <div style={{ fontSize: '21px', fontWeight: 800, color: '#eef3ff', marginTop: '3px' }}>
+              {bill.vendor_name}
+            </div>
+            <div style={{ fontSize: '12.5px', color: '#9aadd4', marginTop: '2px' }}>
+              <span style={{ fontFamily: 'monospace', color: '#22d3ee' }}>{bill.invoice_no}</span>
+              {' · '}{bill.cycle_label}{' · '}{bill.period_from} → {bill.period_to}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+            <button onClick={printSheet}
+              style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
+                       borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              🖨️ Print / PDF
+            </button>
+            <button onClick={onClose}
+              style={{ background: 'transparent', border: '1px solid #27395f', color: '#9aadd4',
+                       borderRadius: '8px', padding: '7px 12px', fontSize: '12px', cursor: 'pointer' }}>
+              ✕ Band karein
+            </button>
+          </div>
+        </div>
+
+        {/* ── the four figures ───────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))',
+                      gap: '1px', background: '#27395f' }}>
+          {[
+            ['Total litres', Number(bill.total_liters || 0).toLocaleString('en-IN'), '#eef3ff'],
+            ['Pump ne laga', inr(bill.bill_amount), '#eef3ff'],
+            ['Dispute me roka', inr(bill.disputed_amount), Number(bill.disputed_amount) > 0 ? '#ff6b81' : '#5d7196'],
+            ['Net payable', inr(bill.payable_amount), '#2fe39b'],
+            ['Status', bill.locked ? '🔒 Locked' : bill.status, bill.locked ? '#2fe39b' : '#ffb224'],
+          ].map((c: any) => (
+            <div key={c[0]} style={{ background: '#0d1530', padding: '12px 16px' }}>
+              <div style={{ fontSize: '10px', color: '#5d7196', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{c[0]}</div>
+              <div style={{ fontSize: '17px', fontWeight: 700, color: c[2], marginTop: '3px', fontVariantNumeric: 'tabular-nums' }}>{c[1]}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── the discrepancy log, above the table where it is read first ── */}
+        {(disputedLines.length > 0 || adjusted.length > 0) && (
+          <div style={{ padding: '14px 22px', borderBottom: '1px solid #27395f',
+                        background: 'rgba(255,107,129,0.05)' }}>
+            <div style={{ fontSize: '10.5px', color: '#ff6b81', textTransform: 'uppercase',
+                          letterSpacing: '0.1em', fontWeight: 700, marginBottom: '6px' }}>
+              Discrepancy &amp; audit log
+            </div>
+            {disputedLines.map((l: any) => (
+              <div key={'d' + l.idx} style={{ fontSize: '12.5px', color: '#ff6b81', lineHeight: 1.5 }}>
+                ⚠️ Disputed — #{l.sno} {l.vehicle_raw} on {l.date}: {(l.notes || []).join(' · ') || 'no note'}
+                {' '}({inr(l.amount)} rok liya gaya)
+              </div>
+            ))}
+            {adjusted.map((l: any) => (
+              <div key={'a' + l.idx} style={{ fontSize: '12.5px', color: '#a78bfa', lineHeight: 1.5 }}>
+                ✏️ Adjusted — #{l.sno} {l.vehicle_raw} on {l.date}: {(l.notes || []).join(' · ') || 'linked by hand'}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── line by line ───────────────────────────────────────────────── */}
+        <div style={{ maxHeight: '52vh', overflowY: 'auto' }}>
+          <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#0d1530' }}>
+              <tr>
+                <th style={th}>#</th><th style={th}>Date</th><th style={th}>Lorry</th>
+                <th style={{ ...th, textAlign: 'right' }}>Litres</th>
+                <th style={{ ...th, textAlign: 'right' }}>Billed rate</th>
+                <th style={{ ...th, textAlign: 'right' }}>Authorized rate</th>
+                <th style={{ ...th, textAlign: 'right' }}>Amount</th>
+                <th style={th}>WhatsApp memo</th><th style={th}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.length === 0 ? (
+                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '30px' }}>
+                  Is bill ke saath line-by-line record nahi rakha gaya tha — yeh bill purane
+                  raaste se settle hua hoga.
+                </td></tr>
+              ) : lines.map((l: any) => {
+                const st = STATUS(l);
+                const rateDiff = l.slip_rate != null && l.rate != null
+                  && Math.abs(Number(l.slip_rate) - Number(l.rate)) > 0.005;
+                return (
+                  <tr key={l.idx}>
+                    <td style={td}>{l.sno}</td>
+                    <td style={td}>{l.date}</td>
+                    <td style={{ ...td, fontFamily: 'monospace' }}>{l.vehicle_raw}</td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.qty}</td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                 color: rateDiff ? '#ffb224' : '#c4d1ea' }}>₹{l.rate ?? '—'}</td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                                 color: rateDiff ? '#2fe39b' : '#5d7196' }}>₹{l.slip_rate ?? '—'}</td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#eef3ff' }}>
+                      {inr(l.amount)}
+                    </td>
+                    <td style={{ ...td, fontFamily: 'monospace', fontSize: '11.5px', color: '#9aadd4' }}>
+                      {l.slip?.memo_no ?? (l.slip_id ? String(l.slip_id).slice(0, 8) : '—')}
+                    </td>
+                    <td style={{ ...td, color: st.c, whiteSpace: 'nowrap' }}>{st.t}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ── who, and when ──────────────────────────────────────────────── */}
+        <div style={{ padding: '12px 22px', borderTop: '1px solid #27395f',
+                      fontSize: '11.5px', color: '#5d7196', display: 'flex',
+                      gap: '20px', flexWrap: 'wrap' }}>
+          <span>Settled: <b style={{ color: '#c4d1ea' }}>
+            {bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN') : '—'}</b></span>
+          <span>By: <b style={{ color: '#c4d1ea' }}>{bill.locked_by ?? '—'}</b></span>
+          <span>Voucher: <b style={{ color: '#c4d1ea', fontFamily: 'monospace' }}>
+            {bill.voucher_id ? String(bill.voucher_id).slice(0, 8) : '—'}</b></span>
+          {bill.locked && <span style={{ color: '#2fe39b' }}>🔒 Locked — is period me ab koi badlav nahi</span>}
+        </div>
+      </div>
     </div>
   );
 }

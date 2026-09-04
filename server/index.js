@@ -195,6 +195,16 @@ app.setErrorHandler((err, req, reply) => {
     // one trip's expense must never land on another.
     return reply.code(409).send({ error: 'TRIP_VEHICLE_MISMATCH', detail: err.message });
   }
+  if (pgCode === 'P0407') {
+    // A pump bill that is already settled, or has nothing left to settle
+    // (migration 153). The message names the bill.
+    return reply.code(409).send({ error: 'BILL_NOT_SETTLEABLE', detail: err.message });
+  }
+  if (pgCode === 'P0408') {
+    // FORTNIGHT_LOCKED (migration 155) — a settled 15-day bill sits under a
+    // posted voucher and its figures cannot move. Unlock it deliberately first.
+    return reply.code(409).send({ error: 'FORTNIGHT_LOCKED', detail: err.message });
+  }
   if (pgCode === 'P0406') {
     // OVER_ALLOCATION (migration 152) — a card swipe cannot discharge more
     // pump credit than it carried. Usually two clerks working the same swipe;
