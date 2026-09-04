@@ -1658,7 +1658,7 @@ function SettledBills({ vendorId }: any) {
         </div>
       )}
 
-      {open && <BillDrillDown bill={open} onClose={() => setOpen(null)} />}
+      {open && <BillDrillDown bill={open} onClose={() => setOpen(null)} onChanged={load} />}
     </div>
   );
 }
@@ -1669,9 +1669,15 @@ function SettledBills({ vendorId }: any) {
 // select them, and reading whatever the list happened to have is how this modal
 // came up empty. The endpoint also falls back to the bill's own slip_ids, and
 // then to the pump's memos over the period, so this table is never blank.
-function BillDrillDown({ bill: seed, onClose }: any) {
+function BillDrillDown({ bill: seed, onClose, onChanged }: any) {
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Local edits live here until Save. `edits` is keyed by line idx, so a row
+  // the clerk has touched is obvious and an untouched row is never rewritten.
+  const [editIdx, setEditIdx] = useState<number | null>(null);
+  const [edits, setEdits] = useState<Record<number, any>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -1688,7 +1694,96 @@ function BillDrillDown({ bill: seed, onClose }: any) {
   }, [onClose]);
 
   const bill = data?.bill ?? seed;
-  const lines: any[] = data?.lines ?? [];
+  // Every line as it will be saved: the stored row with any local edit on top.
+  const lines: any[] = (data?.lines ?? []).map((l: any) =>
+    (edits[l.idx] ? { ...l, ...edits[l.idx], edited: true } : l));
+  const dirty = Object.keys(edits).length;
+
+  const reload = async () => {
+    const j = await apiJson(`${API}/api/v1/fuel/pump-bill/${seed.id}/details`);
+    setData(j); setEdits({}); setEditIdx(null);
+    onChanged?.();
+  };
+
+  /** Persist the edited rows. Refused while the fortnight is locked. */
+  const saveLines = async () => {
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await apiJson(`${API}/api/v1/fuel/pump-bill/${seed.id}/lines`, {
+        method: 'PATCH', body: JSON.stringify({ lines }),
+      });
+      await reload();
+      const NL = String.fromCharCode(10);
+      setMsg(`✅ ${r.lines} line save ho gayi. Bill ab ₹${Number(r.bill_amount).toLocaleString('en-IN')}`
+        + (Math.abs(r.ledger_gap) > 0.005
+            ? ` — ledger abhi ₹${Number(r.posted_payable).toLocaleString('en-IN')} par hai,`
+              + ` antar ₹${Math.abs(r.ledger_gap).toLocaleString('en-IN')}.`
+              + NL + '"Update Ledger" dabaiye tab hisaab barabar hoga.'
+            : '.'));
+    } catch (e: any) {
+      setErr(e?.code === 'FORTNIGHT_LOCKED'
+        ? '🔒 ' + (e.message ?? 'Bill locked hai — pehle "Modify Bill" dabaiye.')
+        : (e?.message ?? 'save nahi hui'));
+    }
+    setBusy(false);
+  };
+
+  /** Unlock the fortnight so it can be restated. Reason required. */
+  const modifyBill = async () => {
+    const reason = window.prompt('Yeh 15-din ka bill settle ho chuka hai. Kholne ka kaaran likhiye:');
+    if (!reason || reason.trim().length < 6) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await apiJson(`${API}/api/v1/fuel/pump-bill-unlock/${seed.id}`, {
+        method: 'POST', body: JSON.stringify({ reason: reason.trim() }),
+      });
+      await reload();
+      setMsg('🔓 Bill khul gaya — ab lines badli ja sakti hain. '
+        + (r.note ?? '') + ' Badalne ke baad "Update Ledger" dabana zaroori hai.');
+    } catch (e: any) { setErr(e?.message ?? 'unlock nahi hua'); }
+    setBusy(false);
+  };
+
+  /**
+   * Bring the ledger to what the bill now says.
+   *
+   * A posted voucher is never rewritten — this posts a SECOND journal for the
+   * difference only, which is what a correction looks like on paper.
+   */
+  const updateLedger = async () => {
+    if (dirty && !window.confirm('Pehle save karna hoga. Bina save kiye ledger update nahi hoga. Save karke aage badhein?')) return;
+    if (dirty) { await saveLines(); }
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await apiJson(`${API}/api/v1/fuel/pump-bill/${seed.id}/post-correction`, {
+        method: 'POST', body: JSON.stringify({ by: 'desk' }),
+      });
+      await reload();
+      const NL = String.fromCharCode(10);
+      setMsg(`✅ Ledger theek ho gaya. ₹${Number(r.was).toLocaleString('en-IN')} → `
+        + `₹${Number(r.now).toLocaleString('en-IN')} (${r.direction === 'INCREASED' ? '+' : '−'}`
+        + `₹${Math.abs(r.delta).toLocaleString('en-IN')}).` + NL
+        + 'Purana voucher waisa hi hai — antar ka naya voucher bana hai.' + NL
+        + (r.pump_outstanding ? `${bill.vendor_name} ka bakaya ab ₹${Number(r.pump_outstanding.outstanding).toLocaleString('en-IN')}.` + NL : '')
+        + '🔒 Bill dobara lock ho gaya.');
+    } catch (e: any) {
+      setErr(e?.code === 'NOTHING_TO_CORRECT'
+        ? 'Ledger pehle se sahi hai — koi antar nahi.'
+        : (e?.message ?? 'correction post nahi hui'));
+    }
+    setBusy(false);
+  };
+
+  /** The bill as a message the pump can read, opened in WhatsApp. */
+  const sendWhatsApp = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await apiJson(`${API}/api/v1/fuel/pump-bill/${seed.id}/summary-text`);
+      if (!r.wa_url) { setErr(r.note ?? 'is pump ka number nahi hai'); setBusy(false); return; }
+      window.open(r.wa_url, '_blank', 'noopener');
+    } catch (e: any) { setErr(e?.message ?? 'summary nahi bani'); }
+    setBusy(false);
+  };
   const inr = (n: any) => `₹${(Number(n) || 0).toLocaleString('en-IN',
     { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -1726,7 +1821,9 @@ function BillDrillDown({ bill: seed, onClose }: any) {
         <td>${esc((l.notes || []).join(' · '))}</td></tr>`).join('');
     w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(bill.invoice_no)}</title>
       <style>
-        body{font:12px/1.45 system-ui,sans-serif;color:#111;margin:24px}
+        @page{size:A4;margin:14mm}
+        body{font:11px/1.4 system-ui,sans-serif;color:#111;margin:0}
+        tr{break-inside:avoid} thead{display:table-header-group}
         h1{font-size:17px;margin:0 0 2px} h2{font-size:12px;font-weight:400;color:#555;margin:0 0 14px}
         table{border-collapse:collapse;width:100%;font-size:11px}
         th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}
@@ -1794,7 +1891,38 @@ function BillDrillDown({ bill: seed, onClose }: any) {
               {' · '}{bill.cycle_label}{' · '}{bill.period_from} → {bill.period_to}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            {/* MODIFY comes before SAVE for a reason: a locked bill cannot be
+                edited at all, so offering "save" on it would be offering a
+                button that always refuses. */}
+            {bill.locked ? (
+              <button onClick={modifyBill} disabled={busy}
+                style={{ background: 'rgba(255,178,36,0.12)', color: '#ffb224', border: '1px solid rgba(255,178,36,0.5)',
+                         borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                🔓 Modify Bill
+              </button>
+            ) : (
+              <>
+                <button onClick={saveLines} disabled={busy || !dirty}
+                  style={{ background: dirty ? '#2fe39b' : 'transparent', color: dirty ? '#0a1024' : '#5d7196',
+                           border: '1px solid ' + (dirty ? '#2fe39b' : '#27395f'), borderRadius: '8px',
+                           padding: '7px 13px', fontSize: '12px', fontWeight: 700,
+                           cursor: dirty ? 'pointer' : 'not-allowed' }}>
+                  💾 Save{dirty ? ' (' + dirty + ')' : ''}
+                </button>
+                <button onClick={updateLedger} disabled={busy}
+                  title="Purana voucher waisa hi rehta hai — antar ka naya voucher banta hai"
+                  style={{ background: 'rgba(167,139,250,0.15)', color: '#c4b5fd', border: '1px solid rgba(167,139,250,0.5)',
+                           borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                  📘 Update Ledger
+                </button>
+              </>
+            )}
+            <button onClick={sendWhatsApp} disabled={busy}
+              style={{ background: 'rgba(47,227,155,0.14)', color: '#2fe39b', border: '1px solid rgba(47,227,155,0.5)',
+                       borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+              🟢 Send WhatsApp
+            </button>
             <button onClick={printSheet} disabled={!lines.length}
               style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
                        borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700,
@@ -1824,6 +1952,15 @@ function BillDrillDown({ bill: seed, onClose }: any) {
             </div>
           ))}
         </div>
+
+        {(msg || err) && (
+          <div style={{ padding: '10px 22px', borderBottom: '1px solid #27395f', fontSize: '12.5px',
+                        lineHeight: 1.55, whiteSpace: 'pre-line',
+                        background: err ? 'rgba(255,107,129,0.08)' : 'rgba(47,227,155,0.08)',
+                        color: err ? '#ff6b81' : '#2fe39b' }}>
+            {err || msg}
+          </div>
+        )}
 
         {/* WHERE THESE LINES CAME FROM, and how much of the rate is an estimate.
             Both belong above the table: a reader should know what they are
@@ -1873,35 +2010,66 @@ function BillDrillDown({ bill: seed, onClose }: any) {
                 <th style={{ ...th, textAlign: 'right' }}>Billed rate</th>
                 <th style={{ ...th, textAlign: 'right' }}>Authorized rate</th>
                 <th style={{ ...th, textAlign: 'right' }}>Amount</th>
-                <th style={th}>WhatsApp memo</th><th style={th}>Audit status</th>
+                <th style={th}>WhatsApp memo</th><th style={th}>Audit status</th><th style={th} />
               </tr>
             </thead>
             <tbody>
               {err ? (
-                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#ff6b81', padding: '26px' }}>{err}</td></tr>
+                <tr><td colSpan={10} style={{ ...td, textAlign: 'center', color: '#ff6b81', padding: '26px' }}>{err}</td></tr>
               ) : !data ? (
-                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>Lines khul rahi hain…</td></tr>
+                <tr><td colSpan={10} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>Lines khul rahi hain…</td></tr>
               ) : lines.length === 0 ? (
-                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>
+                <tr><td colSpan={10} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>
                   Is pump ka is period me koi memo bhi nahi mila — na bill par line, na register me slip.
                 </td></tr>
               ) : lines.map((l) => {
                 const s = st(l);
                 const rateDiff = l.authorised_rate != null && l.billed_rate != null
                   && Math.abs(Number(l.authorised_rate) - Number(l.billed_rate)) > 0.005;
+                const editing = editIdx === l.idx;
+                const touched = !!edits[l.idx];
+                // While the fortnight is locked nothing here may move — the
+                // trigger would refuse it anyway, and offering a pencil that
+                // always fails is worse than not offering one.
+                const canEdit = !bill.locked;
+
+                // Editing litres or rate recomputes the amount as the clerk
+                // types, because a row whose three figures disagree is the very
+                // thing this screen exists to catch.
+                const put = (field: string, v: string) => setEdits((e) => {
+                  const cur = { ...(e[l.idx] ?? {}) };
+                  cur[field] = v === '' ? null : (field === 'vehicle' ? v : Number(v));
+                  if (field === 'liters' || field === 'billed_rate') {
+                    const q = Number(cur.liters ?? l.liters) || 0;
+                    const r = Number(cur.billed_rate ?? l.billed_rate) || 0;
+                    if (q && r) cur.amount = Number((q * r).toFixed(2));
+                  }
+                  return { ...e, [l.idx]: cur };
+                });
+                const cell = (field: string, val: any, w = '82px') => (
+                  <input value={val ?? ''} onChange={(ev) => put(field, ev.target.value)}
+                    style={{ width: w, background: '#0a1024', border: '1px solid #3d548a', borderRadius: '5px',
+                             color: '#eef3ff', padding: '3px 6px', fontSize: '12px',
+                             fontVariantNumeric: 'tabular-nums', textAlign: field === 'vehicle' ? 'left' : 'right' }} />
+                );
+
                 return (
-                  <tr key={l.idx}>
+                  <tr key={l.idx} style={{ background: touched ? 'rgba(167,139,250,0.08)' : 'transparent' }}>
                     <td style={td}>{l.sno}</td>
                     <td style={td}>{l.date}</td>
                     <td style={{ ...td, fontFamily: 'monospace' }}>
-                      {l.vehicle ?? '—'}
-                      {l.driver && <div style={{ fontSize: '10px', color: '#5d7196', fontFamily: 'system-ui' }}>{l.driver}</div>}
+                      {editing ? cell('vehicle', l.vehicle, '120px') : (l.vehicle ?? '—')}
+                      {!editing && l.driver && (
+                        <div style={{ fontSize: '10px', color: '#5d7196', fontFamily: 'system-ui' }}>{l.driver}</div>
+                      )}
                     </td>
-                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.liters ?? '—'}</td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {editing ? cell('liters', l.liters, '70px') : (l.liters ?? '—')}
+                    </td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                                  color: rateDiff ? '#ffb224' : '#c4d1ea' }}>
-                      ₹{l.billed_rate ?? '—'}
-                      {l.rate_basis && l.rate_basis !== 'FROM_BILL' && (
+                      {editing ? cell('billed_rate', l.billed_rate, '76px') : <>₹{l.billed_rate ?? '—'}</>}
+                      {!editing && l.rate_basis && l.rate_basis !== 'FROM_BILL' && (
                         <div style={{ fontSize: '9.5px', color: '#ffb224', fontFamily: 'system-ui' }}
                              title="Yeh rate nikala gaya hai, bill se padha nahi">
                           {l.rate_basis}
@@ -1911,7 +2079,7 @@ function BillDrillDown({ bill: seed, onClose }: any) {
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                                  color: rateDiff ? '#2fe39b' : '#5d7196' }}>₹{l.authorised_rate ?? '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#eef3ff' }}>
-                      {inr(l.amount)}
+                      {editing ? cell('amount', l.amount, '96px') : inr(l.amount)}
                     </td>
                     <td style={{ ...td, fontFamily: 'monospace', fontSize: '11.5px', color: '#9aadd4' }}>
                       {l.memo_no ?? (l.memo_id ? String(l.memo_id).slice(0, 8) : '—')}
@@ -1921,7 +2089,21 @@ function BillDrillDown({ bill: seed, onClose }: any) {
                         </div>
                       )}
                     </td>
-                    <td style={{ ...td, color: s.c, whiteSpace: 'nowrap' }}>{s.t}</td>
+                    <td style={{ ...td, color: s.c, whiteSpace: 'nowrap' }}>
+                      {touched ? <span style={{ color: '#c4b5fd' }}>✏️ Badla gaya</span> : s.t}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {canEdit ? (
+                        <button onClick={() => setEditIdx(editing ? null : l.idx)}
+                          style={{ background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4',
+                                   borderRadius: '5px', padding: '2px 8px', fontSize: '10.5px', cursor: 'pointer' }}>
+                          {editing ? '✓ ho gaya' : '✏️ Edit'}
+                        </button>
+                      ) : (
+                        <span title="Bill locked hai — pehle Modify Bill dabaiye"
+                              style={{ color: '#5d7196', fontSize: '11px' }}>🔒</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

@@ -30,6 +30,7 @@
 // This module does not change that. It only makes the comparison possible
 // beforehand, so an operator can see a variance before posting rather than
 // discovering it in the ledger afterwards.
+import { postVoucher } from '../agents/tara.js';
 import { createHash } from 'node:crypto';
 import { pdfRead, parsePumpBill, toBulkImportRows } from '../lib/pumpBillParse.js';
 import { query, withTransaction } from '../db/pool.js';
@@ -990,5 +991,250 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
     const { rows: [entry] } = await query(
       `SELECT * FROM v_pump_bill_queue WHERE id = $1::uuid`, [req.params.id]);
     return { updated: entry };
+  });
+
+  /**
+   * Save corrected lines onto a bill.
+   *
+   * ONLY WHILE IT IS UNLOCKED. A settled fortnight sits under a posted voucher
+   * and migration 155's trigger refuses to let its figures move; this checks
+   * first so the clerk gets "unlock it" rather than a database error.
+   *
+   * THE BILL AMOUNT FOLLOWS THE LINES. physical_amount is recomputed from what
+   * the lines now say — otherwise a corrected line would leave the header
+   * saying one thing and the rows another, and the header is what gets paid.
+   * The disputed amount is left alone: it is a decision, not an arithmetic
+   * result.
+   *
+   * Saving lines onto a bill that had none MATERIALISES them. That is an
+   * improvement — a reconstruction becomes a record — but it is also an
+   * assertion, so the response says which happened.
+   */
+  app.patch('/pump-bill/:id/lines', { preHandler: guard }, async (req, reply) => {
+    const lines = Array.isArray(req.body?.lines) ? req.body.lines : null;
+    if (!lines) return reply.code(400).send({ error: 'NO_LINES' });
+
+    const { rows: [bill] } = await query(
+      `SELECT * FROM pump_bill_drafts WHERE id = $1::uuid`, [req.params.id]);
+    if (!bill) return reply.code(404).send({ error: 'NO_SUCH_BILL' });
+    if (bill.locked_at) {
+      return reply.code(409).send({
+        error: 'FORTNIGHT_LOCKED',
+        detail: `${bill.invoice_no ?? bill.ref_no} settle ho chuka hai — pehle "Modify Bill" `
+              + 'se unlock kijiye, tab lines badal sakti hain',
+      });
+    }
+
+    const had = Array.isArray(bill.lines) && bill.lines.length > 0;
+    const clean = lines.map((l, i) => ({
+      sno: Number(l.sno) || i + 1,
+      idx: Number.isFinite(Number(l.idx)) ? Number(l.idx) : i,
+      date: String(l.date ?? '').slice(0, 10) || null,
+      vehicle_no: l.vehicle ?? l.vehicle_no ?? l.vehicle_raw ?? null,
+      vehicle_raw: l.vehicle ?? l.vehicle_raw ?? null,
+      driver_name: l.driver ?? l.driver_name ?? null,
+      liters: Number(l.liters ?? l.qty) || null,
+      qty: Number(l.liters ?? l.qty) || null,
+      rate: Number(l.billed_rate ?? l.rate) || null,
+      rate_used: Number(l.billed_rate ?? l.rate) || null,
+      rate_basis: l.rate_basis ?? 'EDITED',
+      slip_rate: Number(l.authorised_rate ?? l.slip_rate) || null,
+      amount: Number(l.amount) || 0,
+      system_amount: Number(l.amount) || 0,
+      id: l.memo_id ?? l.id ?? null,
+      memo_no: l.memo_no ?? null,
+      trip_id: l.trip_id ?? null,
+      verdict: l.verdict ?? null,
+      notes: Array.isArray(l.notes) ? l.notes : [],
+      edited_at: l.edited ? new Date().toISOString() : (l.edited_at ?? null),
+    }));
+
+    const sumAmount = Number(clean.reduce((a, l) => a + (l.amount || 0), 0).toFixed(2));
+    const sumLitres = Number(clean.reduce((a, l) => a + (l.liters || 0), 0).toFixed(3));
+    const disputed = Number(bill.disputed_amount) || 0;
+
+    const { rows: [saved] } = await query(`
+      UPDATE pump_bill_drafts
+         SET lines = $2::jsonb,
+             slip_count = $3,
+             system_liters = $4,
+             physical_liters = $4,
+             physical_amount = $5,
+             payable_amount = $5 - COALESCE(disputed_amount, 0),
+             notes = COALESCE(notes, '') || ' | lines edited ' || to_char(now(), 'DD Mon HH24:MI'),
+             updated_at = now()
+       WHERE id = $1::uuid
+      RETURNING *`,
+      [req.params.id, JSON.stringify(clean), clean.length, sumLitres, sumAmount]);
+
+    return {
+      saved: true,
+      materialised: !had,
+      lines: clean.length,
+      total_liters: sumLitres,
+      bill_amount: sumAmount,
+      disputed_amount: disputed,
+      payable_amount: Number((sumAmount - disputed).toFixed(2)),
+      posted_payable: Number(bill.payable_amount) || 0,
+      // What the ledger is still carrying versus what the bill now says. The
+      // clerk sees this before deciding to post a correction.
+      ledger_gap: Number(((sumAmount - disputed) - (Number(bill.payable_amount) || 0)).toFixed(2)),
+      note: had ? null : 'These lines were reconstructed; saving them makes them this bill’s record.',
+    };
+  });
+
+  /**
+   * Bring the ledger into line with a corrected bill.
+   *
+   * A POSTED VOUCHER IS NEVER REWRITTEN. ledger_entries is append-only and the
+   * original journal is what somebody's audit will find; the correction is a
+   * SECOND journal for the difference only, which is how a correction is
+   * supposed to look on paper.
+   *
+   *   payable went UP    Dr Fuel & HSD        Cr Creditors: <pump>
+   *   payable went DOWN  Dr Creditors: <pump> Cr Fuel & HSD
+   *
+   * The reference carries the bill and the delta, so pressing the button twice
+   * posts once.
+   *
+   * WHAT THIS DOES NOT DO: re-spread the change across the trips. The original
+   * reconciliation moved each trip by its share; working out which trip a
+   * corrected line belongs to is a per-line decision, and doing it silently
+   * here would move a lorry's P&L without anybody choosing to. The response
+   * says so plainly.
+   */
+  app.post('/pump-bill/:id/post-correction', { preHandler: guard }, async (req, reply) => {
+    const { rows: [bill] } = await query(
+      `SELECT b.*, v.vendor_type FROM pump_bill_drafts b
+         LEFT JOIN vendors v ON v.id = b.vendor_id WHERE b.id = $1::uuid`, [req.params.id]);
+    if (!bill) return reply.code(404).send({ error: 'NO_SUCH_BILL' });
+
+    const lineSum = Array.isArray(bill.lines)
+      ? Number(bill.lines.reduce((a, l) => a + (Number(l.amount ?? l.system_amount) || 0), 0).toFixed(2))
+      : Number(bill.physical_amount) || 0;
+    const disputed = Number(bill.disputed_amount) || 0;
+    const shouldBe = Number((lineSum - disputed).toFixed(2));
+    const posted = Number(bill.payable_amount) || 0;
+    const delta = Number((shouldBe - posted).toFixed(2));
+
+    if (Math.abs(delta) < 0.01) {
+      return reply.code(409).send({
+        error: 'NOTHING_TO_CORRECT',
+        detail: `ledger pehle se ${posted.toFixed(2)} par hai — koi antar nahi`,
+        payable_amount: posted,
+      });
+    }
+
+    const up = delta > 0;
+    const amt = Math.abs(delta);
+    let voucher;
+    try {
+      voucher = await postVoucher({
+        type: 'JOURNAL',
+        source_type: 'FUEL_BILL_CORRECTION',
+        // Deterministic on the bill AND the delta: pressing twice posts once,
+        // and a genuinely different correction later still gets through.
+        ref_no: `FUELCORR_${bill.id}_${amt.toFixed(2)}_${up ? 'DR' : 'CR'}`,
+        entry_date: new Date().toISOString().slice(0, 10),
+        narration: `Fuel bill correction — ${bill.vendor_name} `
+                 + `${bill.period_from} to ${bill.period_to} `
+                 + `(${bill.invoice_no ?? bill.ref_no}): payable ${posted.toFixed(2)} → ${shouldBe.toFixed(2)}`,
+        lines: up
+          ? [{ ledger: 'Direct Expenses - Fuel & HSD', dr_cr: 'DR', amount: amt,
+               group: 'Direct Expenses - Fuel & HSD' },
+             { ledger: `Creditors: ${bill.vendor_name}`, dr_cr: 'CR', amount: amt,
+               group: /fuel|pump/i.test(bill.vendor_type ?? '') ? 'Sundry Creditors (Fuel Pumps)' : 'Sundry Creditors (Vendors)' }]
+          : [{ ledger: `Creditors: ${bill.vendor_name}`, dr_cr: 'DR', amount: amt,
+               group: /fuel|pump/i.test(bill.vendor_type ?? '') ? 'Sundry Creditors (Fuel Pumps)' : 'Sundry Creditors (Vendors)' },
+             { ledger: 'Direct Expenses - Fuel & HSD', dr_cr: 'CR', amount: amt,
+               group: 'Direct Expenses - Fuel & HSD' }],
+      });
+    } catch (e) {
+      if (e.code === 'DUPLICATE_REF') {
+        return reply.code(409).send({ error: 'ALREADY_CORRECTED', detail: e.message });
+      }
+      return reply.code(422).send({ error: e.code ?? 'POSTING_FAILED', detail: e.message });
+    }
+
+    // The pump's own khata moves with it.
+    await query(`
+      INSERT INTO vendor_txns (vendor_id, vendor_name, txn_date, txn_type, amount, remarks, voucher_id, created_by)
+      VALUES ($1::uuid,$2,CURRENT_DATE,$3,$4,$5,$6::uuid,$7)`,
+      [bill.vendor_id, bill.vendor_name, up ? 'BILL_RECEIVED' : 'CREDIT_NOTE', amt,
+       `Correction — ${bill.invoice_no ?? bill.ref_no}: ${posted.toFixed(2)} → ${shouldBe.toFixed(2)}`,
+       voucher?.voucher_id ?? null, req.body?.by ?? 'desk']).catch(() => {});
+
+    const { rows: [after] } = await query(`
+      UPDATE pump_bill_drafts
+         SET physical_amount = $2, payable_amount = $3,
+             notes = COALESCE(notes,'') || ' | corrected ' || to_char(now(),'DD Mon HH24:MI'),
+             locked_at = now(), locked_by = $4, updated_at = now()
+       WHERE id = $1::uuid RETURNING *`,
+      [bill.id, lineSum, shouldBe, req.body?.by ?? 'desk']);
+
+    const { rows: [out] } = await query(
+      `SELECT * FROM v_pump_outstanding WHERE vendor_id = $1::uuid`, [bill.vendor_id]);
+
+    return {
+      corrected: true,
+      delta,
+      direction: up ? 'INCREASED' : 'REDUCED',
+      was: posted,
+      now: shouldBe,
+      voucher_id: voucher?.voucher_id ?? null,
+      relocked: true,
+      pump_outstanding: out ?? null,
+      trips_note: 'Trip-level shares were NOT re-spread. The original reconciliation '
+                + 'moved each trip by its own share; which trip a corrected line belongs '
+                + 'to is a per-line decision and is not made here.',
+    };
+  });
+
+  /** The bill as a message a pump can read on WhatsApp. */
+  app.get('/pump-bill/:id/summary-text', { preHandler: guard }, async (req, reply) => {
+    const { rows: [b] } = await query(`
+      SELECT d.*, COALESCE(d.invoice_no, pump_invoice_no(d.vendor_name, d.period_from)) AS invoice_no,
+             fortnight_label(d.period_from) AS cycle_label, v.mobile_no
+        FROM pump_bill_drafts d LEFT JOIN vendors v ON v.id = d.vendor_id
+       WHERE d.id = $1::uuid`, [req.params.id]);
+    if (!b) return reply.code(404).send({ error: 'NO_SUCH_BILL' });
+
+    const inr = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const NL = String.fromCharCode(10);
+    const disputed = Number(b.disputed_amount) || 0;
+    const lines = Array.isArray(b.lines) ? b.lines : [];
+
+    // Short enough to read on a phone. The pump wants the four figures and, if
+    // we are holding money back, WHY — a deduction with no reason is a phone
+    // call, and this message exists to prevent that call.
+    let msg = `*${b.vendor_name}*${NL}`
+      + `15-din ka bill — ${b.cycle_label}${NL}`
+      + `Invoice: ${b.invoice_no}${NL}`
+      + `Period: ${b.period_from} se ${b.period_to}${NL}${NL}`
+      + `Litre: ${Number(b.system_liters || 0).toLocaleString('en-IN')}${NL}`
+      + `Bill: Rs ${inr(b.physical_amount)}${NL}`;
+    if (disputed > 0) {
+      msg += `Rok liya: Rs ${inr(disputed)}${NL}`;
+      const d = lines.filter((l) => l.verdict === 'DISPUTED' || l._disputed);
+      for (const l of d.slice(0, 6)) {
+        msg += `  • ${l.date ?? ''} ${l.vehicle_no ?? l.vehicle_raw ?? ''} `
+             + `${l.liters ?? l.qty ?? ''}L — Rs ${inr(l.amount)}${NL}`;
+      }
+    }
+    msg += `*Dene hain: Rs ${inr(b.payable_amount ?? (Number(b.physical_amount) || 0) - disputed)}*${NL}`;
+    if (b.locked_at) msg += `${NL}(Settle ho chuka — ${new Date(b.locked_at).toLocaleDateString('en-IN')})`;
+
+    const digits = String(b.mobile_no ?? '').replace(/\D/g, '');
+    return {
+      text: msg,
+      mobile: b.mobile_no ?? null,
+      // 91 is added only to a bare 10-digit Indian number; anything already
+      // carrying a country code is left as the office entered it.
+      wa_number: digits ? (digits.length === 10 ? `91${digits}` : digits) : null,
+      wa_url: digits
+        ? `https://wa.me/${digits.length === 10 ? `91${digits}` : digits}?text=${encodeURIComponent(msg)}`
+        : null,
+      note: digits ? null : `${b.vendor_name} ka mobile number vendor master me nahi hai`,
+    };
   });
 }
