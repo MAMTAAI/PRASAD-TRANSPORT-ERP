@@ -37,6 +37,10 @@ export default function FuelMgmt() {
   const [billResolutions, setBillResolutions] = useState<Record<number, string>>({});
   const [auditFilter, setAuditFilter] = useState<'FLAGGED' | 'ALL'>('FLAGGED');
   const [linkingIdx, setLinkingIdx] = useState<number | null>(null);
+  // Inline correction of a bill line we read wrong. Keyed by index.
+  const [editingBillIdx, setEditingBillIdx] = useState<number | null>(null);
+  const [billEdit, setBillEdit] = useState<any>({});
+  const [savingMemo, setSavingMemo] = useState(false);
   const [activeTab, setActiveTab] = useState('RECON');
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]); 
@@ -335,7 +339,16 @@ export default function FuelMgmt() {
 
   const deleteReconSlip = async (id: string) => {
     if(window.confirm("⚠️ Are you sure you want to permanently delete this Fuel Slip?")) {
-      await deleteDoc(doc(db, "FUEL_ENTRIES", id));
+      // DELETE WAS NEVER WIRED after the move off Firestore: this called
+      // deleteDoc(doc(db, …)) with no db in scope, so the button threw a
+      // ReferenceError and did nothing. Saying so is better than crashing, and
+      // better than quietly building a delete for a financial record that may
+      // already be attached to a trip. The correction a clerk needs is ✏️ Edit.
+      alert('🚫 Fuel slip/memo delete abhi is screen se nahi hota.'
+        + String.fromCharCode(10) + String.fromCharCode(10)
+        + 'Galti sudharni ho to us line par ✏️ Edit dabaiye. Poori slip hatani ho'
+        + ' to accounts se kahiye — wo kisi trip se judi ho sakti hai.');
+      return;
       
       const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
       const freshHistory = fSnap.entries ?? [];
@@ -433,9 +446,15 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
   // Derived on every render from the scanned lines and the unbilled memos.
   // Deliberately not stored: an audit kept in state drifts the moment a slip is
   // edited on the right, and a stale verdict is worse than none.
+  // AUDITED AGAINST EVERY UNBILLED MEMO FOR THIS PUMP — never the date-filtered
+  // list. The on-screen From/To is there to shorten the table on the right; the
+  // audit constrains dates itself, per line, to within a day of the bill line.
+  // Feeding it the filtered list made a June bill read against an August filter
+  // report all 39 lines as "no memo exists" and ₹6,47,352 as unauthorised —
+  // which is what the screen showed before this was fixed.
   const billAudit = React.useMemo(
-    () => (scannedPumpItems.length ? auditBill(scannedPumpItems, filteredUnbilledSlips) : null),
-    [scannedPumpItems, filteredUnbilledSlips]);
+    () => (scannedPumpItems.length ? auditBill(scannedPumpItems, unbilledSlips) : null),
+    [scannedPumpItems, unbilledSlips]);
   const gate = React.useMemo(
     () => (billAudit ? settlementGate(billAudit, billResolutions) : null),
     [billAudit, billResolutions]);
@@ -445,6 +464,75 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       ? billAudit.lines
       : billAudit.lines.filter((l: any) => VERDICTS[l.verdict]?.blocks);
   }, [billAudit, auditFilter]);
+
+  /**
+   * Correct what we READ from the bill — a lorry number, a date, litres, a rate.
+   *
+   * THE ORIGINAL IS KEPT on the row and shown. Editing here changes our reading
+   * of the paper, not the paper: if a clerk quietly "corrects" the pump's rate
+   * down to ours the disagreement disappears from the screen while the pump is
+   * still charging what it charged. Keeping the original is what stops this
+   * button from becoming a way to make an over-charge vanish.
+   */
+  const startBillEdit = (l: any) => {
+    setEditingBillIdx(l.idx);
+    setBillEdit({ date: l.date ?? '', vehicle_no: l.vehicle_raw ?? '',
+                  qty: l.qty ?? '', rate: l.rate ?? '', amount: l.amount ?? '' });
+  };
+  const onBillEditChange = (field: string, val: string) => {
+    setBillEdit((b: any) => {
+      const next = { ...b, [field]: val };
+      // Litres × rate keeps the amount honest while the clerk types, unless
+      // they are editing the amount itself.
+      if (field === 'qty' || field === 'rate') {
+        const q = parseFloat(field === 'qty' ? val : next.qty) || 0;
+        const r = parseFloat(field === 'rate' ? val : next.rate) || 0;
+        if (q && r) next.amount = (q * r).toFixed(2);
+      }
+      return next;
+    });
+  };
+  const saveBillEdit = (idx: number) => {
+    setScannedPumpItems((items) => items.map((it: any, i: number) => {
+      if (i !== idx) return it;
+      return {
+        ...it,
+        _original: it._original ?? { date: it.date, vehicle_no: it.vehicle_no,
+                                     qty: it.qty, rate: it.rate, amount: it.amount },
+        date: billEdit.date || it.date,
+        vehicle_no: billEdit.vehicle_no || it.vehicle_no,
+        vehicle_raw: billEdit.vehicle_no || it.vehicle_no,
+        qty: billEdit.qty === '' ? it.qty : Number(billEdit.qty),
+        rate: billEdit.rate === '' ? it.rate : Number(billEdit.rate),
+        amount: billEdit.amount === '' ? it.amount : Number(billEdit.amount),
+        _edited: true,
+      };
+    }));
+    // A corrected line starts over: whatever was decided about the old reading
+    // no longer applies to the new one.
+    setBillResolutions((r) => { const n = { ...r }; delete n[idx]; return n; });
+    setEditingBillIdx(null);
+  };
+
+  /** Correct OUR memo. Real data, so it goes to the server and comes back. */
+  const saveMemoEditFromAudit = async (slipId: string, patch: any) => {
+    setSavingMemo(true);
+    try {
+      await apiJson(`${QUEUES_API}/fuel-entries/${slipId}`, {
+        method: 'PATCH', body: JSON.stringify(patch),
+      });
+      const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
+      const fresh = fSnap.entries ?? [];
+      setFuelHistory(fresh);
+      setUnbilledSlips(fresh.filter((f: any) => f.vendor_id === reconVendor && f.bill_status === 'UNBILLED'));
+      setEditingSlipId('');
+    } catch (e: any) {
+      alert(e?.code === 'NOT_EDITABLE'
+        ? '❌ Yeh slip pehle hi kisi bill se verify ho chuki hai — ab badli nahi ja sakti.'
+        : '❌ Slip update nahi hui.');
+    }
+    setSavingMemo(false);
+  };
 
   const resolve = (idx: number, how: string) =>
     setBillResolutions((r) => {
@@ -555,7 +643,16 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
   const handleDeleteHistorySlip = async (id: string, memoNo: string) => {
     if (window.confirm(`⚠️ Are you sure you want to delete Memo No: ${memoNo}?\n\nNote: If this was an 'ADVANCE' fuel, the entry will be removed from here, but you will need to manually reverse the advance from the Driver's Ledger.`)) {
       try {
-        await deleteDoc(doc(db, "FUEL_ENTRIES", id));
+        // DELETE WAS NEVER WIRED after the move off Firestore: this called
+        // deleteDoc(doc(db, …)) with no db in scope, so the button threw a
+        // ReferenceError and did nothing. Saying so is better than crashing, and
+        // better than quietly building a delete for a financial record that may
+        // already be attached to a trip. The correction a clerk needs is ✏️ Edit.
+        alert('🚫 Fuel slip/memo delete abhi is screen se nahi hota.'
+          + String.fromCharCode(10) + String.fromCharCode(10)
+          + 'Galti sudharni ho to us line par ✏️ Edit dabaiye. Poori slip hatani ho'
+          + ' to accounts se kahiye — wo kisi trip se judi ho sakti hai.');
+        return;
         fetchData();
       } catch (error) { alert("Error deleting memo"); }
     }
@@ -861,94 +958,232 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                     const v = VERDICTS[l.verdict] || { label: l.verdict, tone: 'warn', blocks: true };
                     const tone = v.tone === 'ok' ? '#2fe39b' : v.tone === 'bad' ? '#ff6b81' : '#ffb224';
                     const decided = billResolutions[l.idx];
+                    const src = scannedPumpItems[l.idx] || {};
+                    const editingThis = editingBillIdx === l.idx;
+                    const memoEditing = l.slip && editingSlipId === String(l.slip.id);
+
+                    // One field, side by side. `diff` paints only the figures
+                    // that actually disagree — a card where everything is red
+                    // tells the clerk nothing.
+                    const Field = ({ label, a, b, diff }: any) => (
+                      <div style={{ display: 'grid', gridTemplateColumns: '68px 1fr', gap: '8px', padding: '3px 0' }}>
+                        <span style={{ fontSize: '10.5px', color: '#5d7196', textTransform: 'uppercase', letterSpacing: '0.06em', paddingTop: '2px' }}>{label}</span>
+                        <span style={{ fontSize: '12.5px', color: diff ? tone : '#c4d1ea', fontWeight: diff ? 700 : 400,
+                                       fontVariantNumeric: 'tabular-nums' }}>{a}</span>
+                      </div>
+                    );
+
                     return (
                       <div key={l.idx} style={{ border: '1px solid ' + (decided ? 'rgba(47,227,155,0.45)' : '#27395f'),
-                                                background: decided ? 'rgba(47,227,155,0.05)' : 'rgba(18,28,56,0.6)',
-                                                borderRadius: '10px', padding: '12px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                                                background: decided ? 'rgba(47,227,155,0.04)' : 'rgba(18,28,56,0.6)',
+                                                borderRadius: '10px', overflow: 'hidden' }}>
 
-                          {/* LEFT — what the pump billed, and what is wrong */}
-                          <div style={{ borderRight: '1px dashed #27395f', paddingRight: '14px', minWidth: 0 }}>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                              <b style={{ color: '#eef3ff', fontSize: '13px' }}>#{l.sno} {l.vehicle_raw || '—'}</b>
-                              <span style={{ color: '#9aadd4', fontSize: '12px' }}>{l.date}</span>
-                              <span style={{ border: '1px solid ' + tone, color: tone, borderRadius: '99px',
-                                             padding: '1px 8px', fontSize: '10px', fontWeight: 700 }}>{v.label}</span>
-                              {decided && <span style={{ color: '#2fe39b', fontSize: '10px', fontWeight: 700 }}>✓ {decided}</span>}
-                            </div>
-                            <div style={{ color: '#c4d1ea', fontSize: '12px', marginTop: '5px', fontVariantNumeric: 'tabular-nums' }}>
-                              {l.qty == null ? '—' : l.qty} L · ₹{l.rate == null ? '—' : l.rate}/L ·{' '}
-                              <b>₹{Number(l.amount || 0).toLocaleString('en-IN')}</b>
-                            </div>
-                            {l.notes.map((n: string, i: number) => (
-                              <div key={i} style={{ color: tone, fontSize: '11.5px', marginTop: '5px', lineHeight: 1.45 }}>⚠ {n}</div>
-                            ))}
-                          </div>
+                        {/* the line's own header: which line, and what is wrong */}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap',
+                                      padding: '8px 12px', borderBottom: '1px solid #27395f', background: 'rgba(10,16,36,0.5)' }}>
+                          <b style={{ color: '#eef3ff', fontSize: '12.5px' }}>#{l.sno}</b>
+                          <span style={{ border: '1px solid ' + tone, color: tone, borderRadius: '99px',
+                                         padding: '1px 8px', fontSize: '10px', fontWeight: 700 }}>{v.label}</span>
+                          {src._edited && (
+                            <span title={'Pehle bill par: ' + (src._original?.date || '') + ' · ' + (src._original?.vehicle_no || '')
+                                         + ' · ' + (src._original?.qty ?? '') + 'L · ₹' + (src._original?.rate ?? '')}
+                              style={{ border: '1px solid #a78bfa', color: '#c4b5fd', borderRadius: '99px',
+                                       padding: '1px 8px', fontSize: '10px', fontWeight: 700 }}>
+                              ✏️ hum ne theek kiya
+                            </span>
+                          )}
+                          {decided && <span style={{ color: '#2fe39b', fontSize: '10.5px', fontWeight: 700 }}>✓ {decided}</span>}
+                          {l.notes.length > 0 && (
+                            <span style={{ color: tone, fontSize: '11.5px', flexBasis: '100%', lineHeight: 1.45 }}>
+                              {l.notes.map((n: string, i: number) => <div key={i}>⚠ {n}</div>)}
+                            </span>
+                          )}
+                        </div>
 
-                          {/* RIGHT — the memo it was paired to, or the ones it could be */}
-                          <div style={{ minWidth: 0 }}>
-                            {l.slip ? (
-                              <>
-                                <div style={{ fontSize: '10px', color: '#9aadd4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                                  Humara memo
+                        {/* ═══ THE TWO SIDES ═════════════════════════════════ */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+
+                          {/* ── LEFT: what the pump billed ────────────────── */}
+                          <div style={{ padding: '10px 12px', borderRight: '1px solid #27395f' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <b style={{ fontSize: '10.5px', color: '#ffb224', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                📄 Pump Bill Entry
+                              </b>
+                              <button onClick={() => (editingThis ? setEditingBillIdx(null) : startBillEdit(l))}
+                                style={{ background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4',
+                                         borderRadius: '5px', padding: '2px 8px', fontSize: '10.5px', cursor: 'pointer' }}>
+                                {editingThis ? '✕ band' : '✏️ Edit'}
+                              </button>
+                            </div>
+
+                            {editingThis ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                {[['date', 'Date', 'date'], ['vehicle_no', 'Lorry', 'text'],
+                                  ['qty', 'Litres', 'number'], ['rate', 'Rate', 'number'],
+                                  ['amount', 'Amount', 'number']].map((f: any) => (
+                                  <div key={f[0]} style={{ display: 'grid', gridTemplateColumns: '68px 1fr', gap: '8px', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '10.5px', color: '#5d7196', textTransform: 'uppercase' }}>{f[1]}</span>
+                                    <input type={f[2]} value={billEdit[f[0]] ?? ''} onChange={(e) => onBillEditChange(f[0], e.target.value)}
+                                      style={{ background: '#0a1024', border: '1px solid #3d548a', borderRadius: '5px',
+                                               color: '#eef3ff', padding: '4px 7px', fontSize: '12px', width: '100%' }} />
+                                  </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                                  <button onClick={() => saveBillEdit(l.idx)}
+                                    style={{ background: '#2fe39b', color: '#0a1024', border: 'none', borderRadius: '5px',
+                                             padding: '4px 12px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                                    💾 Save & re-check
+                                  </button>
+                                  <button onClick={() => setEditingBillIdx(null)}
+                                    style={{ background: 'transparent', border: '1px solid #27395f', color: '#9aadd4',
+                                             borderRadius: '5px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer' }}>
+                                    rehne do
+                                  </button>
                                 </div>
-                                <div style={{ color: '#eef3ff', fontSize: '13px', marginTop: '3px' }}>
-                                  {l.slip.memo_no || l.slip.id} · {String(l.slip.entry_date || l.slip.date || '').slice(0, 10)}
-                                </div>
-                                <div style={{ color: '#c4d1ea', fontSize: '12px', marginTop: '3px', fontVariantNumeric: 'tabular-nums' }}>
-                                  {l.slip_liters == null ? '—' : l.slip_liters} L · ₹{l.slip_rate == null ? '—' : l.slip_rate}/L ·{' '}
-                                  <b>₹{Number(l.slip_amount || 0).toLocaleString('en-IN')}</b>
-                                </div>
-                              </>
-                            ) : linkingIdx === l.idx ? (
-                              <>
-                                <div style={{ fontSize: '10px', color: '#22d3ee', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '5px' }}>
-                                  Kis memo se jodein?
-                                </div>
-                                <div style={{ maxHeight: '130px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                  {filteredUnbilledSlips.length === 0 && (
-                                    <span style={{ color: '#5d7196', fontSize: '12px' }}>Is pump ka koi unbilled memo nahi.</span>
-                                  )}
-                                  {filteredUnbilledSlips.map((sl: any) => (
-                                    <button key={sl.id} onClick={() => linkLineToSlip(l.idx, sl.id)}
-                                      style={{ textAlign: 'left', background: 'rgba(34,211,238,0.08)', border: '1px solid #27395f',
-                                               borderRadius: '6px', padding: '5px 8px', color: '#c4d1ea', fontSize: '11.5px', cursor: 'pointer' }}>
-                                      {String(sl.entry_date || '').slice(0, 10)} · {sl.vehicle_no} · {sl.liters}L · ₹{Number(sl.amount || 0).toLocaleString('en-IN')}
-                                    </button>
-                                  ))}
-                                </div>
-                                <button onClick={() => setLinkingIdx(null)}
-                                  style={{ marginTop: '6px', background: 'transparent', border: 'none', color: '#9aadd4', fontSize: '11px', cursor: 'pointer' }}>
-                                  rehne do
-                                </button>
-                              </>
+                              </div>
                             ) : (
-                              <div style={{ color: '#5d7196', fontSize: '12px', paddingTop: '14px' }}>Koi memo nahi juda.</div>
+                              <>
+                                <Field label="Date"   a={l.date || '—'} diff={l.slip && String(l.slip.entry_date || '').slice(0, 10) !== l.date} />
+                                <Field label="Lorry"  a={l.vehicle_raw || '—'} diff={false} />
+                                <Field label="Litres" a={(l.qty == null ? '—' : l.qty) + ' L'} diff={l.verdict === 'QTY_MISMATCH'} />
+                                <Field label="Rate"   a={'₹' + (l.rate == null ? '—' : l.rate)} diff={l.verdict === 'RATE_MISMATCH'} />
+                                <Field label="Amount" a={'₹' + Number(l.amount || 0).toLocaleString('en-IN')}
+                                       diff={l.verdict === 'AMOUNT_MISMATCH' || l.verdict === 'QTY_MISMATCH'} />
+                                {src._edited && src._original && (
+                                  <div style={{ marginTop: '5px', fontSize: '10.5px', color: '#7a5ca8', lineHeight: 1.4 }}>
+                                    Bill par tha: {src._original.date} · {src._original.vehicle_no} ·{' '}
+                                    {src._original.qty}L · ₹{src._original.rate}
+                                  </div>
+                                )}
+                              </>
                             )}
-
-                            {/* ACTION TOOLS */}
-                            <div style={{ display: 'flex', gap: '6px', marginTop: '10px', flexWrap: 'wrap' }}>
-                              <button onClick={() => setLinkingIdx(linkingIdx === l.idx ? null : l.idx)}
-                                style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
-                                         borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-                                🔗 Link / Adjust
-                              </button>
-                              <button onClick={() => resolve(l.idx, 'ACCEPTED')}
-                                style={{ background: decided === 'ACCEPTED' ? '#2fe39b' : 'rgba(47,227,155,0.12)',
-                                         color: decided === 'ACCEPTED' ? '#0a1024' : '#2fe39b',
-                                         border: '1px solid rgba(47,227,155,0.5)', borderRadius: '6px',
-                                         padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-                                ✅ Accept pump bill
-                              </button>
-                              <button onClick={() => resolve(l.idx, 'DISPUTED')}
-                                style={{ background: decided === 'DISPUTED' ? '#ff6b81' : 'rgba(255,107,129,0.12)',
-                                         color: decided === 'DISPUTED' ? '#0a1024' : '#ff6b81',
-                                         border: '1px solid rgba(255,107,129,0.5)', borderRadius: '6px',
-                                         padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-                                ⚠ Dispute
-                              </button>
-                            </div>
                           </div>
+
+                          {/* ── RIGHT: what we authorised on WhatsApp ─────── */}
+                          <div style={{ padding: '10px 12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                              <b style={{ fontSize: '10.5px', color: '#2fe39b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                💬 WhatsApp Memo Entry
+                              </b>
+                              {l.slip && (
+                                <button onClick={() => {
+                                    if (memoEditing) { setEditingSlipId(''); return; }
+                                    setEditingSlipId(String(l.slip.id));
+                                    setEditSlipData({ liters: String(l.slip_liters ?? ''), rate: String(l.slip_rate ?? ''),
+                                                      amount: String(l.slip_amount ?? ''),
+                                                      vehicle_no: l.slip.vehicle_no ?? '',
+                                                      entry_date: String(l.slip.entry_date || '').slice(0, 10) } as any);
+                                  }}
+                                  style={{ background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4',
+                                           borderRadius: '5px', padding: '2px 8px', fontSize: '10.5px', cursor: 'pointer' }}>
+                                  {memoEditing ? '✕ band' : '✏️ Edit'}
+                                </button>
+                              )}
+                            </div>
+
+                            {!l.slip ? (
+                              linkingIdx === l.idx ? (
+                                <>
+                                  <div style={{ fontSize: '10.5px', color: '#22d3ee', marginBottom: '5px' }}>Kis memo se jodein?</div>
+                                  <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                    {unbilledSlips.length === 0 && (
+                                      <span style={{ color: '#5d7196', fontSize: '12px' }}>Is pump ka koi unbilled memo nahi.</span>
+                                    )}
+                                    {unbilledSlips.map((sl: any) => (
+                                      <button key={sl.id} onClick={() => linkLineToSlip(l.idx, sl.id)}
+                                        style={{ textAlign: 'left', background: 'rgba(34,211,238,0.08)', border: '1px solid #27395f',
+                                                 borderRadius: '6px', padding: '5px 8px', color: '#c4d1ea', fontSize: '11.5px', cursor: 'pointer' }}>
+                                        {String(sl.entry_date || sl.date || '').slice(0, 10)} · {sl.vehicle_no} · {sl.liters}L · ₹{Number(sl.amount || 0).toLocaleString('en-IN')}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  <button onClick={() => setLinkingIdx(null)}
+                                    style={{ marginTop: '6px', background: 'transparent', border: 'none', color: '#9aadd4', fontSize: '11px', cursor: 'pointer' }}>
+                                    rehne do
+                                  </button>
+                                </>
+                              ) : (
+                                <div style={{ color: '#5d7196', fontSize: '12px', padding: '16px 0' }}>
+                                  Koi memo nahi juda.
+                                </div>
+                              )
+                            ) : memoEditing ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                {[['entry_date', 'Date', 'date'], ['vehicle_no', 'Lorry', 'text'],
+                                  ['liters', 'Litres', 'number'], ['rate', 'Rate', 'number'],
+                                  ['amount', 'Amount', 'number']].map((f: any) => (
+                                  <div key={f[0]} style={{ display: 'grid', gridTemplateColumns: '68px 1fr', gap: '8px', alignItems: 'center' }}>
+                                    <span style={{ fontSize: '10.5px', color: '#5d7196', textTransform: 'uppercase' }}>{f[1]}</span>
+                                    <input type={f[2]} value={(editSlipData as any)[f[0]] ?? ''}
+                                      onChange={(e) => handleEditSlipChange(f[0], e.target.value)}
+                                      style={{ background: '#0a1024', border: '1px solid #3d548a', borderRadius: '5px',
+                                               color: '#eef3ff', padding: '4px 7px', fontSize: '12px', width: '100%' }} />
+                                  </div>
+                                ))}
+                                <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                                  <button disabled={savingMemo}
+                                    onClick={() => saveMemoEditFromAudit(String(l.slip.id), {
+                                      liters: Number((editSlipData as any).liters) || 0,
+                                      rate: Number((editSlipData as any).rate) || 0,
+                                      amount: Number((editSlipData as any).amount) || 0,
+                                      vehicle_no: (editSlipData as any).vehicle_no || undefined,
+                                      entry_date: (editSlipData as any).entry_date || undefined,
+                                    })}
+                                    style={{ background: '#2fe39b', color: '#0a1024', border: 'none', borderRadius: '5px',
+                                             padding: '4px 12px', fontSize: '11px', fontWeight: 700, cursor: 'pointer', opacity: savingMemo ? 0.5 : 1 }}>
+                                    {savingMemo ? '⌛' : '💾 Save & re-check'}
+                                  </button>
+                                  <button onClick={() => setEditingSlipId('')}
+                                    style={{ background: 'transparent', border: '1px solid #27395f', color: '#9aadd4',
+                                             borderRadius: '5px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer' }}>
+                                    rehne do
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <Field label="Date"   a={String(l.slip.entry_date || l.slip.date || '').slice(0, 10) || '—'}
+                                       diff={String(l.slip.entry_date || '').slice(0, 10) !== l.date} />
+                                <Field label="Lorry"  a={l.slip.vehicle_no || '—'} diff={false} />
+                                <Field label="Litres" a={(l.slip_liters == null ? '—' : l.slip_liters) + ' L'} diff={l.verdict === 'QTY_MISMATCH'} />
+                                <Field label="Rate"   a={'₹' + (l.slip_rate == null ? '—' : l.slip_rate)} diff={l.verdict === 'RATE_MISMATCH'} />
+                                <Field label="Amount" a={'₹' + Number(l.slip_amount || 0).toLocaleString('en-IN')}
+                                       diff={l.verdict === 'AMOUNT_MISMATCH' || l.verdict === 'QTY_MISMATCH'} />
+                                <div style={{ marginTop: '4px', fontSize: '10.5px', color: '#5d7196' }}>
+                                  Memo {l.slip.memo_no || l.slip.id}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ACTION TOOLS — always available, on the updated row */}
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap',
+                                      padding: '8px 12px', borderTop: '1px solid #27395f', background: 'rgba(10,16,36,0.35)' }}>
+                          <button onClick={() => setLinkingIdx(linkingIdx === l.idx ? null : l.idx)}
+                            style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
+                                     borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                            🔗 Link / Adjust
+                          </button>
+                          <button onClick={() => resolve(l.idx, 'ACCEPTED')}
+                            style={{ background: decided === 'ACCEPTED' ? '#2fe39b' : 'rgba(47,227,155,0.12)',
+                                     color: decided === 'ACCEPTED' ? '#0a1024' : '#2fe39b',
+                                     border: '1px solid rgba(47,227,155,0.5)', borderRadius: '6px',
+                                     padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                            ✅ Accept pump bill
+                          </button>
+                          <button onClick={() => resolve(l.idx, 'DISPUTED')}
+                            style={{ background: decided === 'DISPUTED' ? '#ff6b81' : 'rgba(255,107,129,0.12)',
+                                     color: decided === 'DISPUTED' ? '#0a1024' : '#ff6b81',
+                                     border: '1px solid rgba(255,107,129,0.5)', borderRadius: '6px',
+                                     padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                            ⚠ Dispute
+                          </button>
+                          {l.verdict === 'MATCHED' && !decided && (
+                            <span style={{ color: '#2fe39b', fontSize: '11px', alignSelf: 'center', marginLeft: '4px' }}>
+                              ✅ Ab dono taraf milte hain — kuch karne ki zaroorat nahi.
+                            </span>
+                          )}
                         </div>
                       </div>
                     );

@@ -357,8 +357,16 @@ export async function registerQueueRoutes(app) {
   app.patch('/fuel-entries/:id', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
-    const cols = ['liters', 'rate', 'amount', 'vehicle_no', 'driver_name', 'pump_mobile'].filter((c) => b[c] !== undefined);
+    // entry_date is editable because a pump bill routinely disagrees with our
+    // memo by a day and the correction belongs on whichever side is wrong. The
+    // UNBILLED guard below still applies: once a slip has been verified against
+    // a bill, a posted voucher was built from it and it stops being editable.
+    const cols = ['liters', 'rate', 'amount', 'vehicle_no', 'driver_name', 'pump_mobile', 'entry_date']
+      .filter((c) => b[c] !== undefined);
     if (!cols.length) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
+    if (b.entry_date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.entry_date))) {
+      return reply.code(400).send({ error: 'BAD_DATE', detail: 'entry_date must be YYYY-MM-DD' });
+    }
     const idCol = UUID_RE.test(String(req.params.id)) ? 'id = $1::uuid' : 'legacy_id = $1';
     const { rows } = await query(
       `UPDATE fuel_entries SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = now()
