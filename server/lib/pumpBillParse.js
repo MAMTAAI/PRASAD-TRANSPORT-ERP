@@ -261,6 +261,51 @@ function parseSK(lines) {
   };
 }
 
+// ── Two pumps this file deliberately does NOT parse ─────────────────────────
+//
+// HIGHWAY SERVICE CENTRE and ALAM FUEL STATION were attempted on 4-Sep-2026 and
+// abandoned on the evidence, not for want of trying:
+//
+//   Highway   all 8 invoices are CamScanner scans and ZERO lorry registrations
+//             survive the OCR in any of them. A pump bill with no readable
+//             registration cannot be attributed line by line at all.
+//
+//   Alam      the OCR keeps the digits but destroys the TABLE. On its best file
+//             the rows come back as "1 16-06-2026" / "16-06-2026 AS26C5101 HSD
+//             250.00 100.52" / "3 16-06-2026" — dates on their own lines,
+//             figures on others, and nothing linking the two. A parser here
+//             would be inventing which amount belongs to which date.
+//
+// Both are handled the way a photograph should be: through the bill scanner,
+// with a person checking the figures — which is where Alam's rows in
+// fuel_import_review already came from. The durable fix is at the source: ask
+// these two pumps to send a digital bill, as B N Filling and Sree Krishna
+// already do.
+
+/** "Two Lakh Ninety Nine Thousand One Hundred Fourty Five" → 299145 */
+export function wordsToNumber(t) {
+  if (!t) return null;
+  const U = {
+    zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8,
+    nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+    sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30,
+    forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+  };
+  const words = String(t).toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/).filter(Boolean);
+  let total = 0; let cur = 0;
+  for (const w of words) {
+    if (w === 'and' || w === 'only' || w === 'rupees' || w === 'rupee') continue;
+    if (U[w] != null) { cur += U[w]; continue; }
+    if (w === 'hundred') { cur = (cur || 1) * 100; continue; }
+    // Indian scale: thousand, lakh, crore each close the group.
+    if (w === 'thousand') { total += (cur || 1) * 1000; cur = 0; continue; }
+    if (w === 'lakh' || w === 'lac' || w === 'lakhs') { total += (cur || 1) * 100000; cur = 0; continue; }
+    if (w === 'crore' || w === 'crores') { total += (cur || 1) * 10000000; cur = 0; continue; }
+  }
+  const n = total + cur;
+  return n > 0 ? n : null;
+}
+
 /**
  * Parse one pump invoice.
  *
@@ -290,18 +335,26 @@ export function parsePumpBill(lines) {
   // The period is the rows' own span, not the filename and not the invoice
   // date — a bill dated 16.04 covers 1–15 April.
   const dates = bill.rows.map((r) => r.date).filter(Boolean).sort();
-  bill.period_from = dates[0] ?? null;
-  bill.period_to = dates[dates.length - 1] ?? null;
+  // A printed period wins over the rows' span when a format supplies one: a
+  // scan that lost its first or last row would otherwise report a shorter
+  // fortnight than the pump actually billed.
+  bill.period_from = bill.period_hint?.from ?? dates[0] ?? null;
+  bill.period_to = bill.period_hint?.to ?? dates[dates.length - 1] ?? null;
 
   const sum = (f) => Number(bill.rows.reduce((s, r) => s + (Number(r[f]) || 0), 0).toFixed(2));
   bill.computed = { qty: sum('qty'), amount: sum('amount'), rows: bill.rows.length };
 
   // ── the check that decides whether this bill may be trusted ──────────────
   const stated = bill.totals.stated_amount;
-  const diff = stated == null ? null : Number((bill.computed.amount - stated).toFixed(2));
+  // Where a format prints its total INCLUDING cash handed over at the pump, the
+  // rows are compared against amount + cash rather than the credit alone.
+  const computedForCheck = bill.totals.cash_total
+    ? Number((bill.computed.amount + bill.totals.cash_total).toFixed(2))
+    : bill.computed.amount;
+  const diff = stated == null ? null : Number((computedForCheck - stated).toFixed(2));
   bill.check = {
     stated_amount: stated,
-    computed_amount: bill.computed.amount,
+    computed_amount: computedForCheck,
     difference: diff,
     stated_qty: bill.totals.stated_qty,
     computed_qty: bill.computed.qty,
@@ -311,7 +364,7 @@ export function parsePumpBill(lines) {
       ? 'the invoice does not state a period total this parser could find'
       : Math.abs(diff) <= 1.01
         ? null
-        : `rows add to ${bill.computed.amount} but the invoice states ${stated}`,
+        : `rows add to ${computedForCheck} but the invoice states ${stated}`,
   };
 
   // Rows whose date falls outside the bill's own month are real and common —

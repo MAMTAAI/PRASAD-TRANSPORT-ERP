@@ -11,7 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { parsePumpBill, parsePumpBillPdf, money, toISO, pumpKey, regKey } from './pumpBillParse.js';
+import { parsePumpBill, parsePumpBillPdf, money, toISO, pumpKey, regKey, wordsToNumber } from './pumpBillParse.js';
 
 let failures = 0;
 const check = (name, got, want) => {
@@ -32,6 +32,18 @@ check('two-digit years',          toISO('08.04.26'), '2026-04-08');
 check('a nonsense date is null',  toISO('32.13.2026'), null);
 check('pump names meet',          pumpKey('BN FILLING STATION (Bharat Petroleum Dealer)') === pumpKey('B N FILLING STATION'), true);
 check('lorry keys meet',          regKey('NL-01AA-3054'), 'NL01AA3054');
+
+console.log('\nAN AMOUNT WRITTEN IN WORDS');
+// Some invoices print the total in words while the digits do not survive the
+// scan. Words cannot be misread into a plausible DIFFERENT number the way
+// digits can — 8 becomes 3, but "eight" does not become "three" — so they make
+// a good independent check on a total.
+check('lakh and thousand',  wordsToNumber('Two Lakh Ninety Nine Thousand One Hundred Fourty Five'), 299145);
+check('…and again',         wordsToNumber('Six Lakh Sixty Five Thousand Eight Hundred Sixteen'), 665816);
+check('a bare hundred',     wordsToNumber('One Hundred'), 100);
+check('crore',              wordsToNumber('One Crore Twenty Thousand'), 10020000);
+check('trailing words are ignored', wordsToNumber('Five Thousand Rupees Only'), 5000);
+check('nothing is not zero', wordsToNumber(''), null);
 
 console.log('\nA RUNNING ACCOUNT IS NOT A PERIOD BILL');
 // B N prints the previous balance on the same page. Booking the grand total as
@@ -163,7 +175,8 @@ const textPdfs = pdfs.filter((p) => TEXT_PUMPS.test(p.pump));
 check('every text invoice was readable', readable, textPdfs.length);
 console.log(`
   ${pdfs.length - textPdfs.length} scanned invoice(s) refused on purpose `
-  + '(Nirmala, Shivam, Hatsingimari — photographs, not text)');
+  + '(Highway, Alam, Nirmala, Shivam, Jon N Well, Pawan, Hatsingimari — '
+  + 'photographs whose OCR loses the table, not text)');
 
 console.log(`\n${failures ? `${failures} FAILED` : 'all checks passed'}\n`);
 process.exit(failures ? 1 : 0);
