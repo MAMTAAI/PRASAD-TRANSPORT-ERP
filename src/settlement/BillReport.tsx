@@ -21,7 +21,6 @@
 // keeps one lorry's block on one sheet.
 // ════════════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import GlobalPagination, { usePagination } from '../components/GlobalPagination';
 
 const n2 = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 const inr = (v) => '₹' + n2(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -54,13 +53,45 @@ export default function BillReport({ api, periodFrom, apiJson, onOpen, Badge }) 
   }, [api, apiJson, periodFrom, company]);
   useEffect(() => { load(); }, [load]);
 
-  const vehicles = useMemo(() => {
-    const v = data?.vehicles ?? [];
-    return onlyLoss ? v.filter((x) => n2(x.subtotal.net) < 0) : v;
+  // The tree, with the loss filter applied at the lorry level and any owner or
+  // company that empties as a result dropped with it.
+  const tree = useMemo(() => {
+    const cs = data?.companies ?? [];
+    if (!onlyLoss) return cs;
+    return cs
+      .map((c) => ({ ...c, owners: c.owners
+        .map((o) => ({ ...o, vehicles: o.vehicles.filter((v) => n2(v.subtotal.net) < 0) }))
+        .filter((o) => o.vehicles.length) }))
+      .filter((c) => c.owners.length);
   }, [data, onlyLoss]);
 
-  const pg = usePagination(vehicles, { defaultSize: 10 });
-  useEffect(() => { pg.setPage(1); }, [periodFrom, company, onlyLoss]);
+  const vehicles = useMemo(
+    () => tree.flatMap((c) => c.owners.flatMap((o) => o.vehicles)), [tree]);
+
+  // Every key the tree can collapse, so "sab band karein" closes all three
+  // levels rather than only the one it happens to know about.
+  const allKeys = useMemo(() => {
+    const k = [];
+    for (const c of tree) {
+      k.push('CO:' + c.company);
+      for (const o of c.owners) {
+        k.push('OW:' + c.company + '|' + o.owner_name);
+        for (const v of o.vehicles) k.push(v.vehicle_key);
+      }
+    }
+    return k;
+  }, [tree]);
+
+  // OPENS ON THE SHAPE THE OWNER ASKED FOR: company, then whose lorry. The
+  // trips are one click away rather than 170 rows of them on arrival.
+  useEffect(() => {
+    if (!data) return;
+    const shutV = new Set();
+    for (const c of data.companies ?? []) {
+      for (const o of c.owners) for (const v of o.vehicles) shutV.add(v.vehicle_key);
+    }
+    setShut(shutV);
+  }, [data]);
 
   const toggle = (k) => setShut((s) => {
     const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n;
@@ -127,93 +158,10 @@ export default function BillReport({ api, periodFrom, apiJson, onOpen, Badge }) 
     ...td(bg, align), borderTop: '2px solid #3d548a', borderBottom: 'none', fontWeight: 600,
   });
 
-  return (
-    <div className="glass-card" style={{ padding: '18px' }} id="pt-bill-report">
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #pt-bill-report, #pt-bill-report * { visibility: visible; }
-          #pt-bill-report { position: absolute; left: 0; top: 0; width: 100%; }
-          .pt-noprint { display: none !important; }
-          .pt-veh { break-inside: avoid; page-break-inside: avoid; }
-        }
-      `}</style>
-
-      {/* ── the bill's masthead ───────────────────────────────────────── */}
-      <div style={{ borderBottom: '2px solid #27395f', paddingBottom: '13px', marginBottom: '15px',
-                    display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: '17px', fontWeight: 800, color: '#fff' }}>
-            {company || 'SAARI COMPANY'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#9aadd4', marginTop: '3px' }}>
-            Vehicle-wise Settlement · <b style={{ color: '#22d3ee' }}>{data?.period?.label ?? ''}</b>
-          </div>
-          <div style={{ fontSize: '11.5px', color: '#5d7196', marginTop: '2px', fontFamily: 'monospace' }}>
-            Period: {data?.period?.from} to {data?.period?.to}
-          </div>
-        </div>
-        <div className="pt-noprint" style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {(data?.companies?.length ?? 0) > 1 && (
-            <select value={company} onChange={(e) => setCompany(e.target.value)}
-              style={{ background: '#0a1024', border: '1px solid #3d548a', borderRadius: '8px',
-                       color: '#eef3ff', padding: '7px 10px', fontSize: '12px' }}>
-              <option value="">-- Saari company --</option>
-              {data.companies.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
-          <button onClick={() => setOnlyLoss(!onlyLoss)}
-            style={{ background: onlyLoss ? 'rgba(255,107,129,0.16)' : 'transparent',
-                     color: onlyLoss ? '#ff6b81' : '#9aadd4',
-                     border: '1px solid ' + (onlyLoss ? 'rgba(255,107,129,0.5)' : '#27395f'),
-                     borderRadius: '8px', padding: '7px 12px', fontSize: '12px',
-                     fontWeight: 700, cursor: 'pointer' }}>
-            🔻 Sirf ghate wali
-          </button>
-          <button onClick={() => setShut((s) => (s.size ? new Set() : new Set(vehicles.map((v) => v.vehicle_key))))}
-            style={{ background: 'transparent', color: '#9aadd4', border: '1px solid #27395f',
-                     borderRadius: '8px', padding: '7px 12px', fontSize: '12px', cursor: 'pointer' }}>
-            {shut.size ? '▾ Sab kholein' : '▸ Sab band karein'}
-          </button>
-          <button onClick={() => window.print()}
-            style={{ background: 'rgba(34,211,238,0.13)', color: '#22d3ee',
-                     border: '1px solid rgba(34,211,238,0.45)', borderRadius: '8px',
-                     padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
-            🖨️ Print
-          </button>
-        </div>
-      </div>
-
-      {err && <p style={{ color: '#ff6b81', fontSize: '13px' }}>{err}</p>}
-      {busy && <p style={{ color: '#ffb224', padding: '20px', textAlign: 'center' }}>Bill ban rahi hai…</p>}
-
-      {!busy && vehicles.length === 0 && !err && (
-        <p style={{ color: '#5d7196', textAlign: 'center', padding: '26px', fontSize: '13px' }}>
-          {onlyLoss ? 'Is cycle me koi lorry ghate me nahi hai.' : 'Is cycle me koi COMPLETED trip nahi mila.'}
-        </p>
-      )}
-
-      {/* ── which half is which, said once ───────────────────────────── */}
-      {vehicles.length > 0 && (
-        <div style={{ display: 'flex', marginBottom: '10px', borderRadius: '8px',
-                      overflow: 'hidden', border: '1px solid #27395f' }}>
-          <div style={{ flex: 1, background: EXP, padding: '7px 12px', borderRight: EDGE }}>
-            <b style={{ color: '#ff6b81', fontSize: '11.5px' }}>◀ KHARCH (EXPENSE)</b>
-            <span style={{ color: '#5d7196', fontSize: '10.5px', marginLeft: '8px' }}>
-              HSD · Toll · Anya
-            </span>
-          </div>
-          <div style={{ flex: 1, background: INC, padding: '7px 12px', textAlign: 'right' }}>
-            <span style={{ color: '#5d7196', fontSize: '10.5px', marginRight: '8px' }}>
-              Qty · RTKM · Rate
-            </span>
-            <b style={{ color: '#2fe39b', fontSize: '11.5px' }}>FREIGHT / AAMDANI (INCOME) ▶</b>
-          </div>
-        </div>
-      )}
-
-      {/* ── lorry by lorry ───────────────────────────────────────────── */}
-      {pg.slice.map((v) => {
+  // ── ONE LORRY: its trips and its "Subtotal for Vehicle" ─────────────
+  // Lifted out of the old flat list so it can be rendered at the bottom of
+  // the company → owner → lorry tree without duplicating any of it.
+  const renderVehicle = (v) => {
         const st = v.subtotal;
         const closed = shut.has(v.vehicle_key);
         const net = n2(st.net);
@@ -406,11 +354,202 @@ export default function BillReport({ api, periodFrom, apiJson, onOpen, Badge }) 
             )}
           </div>
         );
-      })}
+  };
 
-      {vehicles.length > 0 && (
-        <div className="pt-noprint"><GlobalPagination {...pg} label="lorry" /></div>
+  return (
+    <div className="glass-card" style={{ padding: '18px' }} id="pt-bill-report">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #pt-bill-report, #pt-bill-report * { visibility: visible; }
+          #pt-bill-report { position: absolute; left: 0; top: 0; width: 100%; }
+          .pt-noprint { display: none !important; }
+          .pt-veh { break-inside: avoid; page-break-inside: avoid; }
+        }
+      `}</style>
+
+      {/* ── the bill's masthead ───────────────────────────────────────── */}
+      <div style={{ borderBottom: '2px solid #27395f', paddingBottom: '13px', marginBottom: '15px',
+                    display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: '17px', fontWeight: 800, color: '#fff' }}>
+            {company || 'SAARI COMPANY'}
+          </div>
+          <div style={{ fontSize: '12px', color: '#9aadd4', marginTop: '3px' }}>
+            Vehicle-wise Settlement · <b style={{ color: '#22d3ee' }}>{data?.period?.label ?? ''}</b>
+          </div>
+          <div style={{ fontSize: '11.5px', color: '#5d7196', marginTop: '2px', fontFamily: 'monospace' }}>
+            Period: {data?.period?.from} to {data?.period?.to}
+          </div>
+        </div>
+        <div className="pt-noprint" style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {(data?.companies_list?.length ?? 0) > 1 && (
+            <select value={company} onChange={(e) => setCompany(e.target.value)}
+              style={{ background: '#0a1024', border: '1px solid #3d548a', borderRadius: '8px',
+                       color: '#eef3ff', padding: '7px 10px', fontSize: '12px' }}>
+              <option value="">-- Saari company --</option>
+              {data.companies_list.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+          <button onClick={() => setOnlyLoss(!onlyLoss)}
+            style={{ background: onlyLoss ? 'rgba(255,107,129,0.16)' : 'transparent',
+                     color: onlyLoss ? '#ff6b81' : '#9aadd4',
+                     border: '1px solid ' + (onlyLoss ? 'rgba(255,107,129,0.5)' : '#27395f'),
+                     borderRadius: '8px', padding: '7px 12px', fontSize: '12px',
+                     fontWeight: 700, cursor: 'pointer' }}>
+            🔻 Sirf ghate wali
+          </button>
+          <button onClick={() => setShut((s) => (s.size ? new Set() : new Set(allKeys)))}
+            style={{ background: 'transparent', color: '#9aadd4', border: '1px solid #27395f',
+                     borderRadius: '8px', padding: '7px 12px', fontSize: '12px', cursor: 'pointer' }}>
+            {shut.size ? '▾ Sab kholein' : '▸ Sab band karein'}
+          </button>
+          <button onClick={() => window.print()}
+            style={{ background: 'rgba(34,211,238,0.13)', color: '#22d3ee',
+                     border: '1px solid rgba(34,211,238,0.45)', borderRadius: '8px',
+                     padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            🖨️ Print
+          </button>
+        </div>
+      </div>
+
+      {err && <p style={{ color: '#ff6b81', fontSize: '13px' }}>{err}</p>}
+      {busy && <p style={{ color: '#ffb224', padding: '20px', textAlign: 'center' }}>Bill ban rahi hai…</p>}
+
+      {!busy && vehicles.length === 0 && !err && (
+        <p style={{ color: '#5d7196', textAlign: 'center', padding: '26px', fontSize: '13px' }}>
+          {onlyLoss ? 'Is cycle me koi lorry ghate me nahi hai.' : 'Is cycle me koi COMPLETED trip nahi mila.'}
+        </p>
       )}
+
+      {/* ── which half is which, said once ───────────────────────────── */}
+      {vehicles.length > 0 && (
+        <div style={{ display: 'flex', marginBottom: '10px', borderRadius: '8px',
+                      overflow: 'hidden', border: '1px solid #27395f' }}>
+          <div style={{ flex: 1, background: EXP, padding: '7px 12px', borderRight: EDGE }}>
+            <b style={{ color: '#ff6b81', fontSize: '11.5px' }}>◀ KHARCH (EXPENSE)</b>
+            <span style={{ color: '#5d7196', fontSize: '10.5px', marginLeft: '8px' }}>
+              HSD · Toll · Anya
+            </span>
+          </div>
+          <div style={{ flex: 1, background: INC, padding: '7px 12px', textAlign: 'right' }}>
+            <span style={{ color: '#5d7196', fontSize: '10.5px', marginRight: '8px' }}>
+              Qty · RTKM · Rate
+            </span>
+            <b style={{ color: '#2fe39b', fontSize: '11.5px' }}>FREIGHT / AAMDANI (INCOME) ▶</b>
+          </div>
+        </div>
+      )}
+
+
+      {/* ── company → owner → lorry ──────────────────────────────────── */}
+      {tree.map((c) => {
+        const cShut = shut.has('CO:' + c.company);
+        const cSt = c.subtotal;
+        return (
+          <div key={c.company} style={{ marginBottom: '18px' }}>
+
+            {/* ── the FIRM whose books this is ──────────────────────── */}
+            <div onClick={() => toggle('CO:' + c.company)}
+                 style={{ display: 'flex', justifyContent: 'space-between', gap: '12px',
+                          alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer',
+                          background: 'linear-gradient(90deg, rgba(34,211,238,0.14), rgba(34,211,238,0.03))',
+                          border: '1px solid rgba(34,211,238,0.4)', borderRadius: '10px',
+                          padding: '11px 14px', marginBottom: '9px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span className="pt-noprint" style={{ color: '#22d3ee', fontSize: '11px', width: '9px' }}>
+                  {cShut ? '▸' : '▾'}
+                </span>
+                <b style={{ color: '#fff', fontSize: '15.5px', letterSpacing: '0.01em' }}>{c.company}</b>
+                <span style={{ color: '#5d7196', fontSize: '11px' }}>company / firm</span>
+                <span style={{ color: '#9aadd4', fontSize: '11.5px' }}>
+                  {c.owner_count} owner · {c.lorries} lorry · {cSt.trips} trip
+                </span>
+              </span>
+              <span style={{ display: 'flex', gap: '15px', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                <span className="num" style={{ color: '#ff6b81', fontSize: '12.5px' }}>
+                  ◀ {inr(cSt.expense_all)}
+                </span>
+                <span className="num" style={{ color: '#2fe39b', fontSize: '12.5px' }}>
+                  {inr(cSt.income)} ▶
+                </span>
+                <b style={{ color: n2(cSt.our_earning) >= 0 ? '#2fe39b' : '#ff6b81', fontSize: '15px',
+                            fontVariantNumeric: 'tabular-nums', minWidth: '118px', textAlign: 'right' }}>
+                  {inr(cSt.our_earning)}
+                </b>
+              </span>
+            </div>
+
+            {!cShut && c.owners.map((o) => {
+              const oKey = 'OW:' + c.company + '|' + o.owner_name;
+              const oShut = shut.has(oKey);
+              const oSt = o.subtotal;
+              const agency = o.fleet_classes?.some((f) => f === 'ATTACHED' || f === 'MARKET');
+              return (
+                <div key={oKey} style={{ marginLeft: '14px', marginBottom: '10px' }}>
+
+                  {/* ── WHOSE LORRY it is ─────────────────────────────── */}
+                  {/* The company above is whose BOOKS the trip is billed in;
+                      this is whose LORRY ran it. AS 19C 8666 shows M/S PRASAD
+                      TRANSPORT and belongs to SANTOSH PRASAD — two different
+                      facts that the report used to fold into one line. */}
+                  <div onClick={() => toggle(oKey)}
+                       style={{ display: 'flex', justifyContent: 'space-between', gap: '12px',
+                                alignItems: 'center', flexWrap: 'wrap', cursor: 'pointer',
+                                background: 'rgba(167,139,250,0.08)',
+                                border: '1px solid rgba(167,139,250,0.32)',
+                                borderRadius: '9px', padding: '9px 13px', marginBottom: '7px' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '9px', flexWrap: 'wrap' }}>
+                      <span className="pt-noprint" style={{ color: '#c4b5fd', fontSize: '10.5px', width: '9px' }}>
+                        {oShut ? '▸' : '▾'}
+                      </span>
+                      <span style={{ color: '#5d7196', fontSize: '10.5px' }}>👤 vehicle owner</span>
+                      <b style={{ color: '#e9d5ff', fontSize: '13.5px' }}>{o.owner_name}</b>
+                      <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 7px',
+                                     borderRadius: '5px',
+                                     background: agency ? 'rgba(255,178,36,0.15)' : 'rgba(47,227,155,0.13)',
+                                     color: agency ? '#ffb224' : '#2fe39b' }}>
+                        {o.fleet_classes?.join(' + ') || '—'}
+                      </span>
+                      <span style={{ color: '#9aadd4', fontSize: '11px' }}>
+                        {o.lorries} lorry · {oSt.trips} trip
+                      </span>
+                      {oSt.without_rate > 0 && (
+                        <span style={{ color: '#ff6b81', fontSize: '10.5px' }}>
+                          ⚠️ {oSt.without_rate} ka rate nahi
+                        </span>
+                      )}
+                    </span>
+                    <span style={{ display: 'flex', gap: '13px', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                      <span className="num" style={{ color: '#9aadd4', fontSize: '11.5px' }}>
+                        freight {inr(oSt.income)}
+                      </span>
+                      {agency ? (
+                        <>
+                          <span className="num" style={{ color: '#2fe39b', fontSize: '12px' }}>
+                            hamara {inr(oSt.commission)}
+                          </span>
+                          <b className="num" style={{ color: '#c4b5fd', fontSize: '13.5px',
+                                                      minWidth: '108px', textAlign: 'right' }}>
+                            dena {inr(oSt.payable)}
+                          </b>
+                        </>
+                      ) : (
+                        <b className="num" style={{ color: n2(oSt.net) >= 0 ? '#2fe39b' : '#ff6b81',
+                                                    fontSize: '13.5px', minWidth: '108px', textAlign: 'right' }}>
+                          {inr(oSt.net)}
+                        </b>
+                      )}
+                    </span>
+                  </div>
+
+                  {!oShut && o.vehicles.map((v) => renderVehicle(v))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
 
       {/* ── Total of All Vehicles ────────────────────────────────────── */}
       {/* The whole fortnight, never just this page. A bill whose foot changes

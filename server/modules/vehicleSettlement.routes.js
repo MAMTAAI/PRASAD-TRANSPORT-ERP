@@ -157,55 +157,53 @@ export async function registerVehicleSettlementRoutes(app) {
     const only = String(q.company ?? '').trim();
 
     const { rows } = await query(`
-      SELECT upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g')) AS vehicle_key,
-             t.vehicle_no, t.operating_company,
+      SELECT btrim(t.operating_company)                                   AS company,
+             upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g'))    AS vehicle_key,
+             t.vehicle_no,
+             -- THE TWO NAMES ARE DIFFERENT THINGS, and the report used to show
+             -- only the first. operating_company is WHOSE BOOKS the trip was
+             -- billed in; owner_name is WHOSE LORRY it is. AS 19C 8666 runs
+             -- under M/S PRASAD TRANSPORT and belongs to SANTOSH PRASAD, and
+             -- an owner's lorries run for up to three of the firms.
+             v.owner_name,
+             v.ownership::text                                            AS ownership,
+             vehicle_class(t.vehicle_no)::text                            AS fleet_class,
              p.trip_id, p.trip_code, t.iocl_bill_no, t.challan_no,
              t.loading_date, t.unloading_date,
              p.customer_name, t.unloading_location, t.product_type,
              t.loaded_qty, t.shortage_qty, t.rtkm, t.rate,
-             -- income
-             COALESCE(t.billed_amount,0)::numeric(14,2)   AS billed,
-             COALESCE(t.received_amount,0)::numeric(14,2) AS received,
-             COALESCE(t.shortage_penalty,0)::numeric(14,2) AS penalty,
-             -- expense
+             COALESCE(t.billed_amount,0)::numeric(14,2)                   AS billed,
+             COALESCE(t.received_amount,0)::numeric(14,2)                 AS received,
+             COALESCE(t.shortage_penalty,0)::numeric(14,2)                AS penalty,
              p.hsd, p.toll, p.tyre, p.maintenance, p.other, p.expense_total, p.advances
         FROM trips t
         JOIN v_trip_pnl p ON p.trip_id = t.id
+        LEFT JOIN vehicles v
+          ON v.vehicle_no_norm = upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g'))
        WHERE t.status = 'COMPLETED'
          AND t.vehicle_no IS NOT NULL
          AND fortnight_from(COALESCE(t.unloading_date, t.loading_date)) = $1::date
-         AND ($2 = '' OR t.operating_company = $2)
-       ORDER BY upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g')),
+         AND ($2 = '' OR btrim(t.operating_company) = $2)
+       ORDER BY btrim(t.operating_company),
+                COALESCE(v.owner_name,'~'),
+                upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g')),
                 COALESCE(t.unloading_date, t.loading_date), p.trip_code`,
       [q.period_from, only]);
 
-    // Any settlement already opened for this fortnight, so the report can show
-    // where each lorry stands without a second call.
+    // The settlement already opened for each lorry, so the report can show
+    // where it stands and what our commission on it is without a second call.
     const { rows: settled } = await query(`
-      SELECT vehicle_key, id, status, approved_by, locked_at,
-             adjustments, other_income, other_expense
+      SELECT vehicle_key, id, status, approved_by, locked_at, adjustments,
+             fleet_class::text AS fleet_class, owner_name,
+             commission_amount, commission_basis, commission_rate,
+             tds_amount, payable_to_owner, expenses_recovered
         FROM vehicle_fortnight_settlements WHERE period_from = $1::date`, [q.period_from]);
     const byKey = new Map(settled.map((s) => [s.vehicle_key, s]));
 
-    const vehicles = [];
-    let cur = null;
-    for (const r of rows) {
-      if (!cur || cur.vehicle_key !== r.vehicle_key) {
-        const s = byKey.get(r.vehicle_key);
-        cur = {
-          vehicle_key: r.vehicle_key, vehicle_no: r.vehicle_no,
-          operating_company: r.operating_company,
-          settlement_id: s?.id ?? null, status: s?.status ?? null,
-          approved_by: s?.approved_by ?? null, locked: !!s?.locked_at,
-          adjustments: s?.adjustments ?? [],
-          trips: [],
-          subtotal: { trips: 0, qty: 0, rtkm: 0, billed: 0, penalty: 0,
-                      hsd: 0, toll: 0, other: 0, expense: 0, advances: 0, net: 0 },
-        };
-        vehicles.push(cur);
-      }
-      cur.trips.push(r);
-      const st = cur.subtotal;
+    const zero = () => ({ trips: 0, qty: 0, rtkm: 0, billed: 0, penalty: 0, hsd: 0, toll: 0,
+                          other: 0, expense: 0, advances: 0, adj_income: 0, adj_expense: 0,
+                          commission: 0, tds: 0, payable: 0, our_earning: 0, without_rate: 0 });
+    const addTrip = (st, r) => {
       st.trips += 1;
       st.qty += Number(r.loaded_qty) || 0;
       st.rtkm += Number(r.rtkm) || 0;
@@ -216,38 +214,101 @@ export async function registerVehicleSettlementRoutes(app) {
       st.other += (Number(r.tyre) || 0) + (Number(r.maintenance) || 0) + (Number(r.other) || 0);
       st.expense += Number(r.expense_total) || 0;
       st.advances += Number(r.advances) || 0;
-    }
+    };
+    const roll = (into, from) => {
+      for (const k of Object.keys(into)) into[k] = r2((into[k] || 0) + (Number(from[k]) || 0));
+    };
 
-    // The manual adjustments belong to the lorry, not to any one trip, so they
-    // land on the subtotal — the same place a reviewer entered them.
-    for (const v of vehicles) {
-      const adj = Array.isArray(v.adjustments) ? v.adjustments : [];
-      v.subtotal.adj_income = r2(adj.filter((a) => a.side === 'INCOME')
-        .reduce((n, a) => n + (Number(a.amount) || 0), 0));
-      v.subtotal.adj_expense = r2(adj.filter((a) => a.side === 'EXPENSE')
-        .reduce((n, a) => n + (Number(a.amount) || 0), 0));
-      const st = v.subtotal;
-      for (const k of ['qty', 'rtkm', 'billed', 'penalty', 'hsd', 'toll', 'other',
-                       'expense', 'advances']) st[k] = r2(st[k]);
-      st.income = r2(st.billed + st.adj_income);
-      st.expense_all = r2(st.expense + st.adj_expense);
-      st.net = r2(st.income - st.expense_all);
-    }
+    // ── company → owner → lorry ───────────────────────────────────────────
+    const companies = [];
+    let co = null; let ow = null; let ve = null;
+    for (const r of rows) {
+      const cName = r.company || '(company darj nahi)';
+      // A lorry with no master row has no owner either — said plainly rather
+      // than filed under a blank heading nobody can act on.
+      const oName = r.owner_name || '(owner darj nahi)';
 
-    const grand = vehicles.reduce((a, v) => {
-      for (const k of ['trips', 'qty', 'rtkm', 'billed', 'penalty', 'hsd', 'toll',
-                       'other', 'advances', 'adj_income', 'adj_expense',
-                       'income', 'expense_all', 'net']) {
-        a[k] = r2((a[k] ?? 0) + (Number(v.subtotal[k]) || 0));
+      if (!co || co.company !== cName) {
+        co = { company: cName, owners: [], subtotal: zero() };
+        companies.push(co); ow = null; ve = null;
       }
-      return a;
-    }, { vehicles: vehicles.length });
+      if (!ow || ow.owner_name !== oName) {
+        ow = { owner_name: oName, company: cName, vehicles: [], subtotal: zero() };
+        co.owners.push(ow); ve = null;
+      }
+      if (!ve || ve.vehicle_key !== r.vehicle_key) {
+        const s = byKey.get(r.vehicle_key);
+        ve = {
+          vehicle_key: r.vehicle_key, vehicle_no: r.vehicle_no,
+          owner_name: oName, company: cName,
+          ownership: r.ownership, fleet_class: r.fleet_class ?? s?.fleet_class ?? null,
+          settlement_id: s?.id ?? null, status: s?.status ?? null,
+          approved_by: s?.approved_by ?? null, locked: !!s?.locked_at,
+          adjustments: s?.adjustments ?? [],
+          commission_basis: s?.commission_basis ?? null,
+          commission_rate: s?.commission_rate ?? null,
+          commission_amount: s?.commission_amount ?? null,
+          tds_amount: s?.tds_amount ?? null,
+          payable_to_owner: s?.payable_to_owner ?? null,
+          trips: [], subtotal: zero(),
+        };
+        ow.vehicles.push(ve);
+      }
+      ve.trips.push(r);
+      addTrip(ve.subtotal, r);
+    }
+
+    // Close each lorry, then roll up. Adjustments belong to the LORRY, not to
+    // any one trip — the same place a reviewer entered them.
+    const flatVehicles = [];
+    for (const c of companies) {
+      for (const o of c.owners) {
+        for (const v of o.vehicles) {
+          const adj = Array.isArray(v.adjustments) ? v.adjustments : [];
+          const st = v.subtotal;
+          st.adj_income = r2(adj.filter((a) => a.side === 'INCOME')
+            .reduce((n, a) => n + (Number(a.amount) || 0), 0));
+          st.adj_expense = r2(adj.filter((a) => a.side === 'EXPENSE')
+            .reduce((n, a) => n + (Number(a.amount) || 0), 0));
+          for (const k of ['qty', 'rtkm', 'billed', 'penalty', 'hsd', 'toll', 'other',
+                           'expense', 'advances']) st[k] = r2(st[k]);
+          st.income = r2(st.billed + st.adj_income);
+          st.expense_all = r2(st.expense + st.adj_expense);
+          st.net = r2(st.income - st.expense_all);
+
+          // On an attached or market lorry only the commission is ours; on an
+          // own lorry the whole margin is. One rule, stated once.
+          const agency = ['ATTACHED', 'MARKET'].includes(v.fleet_class);
+          st.commission = agency ? (v.commission_amount === null ? 0 : Number(v.commission_amount)) : 0;
+          st.tds = agency ? Number(v.tds_amount || 0) : 0;
+          st.payable = agency ? Number(v.payable_to_owner || 0) : 0;
+          st.our_earning = agency
+            ? (v.commission_amount === null ? 0 : Number(v.commission_amount))
+            : st.net;
+          st.without_rate = (agency && v.commission_amount === null) ? 1 : 0;
+          v.needs_rate = st.without_rate === 1;
+
+          roll(o.subtotal, st);
+          flatVehicles.push(v);
+        }
+        // An owner is ATTACHED to us if any of their lorries here is.
+        o.fleet_classes = [...new Set(o.vehicles.map((v) => v.fleet_class).filter(Boolean))];
+        o.lorries = o.vehicles.length;
+        roll(c.subtotal, o.subtotal);
+      }
+      c.lorries = c.owners.reduce((n, o) => n + o.lorries, 0);
+      c.owner_count = c.owners.length;
+    }
+
+    const grand = companies.reduce((a, c) => { roll(a, c.subtotal); return a; }, zero());
+    grand.companies = companies.length;
+    grand.owners = companies.reduce((n, c) => n + c.owner_count, 0);
+    grand.lorries = flatVehicles.length;
 
     const { rows: [meta] } = await query(
       `SELECT fortnight_label($1::date) label, fortnight_to($1::date) period_to`, [q.period_from]);
-
-    const { rows: companies } = await query(`
-      SELECT DISTINCT operating_company FROM trips
+    const { rows: coList } = await query(`
+      SELECT DISTINCT btrim(operating_company) AS c FROM trips
        WHERE status='COMPLETED' AND operating_company IS NOT NULL
          AND fortnight_from(COALESCE(unloading_date, loading_date)) = $1::date
        ORDER BY 1`, [q.period_from]);
@@ -255,11 +316,14 @@ export async function registerVehicleSettlementRoutes(app) {
     return {
       period: { from: q.period_from, to: meta?.period_to, label: meta?.label },
       company: only || null,
-      companies: companies.map((c) => c.operating_company),
-      vehicles,
+      companies_list: coList.map((c) => c.c),
+      companies,
+      // Kept so an older client that reads a flat list still works.
+      vehicles: flatVehicles,
       grand,
     };
   });
+
 
   // ═══ ONE SETTLEMENT, IN FULL ════════════════════════════════════════════
   app.get('/:id', staff, async (req, reply) => {
