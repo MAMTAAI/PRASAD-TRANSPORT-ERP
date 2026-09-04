@@ -138,6 +138,129 @@ export async function registerVehicleSettlementRoutes(app) {
     };
   });
 
+  // ═══ THE WHOLE FORTNIGHT AS ONE BILL ════════════════════════════════════
+  //
+  // Laid out the way IOCL lays out the transportation bill they send us
+  // (0011024699_7R01, 16–30.06.2026): every trip listed under its lorry, a
+  // "Subtotal for Vehicle" under each block, and one "Total of All Bills" at
+  // the foot. The owner reads that document every fortnight, so the report of
+  // their OWN money is easier to check line-against-line in the same shape.
+  //
+  // One query for the whole fleet rather than one per lorry: at 47 lorries and
+  // 170 trips a per-lorry round trip is 47 round trips, and the screen is meant
+  // to be read top to bottom in one go.
+  app.get('/report', staff, async (req, reply) => {
+    const q = req.query ?? {};
+    if (!DATE_RE.test(String(q.period_from ?? ''))) {
+      return reply.code(400).send({ error: 'BAD_PERIOD' });
+    }
+    const only = String(q.company ?? '').trim();
+
+    const { rows } = await query(`
+      SELECT upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g')) AS vehicle_key,
+             t.vehicle_no, t.operating_company,
+             p.trip_id, p.trip_code, t.iocl_bill_no, t.challan_no,
+             t.loading_date, t.unloading_date,
+             p.customer_name, t.unloading_location, t.product_type,
+             t.loaded_qty, t.shortage_qty, t.rtkm, t.rate,
+             -- income
+             COALESCE(t.billed_amount,0)::numeric(14,2)   AS billed,
+             COALESCE(t.received_amount,0)::numeric(14,2) AS received,
+             COALESCE(t.shortage_penalty,0)::numeric(14,2) AS penalty,
+             -- expense
+             p.hsd, p.toll, p.tyre, p.maintenance, p.other, p.expense_total, p.advances
+        FROM trips t
+        JOIN v_trip_pnl p ON p.trip_id = t.id
+       WHERE t.status = 'COMPLETED'
+         AND t.vehicle_no IS NOT NULL
+         AND fortnight_from(COALESCE(t.unloading_date, t.loading_date)) = $1::date
+         AND ($2 = '' OR t.operating_company = $2)
+       ORDER BY upper(regexp_replace(t.vehicle_no,'[^A-Za-z0-9]','','g')),
+                COALESCE(t.unloading_date, t.loading_date), p.trip_code`,
+      [q.period_from, only]);
+
+    // Any settlement already opened for this fortnight, so the report can show
+    // where each lorry stands without a second call.
+    const { rows: settled } = await query(`
+      SELECT vehicle_key, id, status, approved_by, locked_at,
+             adjustments, other_income, other_expense
+        FROM vehicle_fortnight_settlements WHERE period_from = $1::date`, [q.period_from]);
+    const byKey = new Map(settled.map((s) => [s.vehicle_key, s]));
+
+    const vehicles = [];
+    let cur = null;
+    for (const r of rows) {
+      if (!cur || cur.vehicle_key !== r.vehicle_key) {
+        const s = byKey.get(r.vehicle_key);
+        cur = {
+          vehicle_key: r.vehicle_key, vehicle_no: r.vehicle_no,
+          operating_company: r.operating_company,
+          settlement_id: s?.id ?? null, status: s?.status ?? null,
+          approved_by: s?.approved_by ?? null, locked: !!s?.locked_at,
+          adjustments: s?.adjustments ?? [],
+          trips: [],
+          subtotal: { trips: 0, qty: 0, rtkm: 0, billed: 0, penalty: 0,
+                      hsd: 0, toll: 0, other: 0, expense: 0, advances: 0, net: 0 },
+        };
+        vehicles.push(cur);
+      }
+      cur.trips.push(r);
+      const st = cur.subtotal;
+      st.trips += 1;
+      st.qty += Number(r.loaded_qty) || 0;
+      st.rtkm += Number(r.rtkm) || 0;
+      st.billed += Number(r.billed) || 0;
+      st.penalty += Number(r.penalty) || 0;
+      st.hsd += Number(r.hsd) || 0;
+      st.toll += Number(r.toll) || 0;
+      st.other += (Number(r.tyre) || 0) + (Number(r.maintenance) || 0) + (Number(r.other) || 0);
+      st.expense += Number(r.expense_total) || 0;
+      st.advances += Number(r.advances) || 0;
+    }
+
+    // The manual adjustments belong to the lorry, not to any one trip, so they
+    // land on the subtotal — the same place a reviewer entered them.
+    for (const v of vehicles) {
+      const adj = Array.isArray(v.adjustments) ? v.adjustments : [];
+      v.subtotal.adj_income = r2(adj.filter((a) => a.side === 'INCOME')
+        .reduce((n, a) => n + (Number(a.amount) || 0), 0));
+      v.subtotal.adj_expense = r2(adj.filter((a) => a.side === 'EXPENSE')
+        .reduce((n, a) => n + (Number(a.amount) || 0), 0));
+      const st = v.subtotal;
+      for (const k of ['qty', 'rtkm', 'billed', 'penalty', 'hsd', 'toll', 'other',
+                       'expense', 'advances']) st[k] = r2(st[k]);
+      st.income = r2(st.billed + st.adj_income);
+      st.expense_all = r2(st.expense + st.adj_expense);
+      st.net = r2(st.income - st.expense_all);
+    }
+
+    const grand = vehicles.reduce((a, v) => {
+      for (const k of ['trips', 'qty', 'rtkm', 'billed', 'penalty', 'hsd', 'toll',
+                       'other', 'advances', 'adj_income', 'adj_expense',
+                       'income', 'expense_all', 'net']) {
+        a[k] = r2((a[k] ?? 0) + (Number(v.subtotal[k]) || 0));
+      }
+      return a;
+    }, { vehicles: vehicles.length });
+
+    const { rows: [meta] } = await query(
+      `SELECT fortnight_label($1::date) label, fortnight_to($1::date) period_to`, [q.period_from]);
+
+    const { rows: companies } = await query(`
+      SELECT DISTINCT operating_company FROM trips
+       WHERE status='COMPLETED' AND operating_company IS NOT NULL
+         AND fortnight_from(COALESCE(unloading_date, loading_date)) = $1::date
+       ORDER BY 1`, [q.period_from]);
+
+    return {
+      period: { from: q.period_from, to: meta?.period_to, label: meta?.label },
+      company: only || null,
+      companies: companies.map((c) => c.operating_company),
+      vehicles,
+      grand,
+    };
+  });
+
   // ═══ ONE SETTLEMENT, IN FULL ════════════════════════════════════════════
   app.get('/:id', staff, async (req, reply) => {
     const id = String(req.params.id ?? '');

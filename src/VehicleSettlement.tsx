@@ -27,6 +27,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { sendWhatsApp } from './lib/waSend';
 import { API_BASE } from './lib/apiBase';
+import BillReport from './settlement/BillReport';
 
 const API = `${API_BASE}/api/v1/vehicle-settlement`;
 
@@ -82,6 +83,9 @@ export default function VehicleSettlement() {
   const [err, setErr] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [openId, setOpenId] = useState(null);
+  // LIST is the working screen, BILL is the whole fortnight as one document —
+  // the shape of the IOCL transportation bill the owner reads every fortnight.
+  const [view, setView] = useState('BILL');
 
   const loadCycles = useCallback(async () => {
     setErr('');
@@ -149,13 +153,27 @@ export default function VehicleSettlement() {
             banati hai, staff sudhaarta hai, admin approve karke lock karta hai.
           </p>
         </div>
-        <button onClick={build} disabled={busy || !cycle}
-          style={{ background: 'rgba(167,139,250,0.16)', color: '#c4b5fd',
-                   border: '1px solid rgba(167,139,250,0.5)', borderRadius: '9px',
-                   padding: '10px 17px', fontSize: '13px', fontWeight: 700,
-                   cursor: busy ? 'wait' : 'pointer' }}>
-          {busy ? '⏳ ban raha hai…' : '🤖 Is cycle ke draft banayein'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', border: '1px solid #27395f', borderRadius: '9px',
+                        overflow: 'hidden' }}>
+            {[['BILL', '📄 Bill Report'], ['LIST', '📋 Kaam ki list']].map((v) => (
+              <button key={v[0]} onClick={() => setView(v[0])}
+                style={{ background: view === v[0] ? 'rgba(34,211,238,0.14)' : 'transparent',
+                         color: view === v[0] ? '#22d3ee' : '#9aadd4', border: 'none',
+                         padding: '10px 15px', fontSize: '12.5px', fontWeight: 700,
+                         cursor: 'pointer' }}>
+                {v[1]}
+              </button>
+            ))}
+          </div>
+          <button onClick={build} disabled={busy || !cycle}
+            style={{ background: 'rgba(167,139,250,0.16)', color: '#c4b5fd',
+                     border: '1px solid rgba(167,139,250,0.5)', borderRadius: '9px',
+                     padding: '10px 17px', fontSize: '13px', fontWeight: 700,
+                     cursor: busy ? 'wait' : 'pointer' }}>
+            {busy ? '⏳ ban raha hai…' : '🤖 Draft banayein'}
+          </button>
+        </div>
       </div>
 
       {/* ── the fortnight picker ─────────────────────────────────────── */}
@@ -212,6 +230,13 @@ export default function VehicleSettlement() {
         maintenance ka abhi koi data nahi hai, isliye wo ₹0 dikhta hai — chhupaya nahi gaya.
       </div>
 
+      {view === 'BILL' && cycle && (
+        <BillReport api={API} apiJson={apiJson} Badge={Badge}
+                    periodFrom={String(cycle.period_from).slice(0, 10)}
+                    onOpen={(id) => id && setOpenId(id)} />
+      )}
+
+      {view === 'LIST' && (<>
       {/* ── the cycle's own split screen ─────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
                     gap: '1px', background: '#27395f', border: '1px solid #27395f',
@@ -332,6 +357,7 @@ export default function VehicleSettlement() {
           </>
         )}
       </div>
+      </>)}
 
       {openId && (
         <SettlementDrawer id={openId} onClose={() => setOpenId(null)}
