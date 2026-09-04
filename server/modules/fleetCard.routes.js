@@ -2,10 +2,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // /api/v1/fleet-card — the three oil companies' cards, as they keep them.
 //
-// There is no API at any of IOCL, BPCL or HPCL. A human logs into the portal and
-// downloads a CSV, so this module's job is to take that file and make it
-// countable: parse it per provider, store every row as exported under the
-// provider's own id, and report the position per company.
+// There is no API at any of IOCL, BPCL or HPCL. A person exports a CSV from the
+// portal, so this module's job is to take that file and make it countable:
+// parse it per provider, store every row as exported under the provider's own
+// id, and report the position per company. The file reaches us two ways — an
+// upload here, or a watched folder the 02:00 job reads (see /sources below and
+// server/lib/nightlyFuelSync.js) — and both go through the same importer,
+// server/lib/fleetCardIngest.js.
 //
 // RE-IMPORTING IS THE NORMAL CASE, NOT THE EXCEPTION. The exports are re-pulled
 // whenever anyone wants a fresher number, and the same fortnight will be in five
@@ -16,8 +19,8 @@
 // NOTHING HERE POSTS TO A LEDGER. This is evidence: what the oil company says
 // happened. Settling it against a pump's bill is a separate, deliberate act.
 // ─────────────────────────────────────────────────────────────────────────────
-import { query, withTransaction, isDegraded } from '../db/pool.js';
-import { parseFleetCardCsv } from '../lib/fleetCardImport.js';
+import { query, isDegraded } from '../db/pool.js';
+import { ingestFleetCardCsv, IngestError } from '../lib/fleetCardIngest.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -89,95 +92,72 @@ export async function registerFleetCardRoutes(app) {
       if (isDegraded()) return dbGate(reply);
       const b = req.body;
 
-      let parsed;
       try {
-        parsed = parseFleetCardCsv(b.csv, { account_no: b.account_no ?? null });
-      } catch (e) {
-        // A file we cannot read is refused with the reason. Guessing at the
-        // columns is how wrong money gets imported silently.
-        return reply.code(400).send({ error: e.code ?? 'PARSE_FAILED', detail: e.message });
-      }
-
-      const accountNo = parsed.account_no ?? b.account_no;
-      if (!accountNo) {
-        return reply.code(400).send({
-          error: 'NO_ACCOUNT',
-          detail: 'this export does not name its account — pass account_no with the upload',
+        // The same code path the 02:00 nightly job uses. Two importers is how a
+        // file uploaded by hand ends up counted differently from the same file
+        // picked up overnight.
+        return await ingestFleetCardCsv({
+          csv: b.csv,
+          source_file: b.source_file ?? null,
+          account_no: b.account_no ?? null,
+          created_by: b.created_by ?? null,
         });
-      }
-      const { rows: acc } = await query(
-        `SELECT id, operating_company FROM fleet_card_accounts WHERE provider = $1 AND account_no = $2`,
-        [parsed.provider, String(accountNo).trim()]);
-      if (!acc.length) {
-        return reply.code(404).send({
-          error: 'ACCOUNT_NOT_SET_UP',
-          detail: `${parsed.provider} account ${accountNo} is not connected yet — add it first, `
-                + 'so its operating company is decided before any money lands under it',
-        });
-      }
-      const accountId = acc[0].id;
-
-      const out = await withTransaction(async (t) => {
-        const { rows: [batch] } = await t.query(`
-          INSERT INTO fleet_card_import_batches
-            (account_id, provider, source_file, period_from, period_to, rows_read, created_by)
-          VALUES ($1,$2,$3,$4::date,$5::date,$6,$7) RETURNING id`,
-          [accountId, parsed.provider, b.source_file ?? null,
-           parsed.period_from ?? null, parsed.period_to ?? null, parsed.rows.length,
-           b.created_by ?? null]);
-
-        let fresh = 0;
-        let parked = 0;
-        for (const r of parsed.rows) {
-          if (!r.txn_date || !r.provider_txn_id) { parked += 1; continue; }
-          const { rows } = await t.query(`
-            INSERT INTO fleet_card_statement_txns
-              (account_id, provider, provider_txn_id, txn_date, settlement_date, kind,
-               provider_txn_type, direction, card_pan, vehicle_raw, vehicle_no, vehicle_id,
-               merchant_name, merchant_code, location, product, quantity, rate, amount, unit,
-               balance_after, status, source_doc_no, raw, import_batch_id, source_file)
-            SELECT $1,$2,$3,$4::date,$5::date,$6,$7,$8,$9,$10,
-                   -- The lorry as OUR fleet spells it, matched on the same
-                   -- normalisation the database uses everywhere else. A
-                   -- registration the fleet master has never heard of stays
-                   -- NULL and shows up as a finding rather than a guess.
-                   v.vehicle_no, v.id,
-                   $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23,$24
-              FROM (SELECT 1) _
-              LEFT JOIN LATERAL (
-                SELECT id, vehicle_no FROM vehicles
-                 WHERE reg_key(vehicle_no) = reg_key($10) LIMIT 1) v ON true
-            ON CONFLICT (account_id, provider_txn_id, kind) DO NOTHING
-            RETURNING id`,
-            [accountId, parsed.provider, r.provider_txn_id, r.txn_date, r.settlement_date,
-             r.kind, r.provider_txn_type, r.direction, r.card_pan, r.vehicle_raw,
-             r.merchant_name, r.merchant_code, r.location, r.product, r.quantity, r.rate,
-             r.amount, r.unit ?? 'INR', r.balance_after, r.status, r.source_doc_no,
-             JSON.stringify(r.raw ?? {}), batch.id, b.source_file ?? null]);
-          if (rows.length) fresh += 1;
+      } catch (err) {
+        if (err instanceof IngestError) {
+          return reply.code(err.status).send({ error: err.code, detail: err.message });
         }
+        throw err;
+      }
+    }
+  );
 
-        await t.query(
-          `UPDATE fleet_card_import_batches
-              SET rows_new = $2, rows_seen = $3, rows_parked = $4 WHERE id = $1::uuid`,
-          [batch.id, fresh, parsed.rows.length - fresh - parked, parked]);
-        return { batch_id: batch.id, fresh, parked };
-      });
+  // ── Where the nightly job looks ──────────────────────────────────────────
+  //
+  // A source is a folder a statement is dropped into. There is no portal login
+  // here and no stored password — see migration 151 for why. Point this at
+  // wherever the download lands and the 02:00 job picks it up unattended.
+  app.get('/sources', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`
+      SELECT s.*, a.provider, a.account_no AS account_number, a.operating_company,
+             (SELECT max(b.created_at) FROM fleet_card_import_batches b
+               WHERE b.source_id = s.id) AS last_import_at
+        FROM fleet_card_sources s
+        LEFT JOIN fleet_card_accounts a ON a.id = s.account_id
+       ORDER BY s.active DESC, a.provider NULLS LAST, s.locator`);
+    return { sources: rows };
+  });
 
-      const { rows: pos } = await query(
-        `SELECT * FROM v_fleet_card_position WHERE account_id = $1::uuid`, [accountId]);
+  app.post(
+    '/sources',
+    { schema: { body: { type: 'object', required: ['kind', 'locator'], properties: {
+      account_id: { type: ['string', 'null'], format: 'uuid' },
+      kind:       { type: 'string', enum: ['FOLDER', 'EMAIL'] },
+      locator:    { type: 'string', minLength: 2, maxLength: 500 },
+      file_glob:  { type: ['string', 'null'], maxLength: 60 },
+      account_no: { type: ['string', 'null'], maxLength: 40 },
+      active:     { type: 'boolean', default: true },
+      notes:      { type: ['string', 'null'], maxLength: 500 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      const { rows } = await query(`
+        INSERT INTO fleet_card_sources
+          (account_id, kind, locator, file_glob, account_no, active, notes)
+        VALUES ($1::uuid,$2,$3,COALESCE($4,'*.csv'),$5,COALESCE($6,true),$7)
+        RETURNING *`,
+        [b.account_id ?? null, b.kind, b.locator.trim(), b.file_glob ?? null,
+         b.account_no ?? null, b.active, b.notes ?? null]);
+      reply.code(201);
       return {
-        imported: true,
-        provider: parsed.provider,
-        account_no: accountNo,
-        period: { from: parsed.period_from ?? null, to: parsed.period_to ?? null },
-        rows_read: parsed.rows.length,
-        rows_new: out.fresh,
-        // Said explicitly: a second upload of the same statement is expected and
-        // is not an error.
-        rows_already_had: parsed.rows.length - out.fresh - out.parked,
-        rows_skipped: out.parked,
-        position: pos[0] ?? null,
+        source: rows[0],
+        // Said plainly at the moment of configuring, not buried in a doc: an
+        // EMAIL source is stored but nothing reads it yet. Refusing it would
+        // lose the configuration; pretending it works would lose the statement.
+        fetched_by: b.kind === 'EMAIL'
+          ? 'not yet — no IMAP reader is installed; see migration 151'
+          : 'the 02:00 IST nightly fuel sync',
       };
     }
   );

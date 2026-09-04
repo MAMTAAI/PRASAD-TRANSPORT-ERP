@@ -36,7 +36,9 @@
     "migrate:selftest149": "node server/db/migrations/149_trip_expense_truth.selftest.mjs",
     "migrate:selftest150": "node server/db/migrations/150_fleet_card_statements.selftest.mjs",
     "fleetcard:selftest": "node server/lib/fleetCardImport.selftest.mjs",
-    "check:refs": "node scripts/check-undefined-refs.mjs"
+    "check:refs": "node scripts/check-undefined-refs.mjs",
+    "migrate:selftest151": "node server/db/migrations/151_agent_execution_logs.selftest.mjs",
+    "nightly:selftest": "node server/lib/nightlyFuelSync.selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

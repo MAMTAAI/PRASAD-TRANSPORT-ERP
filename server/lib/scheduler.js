@@ -1,25 +1,35 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // scheduler.js — the background checks that have to happen without being asked
 //
-// A CLOCK TICK IS NOT A CALENDAR. Both jobs run on a plain interval and then
-// decide for themselves whether today is a day they should act. That is
+// A CLOCK TICK IS NOT A CALENDAR. Every job here runs on a plain interval and
+// then decides for itself whether today is a day it should act. That is
 // deliberate: a process that restarts at 00:05 must not miss the 1st, and one
 // that runs for three weeks must not fire twice on the 15th because the
 // interval drifted. Each job records the date it last ran and refuses to repeat
 // it, so "did this fire?" is answered by state, not by hoping the timer landed.
+// The fuel sync additionally has a cron at a stated hour, because "some time
+// today" is not good enough for it — but it still gates itself the same way,
+// and its gate is a unique index rather than a variable, so a deploy that
+// restarts the process cannot make it run twice.
 //
-// NEITHER JOB POSTS MONEY. The cycle sweep writes provisional estimates, which
-// are not ledger entries; the compliance check writes notifications. Anything
-// that moves money goes through an approval and TARA.
+// NO JOB HERE POSTS MONEY. The cycle sweep writes provisional estimates, which
+// are not ledger entries; the compliance check writes notifications; the 02:00
+// fuel sync imports what the oil company says happened and emits an event.
+// Anything that moves money goes through an approval and TARA.
 // ═══════════════════════════════════════════════════════════════════════════
+import cron from 'node-cron';
 import { query, isDegraded } from '../db/pool.js';
+import { runNightlyFuelSync } from './nightlyFuelSync.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
   detectCompanyMasterGaps, detectEntityMismatch,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
-const state = { lastCycleRun: null, lastComplianceRun: null, lastExceptionScan: null, timer: null };
+const state = {
+  lastCycleRun: null, lastComplianceRun: null, lastExceptionScan: null,
+  timer: null, fuelCron: null, fuelCronError: null, log: null,
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -112,6 +122,7 @@ export async function runComplianceCheck({ force = false } = {}) {
   return { checked: rows.length, expired: expired.length, expiring: expiring.length };
 }
 
+// ── 3. keep the Action Required board current ─────────────────────────────
 /**
  * Run every exception detector.
  *
@@ -150,10 +161,31 @@ async function runExceptionScan() {
   return fresh ? { open: found, new: fresh } : { skipped: true };
 }
 
+// ── 4. KAMALA's 02:00 IST fuel sync ───────────────────────────────────────
+//
+// Cron fires it at 02:00 Asia/Kolkata, and the quarter-hourly tick catches it
+// up. BOTH, deliberately, and they cannot double-run: the job claims the day by
+// inserting its row in agent_execution_logs behind a unique index, so the
+// second attempt collides in the database and stands down. Cron alone would
+// miss the night entirely if the box happened to be restarting at 02:00 — the
+// exact minute a nightly deploy is most likely to be touching it — and the tick
+// alone would drift the fuel import into office hours.
+//
+// The catch-up does not fire before 02:00: a run started at 00:15 would import
+// a folder the portal has not been exported into yet and then hold the day's
+// claim against the real 02:00 run.
+async function runNightlyFuel({ force = false } = {}) {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const istHour = Number(new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(11, 13));
+  if (!force && istHour < 2) return { skipped: 'before 02:00 IST' };
+  return runNightlyFuelSync({ trigger: force ? 'SCHEDULE' : 'CATCHUP', log: state.log ?? console });
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
+  state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);
@@ -167,7 +199,30 @@ export function startScheduler(log = console) {
   setTimeout(tick, 30_000).unref?.();
   state.timer = setInterval(tick, TICK_MS);
   state.timer.unref?.();
+
+  // The scheduled trigger itself. `timezone` is not optional here — the box
+  // runs UTC, and '0 2 * * *' without it is 07:30 IST.
+  try {
+    state.fuelCron = cron.schedule('0 2 * * *', async () => {
+      try {
+        const r = await runNightlyFuel({ force: true });
+        log.info?.({ job: 'nightly_fuel', ...r }, '[scheduler] 02:00 IST fuel sync');
+      } catch (err) {
+        log.warn?.({ job: 'nightly_fuel', err: err.message }, '[scheduler] fuel sync failed');
+      }
+    }, { timezone: 'Asia/Kolkata' });
+  } catch (err) {
+    // A scheduler that will not schedule must say so at boot. The tick still
+    // covers the job, several hours late — which is worth knowing about.
+    state.fuelCronError = err.message;
+    log.warn?.({ err: err.message }, '[scheduler] could not register the 02:00 fuel cron');
+  }
   return state.timer;
+}
+
+export function stopScheduler() {
+  if (state.timer) { clearInterval(state.timer); state.timer = null; }
+  if (state.fuelCron) { state.fuelCron.stop(); state.fuelCron = null; }
 }
 
 export function schedulerState() {
@@ -180,5 +235,7 @@ export function schedulerState() {
     last_exception_error: state.lastExceptionError ?? null,
     today_is_boundary: cycleBoundary(),
     next_cycle_code: cycleCodeFor(),
+    nightly_fuel_cron: state.fuelCron ? '02:00 Asia/Kolkata' : null,
+    nightly_fuel_cron_error: state.fuelCronError,
   };
 }

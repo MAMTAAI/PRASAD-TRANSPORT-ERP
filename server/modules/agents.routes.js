@@ -6,6 +6,7 @@
 import { status, describe, refreshReadiness, AGENTS } from '../agents/registry.js';
 import { emit, drain } from '../agents/bus.js';
 import { query, isDegraded } from '../db/pool.js';
+import { runNightlyFuelSync, JOB as FUEL_JOB } from '../lib/nightlyFuelSync.js';
 
 const AGENT_IDS = AGENTS.map((a) => a.id);
 
@@ -162,6 +163,94 @@ export async function registerAgentRoutes(app) {
       await drain();
       reply.code(202);
       return { queued: row };
+    }
+  );
+
+  // ── Scheduled jobs: did the night run? ──────────────────────────────────
+  //
+  // The question this answers is "is the 02:00 chain alive?", and the honest
+  // answer to that is sometimes "there is no row" — a job that never fired
+  // writes nothing. So the response says when the last run was and how long ago
+  // in words, rather than returning an empty list and letting the screen read
+  // it as fine.
+  app.get(
+    '/jobs',
+    { schema: { querystring: { type: 'object', properties: {
+      job: { type: ['string', 'null'], maxLength: 40 },
+      limit: { type: 'integer', minimum: 1, maximum: 200, default: 30 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return reply.code(503).send({ error: 'DB_UNAVAILABLE' });
+      const { rows } = await query(`
+        SELECT * FROM v_agent_job_health
+         WHERE ($1::text IS NULL OR job = $1)
+         ORDER BY started_at DESC
+         LIMIT $2`, [req.query.job ?? null, req.query.limit ?? 30]);
+
+      const last = rows.find(r => r.job === FUEL_JOB) ?? null;
+      const hoursSince = last
+        ? (Date.now() - new Date(last.started_at).getTime()) / 3_600_000
+        : null;
+      return {
+        runs: rows,
+        nightly_fuel: {
+          last_run: last?.started_at ?? null,
+          last_status: last?.status ?? null,
+          // 26 hours covers a run that slipped and a clock that did not.
+          overdue: last ? hoursSince > 26 : true,
+          note: last
+            ? null
+            : 'this job has never run on this database — check that the API '
+            + 'process is up and that a fleet-card source is configured',
+        },
+      };
+    }
+  );
+
+  /** Every stage of one run, in order — the night as one story. */
+  app.get(
+    '/jobs/:runId',
+    { schema: { params: { type: 'object', required: ['runId'],
+      properties: { runId: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return reply.code(503).send({ error: 'DB_UNAVAILABLE' });
+      const { rows } = await query(
+        `SELECT * FROM agent_execution_logs WHERE run_id = $1::uuid ORDER BY id`,
+        [req.params.runId]);
+      if (!rows.length) return reply.code(404).send({ error: 'NO_SUCH_RUN' });
+      return { run: rows.find(r => r.step === null) ?? null,
+               steps: rows.filter(r => r.step !== null) };
+    }
+  );
+
+  /**
+   * Run the fuel chain now.
+   *
+   * Not force-by-default. Tonight's scheduled run has already claimed the day,
+   * and a person pressing this at 10:00 wants to see the result — not to
+   * silently create a second import of the same statements. `force: true` says
+   * they meant it, and the run is recorded as MANUAL so the trail stays honest
+   * about which rows a machine brought in and which a person asked for.
+   */
+  app.post(
+    '/jobs/nightly-fuel/run',
+    { schema: { body: { type: ['object', 'null'], properties: {
+      force: { type: 'boolean', default: false },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return reply.code(503).send({ error: 'DB_UNAVAILABLE' });
+      const r = await runNightlyFuelSync({
+        trigger: 'MANUAL', force: req.body?.force ?? false, log: app.log,
+      });
+      if (r.skipped) {
+        return reply.code(409).send({
+          error: 'NOT_RUN', detail: r.skipped,
+          hint: r.skipped === 'already run today'
+            ? 'tonight is already recorded — pass force: true to run it again'
+            : undefined,
+        });
+      }
+      return r;
     }
   );
 }
