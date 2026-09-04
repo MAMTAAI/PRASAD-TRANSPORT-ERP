@@ -759,6 +759,9 @@ export default function FleetCardSettlement() {
         )}
       </GlassPanel>
 
+      {/* ── vehicle-wise / card-wise ─────────────────────────────────────── */}
+      <Breakdown />
+
       {open && (
         <AllocateDrawer
           txnId={open}
@@ -767,5 +770,218 @@ export default function FleetCardSettlement() {
         />
       )}
     </div>
+  );
+}
+
+// ══ VEHICLE-WISE AND CARD-WISE ══════════════════════════════════════════════
+//
+// The totals come from the server over the whole date range, not from the rows
+// this page happens to be holding — a screen showing 300 of 1,086 swipes would
+// otherwise report a lorry's diesel as a third of what it was.
+function Breakdown() {
+  const [from, setFrom] = useState('2026-04-01');
+  const [to, setTo] = useState('2026-09-01');
+  const [tab, setTab] = useState('vehicle');
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState(null);
+  const [q, setQ] = useState('');
+
+  useEffect(() => {
+    let dead = false;
+    setBusy(true); setErr(null);
+    api(`/breakdown?from=${from}&to=${to}&limit=400`)
+      .then((d) => { if (!dead) setData(d); })
+      .catch((e) => { if (!dead) setErr(e.message); })
+      .finally(() => { if (!dead) setBusy(false); });
+    return () => { dead = true; };
+  }, [from, to]);
+
+  const vehicles = useMemo(() => {
+    const rows = data?.vehicles ?? [];
+    const s = q.trim().toLowerCase();
+    return s ? rows.filter((v) => (v.vehicle ?? '').toLowerCase().includes(s)) : rows;
+  }, [data, q]);
+
+  // The bar is drawn against the biggest row, so the shape reads even when one
+  // lorry dwarfs the rest — which, with a pooled firm card in the list, it does.
+  const maxAmt = Math.max(1, ...(data?.vehicles ?? []).map((v) => Number(v.amount)));
+
+  return (
+    <GlassPanel>
+      <PanelHeader
+        icon={Truck}
+        title="Vehicle-wise / Card-wise"
+        sub={data ? `${dayLong(data.period.from)} – ${dayLong(data.period.to)}` : '—'}
+        accent="text-violet-400"
+        right={
+          <div className="flex items-center gap-1.5">
+            {['vehicle', 'card'].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`rounded-lg px-2.5 py-1 text-[11.5px] font-semibold transition
+                  ${tab === t ? 'bg-violet-500/20 text-violet-200' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {t === 'vehicle' ? 'Lorry' : 'Card'}
+              </button>
+            ))}
+          </div>
+        }
+      />
+
+      <div className="px-4 pb-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {[['From', from, setFrom], ['To', to, setTo]].map(([lbl, val, set]) => (
+            <label key={lbl} className="flex items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{lbl}</span>
+              <input
+                type="date" value={val} onChange={(e) => set(e.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-900 px-2 py-1 text-[12px] text-slate-200 outline-none focus:border-violet-400"
+              />
+            </label>
+          ))}
+          {tab === 'vehicle' && (
+            <div className="relative">
+              <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                value={q} onChange={(e) => setQ(e.target.value)} placeholder="Lorry"
+                className="w-40 rounded-lg border border-slate-600 bg-slate-900 py-1 pl-7 pr-2 text-[12px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-violet-400"
+              />
+            </div>
+          )}
+          {data && (
+            <span className="ml-auto text-[11.5px] text-slate-500">
+              {data.totals.vehicles} lorry · {data.totals.swipes} swipe ·{' '}
+              {Number(data.totals.litres).toLocaleString('en-IN', { maximumFractionDigits: 0 })} L ·{' '}
+              <span className="font-mono text-slate-300">{inr(data.totals.amount)}</span>
+            </span>
+          )}
+        </div>
+
+        {err && (
+          <div className="flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[13px] text-rose-200">
+            <AlertTriangle size={15} className="mt-[2px] shrink-0" /> <span>{err}</span>
+          </div>
+        )}
+
+        {busy && !data && (
+          <div className="flex items-center gap-2 py-6 text-slate-400">
+            <Loader2 size={16} className="animate-spin" /> Nikal raha hoon…
+          </div>
+        )}
+
+        {data && tab === 'vehicle' && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[780px] text-[12.5px]">
+              <thead>
+                <tr className="border-b border-slate-700 text-left text-[10px] uppercase tracking-[0.1em] text-slate-500">
+                  <th className="py-2 pr-3 font-semibold">Lorry</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Swipe</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Litre</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Avg ₹/L</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Diesel</th>
+                  <th className="py-2 pr-3 text-right font-semibold">Baki</th>
+                  <th className="py-2 pr-3 font-semibold">Card · Pump</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vehicles.map((v) => (
+                  <tr key={v.vehicle} className="border-b border-slate-800/70">
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      <span className={`font-mono ${v.in_fleet ? 'text-slate-200' : 'text-yellow-300'}`}>
+                        {v.vehicle}
+                      </span>
+                      {!v.in_fleet && (
+                        <span
+                          title="Card par yeh likha hai, par fleet master me nahi hai"
+                          className="ml-2 rounded-full border border-yellow-400/40 bg-yellow-500/10 px-1.5 py-[1px] text-[9.5px] font-semibold text-yellow-300"
+                        >
+                          FLEET ME NAHI
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono tabular-nums text-slate-400">{v.swipes}</td>
+                    <td className="py-2 pr-3 text-right font-mono tabular-nums text-slate-300">
+                      {Number(v.litres).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-mono tabular-nums text-slate-400">
+                      {v.avg_rate ? Number(v.avg_rate).toFixed(2) : '—'}
+                    </td>
+                    <td className="py-2 pr-3 text-right">
+                      <div className="font-mono tabular-nums text-slate-100">{inr(v.amount)}</div>
+                      <div className="mt-1 h-[3px] w-full overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-violet-400"
+                          style={{ width: `${Math.max(2, (Number(v.amount) / maxAmt) * 100)}%` }}
+                        />
+                      </div>
+                    </td>
+                    <td className={`py-2 pr-3 text-right font-mono tabular-nums ${Number(v.pending) > 0 ? 'text-amber-300' : 'text-emerald-400'}`}>
+                      {Number(v.pending) > 0 ? inr(v.pending) : '✓'}
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap text-[11.5px] text-slate-500">
+                      {v.providers} · {v.pumps} pump
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {vehicles.length === 0 && (
+              <div className="py-5 text-[13px] text-slate-500">Is range me kuch nahi mila.</div>
+            )}
+          </div>
+        )}
+
+        {data && tab === 'card' && (
+          <div className="grid gap-3 md:grid-cols-3">
+            {data.cards.map((c) => (
+              <div key={c.account_id} className="rounded-xl border border-slate-700/70 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded px-1.5 py-[2px] text-[10px] font-bold tracking-wide text-slate-950"
+                        style={{ background: c.provider === 'IOCL' ? '#f0736a' : c.provider === 'BPCL' ? '#6cc0d8' : '#9aa4b8' }}>
+                    {c.provider}
+                  </span>
+                  <span className="font-mono text-[11px] text-slate-500">{c.account_no}</span>
+                </div>
+                <div className="mt-2 text-[13px] font-medium text-slate-200">{c.account_name}</div>
+                <div className="truncate text-[11.5px] text-slate-500">{c.operating_company || '—'}</div>
+
+                <div className="mt-3 space-y-1.5 border-t border-slate-700/60 pt-3">
+                  {[
+                    ['Diesel', c.diesel, 'text-slate-100'],
+                    ['Litre', Number(c.litres).toLocaleString('en-IN', { maximumFractionDigits: 0 }), 'text-slate-300', true],
+                    ['Recharge', c.recharged, 'text-cyan-300'],
+                    ['Wallet settlement', c.wallet_settlement, 'text-slate-400'],
+                    ['Lag chuka', c.allocated, 'text-emerald-300'],
+                    ['Clearing me', c.pending, 'text-amber-300'],
+                  ].map(([k, v, cl, raw]) => (
+                    <div key={k} className="flex justify-between text-[12px]">
+                      <span className="text-slate-500">{k}</span>
+                      <span className={`font-mono tabular-nums ${cl}`}>{raw ? v : inr(v)}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 flex items-center justify-between border-t border-slate-700/60 pt-2.5 text-[11px]">
+                  <span className="text-slate-500">{c.swipes} swipe · {c.vehicles} lorry</span>
+                  {Number(c.diesel) > 0 && (
+                    <span className="font-mono text-slate-400">
+                      {((Number(c.allocated) / Number(c.diesel)) * 100).toFixed(0)}% laga
+                    </span>
+                  )}
+                </div>
+
+                {!c.clearing_ledger && (
+                  <div className="mt-2 text-[11px] text-amber-300/80">
+                    Clearing ledger ka naam nahi hua.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </GlassPanel>
   );
 }

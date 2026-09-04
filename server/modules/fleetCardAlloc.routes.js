@@ -13,6 +13,7 @@
 // in a queue for a person. Nothing here posts to a ledger; see migration 152.
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
+import { emit } from '../agents/bus.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -62,6 +63,110 @@ export async function registerFleetCardAllocationRoutes(app) {
           GROUP BY reason ORDER BY 3 DESC`, p);
 
       return { queue: rows, total: tot, by_reason: byReason, shown: rows.length };
+    }
+  );
+
+  /**
+   * Vehicle-wise and card-wise, over a date range.
+   *
+   * Both cuts come from ONE query each rather than the screen adding up rows it
+   * happens to have fetched — a page showing 300 of 1,086 swipes would
+   * otherwise report a lorry's diesel as a third of what it was.
+   *
+   * A lorry the card names but the fleet master does not know still gets a row,
+   * keyed on the raw registration. Dropping it would hide ₹29.7 lakh of the
+   * BPCL pooled card, which is the largest single thing on this screen.
+   */
+  app.get(
+    '/breakdown',
+    { schema: { querystring: { type: 'object', properties: {
+      from:     { type: ['string', 'null'], format: 'date' },
+      to:       { type: ['string', 'null'], format: 'date' },
+      provider: { type: ['string', 'null'], maxLength: 8 },
+      limit:    { type: 'integer', minimum: 1, maximum: 500, default: 200 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const from = req.query.from ?? '2026-04-01';
+      const to   = req.query.to   ?? '2026-09-01';
+      const prov = req.query.provider || null;
+
+      const { rows: vehicles } = await query(`
+        SELECT COALESCE(x.vehicle_no, x.vehicle_raw)        AS vehicle,
+               (x.vehicle_no IS NOT NULL)                   AS in_fleet,
+               count(*)::int                                AS swipes,
+               COALESCE(sum(x.quantity), 0)::numeric(14,3)  AS litres,
+               COALESCE(sum(x.amount), 0)::numeric(16,2)    AS amount,
+               COALESCE(sum(al.placed), 0)::numeric(16,2)   AS allocated,
+               (COALESCE(sum(x.amount), 0) - COALESCE(sum(al.placed), 0))::numeric(16,2)
+                                                            AS pending,
+               min(x.txn_date)                              AS first_swipe,
+               max(x.txn_date)                              AS last_swipe,
+               count(DISTINCT x.merchant_name)::int         AS pumps,
+               -- Rate the lorry actually paid across the window. A lorry well
+               -- off the fleet average is either a different fuel or a
+               -- different story, and either is worth a look.
+               CASE WHEN sum(x.quantity) > 0
+                    THEN (sum(x.amount) / sum(x.quantity))::numeric(10,2) END AS avg_rate,
+               string_agg(DISTINCT a.provider, '/' ORDER BY a.provider) AS providers
+          FROM fleet_card_statement_txns x
+          JOIN fleet_card_accounts a ON a.id = x.account_id
+          LEFT JOIN LATERAL (
+            SELECT sum(al2.amount) AS placed FROM fleet_card_allocations al2
+             WHERE al2.txn_id = x.id) al ON true
+         WHERE x.kind = 'SALE' AND x.unit = 'INR'
+           AND x.txn_date BETWEEN $1::date AND $2::date
+           AND ($3::text IS NULL OR a.provider = $3)
+         GROUP BY 1, 2
+         ORDER BY amount DESC
+         LIMIT $4`, [from, to, prov, req.query.limit ?? 200]);
+
+      const { rows: cards } = await query(`
+        SELECT a.id AS account_id, a.provider, a.account_no, a.account_name,
+               a.operating_company, a.clearing_ledger,
+               COALESCE(sum(x.amount) FILTER (WHERE x.kind='SALE'  AND x.unit='INR'), 0)::numeric(16,2) AS diesel,
+               COALESCE(sum(x.quantity) FILTER (WHERE x.kind='SALE' AND x.unit='INR'), 0)::numeric(14,3) AS litres,
+               count(*) FILTER (WHERE x.kind='SALE' AND x.unit='INR')::int                              AS swipes,
+               COALESCE(sum(x.amount) FILTER (WHERE x.kind='RECHARGE' AND x.unit='INR'), 0)::numeric(16,2) AS recharged,
+               COALESCE(sum(x.amount) FILTER (WHERE x.kind='OTHER' AND x.unit='INR'), 0)::numeric(16,2)  AS wallet_settlement,
+               count(DISTINCT COALESCE(x.vehicle_no, x.vehicle_raw))::int                               AS vehicles
+          FROM fleet_card_accounts a
+          LEFT JOIN fleet_card_statement_txns x
+            ON x.account_id = a.id AND x.txn_date BETWEEN $1::date AND $2::date
+         WHERE ($3::text IS NULL OR a.provider = $3)
+         GROUP BY a.id, a.provider, a.account_no, a.account_name,
+                  a.operating_company, a.clearing_ledger
+         ORDER BY diesel DESC`, [from, to, prov]);
+
+      // Allocation state per card, over the same window.
+      const { rows: placed } = await query(`
+        SELECT x.account_id,
+               COALESCE(sum(al.placed), 0)::numeric(16,2) AS allocated
+          FROM fleet_card_statement_txns x
+          LEFT JOIN LATERAL (
+            SELECT sum(al2.amount) AS placed FROM fleet_card_allocations al2
+             WHERE al2.txn_id = x.id) al ON true
+         WHERE x.kind = 'SALE' AND x.unit = 'INR'
+           AND x.txn_date BETWEEN $1::date AND $2::date
+         GROUP BY 1`, [from, to]);
+      const placedBy = new Map(placed.map((p) => [p.account_id, Number(p.allocated)]));
+      for (const c of cards) {
+        c.allocated = placedBy.get(c.account_id) ?? 0;
+        c.pending = Number(c.diesel) - c.allocated;
+      }
+
+      return {
+        period: { from, to },
+        vehicles,
+        cards,
+        totals: {
+          vehicles: vehicles.length,
+          swipes: vehicles.reduce((s, v) => s + Number(v.swipes), 0),
+          litres: vehicles.reduce((s, v) => s + Number(v.litres), 0),
+          amount: vehicles.reduce((s, v) => s + Number(v.amount), 0),
+          pending: vehicles.reduce((s, v) => s + Number(v.pending), 0),
+        },
+      };
     }
   );
 
@@ -207,10 +312,55 @@ export async function registerFleetCardAllocationRoutes(app) {
 
       const { rows: [left] } = await query(
         `SELECT unallocated FROM v_fleet_card_unallocated WHERE txn_id = $1::uuid`, [b.txn_id]);
+      const stillUnallocated = Number(left?.unallocated ?? 0);
+
+      // ── the hand-off ──────────────────────────────────────────────────────
+      //
+      // The allocation is recorded; the VOUCHER is not written here. Posting
+      // needs one thing this endpoint cannot supply without guessing: which
+      // ledger to debit. Dr Clearing / Cr Card Wallet is the same for every
+      // swipe, but the second leg is not — a PUMP_BILL settles that pump's
+      // creditor account, a TRIP debits that trip's fuel expense, and naming
+      // the wrong one is how migration 031's second wallet happened.
+      //
+      // So the event goes out and TARA posts it under approval, like every
+      // other rupee in this system. A swipe placed here shows as cleared on
+      // this screen and as a pending voucher on the approval desk — never as a
+      // ledger entry nobody reviewed.
+      if (stillUnallocated <= 0.005) {
+        try {
+          await emit('pump.balance.reconciled', {
+            aggregate: 'fleet_card_txn',
+            aggregateId: b.txn_id,
+            emittedBy: null,          // raised by the desk, not by an agent
+            payload: {
+              source: 'fleet_card_allocation',
+              target_kind: b.target_kind,
+              target_id: b.target_kind === 'WRITE_OFF' ? null : b.target_id,
+              amount: b.amount,
+              allocated_by: rows[0].allocated_by,
+              note: b.note ?? null,
+            },
+          });
+        } catch (e) {
+          // The allocation is already saved and is the record that matters. A
+          // failed event is reported, not rolled back — losing the clerk's work
+          // because a queue insert failed would be the worse outcome.
+          req.log.warn({ err: e.message, txn: b.txn_id }, 'allocation saved, event not emitted');
+        }
+      }
+
       reply.code(201);
       // No row left in the queue means the swipe is fully placed — say 0
       // rather than null, so the screen does not have to guess.
-      return { allocation: rows[0], still_unallocated: Number(left?.unallocated ?? 0) };
+      return {
+        allocation: rows[0],
+        still_unallocated: stillUnallocated,
+        posted_to_ledger: false,
+        posting_note: stillUnallocated <= 0.005
+          ? 'handed to TARA — the voucher appears on the approval desk, not straight in the ledger'
+          : null,
+      };
     }
   );
 

@@ -17,6 +17,7 @@
 // The VOUCHER is now posted by the API through TARA, in the same request that
 // writes the transaction — not by this screen afterwards, where a failed
 // journal used to leave the money recorded and the books untouched.
+import FleetCardSettlement from './mastercontrol/FleetCardSettlement';
 import React, { useState, useEffect, useMemo } from 'react';
 import { API_BASE } from './lib/apiBase';
 const API_ROOT = API_BASE;
@@ -260,7 +261,23 @@ export default function FleetCardMgmt() {
   return (
     <div style={S.page}>
       <h1 style={{ fontSize: 'clamp(20px,5vw,30px)', margin: '0 0 4px 0', color: '#22d3ee' }}>💳 Fleet Card & Settlement</h1>
-      <p style={{ color: '#9aadd4', margin: '0 0 18px 0', fontSize: '13px' }}>Pump udhaar → Card swipe settlement → Freight-deduction recharge. Mamta AI statement reconciler niche hai.</p>
+      <p style={{ color: '#9aadd4', margin: '0 0 18px 0', fontSize: '13px' }}>Oil company ke statement, unka milan, aur jo abhi clearing me pada hai.</p>
+
+      {/* ── THE LIVE STATEMENT DESK ──────────────────────────────────────────
+          Everything below this block is the older MANUAL card book: wallet
+          balances someone typed in, and the Mamta AI statement reader. It is
+          kept because it is still the only way to record a recharge by hand,
+          but it is not where the money is any more — the imported statements
+          are, and they lead. */}
+      <FleetCardSettlement />
+
+      <div style={{ height: '28px' }} />
+      <div style={{ borderTop: '1px solid #27395f', paddingTop: '18px', marginBottom: '14px' }}>
+        <b style={{ color: '#9aadd4', fontSize: '13px', letterSpacing: '0.08em' }}>MANUAL CARD BOOK &amp; AI READER</b>
+        <p style={{ color: '#5d7196', fontSize: '12px', margin: '4px 0 0' }}>
+          Haath se darj ki gayi wallet entries. Upar wala hissa oil company ke asli statement se aata hai.
+        </p>
+      </div>
 
       {/* Wallets */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '14px', marginBottom: '18px' }}>
