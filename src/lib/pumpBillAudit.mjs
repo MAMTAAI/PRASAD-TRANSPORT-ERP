@@ -49,6 +49,10 @@ export const VERDICTS = {
   QTY_MISMATCH:   { label: 'Litre alag',       tone: 'warn',  blocks: true },
   AMOUNT_MISMATCH:{ label: 'Amount alag',      tone: 'warn',  blocks: true },
   GHOST:          { label: 'Memo hi nahi',     tone: 'bad',   blocks: true },
+  // A memo that is real but already spent. Distinct from GHOST on purpose:
+  // GHOST sends a clerk hunting for a memo that does not exist, while this one
+  // says "it exists, it is paid, do not pay it again".
+  ALREADY_SETTLED:{ label: 'Pehle hi settle',  tone: 'bad',   blocks: true },
   AMBIGUOUS:      { label: 'Do memo mil rahe', tone: 'warn',  blocks: true },
   UNREADABLE:     { label: 'Line padhi nahi',  tone: 'bad',   blocks: true },
 };
@@ -69,6 +73,16 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
     rate: num(s.rate),
     amount: num(s.amount),
     memo_no: s.memo_no ?? null,
+    // THE DE-DUPLICATION SHIELD. A memo already carried into a pump bill must
+    // never be applied to a second one. `reusable` comes from the server
+    // (v_fuel_memo_settlement); anything that is not explicitly reusable is
+    // treated as spent, because the safe default when the flag is missing is
+    // "do not spend it twice".
+    reusable: s.reusable === undefined
+      ? String(s.bill_status ?? 'UNBILLED') === 'UNBILLED'
+      : s.reusable === true,
+    settled_label: s.settled_label ?? null,
+    bill_status: s.bill_status ?? null,
     raw: s,
     taken_by: null,
   }));
@@ -109,6 +123,25 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
     const near = pool.filter((s) => s.taken_by == null && s.key === key
       && dayGap(s.date, date) != null && dayGap(s.date, date) <= dayTolerance);
 
+    // A SPENT MEMO NEVER COMPETES WITH A LIVE ONE. Splitting the pool here,
+    // before anything else, is what stops an already-settled memo from making
+    // a perfectly clean live memo look ambiguous — which is exactly what it did
+    // until the selftest caught it. Spent memos are kept only to answer "it
+    // exists, it is paid", and only when no live memo can serve the line.
+    const live = near.filter((s) => s.reusable);
+    const spent = near.filter((s) => !s.reusable);
+
+    if (live.length === 0 && spent.length > 0) {
+      const sp = spent[0];
+      sp.taken_by = i;
+      return { ...base, verdict: 'ALREADY_SETTLED', slip_id: sp.id, slip: sp.raw,
+               slip_liters: sp.liters, slip_rate: sp.rate, slip_amount: sp.amount,
+               settled_label: sp.settled_label,
+               notes: ['⚠️ Already Settled in Bill '
+                     + (sp.settled_label ? '#' + sp.settled_label : '(reference not recorded)')
+                     + ' — is memo ko dobara nahi lagaya ja sakta.'] };
+    }
+
     if (!near.length) {
       return { ...base, verdict: 'GHOST',
         notes: [`Pump billed this truck ${l.vehicle_raw ?? key} on ${date}, `
@@ -116,7 +149,7 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
     }
 
     // Prefer a memo whose litres agree; that is the pairing key.
-    const exactLitres = near.filter((s) => litresAgree(s.liters, qty));
+    const exactLitres = live.filter((s) => litresAgree(s.liters, qty));
     let chosen = null;
     let verdict = null;
     const notes = [];
@@ -131,7 +164,7 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
     } else {
       // Litres differ. Pair with the closest so the difference can be shown,
       // and say so — this is the quantity dispute, not a match.
-      chosen = near.reduce((best, s) =>
+      chosen = live.reduce((best, s) =>
         (best == null || Math.abs((s.liters ?? 0) - qty) < Math.abs((best.liters ?? 0) - qty)) ? s : best, null);
       verdict = 'QTY_MISMATCH';
       notes.push(`Pump billed ${qty}L, Slip authorized ${chosen.liters ?? '—'}L`
@@ -162,6 +195,19 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
       }
     }
 
+    // A spent memo does not become a match, however well it agrees. It is
+    // reported as already settled, with the bill that settled it, so the desk
+    // stops looking for it — and it still blocks the fortnight.
+    if (!chosen.reusable) {
+      chosen.taken_by = i;
+      return { ...base, verdict: 'ALREADY_SETTLED', slip_id: chosen.id, slip: chosen.raw,
+               slip_liters: chosen.liters, slip_rate: chosen.rate, slip_amount: chosen.amount,
+               settled_label: chosen.settled_label,
+               notes: [`⚠️ Already Settled in Bill ${chosen.settled_label
+                        ? '#' + chosen.settled_label : '(reference not recorded)'} — `
+                     + 'is memo ko dobara nahi lagaya ja sakta.'] };
+    }
+
     if (!verdict) verdict = 'MATCHED';
     chosen.taken_by = i;
     return { ...base, verdict, notes, slip_id: chosen.id, slip: chosen.raw,
@@ -169,7 +215,7 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
   });
 
   // The other side: memos the pump has not billed at all.
-  const unbilled = pool.filter((s) => s.taken_by == null).map((s) => ({
+  const unbilled = pool.filter((s) => s.taken_by == null && s.reusable).map((s) => ({
     ...s,
     note: `Memo ${s.memo_no ?? s.id} for ${s.key} on ${s.date} is not on this bill.`,
   }));
@@ -188,6 +234,7 @@ export function auditBill(lines, slips, { dayTolerance = 1 } = {}) {
       qty_mismatch: audited.filter((l) => l.verdict === 'QTY_MISMATCH').length,
       amount_mismatch: audited.filter((l) => l.verdict === 'AMOUNT_MISMATCH').length,
       ghost: audited.filter((l) => l.verdict === 'GHOST').length,
+      already_settled: audited.filter((l) => l.verdict === 'ALREADY_SETTLED').length,
       ambiguous: audited.filter((l) => l.verdict === 'AMBIGUOUS').length,
       unreadable: audited.filter((l) => l.verdict === 'UNREADABLE').length,
       unbilled_slips: unbilled.length,

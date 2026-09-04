@@ -42,7 +42,8 @@
     "migrate:selftest152": "node server/db/migrations/152_fleet_card_allocation.selftest.mjs",
     "migrate:selftest153": "node server/db/migrations/153_pump_bill_settlement.selftest.mjs",
     "pumpbill:selftest": "node server/lib/pumpBillParse.selftest.mjs",
-    "audit:selftest": "node src/lib/pumpBillAudit.selftest.mjs"
+    "audit:selftest": "node src/lib/pumpBillAudit.selftest.mjs",
+    "migrate:selftest154": "node server/db/migrations/154_fuel_settlement_trail.selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

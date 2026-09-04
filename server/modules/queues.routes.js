@@ -472,9 +472,19 @@ export async function registerQueueRoutes(app) {
           // No `reconciled_share` column and none needed: `amount` IS the
           // reconciled share once a slip is verified, and a second copy of the
           // same number is one more thing that can disagree.
+          // The settlement trail (migration 154). Without it a memo can say it
+          // is settled but not say where, and the reconciliation screen then
+          // reports "no memo exists" for a memo sitting right there, paid.
           `UPDATE fuel_entries SET bill_status = 'BILLED_VERIFIED', amount = $2, rate = $3,
+                                   settled_voucher_id = $4::uuid,
+                                   settled_bill_id = $5::uuid,
+                                   settled_ref = $6,
+                                   settled_at = now(),
                                    updated_at = now()
-            WHERE id = $1::uuid`, [s.id, share.toFixed(2), rate]);
+            WHERE id = $1::uuid`,
+          [s.id, share.toFixed(2), rate, voucher?.voucher_id ?? null,
+           UUID_RE.test(String(b.pump_bill_id ?? '')) ? b.pump_bill_id : null,
+           `${vendor.vendor_name}${period || (b.to ? ` · ${b.to}` : '')}`]);
         const delta = r2(share - oldAmt);
         if (s.trip_id && Math.abs(delta) > 0.009) perTrip.set(s.trip_id, r2((perTrip.get(s.trip_id) ?? 0) + delta));
       }

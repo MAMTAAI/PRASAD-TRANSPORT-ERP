@@ -80,6 +80,29 @@ check('two hundredths of a litre is not a dispute', a.lines[0].verdict, 'MATCHED
 a = auditBill([line({ rate: 92.38 })], [slip({ rate: 92.37 })]);
 check('but a paisa on the rate is', a.lines[0].verdict, 'RATE_MISMATCH');
 
+console.log(String.fromCharCode(10) + 'A MEMO THAT IS ALREADY SPENT');
+// The de-duplication shield. This memo agrees on every figure — and must still
+// not be used, because a bill has already paid for it.
+a = auditBill([line()], [slip({ reusable: false, settled_label: 'B N FILLING · 01 Jul–15 Jul 2026' })]);
+check('a settled memo does not become a match', a.lines[0].verdict, 'ALREADY_SETTLED');
+check('…and names the bill that settled it',
+  a.lines[0].notes[0],
+  '⚠️ Already Settled in Bill #B N FILLING · 01 Jul–15 Jul 2026 — is memo ko dobara nahi lagaya ja sakta.');
+check('…and blocks the fortnight', VERDICTS[a.lines[0].verdict].blocks, true);
+// A settled memo is not diesel the pump forgot to bill, either.
+check('…and is not reported as unbilled', a.summary.unbilled_slips, 0);
+
+// The flag is absent on older rows; bill_status decides, and the safe default
+// when neither is present is spent.
+a = auditBill([line()], [slip({ bill_status: 'BILLED_VERIFIED' })]);
+check('bill_status alone is enough to refuse it', a.lines[0].verdict, 'ALREADY_SETTLED');
+a = auditBill([line()], [slip({ bill_status: 'UNBILLED' })]);
+check('…and an UNBILLED memo still matches', a.lines[0].verdict, 'MATCHED');
+// Two memos, one spent: the line must take the live one.
+a = auditBill([line()], [slip({ id: 'spent', reusable: false }), slip({ id: 'live', reusable: true })]);
+check('a live memo is preferred over a spent one', a.lines[0].slip_id, 'live');
+check('…and that is a clean match', a.lines[0].verdict, 'MATCHED');
+
 console.log('\nTHE GATE');
 const mixed = auditBill(
   [line({ sno: 1 }), line({ sno: 2, vehicle_raw: 'AS26C9999' }),

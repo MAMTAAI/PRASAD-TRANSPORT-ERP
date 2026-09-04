@@ -452,9 +452,23 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
   // Feeding it the filtered list made a June bill read against an August filter
   // report all 39 lines as "no memo exists" and ₹6,47,352 as unauthorised —
   // which is what the screen showed before this was fixed.
+  // EVERY memo for this pump goes into the audit, not only the unbilled ones —
+  // and each carries whether it may be used again. Feeding it only the unbilled
+  // list is what made a scanned bill report 39 ghosts: on 4-Sep exactly ONE of
+  // 1,042 memos in the whole database was UNBILLED, so the pool was empty and
+  // every real, already-paid memo looked like it did not exist. Now the line
+  // says "already settled", which is the truth and stops the clerk hunting.
+  const auditPool = React.useMemo(() => fuelHistory
+    .filter((f: any) => f.vendor_id === reconVendor)
+    .map((f: any) => ({
+      ...f,
+      reusable: String(f.bill_status ?? 'UNBILLED') === 'UNBILLED',
+      settled_label: f.settled_label ?? f.settled_ref ?? null,
+    })), [fuelHistory, reconVendor]);
+
   const billAudit = React.useMemo(
-    () => (scannedPumpItems.length ? auditBill(scannedPumpItems, unbilledSlips) : null),
-    [scannedPumpItems, unbilledSlips]);
+    () => (scannedPumpItems.length ? auditBill(scannedPumpItems, auditPool) : null),
+    [scannedPumpItems, auditPool]);
   const gate = React.useMemo(
     () => (billAudit ? settlementGate(billAudit, billResolutions) : null),
     [billAudit, billResolutions]);
@@ -543,6 +557,18 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
 
   /** Pair a bill line with a slip the clerk picked on the right. */
   const linkLineToSlip = (idx: number, slipId: string) => {
+    // THE SHIELD, at the last possible moment. The list below only offers
+    // reusable memos, but a snapshot in a browser goes stale — another clerk
+    // may have settled this one while this screen sat open. The server refuses
+    // it too (fuel-reconcile takes UNBILLED slips only, FOR UPDATE); this is
+    // the polite refusal that arrives before the rude one.
+    const sl: any = fuelHistory.find((f: any) => String(f.id) === String(slipId));
+    if (sl && String(sl.bill_status ?? 'UNBILLED') !== 'UNBILLED') {
+      alert('🚫 Yeh memo pehle hi settle ho chuka hai'
+        + (sl.settled_ref ? ' — ' + sl.settled_ref : '')
+        + '.' + String.fromCharCode(10) + 'Ise dobara kisi bill par nahi lagaya ja sakta.');
+      return;
+    }
     setBillResolutions((r) => ({ ...r, [idx]: 'LINKED' }));
     setSelectedSlips((sel) => (sel.includes(slipId) ? sel : [...sel, slipId]));
     setLinkingIdx(null);
@@ -922,6 +948,8 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                   ['Antar', '₹' + billAudit.summary.difference.toLocaleString('en-IN'),
                     Math.abs(billAudit.summary.difference) > 1 ? '#ff6b81' : '#2fe39b'],
                   ['Milte hain', billAudit.summary.matched + '/' + billAudit.summary.lines, '#2fe39b'],
+                  ['Pehle hi settle', String(billAudit.summary.already_settled ?? 0),
+                    (billAudit.summary.already_settled ?? 0) > 0 ? '#ff6b81' : '#5d7196'],
                   ['Bill me nahi', String(billAudit.summary.unbilled_slips), '#ffb224'],
                 ].map((cell: any) => (
                   <div key={cell[0]} style={{ background: '#121c38', padding: '10px 12px' }}>
@@ -984,6 +1012,16 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                           <b style={{ color: '#eef3ff', fontSize: '12.5px' }}>#{l.sno}</b>
                           <span style={{ border: '1px solid ' + tone, color: tone, borderRadius: '99px',
                                          padding: '1px 8px', fontSize: '10px', fontWeight: 700 }}>{v.label}</span>
+                          {/* THE DUPLICATE INDICATOR. A memo that exists and is already paid is a
+                              different problem from a memo that does not exist, and the clerk needs
+                              to stop looking rather than start. */}
+                          {l.verdict === 'ALREADY_SETTLED' && (
+                            <span style={{ border: '1px solid #ff6b81', background: 'rgba(255,107,129,0.12)',
+                                           color: '#ff6b81', borderRadius: '99px', padding: '1px 8px',
+                                           fontSize: '10px', fontWeight: 700 }}>
+                              ⚠️ Already Settled{l.settled_label ? ' in Bill #' + l.settled_label : ''}
+                            </span>
+                          )}
                           {src._edited && (
                             <span title={'Pehle bill par: ' + (src._original?.date || '') + ' · ' + (src._original?.vehicle_no || '')
                                          + ' · ' + (src._original?.qty ?? '') + 'L · ₹' + (src._original?.rate ?? '')}
@@ -1087,7 +1125,10 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                                   <div style={{ fontSize: '10.5px', color: '#22d3ee', marginBottom: '5px' }}>Kis memo se jodein?</div>
                                   <div style={{ maxHeight: '140px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     {unbilledSlips.length === 0 && (
-                                      <span style={{ color: '#5d7196', fontSize: '12px' }}>Is pump ka koi unbilled memo nahi.</span>
+                                      <span style={{ color: '#5d7196', fontSize: '12px', lineHeight: 1.5 }}>
+                                        Koi memo bacha nahi jo dobara lagaya ja sake — is pump ke sab memo
+                                        pehle hi kisi bill me settle ho chuke hain.
+                                      </span>
                                     )}
                                     {unbilledSlips.map((sl: any) => (
                                       <button key={sl.id} onClick={() => linkLineToSlip(l.idx, sl.id)}
