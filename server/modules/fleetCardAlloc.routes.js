@@ -26,6 +26,7 @@ export async function registerFleetCardAllocationRoutes(app) {
       company:  { type: ['string', 'null'], maxLength: 120 },
       reason:   { type: ['string', 'null'], maxLength: 30 },
       vehicle:  { type: ['string', 'null'], maxLength: 20 },
+      cycle:    { type: ['string', 'null'], maxLength: 12 },
       from:     { type: ['string', 'null'], format: 'date' },
       to:       { type: ['string', 'null'], format: 'date' },
       limit:    { type: 'integer', minimum: 1, maximum: 1000, default: 10 },
@@ -46,6 +47,9 @@ export async function registerFleetCardAllocationRoutes(app) {
       if (q.vehicle)  add('reg_key(COALESCE(vehicle_no, vehicle_raw)) = reg_key(?)', q.vehicle);
       if (q.from)     add('txn_date >= ?::date', q.from);
       if (q.to)       add('txn_date <= ?::date', q.to);
+      // "HAR BIL KA SYKEL 15 DAY KA HAY" — the pump bills 1–15 and 16–end, so
+      // the queue can be worked one billing cycle at a time.
+      if (q.cycle)    add('cycle = ?', q.cycle);
       // Free text over the columns a clerk actually squints at. Server-side so
       // it searches the whole queue, not the ten rows the page is holding.
       if (q.search) {
@@ -62,7 +66,7 @@ export async function registerFleetCardAllocationRoutes(app) {
       // input — an ORDER BY built from a string is a SQL injection with extra
       // steps.
       const SORTABLE = {
-        txn_date: 'txn_date', amount: 'amount', unallocated: 'unallocated',
+        txn_date: 'txn_date', amount: 'amount', unallocated: 'unallocated', cycle: 'cycle',
         quantity: 'quantity', vehicle: 'COALESCE(vehicle_no, vehicle_raw)',
         merchant: 'merchant_name', reason: 'reason',
       };
@@ -94,6 +98,7 @@ export async function registerFleetCardAllocationRoutes(app) {
       if (q.provider) cadd('provider = ?', q.provider);
       if (q.company)  cadd('operating_company = ?', q.company);
       if (q.vehicle)  cadd('reg_key(COALESCE(vehicle_no, vehicle_raw)) = reg_key(?)', q.vehicle);
+      if (q.cycle)    cadd('cycle = ?', q.cycle);
       if (q.from)     cadd('txn_date >= ?::date', q.from);
       if (q.to)       cadd('txn_date <= ?::date', q.to);
       if (q.search) {
@@ -235,6 +240,161 @@ export async function registerFleetCardAllocationRoutes(app) {
     }
   );
 
+  /**
+   * The 15-day cycles that still have money waiting, for the filter.
+   *
+   * Each carries what the pumps are owed for the SAME cycle beside it, so the
+   * dropdown is not just a date list — it says "Aug 1–15: 84 swipes waiting,
+   * ₹6.2L, and 3 open bills worth ₹4.1L", which is the whole decision.
+   */
+  app.get('/cycles', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(
+      `SELECT * FROM v_fleet_card_cycles ORDER BY cycle DESC`);
+    return { cycles: rows };
+  });
+
+  /**
+   * Every pump bill that still has something due, newest cycle first.
+   *
+   * Independent of any swipe, because "what do we still owe the pumps" is a
+   * question on its own — and because the answer (₹54.4 lakh over 49 bills)
+   * frames every allocation made on this screen.
+   */
+  app.get(
+    '/pump-bills',
+    { schema: { querystring: { type: 'object', properties: {
+      cycle:  { type: ['string', 'null'], maxLength: 12 },
+      vendor: { type: ['string', 'null'], maxLength: 120 },
+      open:   { type: 'boolean', default: true },
+      limit:  { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const q = req.query;
+      const { rows } = await query(`
+        SELECT * FROM v_pump_bill_outstanding
+         WHERE ($1::text IS NULL OR cycle = $1)
+           AND ($2::text IS NULL OR vendor_key = pump_key($2))
+           AND ($3::boolean IS NOT TRUE OR due > 0.005)
+         ORDER BY period_to DESC, vendor_name
+         LIMIT $4`, [q.cycle ?? null, q.vendor ?? null, q.open !== false, q.limit ?? 100]);
+      const { rows: [tot] } = await query(`
+        SELECT count(*)::int bills,
+               COALESCE(sum(billed),0)::numeric(16,2) billed,
+               COALESCE(sum(paid),0)::numeric(16,2)   paid,
+               COALESCE(sum(due),0)::numeric(16,2)    due
+          FROM v_pump_bill_outstanding WHERE due > 0.005`);
+      return { bills: rows, outstanding: tot };
+    }
+  );
+
+  /**
+   * Settle a pump's whole cycle: apply every swipe still waiting at that pump
+   * in that bill's window against the bill, oldest first, up to the due.
+   *
+   * THIS IS THE ONE THAT CLEARS THE BACKLOG, and it is deliberately two calls.
+   * `commit: false` (the default) returns exactly what it would do and writes
+   * nothing; a person reads that list and calls again with commit: true. A
+   * button that moves ₹6 lakh of creditor balance on one click, with no
+   * preview, is not a button — it is an accident waiting for a slow afternoon.
+   */
+  app.post(
+    '/settle-cycle',
+    { schema: { body: { type: 'object', required: ['bill_id'], properties: {
+      bill_id: { type: 'string', format: 'uuid' },
+      commit:  { type: 'boolean', default: false },
+      by:      { type: ['string', 'null'], maxLength: 80 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const b = req.body;
+      const { rows: [bill] } = await query(
+        `SELECT * FROM v_pump_bill_outstanding WHERE id = $1::uuid`, [b.bill_id]);
+      if (!bill) return reply.code(404).send({ error: 'NO_SUCH_BILL' });
+      if (Number(bill.due) <= 0.005) {
+        return reply.code(409).send({
+          error: 'ALREADY_SETTLED',
+          detail: `${bill.vendor_name} ${bill.ref_no} is already fully settled`,
+        });
+      }
+
+      const by = b.by ?? req.user?.name ?? 'desk';
+      const { rows: plan } = await query(
+        `SELECT *, to_char(txn_date, 'YYYY-MM-DD') AS date_text
+           FROM fleet_card_settle_cycle($1::uuid, $2, $3)`,
+        [b.bill_id, by, !b.commit]);
+
+      const applied = plan.reduce((s, r) => s + Number(r.applied), 0);
+
+      if (b.commit) {
+        const { rows: [after] } = await query(
+          `SELECT due FROM v_pump_bill_outstanding WHERE id = $1::uuid`, [b.bill_id]);
+        try {
+          await emit('pump.balance.reconciled', {
+            aggregate: 'pump_bill',
+            aggregateId: b.bill_id,
+            emittedBy: null,
+            payload: {
+              source: 'fleet_card_settle_cycle',
+              vendor: bill.vendor_name,
+              cycle: bill.cycle,
+              swipes: plan.length,
+              applied,
+              still_due: Number(after?.due ?? 0),
+              settled_by: by,
+            },
+          });
+        } catch (e) {
+          req.log.warn({ err: e.message, bill: b.bill_id }, 'cycle settled, event not emitted');
+        }
+        return {
+          committed: true,
+          bill: { ...bill, due: Number(after?.due ?? 0) },
+          swipes: plan.length,
+          applied,
+          lines: plan,
+          posted_to_ledger: false,
+          posting_note: 'handed to TARA — the voucher appears on the approval desk',
+        };
+      }
+
+      return {
+        committed: false,
+        bill,
+        swipes: plan.length,
+        applied,
+        would_leave_due: Number(bill.due) - applied,
+        lines: plan,
+        note: plan.length === 0
+          ? 'no swipe is waiting at this pump inside this bill\'s window'
+          : `${plan.length} swipe(s) would be applied, oldest first`,
+      };
+    }
+  );
+
+  /**
+   * The exact-match pass for bills: a swipe that equals a bill's outstanding
+   * to the paisa, at the same pump, inside its window.
+   */
+  app.post('/auto-settle-bills', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [r] } = await query(`SELECT * FROM fleet_card_auto_settle_bills()`);
+    const { rows: [out] } = await query(
+      `SELECT count(*)::int bills, COALESCE(sum(due),0)::numeric(16,2) due
+         FROM v_pump_bill_outstanding WHERE due > 0.005`);
+    return {
+      settled: Number(r.settled),
+      skipped_ambiguous: Number(r.skipped_ambiguous),
+      still_outstanding: out,
+      rule: 'swipe equals the bill\'s outstanding exactly, same pump, inside the bill window',
+      note: Number(r.settled) === 0
+        ? 'nothing matched to the paisa — a fortnight\'s bill is usually settled by '
+        + 'several swipes, not one, so this rule places little. Use Settle cycle.'
+        : null,
+    };
+  });
+
   /** What is sitting in clearing, per firm. */
   app.get('/clearing', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -268,21 +428,26 @@ export async function registerFleetCardAllocationRoutes(app) {
         });
       }
 
-      // A bill is settled after its period closes, not during it — hence the
-      // window runs to period_to + 25 days rather than period_to.
+      // OUTSTANDING PUMP BILLS FOR THIS PUMP — the section the owner asked to be
+      // prominent, and the one that answers what this swipe most likely is.
+      //
+      // Matched on pump_key, so "BN FILLING STATION BHARAT PETROLEUM DEALERS"
+      // on the card meets "B N FILLING STATION" on the bill. The window runs to
+      // period_to + 25 because a bill is settled AFTER its fortnight closes,
+      // not during it.
+      //
+      // `same_pump` separates the two kinds of row: this pump's bills first,
+      // then other pumps' bills in the same window, because a clerk sometimes
+      // needs the second and should never be shown it as if it were the first.
       const { rows: bills } = await query(`
         SELECT b.id, b.vendor_name, b.ref_no, b.period_from, b.period_to, b.half, b.status,
-               b.system_amount, b.physical_amount, b.slip_count,
-               COALESCE(al.paid, 0)::numeric(14,2) AS already_paid,
-               (COALESCE(b.physical_amount, b.system_amount) - COALESCE(al.paid, 0))::numeric(14,2)
-                 AS still_due
-          FROM pump_bill_drafts b
-          LEFT JOIN LATERAL (
-            SELECT sum(a.amount) AS paid FROM fleet_card_allocations a
-             WHERE a.target_kind = 'PUMP_BILL' AND a.target_id = b.id) al ON true
+               b.cycle, b.cycle_label, b.slip_count,
+               b.billed, b.paid AS already_paid, b.due AS still_due,
+               (b.vendor_key = pump_key($2)) AS same_pump
+          FROM v_pump_bill_outstanding b
          WHERE $1::date BETWEEN b.period_from AND b.period_to + 25
-         ORDER BY (b.vendor_name ILIKE '%' || split_part(COALESCE($2, ''), ' ', 1) || '%') DESC,
-                  b.period_to DESC
+           AND b.due > 0.005
+         ORDER BY (b.vendor_key = pump_key($2)) DESC, b.period_to DESC
          LIMIT 25`, [txn.txn_date, txn.merchant_name ?? '']);
 
       const { rows: memos } = txn.vehicle_no ? await query(`
@@ -309,7 +474,58 @@ export async function registerFleetCardAllocationRoutes(app) {
          ORDER BY abs(r.entry_date - $1::date)
          LIMIT 25`, [txn.txn_date, txn.vehicle_no]);
 
-      return { txn, candidates: { pump_bills: bills, memos, parked_slips: parked } };
+      // ── THE CYCLE THIS SWIPE BELONGS TO ──────────────────────────────────
+      //
+      // Everything else still waiting at the SAME pump in the SAME fortnight.
+      // This is the context that makes a bulk settlement obvious: a clerk
+      // looking at one ₹7,776 swipe cannot tell it is one of 34 that together
+      // make up a ₹2.1 lakh bill. Shown as a total and a short list, not all of
+      // them — the point is the size of the pile, not every row in it.
+      const { rows: [sib] } = await query(`
+        SELECT count(*)::int swipes,
+               COALESCE(sum(unallocated), 0)::numeric(16,2) AS unallocated,
+               count(DISTINCT COALESCE(vehicle_no, vehicle_raw))::int AS lorries
+          FROM v_fleet_card_unallocated
+         WHERE cycle = $1
+           AND merchant_key = pump_key($2)
+           AND txn_id <> $3::uuid`, [txn.cycle, txn.merchant_name ?? '', txn.txn_id]);
+
+      const { rows: siblings } = await query(`
+        SELECT txn_id, txn_date, COALESCE(vehicle_no, vehicle_raw) AS vehicle,
+               quantity, unallocated, reason
+          FROM v_fleet_card_unallocated
+         WHERE cycle = $1
+           AND merchant_key = pump_key($2)
+           AND txn_id <> $3::uuid
+         ORDER BY txn_date
+         LIMIT 8`, [txn.cycle, txn.merchant_name ?? '', txn.txn_id]);
+
+      // Memos at that pump in the same cycle that no swipe has claimed — the
+      // diesel side of the same fortnight.
+      const { rows: cycleMemos } = await query(`
+        SELECT f.id, f.entry_date, f.memo_no, f.vehicle_no, f.liters, f.amount
+          FROM fuel_entries f
+         WHERE pump_key(f.vendor_name) = pump_key($2)
+           AND f.entry_date BETWEEN $3::date AND $4::date
+           AND NOT EXISTS (SELECT 1 FROM fleet_card_allocations a
+                            WHERE a.target_kind IN ('FUEL_ENTRY','TRIP')
+                              AND a.target_id IN (f.id, f.trip_id))
+         ORDER BY f.entry_date
+         LIMIT 10`, [txn.cycle, txn.merchant_name ?? '', txn.cycle_from, txn.cycle_to]);
+
+      return {
+        txn,
+        candidates: { pump_bills: bills, memos, parked_slips: parked },
+        cycle: {
+          code: txn.cycle,
+          label: txn.cycle_label,
+          from: txn.cycle_from,
+          to: txn.cycle_to,
+          other_swipes: sib,
+          swipes: siblings,
+          unbilled_memos: cycleMemos,
+        },
+      };
     }
   );
 

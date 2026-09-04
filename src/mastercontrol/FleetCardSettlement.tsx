@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CreditCard, Fuel, Receipt, Truck, Split, Ban, Search, X, Filter,
   AlertTriangle, CheckCircle2, Loader2, Undo2, Wand2, ChevronRight, Building2, Download,
+  CalendarRange,
 } from 'lucide-react';
 import { GlassPanel, PanelHeader, StatusPill } from './shared';
 import { API_BASE } from '../lib/apiBase';
@@ -183,6 +184,38 @@ function AllocateDrawer({ txnId, onClose, onDone }) {
     finally { setBusy(false); }
   };
 
+  // ── settling a whole fortnight ──────────────────────────────────────────
+  //
+  // Two steps, always. The first call writes nothing and returns exactly what
+  // it would do; the clerk reads that and confirms. A button that moves lakhs
+  // of creditor balance on one click, unseen, is an accident waiting for a slow
+  // afternoon.
+  const [cyclePlan, setCyclePlan] = useState(null);
+  const onSettleCycle = async (bill) => {
+    setBusy(true); setErr(null);
+    try {
+      const plan = await api('/settle-cycle', {
+        method: 'POST', body: JSON.stringify({ bill_id: bill.id, commit: false }),
+      });
+      setCyclePlan({ ...plan, vendor: bill.vendor_name, cycle_label: bill.cycle_label });
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+  const commitCycle = async () => {
+    if (!cyclePlan) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await api('/settle-cycle', {
+        method: 'POST', body: JSON.stringify({ bill_id: cyclePlan.bill.id, commit: true }),
+      });
+      setCyclePlan(null);
+      onDone({ quiet: false });
+      if (Number(r.bill?.due ?? 0) <= 0.005) onClose();
+      else await load();
+    } catch (e) { setErr(e.message); await load(); }
+    finally { setBusy(false); }
+  };
+
   const Row = ({ active, onClick, children }) => (
     <button
       onClick={onClick}
@@ -246,6 +279,96 @@ function AllocateDrawer({ txnId, onClose, onDone }) {
           </div>
         )}
 
+        {/* ── the cycle-settlement preview ───────────────────────────────── */}
+        {cyclePlan && (
+          <div className="mx-5 mt-4 rounded-xl border border-violet-400/50 bg-violet-500/[0.08] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+                  Yeh hoga — abhi kuch likha nahi gaya
+                </div>
+                <div className="mt-1 text-[14px] font-semibold text-slate-100">
+                  {cyclePlan.vendor} · {cyclePlan.cycle_label}
+                </div>
+              </div>
+              <button onClick={() => setCyclePlan(null)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+                <X size={16} />
+              </button>
+            </div>
+
+            {cyclePlan.swipes === 0 ? (
+              <div className="mt-3 text-[12.5px] text-slate-400">
+                Is bill ke window me koi pending swipe nahi mili.
+              </div>
+            ) : (
+              <>
+                <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-violet-400/25 bg-violet-400/20">
+                  {[
+                    ['Swipe', cyclePlan.swipes, 'text-slate-100'],
+                    ['Lagega', inr(cyclePlan.applied), 'text-emerald-300'],
+                    ['Bill me bachega', inr(cyclePlan.would_leave_due), 'text-amber-300'],
+                  ].map(([k, v, c]) => (
+                    <div key={k} className="bg-[#0d1530] px-3 py-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.11em] text-slate-500">{k}</div>
+                      <div className={`mt-0.5 font-mono text-[15px] font-semibold tabular-nums ${c}`}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-lg border border-slate-700/60">
+                  <table className="w-full text-[11.5px]">
+                    <thead className="sticky top-0 bg-[#0d1530]">
+                      <tr className="text-left text-[9.5px] uppercase tracking-[0.1em] text-slate-500">
+                        <th className="px-2 py-1.5 font-semibold">Tareekh</th>
+                        <th className="px-2 py-1.5 font-semibold">Lorry</th>
+                        <th className="px-2 py-1.5 text-right font-semibold">Swipe</th>
+                        <th className="px-2 py-1.5 text-right font-semibold">Lagega</th>
+                        <th className="px-2 py-1.5 text-right font-semibold">Chalta jod</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cyclePlan.lines.map((l) => (
+                        <tr key={l.txn_id} className="border-t border-slate-800/70">
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-400">{l.date_text}</td>
+                          <td className="px-2 py-1.5 font-mono text-slate-300">{l.vehicle}</td>
+                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-400">{inr(l.amount)}</td>
+                          <td className={`px-2 py-1.5 text-right font-mono tabular-nums
+                            ${Number(l.applied) < Number(l.amount) ? 'text-amber-300' : 'text-emerald-300'}`}>
+                            {inr(l.applied)}
+                            {Number(l.applied) < Number(l.amount) && (
+                              <div className="text-[9.5px] font-normal text-slate-500">aadha</div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{inr(l.running)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={commitCycle} disabled={busy}
+                    className="rounded-lg bg-violet-500 px-4 py-2 text-[13px] font-semibold text-slate-950 transition hover:bg-violet-400 disabled:bg-slate-700 disabled:text-slate-500"
+                  >
+                    {busy ? <Loader2 size={15} className="animate-spin" /> : 'Haan, settle karo'}
+                  </button>
+                  <button
+                    onClick={() => setCyclePlan(null)}
+                    className="rounded-lg border border-slate-600 px-3 py-2 text-[13px] text-slate-300 hover:border-slate-400"
+                  >
+                    Rehne do
+                  </button>
+                  <span className="text-[11.5px] text-slate-500">
+                    Har line wapas hataayi ja sakti hai.
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {!data && !err && (
           <div className="flex items-center gap-2 px-5 py-10 text-slate-400">
             <Loader2 size={16} className="animate-spin" /> Candidates dhoond raha hoon…
@@ -288,51 +411,152 @@ function AllocateDrawer({ txnId, onClose, onDone }) {
         {data && (
           <div className="space-y-6 px-5 py-5">
 
-            {/* the settlement case, first — it is the one the owner named */}
+            {/* ── OUTSTANDING PUMP BILLS ──────────────────────────────────
+                The section the owner asked to lead, and rightly: this is what
+                the swipe most likely IS. Bills for THIS pump come first and
+                are visually separated from other pumps' bills in the same
+                window — a clerk should never mistake one for the other. */}
             <section>
               <div className="mb-2 flex items-center gap-2">
                 <Receipt size={14} className="text-violet-300" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
-                  15-din ke pump bill
+                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-200">
+                  Outstanding pump bills
                 </span>
-                <span className="text-[11px] text-slate-500">({data.candidates.pump_bills.length})</span>
+                <span className="text-[11px] text-slate-500">
+                  ({data.candidates.pump_bills.filter((b) => b.same_pump).length} is pump ke)
+                </span>
               </div>
               {data.candidates.pump_bills.length === 0 && (
                 <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-3 text-[12px] text-slate-500">
-                  Is tareekh ke aas-paas koi pump bill nahi hai.
+                  Is tareekh ke aas-paas koi bakaya pump bill nahi hai.
                 </div>
               )}
               <div className="space-y-1.5">
-                {data.candidates.pump_bills.map((b) => (
-                  <Row
-                    key={b.id}
-                    active={picked?.kind === 'PUMP_BILL' && picked.id === b.id}
-                    onClick={() => setPicked({ kind: 'PUMP_BILL', id: b.id })}
-                  >
-                    <div className="flex items-baseline justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-slate-200">
-                          {b.vendor_name} <span className="text-slate-500">· {b.ref_no}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {day(b.period_from)} – {dayLong(b.period_to)} · {b.slip_count ?? 0} slip · {b.status}
-                        </div>
+                {data.candidates.pump_bills.map((b, i) => (
+                  <React.Fragment key={b.id}>
+                    {i > 0 && data.candidates.pump_bills[i - 1].same_pump && !b.same_pump && (
+                      <div className="pt-2 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                        Doosre pump ke bill — isi cycle ke
                       </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-mono text-[13px] tabular-nums text-slate-200">
-                          {inr(b.physical_amount ?? b.system_amount)}
-                        </div>
-                        {Number(b.already_paid) > 0 && (
-                          <div className="font-mono text-[10.5px] tabular-nums text-emerald-400">
-                            {inr(b.already_paid)} paid · {inr(b.still_due)} baki
+                    )}
+                    <div className={`rounded-lg border transition
+                      ${picked?.kind === 'PUMP_BILL' && picked.id === b.id
+                        ? 'border-cyan-400/70 bg-cyan-500/10'
+                        : b.same_pump
+                          ? 'border-violet-400/30 bg-violet-500/[0.06] hover:border-violet-400/60'
+                          : 'border-slate-700/70 bg-slate-900/40 hover:border-slate-500'}`}
+                    >
+                      <button
+                        onClick={() => setPicked({ kind: 'PUMP_BILL', id: b.id })}
+                        className="w-full px-3 pt-2 pb-1.5 text-left"
+                      >
+                        <div className="flex items-baseline justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-[13px] font-medium text-slate-200">
+                                {b.vendor_name}
+                              </span>
+                              {b.same_pump && (
+                                <span className="shrink-0 rounded-full border border-violet-400/40 bg-violet-500/10 px-1.5 py-[1px] text-[9.5px] font-semibold text-violet-200">
+                                  YEHI PUMP
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {b.cycle_label} · {b.ref_no} · {b.slip_count ?? 0} slip
+                            </div>
                           </div>
+                          <div className="shrink-0 text-right">
+                            <div className="font-mono text-[14px] font-semibold tabular-nums text-amber-300">
+                              {inr(b.still_due)}
+                            </div>
+                            <div className="font-mono text-[10.5px] tabular-nums text-slate-500">
+                              bill {inr(b.billed)}
+                              {Number(b.already_paid) > 0 && <> · {inr(b.already_paid)} chuka</>}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* One click, for the two things a clerk actually does */}
+                      <div className="flex flex-wrap gap-1.5 border-t border-slate-700/50 px-3 py-1.5">
+                        <button
+                          onClick={() => { setPicked({ kind: 'PUMP_BILL', id: b.id });
+                                           setAmount(String(Math.min(remaining, Number(b.still_due)))); }}
+                          className="rounded-md border border-cyan-400/50 bg-cyan-500/10 px-2 py-[3px] text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/20"
+                        >
+                          Is bill par lagao ({inr(Math.min(remaining, Number(b.still_due)))})
+                        </button>
+                        {b.same_pump && (
+                          <button
+                            onClick={() => onSettleCycle(b)}
+                            title="Is pump ke is pakhwade ki saari pending swipe ek saath is bill par lagao"
+                            className="rounded-md border border-violet-400/50 bg-violet-500/10 px-2 py-[3px] text-[11px] font-semibold text-violet-200 hover:bg-violet-500/20"
+                          >
+                            Poora cycle settle karo
+                          </button>
                         )}
                       </div>
                     </div>
-                  </Row>
+                  </React.Fragment>
                 ))}
               </div>
             </section>
+
+            {/* ── THE FORTNIGHT THIS SWIPE SITS IN ───────────────────────── */}
+            {data.cycle && Number(data.cycle.other_swipes?.swipes) > 0 && (
+              <section>
+                <div className="mb-2 flex items-center gap-2">
+                  <CalendarRange size={14} className="text-sky-300" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+                    {data.cycle.label} — isi pump par
+                  </span>
+                </div>
+                <div className="rounded-lg border border-sky-400/25 bg-sky-500/[0.06] px-3 py-2.5">
+                  <div className="text-[12.5px] text-slate-300">
+                    Isi pakhwade me isi pump par{' '}
+                    <b className="font-mono text-sky-200">{data.cycle.other_swipes.swipes}</b> aur swipe
+                    hain — kul{' '}
+                    <b className="font-mono text-sky-200">{inr(data.cycle.other_swipes.unallocated)}</b>,{' '}
+                    {data.cycle.other_swipes.lorries} lorry par.
+                    <span className="text-slate-500"> Akele is swipe ko dekh kar yeh pata nahi chalta.</span>
+                  </div>
+                  {data.cycle.swipes?.length > 0 && (
+                    <div className="mt-2 space-y-0.5 border-t border-sky-400/20 pt-2">
+                      {data.cycle.swipes.map((sw) => (
+                        <div key={sw.txn_id} className="flex justify-between gap-3 text-[11.5px]">
+                          <span className="text-slate-500">
+                            {dayLong(sw.txn_date)} · <span className="font-mono">{sw.vehicle}</span>
+                          </span>
+                          <span className="font-mono tabular-nums text-slate-400">{inr(sw.unallocated)}</span>
+                        </div>
+                      ))}
+                      {Number(data.cycle.other_swipes.swipes) > data.cycle.swipes.length && (
+                        <div className="pt-0.5 text-[11px] text-slate-600">
+                          …aur {Number(data.cycle.other_swipes.swipes) - data.cycle.swipes.length} aur
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {data.cycle.unbilled_memos?.length > 0 && (
+                    <div className="mt-2 border-t border-sky-400/20 pt-2">
+                      <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                        Isi cycle ke memo jinpar abhi kuch nahi laga
+                      </div>
+                      {data.cycle.unbilled_memos.slice(0, 5).map((m) => (
+                        <div key={m.id} className="flex justify-between gap-3 text-[11.5px]">
+                          <span className="text-slate-500">
+                            {dayLong(m.entry_date)} · <span className="font-mono">{m.vehicle_no}</span>
+                            {m.memo_no ? ` · ${m.memo_no}` : ''}
+                          </span>
+                          <span className="font-mono tabular-nums text-slate-400">{inr(m.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
 
             <section>
               <div className="mb-2 flex items-center gap-2">
@@ -629,6 +853,8 @@ export default function FleetCardSettlement() {
 
   const [reason, setReason] = useState('');
   const [provider, setProvider] = useState('');
+  const [cycle, setCycle] = useState('');
+  const [cycles, setCycles] = useState([]);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [page, setPage] = useState(1);
@@ -650,7 +876,14 @@ export default function FleetCardSettlement() {
 
   // Any change to WHAT is being listed returns to page 1. Staying on page 14 of
   // a filter that now has two pages shows an empty table and looks broken.
-  useEffect(() => { setPage(1); }, [reason, provider, debounced, size]);
+  useEffect(() => { setPage(1); }, [reason, provider, debounced, size, cycle]);
+
+  // The cycle list changes only when money moves, so it is fetched on its own
+  // rather than on every sort click.
+  const loadCycles = useCallback(async () => {
+    try { setCycles((await api('/cycles')).cycles ?? []); } catch { /* the filter just stays empty */ }
+  }, []);
+  useEffect(() => { loadCycles(); }, [loadCycles]);
 
   const load = useCallback(async () => {
     setErr(null);
@@ -659,6 +892,7 @@ export default function FleetCardSettlement() {
       if (reason) qs.set('reason', reason);
       if (provider) qs.set('provider', provider);
       if (debounced) qs.set('search', debounced);
+      if (cycle) qs.set('cycle', cycle);
       qs.set('limit', String(size));
       qs.set('offset', String((page - 1) * size));
       qs.set('sort', sort);
@@ -677,7 +911,7 @@ export default function FleetCardSettlement() {
       setPages(u.page?.pages ?? 1);
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
-  }, [reason, provider, debounced, page, size, sort, dir]);
+  }, [reason, provider, debounced, page, size, sort, dir, cycle]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -708,6 +942,7 @@ export default function FleetCardSettlement() {
     if (reason) qs.set('reason', reason);
     if (provider) qs.set('provider', provider);
     if (debounced) qs.set('search', debounced);
+    if (cycle) qs.set('cycle', cycle);
     qs.set('limit', '1000');
     qs.set('sort', sort); qs.set('dir', dir);
     const all = await api(`/unallocated?${qs}`);
@@ -856,6 +1091,28 @@ export default function FleetCardSettlement() {
               <option value="BPCL">BPCL</option>
               <option value="HPCL">HPCL</option>
             </select>
+
+            {/* HAR BIL KA CYCLE 15 DIN KA HAY — so the queue is worked one
+                billing cycle at a time. Each option carries what the pumps are
+                owed for the same cycle, because that is the actual decision:
+                "84 swipes waiting here, and 3 bills worth 4.1L to settle". */}
+            <label className="flex items-center gap-1.5">
+              <CalendarRange size={13} className="text-slate-500" />
+              <select
+                value={cycle} onChange={(e) => setCycle(e.target.value)}
+                title="15-din ka billing cycle"
+                className={`rounded-lg border bg-slate-900 px-2 py-1.5 text-[12.5px] outline-none focus:border-cyan-400
+                  ${cycle ? 'border-cyan-400/60 text-cyan-200' : 'border-slate-600 text-slate-200'}`}
+              >
+                <option value="">Saare 15-din cycle</option>
+                {cycles.map((c) => (
+                  <option key={c.cycle} value={c.cycle}>
+                    {c.cycle_label} — {c.swipes} swipe · {inr(c.unallocated)}
+                    {Number(c.open_bills) > 0 ? ` · ${c.open_bills} bill baki` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               onClick={() => setReason('')}
               className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition
@@ -896,10 +1153,11 @@ export default function FleetCardSettlement() {
 
         <div className="px-4 pb-4">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-[12.5px]">
+            <table className="w-full min-w-[960px] text-[12.5px]">
               <thead>
                 <tr className="border-b border-slate-700">
                   <Th col="txn_date" sort={sort} dir={dir} onSort={onSort}>Tareekh</Th>
+                  <Th col="cycle" sort={sort} dir={dir} onSort={onSort}>Cycle</Th>
                   <Th col="vehicle" sort={sort} dir={dir} onSort={onSort}>Lorry</Th>
                   <Th col="merchant" sort={sort} dir={dir} onSort={onSort}>Pump</Th>
                   <Th col="quantity" sort={sort} dir={dir} onSort={onSort} align="right">Litre</Th>
@@ -917,6 +1175,18 @@ export default function FleetCardSettlement() {
                     className="cursor-pointer border-b border-slate-800/70 transition hover:bg-slate-800/40"
                   >
                     <td className="py-2 pr-3 whitespace-nowrap text-slate-400">{dayLong(r.txn_date)}</td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setCycle(r.cycle === cycle ? '' : r.cycle); }}
+                        title="Isi 15-din cycle par filter karo"
+                        className={`rounded border px-1.5 py-[1px] text-[10.5px] font-semibold transition
+                          ${r.cycle === cycle
+                            ? 'border-cyan-400/60 bg-cyan-500/15 text-cyan-200'
+                            : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                      >
+                        {r.cycle_label}
+                      </button>
+                    </td>
                     <td className="py-2 pr-3 whitespace-nowrap font-mono text-slate-200">
                       {r.vehicle_no || <span className="text-yellow-300/80">{r.vehicle_raw || '—'}</span>}
                     </td>
@@ -987,7 +1257,7 @@ export default function FleetCardSettlement() {
         <AllocateDrawer
           txnId={open}
           onClose={() => setOpen(null)}
-          onDone={() => load()}
+          onDone={() => { load(); loadCycles(); }}
         />
       )}
     </div>
