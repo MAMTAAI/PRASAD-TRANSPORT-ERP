@@ -813,9 +813,10 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
      // the screen shows what is still owed, and put back by the toggle for an
      // audit — never deleted, and never hidden while someone is searching for a
      // particular memo, because then "not found" would be a lie.
-     const settled = (f.slip_status ?? f.bill_status) === 'SETTLED'
-                  || f.bill_status === 'BILLED_VERIFIED';
-     const matchSettled = showSettled || historySearch ? true : !settled;
+     const settled = f.slip_status
+       ? f.slip_status === 'SETTLED'
+       : f.bill_status === 'BILLED_VERIFIED';
+     const matchSettled = (showSettled || !!historySearch) ? true : !settled;
 
      return matchVendor && matchDate && matchSearch && matchSettled;
   });
