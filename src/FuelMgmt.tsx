@@ -1643,50 +1643,68 @@ function SettledBills({ vendorId }: any) {
     </div>
   );
 }
-
 // ══ THE DRILL-DOWN ══════════════════════════════════════════════════════════
-function BillDrillDown({ bill, onClose }: any) {
+//
+// The lines are FETCHED, not taken from the row that was clicked. Every one of
+// the 49 historical bills does carry its lines — the list view simply does not
+// select them, and reading whatever the list happened to have is how this modal
+// came up empty. The endpoint also falls back to the bill's own slip_ids, and
+// then to the pump's memos over the period, so this table is never blank.
+function BillDrillDown({ bill: seed, onClose }: any) {
+  const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let dead = false;
+    apiJson(`${API}/api/v1/fuel/pump-bill/${seed.id}/details`)
+      .then((j) => { if (!dead) setData(j); })
+      .catch((e) => { if (!dead) setErr(e?.message ?? 'details load nahi hui'); });
+    return () => { dead = true; };
+  }, [seed.id]);
+
   useEffect(() => {
     const h = (e: any) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
 
+  const bill = data?.bill ?? seed;
+  const lines: any[] = data?.lines ?? [];
   const inr = (n: any) => `₹${(Number(n) || 0).toLocaleString('en-IN',
     { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const lines: any[] = Array.isArray(bill.resolutions?.__lines) ? bill.resolutions.__lines
-    : Array.isArray(bill.lines) ? bill.lines : [];
-  const res: any = bill.resolutions ?? {};
 
-  const STATUS = (l: any) => {
-    const d = res[String(l.idx)];
-    if (d === 'DISPUTED') return { t: '⚠️ Disputed', c: '#ff6b81' };
-    if (d === 'ACCEPTED') return { t: '✅ Accepted as billed', c: '#2fe39b' };
-    if (d === 'LINKED') return { t: '✏️ Adjusted', c: '#a78bfa' };
-    if (l.verdict === 'MATCHED') return { t: '✅ Matched', c: '#2fe39b' };
-    return { t: l.verdict ?? '—', c: '#ffb224' };
+  const STATUS: any = {
+    MATCHED:   { t: '✅ Matched',            c: '#2fe39b' },
+    ACCEPTED:  { t: '✅ Accepted as billed', c: '#2fe39b' },
+    ADJUSTED:  { t: '✏️ Adjusted',           c: '#a78bfa' },
+    DISPUTED:  { t: '⚠️ Disputed',           c: '#ff6b81' },
+    RECORDED:  { t: '📄 As billed',          c: '#9aadd4' },
+    FROM_MEMO: { t: '💬 From memo',          c: '#9aadd4' },
   };
+  const st = (l: any) => STATUS[l.status] ?? { t: l.status ?? '—', c: '#ffb224' };
 
-  const disputedLines = lines.filter((l: any) => res[String(l.idx)] === 'DISPUTED');
-  const adjusted = lines.filter((l: any) => res[String(l.idx)] === 'LINKED' || l._edited);
+  const disputed = lines.filter((l) => l.status === 'DISPUTED');
+  const adjusted = lines.filter((l) => l.status === 'ADJUSTED');
+  // A rate that was derived rather than read off the pump's paper. Saying so is
+  // the difference between an audit sheet and a guess with a total on it.
+  const derived = lines.filter((l) => l.rate_basis && l.rate_basis !== 'FROM_BILL'
+                                   && l.rate_basis !== 'SLIP_RATE');
 
-  /** Print just this sheet. The browser's own dialog also saves it as a PDF. */
   const printSheet = () => {
-    const w = window.open('', '_blank', 'width=1000,height=800');
+    const w = window.open('', '_blank', 'width=1040,height=800');
     if (!w) { alert('Print window block ho gayi — popup allow karein.'); return; }
     const esc = (t: any) => String(t ?? '').replace(/[&<>]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]);
-    const rows = lines.map((l: any) => {
-      const st = STATUS(l);
-      return `<tr>
-        <td>${esc(l.sno)}</td><td>${esc(l.date)}</td><td>${esc(l.vehicle_raw)}</td>
-        <td class="n">${esc(l.qty)}</td><td class="n">${esc(l.rate)}</td>
-        <td class="n">${esc(l.slip_rate ?? '—')}</td>
+    const rows = lines.map((l) => `<tr>
+        <td>${esc(l.sno)}</td><td>${esc(l.date)}</td><td>${esc(l.vehicle)}</td>
+        <td class="n">${esc(l.liters)}</td>
+        <td class="n">${l.billed_rate == null ? '—' : esc(l.billed_rate)}${
+          l.rate_basis && l.rate_basis !== 'FROM_BILL' ? ` <small>(${esc(l.rate_basis)})</small>` : ''}</td>
+        <td class="n">${l.authorised_rate == null ? '—' : esc(l.authorised_rate)}</td>
         <td class="n">${Number(l.amount || 0).toFixed(2)}</td>
-        <td>${esc(l.slip?.memo_no ?? l.slip_id ?? '—')}</td>
-        <td>${esc(st.t)}</td>
-        <td>${esc((l.notes || []).join(' · '))}</td></tr>`;
-    }).join('');
+        <td>${esc(l.memo_no ?? (l.memo_id ? String(l.memo_id).slice(0, 8) : '—'))}</td>
+        <td>${esc(st(l).t)}</td>
+        <td>${esc((l.notes || []).join(' · '))}</td></tr>`).join('');
     w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(bill.invoice_no)}</title>
       <style>
         body{font:12px/1.45 system-ui,sans-serif;color:#111;margin:24px}
@@ -1694,8 +1712,10 @@ function BillDrillDown({ bill, onClose }: any) {
         table{border-collapse:collapse;width:100%;font-size:11px}
         th,td{border:1px solid #bbb;padding:4px 6px;text-align:left}
         th{background:#eee} .n{text-align:right;font-variant-numeric:tabular-nums}
+        small{color:#777}
         .sum{display:flex;gap:22px;margin:12px 0;font-size:12px}
         .sum b{display:block;font-size:15px}
+        .note{margin:10px 0;padding:8px 10px;border:1px solid #e2c391;background:#fdf6e7;font-size:11px}
         .foot{margin-top:16px;font-size:10.5px;color:#555}
       </style>
       <h1>15-Day Consolidated Bill — ${esc(bill.invoice_no)}</h1>
@@ -1706,13 +1726,19 @@ function BillDrillDown({ bill, onClose }: any) {
         <span>Disputed <b>${inr(bill.disputed_amount)}</b></span>
         <span>Net payable <b>${inr(bill.payable_amount)}</b></span>
       </div>
+      ${derived.length ? `<div class="note"><b>${derived.length} of ${lines.length} lines carry a DERIVED rate</b>,
+        not one read from the pump's invoice. The slips were issued with litres and no price;
+        the rule used is printed against each line.</div>` : ''}
+      ${data?.source && data.source !== 'RECORDED'
+        ? `<div class="note">${esc(data.source_note)}</div>` : ''}
       <table><thead><tr>
-        <th>#</th><th>Date</th><th>Lorry</th><th class="n">Litres</th>
-        <th class="n">Billed rate</th><th class="n">Authorised rate</th>
-        <th class="n">Amount</th><th>Memo</th><th>Status</th><th>Note</th>
+        <th>#</th><th>Date</th><th>Lorry No</th><th class="n">Litres</th>
+        <th class="n">Billed rate</th><th class="n">Authorized rate</th>
+        <th class="n">Amount</th><th>WhatsApp memo</th><th>Status</th><th>Note</th>
       </tr></thead><tbody>${rows}</tbody></table>
       <div class="foot">
-        Settled ${esc(bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN') : '—')}
+        Settled ${esc(bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN')
+                     : bill.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : '—')}
         by ${esc(bill.locked_by ?? '—')} · voucher ${esc(bill.voucher_id ?? '—')}
         ${bill.locked ? '· LOCKED' : ''}
       </div>`);
@@ -1732,10 +1758,9 @@ function BillDrillDown({ bill, onClose }: any) {
                backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'flex-start',
                justifyContent: 'center', overflowY: 'auto', padding: '24px' }}>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(1180px, 100%)', background: '#0d1530', border: '1px solid #27395f',
+        style={{ width: 'min(1220px, 100%)', background: '#0d1530', border: '1px solid #27395f',
                  borderRadius: '14px', overflow: 'hidden', boxShadow: '0 24px 70px rgba(0,0,0,0.6)' }}>
 
-        {/* ── header ─────────────────────────────────────────────────────── */}
         <div style={{ padding: '18px 22px', borderBottom: '1px solid #27395f',
                       display: 'flex', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
           <div style={{ minWidth: 0 }}>
@@ -1751,9 +1776,10 @@ function BillDrillDown({ bill, onClose }: any) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-            <button onClick={printSheet}
+            <button onClick={printSheet} disabled={!lines.length}
               style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
-                       borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                       borderRadius: '8px', padding: '7px 13px', fontSize: '12px', fontWeight: 700,
+                       cursor: lines.length ? 'pointer' : 'not-allowed', opacity: lines.length ? 1 : 0.4 }}>
               🖨️ Print / PDF
             </button>
             <button onClick={onClose}
@@ -1764,7 +1790,6 @@ function BillDrillDown({ bill, onClose }: any) {
           </div>
         </div>
 
-        {/* ── the four figures ───────────────────────────────────────────── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))',
                       gap: '1px', background: '#27395f' }}>
           {[
@@ -1781,68 +1806,103 @@ function BillDrillDown({ bill, onClose }: any) {
           ))}
         </div>
 
-        {/* ── the discrepancy log, above the table where it is read first ── */}
-        {(disputedLines.length > 0 || adjusted.length > 0) && (
+        {/* WHERE THESE LINES CAME FROM, and how much of the rate is an estimate.
+            Both belong above the table: a reader should know what they are
+            looking at before they read the figures. */}
+        {(data && data.source !== 'RECORDED') && (
+          <div style={{ padding: '10px 22px', borderBottom: '1px solid #27395f',
+                        background: 'rgba(34,211,238,0.06)', color: '#9aadd4', fontSize: '12px' }}>
+            ℹ️ {data.source_note}
+          </div>
+        )}
+        {derived.length > 0 && (
+          <div style={{ padding: '10px 22px', borderBottom: '1px solid #27395f',
+                        background: 'rgba(255,178,36,0.07)', color: '#ffb224', fontSize: '12px', lineHeight: 1.5 }}>
+            ⚠️ {derived.length} / {lines.length} line ka rate <b>nikala gaya hai</b>, pump ke bill se padha nahi —
+            slip par litre thay, paisa nahi. Har line ke saamne likha hai kis niyam se rate laga
+            ({Object.entries(data?.rate_bases ?? {}).map(([k, v]) => `${k} ${v}`).join(' · ')}).
+          </div>
+        )}
+
+        {(disputed.length > 0 || adjusted.length > 0) && (
           <div style={{ padding: '14px 22px', borderBottom: '1px solid #27395f',
                         background: 'rgba(255,107,129,0.05)' }}>
             <div style={{ fontSize: '10.5px', color: '#ff6b81', textTransform: 'uppercase',
                           letterSpacing: '0.1em', fontWeight: 700, marginBottom: '6px' }}>
               Discrepancy &amp; audit log
             </div>
-            {disputedLines.map((l: any) => (
+            {disputed.map((l) => (
               <div key={'d' + l.idx} style={{ fontSize: '12.5px', color: '#ff6b81', lineHeight: 1.5 }}>
-                ⚠️ Disputed — #{l.sno} {l.vehicle_raw} on {l.date}: {(l.notes || []).join(' · ') || 'no note'}
+                ⚠️ Disputed — #{l.sno} {l.vehicle} on {l.date}: {(l.notes || []).join(' · ') || 'no note'}
                 {' '}({inr(l.amount)} rok liya gaya)
               </div>
             ))}
-            {adjusted.map((l: any) => (
+            {adjusted.map((l) => (
               <div key={'a' + l.idx} style={{ fontSize: '12.5px', color: '#a78bfa', lineHeight: 1.5 }}>
-                ✏️ Adjusted — #{l.sno} {l.vehicle_raw} on {l.date}: {(l.notes || []).join(' · ') || 'linked by hand'}
+                ✏️ Adjusted — #{l.sno} {l.vehicle} on {l.date}: {(l.notes || []).join(' · ') || 'linked by hand'}
               </div>
             ))}
           </div>
         )}
 
-        {/* ── line by line ───────────────────────────────────────────────── */}
         <div style={{ maxHeight: '52vh', overflowY: 'auto' }}>
-          <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <table style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
             <thead style={{ position: 'sticky', top: 0, background: '#0d1530' }}>
               <tr>
-                <th style={th}>#</th><th style={th}>Date</th><th style={th}>Lorry</th>
+                <th style={th}>#</th><th style={th}>Date</th><th style={th}>Lorry No</th>
                 <th style={{ ...th, textAlign: 'right' }}>Litres</th>
                 <th style={{ ...th, textAlign: 'right' }}>Billed rate</th>
                 <th style={{ ...th, textAlign: 'right' }}>Authorized rate</th>
                 <th style={{ ...th, textAlign: 'right' }}>Amount</th>
-                <th style={th}>WhatsApp memo</th><th style={th}>Status</th>
+                <th style={th}>WhatsApp memo</th><th style={th}>Audit status</th>
               </tr>
             </thead>
             <tbody>
-              {lines.length === 0 ? (
-                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '30px' }}>
-                  Is bill ke saath line-by-line record nahi rakha gaya tha — yeh bill purane
-                  raaste se settle hua hoga.
+              {err ? (
+                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#ff6b81', padding: '26px' }}>{err}</td></tr>
+              ) : !data ? (
+                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>Lines khul rahi hain…</td></tr>
+              ) : lines.length === 0 ? (
+                <tr><td colSpan={9} style={{ ...td, textAlign: 'center', color: '#5d7196', padding: '26px' }}>
+                  Is pump ka is period me koi memo bhi nahi mila — na bill par line, na register me slip.
                 </td></tr>
-              ) : lines.map((l: any) => {
-                const st = STATUS(l);
-                const rateDiff = l.slip_rate != null && l.rate != null
-                  && Math.abs(Number(l.slip_rate) - Number(l.rate)) > 0.005;
+              ) : lines.map((l) => {
+                const s = st(l);
+                const rateDiff = l.authorised_rate != null && l.billed_rate != null
+                  && Math.abs(Number(l.authorised_rate) - Number(l.billed_rate)) > 0.005;
                 return (
                   <tr key={l.idx}>
                     <td style={td}>{l.sno}</td>
                     <td style={td}>{l.date}</td>
-                    <td style={{ ...td, fontFamily: 'monospace' }}>{l.vehicle_raw}</td>
-                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.qty}</td>
+                    <td style={{ ...td, fontFamily: 'monospace' }}>
+                      {l.vehicle ?? '—'}
+                      {l.driver && <div style={{ fontSize: '10px', color: '#5d7196', fontFamily: 'system-ui' }}>{l.driver}</div>}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{l.liters ?? '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                                 color: rateDiff ? '#ffb224' : '#c4d1ea' }}>₹{l.rate ?? '—'}</td>
+                                 color: rateDiff ? '#ffb224' : '#c4d1ea' }}>
+                      ₹{l.billed_rate ?? '—'}
+                      {l.rate_basis && l.rate_basis !== 'FROM_BILL' && (
+                        <div style={{ fontSize: '9.5px', color: '#ffb224', fontFamily: 'system-ui' }}
+                             title="Yeh rate nikala gaya hai, bill se padha nahi">
+                          {l.rate_basis}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                                 color: rateDiff ? '#2fe39b' : '#5d7196' }}>₹{l.slip_rate ?? '—'}</td>
+                                 color: rateDiff ? '#2fe39b' : '#5d7196' }}>₹{l.authorised_rate ?? '—'}</td>
                     <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#eef3ff' }}>
                       {inr(l.amount)}
                     </td>
                     <td style={{ ...td, fontFamily: 'monospace', fontSize: '11.5px', color: '#9aadd4' }}>
-                      {l.slip?.memo_no ?? (l.slip_id ? String(l.slip_id).slice(0, 8) : '—')}
+                      {l.memo_no ?? (l.memo_id ? String(l.memo_id).slice(0, 8) : '—')}
+                      {l.reusable === false && l.settled_label && (
+                        <div style={{ fontSize: '9.5px', color: '#5d7196', fontFamily: 'system-ui' }}>
+                          {l.settled_label}
+                        </div>
+                      )}
                     </td>
-                    <td style={{ ...td, color: st.c, whiteSpace: 'nowrap' }}>{st.t}</td>
+                    <td style={{ ...td, color: s.c, whiteSpace: 'nowrap' }}>{s.t}</td>
                   </tr>
                 );
               })}
@@ -1850,12 +1910,13 @@ function BillDrillDown({ bill, onClose }: any) {
           </table>
         </div>
 
-        {/* ── who, and when ──────────────────────────────────────────────── */}
         <div style={{ padding: '12px 22px', borderTop: '1px solid #27395f',
                       fontSize: '11.5px', color: '#5d7196', display: 'flex',
                       gap: '20px', flexWrap: 'wrap' }}>
+          <span>Lines: <b style={{ color: '#c4d1ea' }}>{lines.length}</b></span>
           <span>Settled: <b style={{ color: '#c4d1ea' }}>
-            {bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN') : '—'}</b></span>
+            {bill.locked_at ? new Date(bill.locked_at).toLocaleString('en-IN')
+              : bill.created_at ? new Date(bill.created_at).toLocaleString('en-IN') : '—'}</b></span>
           <span>By: <b style={{ color: '#c4d1ea' }}>{bill.locked_by ?? '—'}</b></span>
           <span>Voucher: <b style={{ color: '#c4d1ea', fontFamily: 'monospace' }}>
             {bill.voucher_id ? String(bill.voucher_id).slice(0, 8) : '—'}</b></span>

@@ -609,4 +609,169 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
         : null,
     };
   });
+
+  /**
+   * One settled fortnight, itemised — and it must never come back empty.
+   *
+   * THREE SOURCES, IN ORDER OF HOW CLOSE THEY ARE TO THE PAPER:
+   *
+   *   1. `lines` — what was recorded when the bill was made. Two shapes exist
+   *      and both are read: the audit shape written by the reconciliation
+   *      screen (date / vehicle_raw / qty / rate / amount), and the older shape
+   *      the pump-bill planner wrote (entry_date / vehicle_no / liters /
+   *      rate_used / rate_basis / system_amount). All 49 historical bills carry
+   *      the second one.
+   *   2. `slip_ids` — the memos the bill was actually built from. Exact, just
+   *      without the pump's own figures beside them.
+   *   3. the pump's memos over that date range — the last resort, and marked as
+   *      such, because it is a reconstruction rather than a record.
+   *
+   * A DERIVED RATE IS NEVER PRESENTED AS THE PUMP'S RATE. Most of these slips
+   * were issued with no money on them at all — 465 of 479, per the planner's
+   * own note — so their rate was derived (PUMP_RECENT, SLIP_RATE, FLEET_MEDIAN)
+   * and every line says which rule priced it. Showing that as "billed rate"
+   * would turn an estimate into a fact on a printed audit sheet.
+   */
+  app.get('/pump-bill/:id/details', { preHandler: guard }, async (req, reply) => {
+    const { rows: [bill] } = await query(
+      `SELECT d.*, COALESCE(d.invoice_no, pump_invoice_no(d.vendor_name, d.period_from)) AS invoice_no,
+              fortnight_label(d.period_from) AS cycle_label
+         FROM pump_bill_drafts d WHERE d.id = $1::uuid`, [req.params.id]);
+    if (!bill) return reply.code(404).send({ error: 'NO_SUCH_BILL' });
+
+    const raw = Array.isArray(bill.lines) ? bill.lines : [];
+    let source = 'RECORDED';
+    let rows = [];
+
+    if (raw.length) {
+      rows = raw.map((l, i) => ({
+        sno: l.sno ?? i + 1,
+        idx: l.idx ?? i,
+        date: String(l.date ?? l.entry_date ?? '').slice(0, 10),
+        vehicle: l.vehicle_raw ?? l.vehicle_no ?? null,
+        driver: l.driver_name ?? null,
+        liters: Number(l.qty ?? l.liters ?? 0) || null,
+        // The pump's own printed rate if the bill was read from a PDF;
+        // otherwise the derived one, carrying the rule that derived it.
+        billed_rate: l.rate ?? l.rate_used ?? null,
+        rate_basis: l.rate_basis ?? (l.rate != null ? 'FROM_BILL' : null),
+        authorised_rate: l.slip_rate ?? null,
+        amount: Number(l.amount ?? l.system_amount ?? 0) || null,
+        memo_id: l.fuel_entry_id ?? l.slip_id ?? l.id ?? null,
+        memo_no: l.memo_no ?? l.slip?.memo_no ?? null,
+        trip_id: l.trip_id ?? null,
+        verdict: l.verdict ?? null,
+        notes: Array.isArray(l.notes) ? l.notes : [],
+      }));
+    } else if (Array.isArray(bill.slip_ids) && bill.slip_ids.length) {
+      source = 'FROM_SLIPS';
+      const { rows: sl } = await query(`
+        SELECT f.id, f.entry_date, f.vehicle_no, f.driver_name, f.liters, f.rate, f.amount,
+               f.memo_no, f.trip_id
+          FROM fuel_entries f WHERE f.id = ANY($1::uuid[])
+         ORDER BY f.entry_date, f.id`, [bill.slip_ids]);
+      rows = sl.map((f, i) => ({
+        sno: i + 1, idx: i,
+        date: String(f.entry_date ?? '').slice(0, 10),
+        vehicle: f.vehicle_no, driver: f.driver_name,
+        liters: Number(f.liters) || null,
+        billed_rate: Number(f.rate) || null, rate_basis: 'SLIP_RATE',
+        authorised_rate: Number(f.rate) || null,
+        amount: Number(f.amount) || null,
+        memo_id: f.id, memo_no: f.memo_no, trip_id: f.trip_id,
+        verdict: null, notes: [],
+      }));
+    } else {
+      source = 'RECONSTRUCTED';
+      const { rows: sl } = await query(`
+        SELECT f.id, f.entry_date, f.vehicle_no, f.driver_name, f.liters, f.rate, f.amount,
+               f.memo_no, f.trip_id
+          FROM fuel_entries f
+         WHERE (f.vendor_id = $1::uuid OR pump_key(f.vendor_name) = pump_key($2))
+           AND f.entry_date BETWEEN $3::date AND $4::date
+         ORDER BY f.entry_date, f.id
+         LIMIT 500`, [bill.vendor_id, bill.vendor_name, bill.period_from, bill.period_to]);
+      rows = sl.map((f, i) => ({
+        sno: i + 1, idx: i,
+        date: String(f.entry_date ?? '').slice(0, 10),
+        vehicle: f.vehicle_no, driver: f.driver_name,
+        liters: Number(f.liters) || null,
+        billed_rate: Number(f.rate) || null, rate_basis: 'SLIP_RATE',
+        authorised_rate: Number(f.rate) || null,
+        amount: Number(f.amount) || null,
+        memo_id: f.id, memo_no: f.memo_no, trip_id: f.trip_id,
+        verdict: null, notes: [],
+      }));
+    }
+
+    // Whatever the source, say what each memo is doing NOW — settled where, and
+    // whether it could still be used. A drill-down that shows a memo without
+    // its current standing invites it being applied to a second bill.
+    const ids = rows.map((r) => r.memo_id).filter(Boolean);
+    if (ids.length) {
+      const { rows: st } = await query(
+        `SELECT id, memo_no, bill_status, reusable, settled_label
+           FROM v_fuel_memo_settlement WHERE id = ANY($1::uuid[])`, [ids]);
+      const by = new Map(st.map((x) => [String(x.id), x]));
+      for (const r of rows) {
+        const s = by.get(String(r.memo_id));
+        if (!s) continue;
+        r.memo_no = r.memo_no ?? s.memo_no;
+        r.bill_status = s.bill_status;
+        r.reusable = s.reusable;
+        r.settled_label = s.settled_label;
+      }
+    }
+
+    const res = bill.resolutions ?? {};
+    for (const r of rows) {
+      const d = res[String(r.idx)];
+      r.decision = d ?? null;
+      r.status = d === 'DISPUTED' ? 'DISPUTED'
+               : d === 'ACCEPTED' ? 'ACCEPTED'
+               : d === 'LINKED'   ? 'ADJUSTED'
+               : r.verdict === 'MATCHED' ? 'MATCHED'
+               : r.verdict ?? (source === 'RECORDED' ? 'RECORDED' : 'FROM_MEMO');
+    }
+
+    return {
+      bill: {
+        id: bill.id,
+        invoice_no: bill.invoice_no,
+        vendor_id: bill.vendor_id,
+        vendor_name: bill.vendor_name,
+        period_from: bill.period_from,
+        period_to: bill.period_to,
+        cycle_label: bill.cycle_label,
+        status: bill.status,
+        locked: bill.locked_at != null,
+        locked_at: bill.locked_at,
+        locked_by: bill.locked_by ?? bill.approved_by ?? bill.created_by,
+        voucher_id: bill.voucher_id,
+        total_liters: Number(bill.system_liters) || rows.reduce((a, r) => a + (r.liters || 0), 0),
+        bill_amount: Number(bill.physical_amount) || 0,
+        disputed_amount: Number(bill.disputed_amount) || 0,
+        payable_amount: Number(bill.payable_amount
+          ?? (Number(bill.physical_amount) || 0) - (Number(bill.disputed_amount) || 0)),
+        created_at: bill.created_at,
+        notes: bill.notes,
+      },
+      lines: rows,
+      source,
+      source_note: source === 'RECORDED'
+        ? 'These are the lines recorded when the bill was settled.'
+        : source === 'FROM_SLIPS'
+          ? 'Built from the memos this bill was posted against — the pump’s own '
+          + 'printed figures were not kept at the time.'
+          : 'Reconstructed from this pump’s memos over the period. Nothing was '
+          + 'recorded against the bill itself, so treat this as evidence, not as the bill.',
+      // Every derived rate on the sheet, so a reader can see how much of it is
+      // an estimate rather than the pump's own number.
+      rate_bases: rows.reduce((a, r) => {
+        if (!r.rate_basis) return a;
+        a[r.rate_basis] = (a[r.rate_basis] ?? 0) + 1;
+        return a;
+      }, {}),
+    };
+  });
 }
