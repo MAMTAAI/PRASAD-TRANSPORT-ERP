@@ -33,6 +33,7 @@
     "places:selftest": "node src/lib/tripPlaces.selftest.mjs",
     "toll:selftest": "node src/lib/tollRoute.selftest.mjs",
     "migrate:selftest": "node server/db/migrations/148_toll_plaza_master.selftest.mjs",
+    "migrate:selftest149": "node server/db/migrations/149_trip_expense_truth.selftest.mjs",
     "check:refs": "node scripts/check-undefined-refs.mjs"
   },
   "dependencies": {

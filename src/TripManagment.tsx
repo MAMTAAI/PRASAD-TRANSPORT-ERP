@@ -236,6 +236,26 @@ export default function TripManagment() {
   const [tollLoaded, setTollLoaded] = useState(false);
   const [modalToll, setModalToll] = useState<any>(undefined); // undefined=loading, null=none
 
+  // ── ONE TRIP'S PROFIT AND LOSS (owner, 4-Sep-2026) ───────────────────────
+  // Read from /trips/:id/pnl, which derives every figure from the rows that
+  // carry this trip's id. NOT from trips.total_expense — that counter had the
+  // driver's advance inside it, the pump cash twice, and no toll at all.
+  const [pnlTrip, setPnlTrip] = useState<any>(null);
+  const [pnl, setPnl] = useState<any>(null);
+  const [pnlErr, setPnlErr] = useState('');
+  const [pnlLines, setPnlLines] = useState(false);
+
+  const openPnl = async (t: any) => {
+    setPnlTrip(t); setPnl(null); setPnlErr(''); setPnlLines(false);
+    try {
+      setPnl(await fetchJson(`${OPS}/trips/${t.id}/pnl`));
+    } catch (e: any) {
+      // A missing view means migration 149 has not landed on this box yet. Say
+      // so plainly rather than showing zeroes that look like a settled trip.
+      setPnlErr(e?.message || 'P&L abhi nahi mila');
+    }
+  };
+
   // ── TOLL GATES ON THE ROUTE (owner, 4-Sep-2026) ──────────────────────────
   // The master is every gate this fleet has ever paid at, with the rate it was
   // charged. Fetched ONCE when the tracking sheet first opens — it is a few
@@ -1306,6 +1326,110 @@ export default function TripManagment() {
         )}
       </BottomSheet>
 
+      {/* ── TRIP PROFIT & LOSS, TYPE-WISE ─────────────────────────────────────
+          Every figure here comes from a register row that carries this trip's
+          id. An ADVANCE is shown apart from the expenses and never inside the
+          profit, because it is money owed back — that is the one rule the old
+          stored counter broke. */}
+      <BottomSheet open={!!pnlTrip} onClose={() => setPnlTrip(null)}
+        title={`💰 Trip P&L: ${pnlTrip?.vehicle_no || pnlTrip?.Vehical_No || ''} ${pnlTrip?.trip_id || ''}`}
+        accent="#2fe39b" maxWidth={620}>
+        {pnlErr && (
+          <div style={{ padding: '12px', borderRadius: '8px', border: '1px solid #ffb224', color: '#ffb224', fontSize: '13px' }}>
+            ⚠️ {pnlErr}
+          </div>
+        )}
+        {!pnl && !pnlErr && <div style={{ color: '#9aadd4', padding: '20px', textAlign: 'center' }}>⌛ Hisaab jod rahe hain…</div>}
+        {pnl && (() => {
+          const d = pnl.pnl || {};
+          const n = (v: any) => Number(v || 0);
+          const inr = (v: any) => `₹${n(v).toLocaleString('en-IN')}`;
+          const rows = [
+            ['⛽ HSD (diesel)', d.hsd, '#ffb224'],
+            ['🛣️ Toll', d.toll, '#ffb224'],
+            ['⚫ Tyre', d.tyre, '#ffb224'],
+            ['🔧 Maintenance', d.maintenance, '#ffb224'],
+            ['📄 Other', d.other, '#ffb224'],
+          ].filter(([, v]) => n(v) !== 0);
+          const profit = n(d.profit);
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#dde5f4' }}>
+                <span>🚚 Freight (customer se)</span><b style={{ color: '#22d3ee' }}>{inr(d.freight)}</b>
+              </div>
+
+              <div style={{ borderTop: '1px solid #27395f', paddingTop: '8px' }}>
+                {rows.length === 0 && (
+                  <div style={{ color: '#9aadd4', fontSize: '12px' }}>Is trip par abhi koi kharcha darj nahi hua.</div>
+                )}
+                {rows.map(([label, v, c]: any) => (
+                  <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: '#c4d1ea', padding: '3px 0' }}>
+                    <span>{label}</span><span style={{ color: c }}>{inr(v)}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 'bold', color: '#dde5f4', borderTop: '1px solid #27395f', marginTop: '6px', paddingTop: '6px' }}>
+                  <span>Kul kharcha</span><span style={{ color: '#ffb224' }}>{inr(d.expense_total)}</span>
+                </div>
+                {n(d.shortage_penalty) !== 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#9aadd4', paddingTop: '3px' }}>
+                    <span>Shortage penalty (driver se wapas)</span><span style={{ color: '#2fe39b' }}>+{inr(d.shortage_penalty)}</span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', background: profit >= 0 ? 'rgba(47,227,155,0.1)' : 'rgba(255,107,129,0.12)', border: `1px solid ${profit >= 0 ? '#2fe39b' : '#ff6b81'}`, borderRadius: '10px', padding: '10px 14px' }}>
+                <b style={{ color: '#dde5f4', fontSize: '14px' }}>{profit >= 0 ? 'Munafa' : 'Nuksan'}</b>
+                <b style={{ color: profit >= 0 ? '#2fe39b' : '#ff6b81', fontSize: '20px' }}>{inr(Math.abs(profit))}</b>
+              </div>
+
+              {/* AN ADVANCE IS NOT AN EXPENSE. Said on the screen, not just in
+                  the schema, because this is the number the old counter folded
+                  into the P&L and nobody could see it happening. */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: '#c4d1ea', border: '1px dashed #27395f', borderRadius: '8px', padding: '8px 12px' }}>
+                <span>🤝 Driver/pump ko diya (wapas aana hai)</span>
+                <b style={{ color: '#a78bfa' }}>{inr(d.advances)}</b>
+              </div>
+
+              {Math.abs(n(d.drift)) > 1 && (
+                <div style={{ fontSize: '11.5px', color: '#ffb224', border: '1px solid rgba(255,178,36,0.35)', borderRadius: '8px', padding: '8px 12px', lineHeight: 1.5 }}>
+                  ⚠️ Purana stored kharcha <b>{inr(d.stored_total_expense)}</b> tha — registers se <b>{inr(Math.abs(n(d.drift)))}</b> ka farak hai.
+                  Upar ka hisaab registers se banaya gaya hai.
+                </div>
+              )}
+
+              {(pnl.audit ?? []).length > 0 && (
+                <div style={{ fontSize: '11.5px', color: '#ff9b9b', border: '1px solid rgba(255,107,129,0.35)', borderRadius: '8px', padding: '8px 12px', lineHeight: 1.6 }}>
+                  {pnl.audit.map((f: any, i: number) => (
+                    <div key={i}>• <b>{f.finding}</b> — {f.detail}</div>
+                  ))}
+                </div>
+              )}
+
+              <button onClick={() => setPnlLines((v) => !v)} style={{ background: 'none', border: 'none', color: '#22d3ee', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', textAlign: 'left', padding: 0 }}>
+                {pnlLines ? '▲ Line-by-line chhupayein' : `▼ Line-by-line dekhein (${(pnl.lines ?? []).length})`}
+              </button>
+              {pnlLines && (
+                <div style={{ maxHeight: '220px', overflowY: 'auto', border: '1px solid #27395f', borderRadius: '8px' }}>
+                  {(pnl.lines ?? []).map((l: any, i: number) => (
+                    <div key={i} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', padding: '6px 10px', borderBottom: '1px solid rgba(39,57,95,0.5)', fontSize: '11.5px' }}>
+                      <span style={{ color: l.kind === 'ADVANCE' ? '#a78bfa' : '#ffb224', fontWeight: 'bold', minWidth: '74px' }}>{l.expense_type}</span>
+                      <span style={{ color: '#9aadd4', flex: 1 }}>{l.party || l.ref || l.source}</span>
+                      <span style={{ color: '#5d7196' }}>{l.dated ? String(l.dated).slice(0, 10) : ''}</span>
+                      <b style={{ color: '#dde5f4', minWidth: '70px', textAlign: 'right' }}>{inr(l.amount)}</b>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ color: '#5d7196', fontSize: '10.5px', lineHeight: 1.5 }}>
+                Har rupaya un rows se aaya hai jinpar is trip ki id lagi hai — fuel slip, FASTag toll,
+                approve kiye gaye bill, aur driver ko diya gaya cash. Advance kabhi kharche mein nahi ginte.
+              </div>
+            </div>
+          );
+        })()}
+      </BottomSheet>
+
       <BottomSheet open={!!(showPaymentModal && activeTrip)} onClose={() => setShowPaymentModal(false)} title={`💸 Pay to Driver (${activeTrip?.driver_name || activeTrip?.Driver_Name || ''})`} accent="#8b5cf6" maxWidth={480}>
         {activeTrip && (<>
             <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(255, 178, 36, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #ffb224', marginBottom: '15px' }}>
@@ -1627,6 +1751,7 @@ export default function TripManagment() {
                   <button onClick={() => openFuelModal(t)} style={{ flex: 1, minHeight: '48px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>⛽ Fuel</button>
                   <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Unload</button>
                   <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
+                  <button onClick={() => openPnl(t)} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💰 P&amp;L</button>
                 </div>
               </div>
             );
@@ -1680,6 +1805,7 @@ export default function TripManagment() {
                     <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
                     <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
                     <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{...styles.btn, background: '#10b981', marginTop:'5px'}}>✅ Unload</button>
+                    <button onClick={() => openPnl(t)} style={{...styles.btn, background: '#18244a', color: '#2fe39b', border: '1px solid #2fe39b', marginTop:'5px', marginLeft:'5px'}}>💰 P&amp;L</button>
                   </td>
                 </tr>
               )})}

@@ -178,6 +178,22 @@ app.setErrorHandler((err, req, reply) => {
     // check_violation — failed a format/business rule in the schema
     return reply.code(422).send({ error: 'VALIDATION_FAILED', detail: err.constraint ?? err.message });
   }
+  // ── The two rules this schema raises by hand ───────────────────────────────
+  // Both were reaching the client as a bare 500 with "Internal server error",
+  // which is the worst possible answer: the write was REFUSED ON PURPOSE and
+  // the person who made it needs to read why. The message the trigger raises is
+  // written for them, so it is passed through rather than hidden.
+  if (pgCode === 'P0403') {
+    // FLEET_CROSSOVER (migration 129) — own-fleet and market-fleet money may
+    // not touch each other's ledgers.
+    return reply.code(409).send({ error: 'FLEET_CROSSOVER', detail: err.message });
+  }
+  if (pgCode === 'P0405') {
+    // TRIP_VEHICLE_MISMATCH (migration 149) — this expense is for a lorry that
+    // did not run this trip. Refusing is the point: it is the owner's rule that
+    // one trip's expense must never land on another.
+    return reply.code(409).send({ error: 'TRIP_VEHICLE_MISMATCH', detail: err.message });
+  }
   req.log.error({ err }, 'unhandled request error');
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL',

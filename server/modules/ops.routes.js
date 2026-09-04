@@ -273,6 +273,99 @@ export async function registerOpsRoutes(app) {
     }
   );
 
+  // ── ONE TRIP'S PROFIT AND LOSS, BY TYPE ───────────────────────────────────
+  //
+  // Owner, 4-Sep-2026: "type wise expense management ho — HSD / toll tax / trip
+  // expenses — trip ke saath map kiya jaye taaki us trip ka profit-loss pata
+  // lag sake aur account mein bhi clean rahe."
+  //
+  // READ FROM THE REGISTERS, NOT FROM THE COUNTER. `trips.total_expense` is an
+  // accumulator four routes add to and nothing subtracts from: a driver ADVANCE
+  // was being added to it as though it were an expense, the pump cash was being
+  // counted as both, an edited fuel slip never moved it back down, and the
+  // tolls never reached it at all. v_trip_pnl (migration 149) derives all of it
+  // from the rows that actually carry this trip's id, so it cannot drift.
+  //
+  // The stored number is still returned, next to what the registers say and the
+  // difference between them, because a screen that silently starts showing a
+  // different figure is how nobody notices which one was wrong.
+  app.get(
+    '/trips/:id/pnl',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const [pnl, lines] = await Promise.all([
+        query('SELECT * FROM v_trip_pnl WHERE trip_id = $1::uuid', [req.params.id]),
+        // Every rupee, openable. A total nobody can drill into is a total
+        // nobody argues with, and the ones worth arguing with are the wrong ones.
+        query(`SELECT kind, expense_type, source, source_id, dated, vehicle_no,
+                      amount, ref, party
+                 FROM v_trip_expense_lines
+                WHERE trip_id = $1::uuid
+                ORDER BY kind, dated NULLS LAST, expense_type`, [req.params.id]),
+      ]);
+      if (!pnl.rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+      const { rows: flags } = await query(
+        `SELECT finding, source, source_id, expense_type, amount, dated, detail
+           FROM v_trip_expense_audit WHERE trip_id = $1::uuid
+          ORDER BY finding`, [req.params.id]);
+
+      return {
+        pnl: pnl.rows[0],
+        lines: lines.rows,
+        // What is doubtful about this trip's money, on the same response as the
+        // money. Empty is the normal answer and says so.
+        audit: flags,
+        basis: 'derived from fuel_entries, toll_transactions, approved expense_approvals '
+             + 'and driver_transactions carrying this trip_id (migration 149)',
+      };
+    }
+  );
+
+  // ── THE AUDIT, ACROSS THE WHOLE REGISTER ──────────────────────────────────
+  //
+  // "koi trip ka expense dusray trip may na jaye" — this is the report that
+  // says where it already has. Nothing here is corrected automatically; each
+  // row is a task for a person, which is the standing rule for data faults in
+  // this system.
+  app.get(
+    '/trip-expense-audit',
+    { schema: { querystring: { type: 'object', properties: {
+      finding: { type: ['string', 'null'], maxLength: 40 },
+      limit: { type: 'integer', minimum: 1, maximum: 2000, default: 500 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { finding, limit } = req.query ?? {};
+      const [rows, summary] = await Promise.all([
+        query(`SELECT * FROM v_trip_expense_audit
+                WHERE ($1::text IS NULL OR finding = $1)
+                ORDER BY abs(amount) DESC NULLS LAST
+                LIMIT $2`, [finding || null, limit ?? 500]),
+        // The money at stake per kind of fault, so the desk knows which pile to
+        // start on rather than working down a list in id order.
+        query(`SELECT finding, count(*)::int AS rows,
+                      sum(abs(amount))::numeric(16,2) AS amount
+                 FROM v_trip_expense_audit GROUP BY finding ORDER BY 3 DESC NULLS LAST`),
+      ]);
+      return {
+        count: rows.rows.length,
+        findings: rows.rows,
+        summary: summary.rows,
+        legend: {
+          ORPHAN_BILL: 'approved bill with no trip — in the ledger, in no trip P&L',
+          ORPHAN_FUEL: 'fuel slip with no trip',
+          ORPHAN_TOLL: 'toll crossing not linked to a trip',
+          WRONG_VEHICLE: "expense filed on a trip that ran a different lorry",
+          DATE_OUTSIDE_TRIP: 'bill dated outside the trip it is attached to',
+          FUEL_TWICE: 'an approved FUEL bill on a trip that also has fuel slips',
+          STORED_DRIFT: 'trips.total_expense disagrees with the registers',
+        },
+      };
+    }
+  );
+
   // The writable surface of a trip. Listed explicitly so a client cannot patch
   // billing or settlement columns through this route — those belong to the
   // billing and settlement paths, which have their own guards.
