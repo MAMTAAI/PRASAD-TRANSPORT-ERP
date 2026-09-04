@@ -25,11 +25,18 @@ const mastersFetch = async (path: string, opts?: RequestInit) => {
 };
 
 import { extractJsonFromImage } from './lib/aiScanner';
+import { auditBill, settlementGate, VERDICTS } from './lib/pumpBillAudit.mjs';
 
 export default function FuelMgmt() {
   // 📄 Scan a petrol-pump bill (PDF/photo) locally → auto-fill Physical Bill Amount.
   const [scanningPump, setScanningPump] = useState(false);
   const [scannedPumpItems, setScannedPumpItems] = useState<any[]>([]);
+  // The parsed bill, its line-by-line audit against our memos, and what the
+  // desk has decided about each flagged line.
+  const [scanMeta, setScanMeta] = useState<any>(null);
+  const [billResolutions, setBillResolutions] = useState<Record<number, string>>({});
+  const [auditFilter, setAuditFilter] = useState<'FLAGGED' | 'ALL'>('FLAGGED');
+  const [linkingIdx, setLinkingIdx] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState('RECON');
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]); 
@@ -341,9 +348,58 @@ export default function FuelMgmt() {
 
   // 🏦 FINAL BILL VERIFICATION & LEDGER POSTING
   // 📄 Scan petrol-pump bill PDF/photo with LOCAL Gemma 4 vision → total + line items.
+  /**
+   * Read the pump's bill.
+   *
+   * A PDF WITH REAL TEXT IS READ, NOT GUESSED AT. /fuel/parse-pdf pulls the
+   * embedded text out of a B N Filling or Sree Krishna invoice and checks the
+   * rows against the total the pump itself printed — so the digits are exact
+   * and a mis-read bill cannot pass. Only when that refuses the file (a
+   * photograph, or a pump whose layout is not known) does the local vision
+   * model take over, and its numbers are treated as a draft to be checked.
+   */
   const handleScanPumpBill = async (e: any) => {
     const file = e.target.files?.[0]; if (!file) return;
-    setScanningPump(true); setScannedPumpItems([]);
+    setScanningPump(true); setScannedPumpItems([]); setScanMeta(null); setBillResolutions({});
+
+    // 1 — the exact path
+    if (/\.pdf$/i.test(file.name || '') || file.type === 'application/pdf') {
+      try {
+        const b64: string = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1] ?? '');
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+        const resp = await fetch(`${API}/api/v1/fuel/parse-pdf`, {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pdf_base64: b64, source_file: file.name }),
+        });
+        const j = await resp.json();
+        if (resp.ok && Array.isArray(j.rows) && j.rows.length) {
+          setScannedPumpItems(j.rows.map((r: any) => ({
+            date: r.date, vehicle_no: r.vehicle_raw, product: 'HSD',
+            qty: r.qty, rate: r.rate, amount: r.amount,
+            confidence: r.confidence, flags: r.flags,
+          })));
+          setScanMeta({ ...j, exact: true });
+          if (j.check?.stated_amount) setVendorBillAmount(String(Math.round(j.check.stated_amount)));
+          if (j.period?.from) setReconFromDate(j.period.from);
+          if (j.period?.to) setReconToDate(j.period.to);
+          setScanningPump(false);
+          return;
+        }
+        // A refusal is information, not a failure — say which one it was.
+        if (!resp.ok) {
+          setScanMeta({ exact: false, refused: j.error, refused_detail: j.detail || j.hint });
+        }
+      } catch {
+        setScanMeta({ exact: false, refused: 'NETWORK', refused_detail: 'server se baat nahi hui' });
+      }
+    }
+
+    // 2 — the photograph path
     try {
       const prompt = `This is a petrol pump fuel bill (IndianOil/HPCL/BPCL) for a transport company. Extract and reply with ONLY JSON:
 { "pump_name": "", "invoice_no": "", "total_amount": 0, "items": [{"date":"DD-MM-YYYY","vehicle_no":"","product":"HSD/MS","qty":0,"rate":0,"amount":0}] }
@@ -356,8 +412,15 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       const itemSum = items.reduce((s: number, it: any) => s + amt(it.amount), 0);
       const total = items.length ? Math.round(itemSum) : amt(ai.total_amount);
       if (total > 0) setVendorBillAmount(String(Math.round(total)));
-      setScannedPumpItems(items);
-      alert(`✅ Pump bill scan (local Gemma): ${ai.pump_name || ''} — ${items.length} entries, total ₹${Math.round(total).toLocaleString('en-IN')}. Physical Bill Amount auto-bhar diya — verify karke Post karein.`);
+      // The vision model's dates come back DD-MM-YYYY; the audit needs ISO.
+      setScannedPumpItems(items.map((it: any) => ({
+        ...it,
+        date: /^\d{2}-\d{2}-\d{4}$/.test(String(it.date ?? ''))
+          ? String(it.date).split('-').reverse().join('-')
+          : it.date,
+      })));
+      setScanMeta((m: any) => ({ ...(m ?? {}), exact: false, pump: ai.pump_name || null,
+        counts: { rows: items.length, ready: 0, needs_review: items.length } }));
     } catch (err: any) {
       const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
       alert(offline ? '❌ Local AI engine (Ollama) band hai.' : '❌ Bill padhi nahi gayi. Saaf PDF/photo se try karein.');
@@ -365,7 +428,53 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
     setScanningPump(false);
   };
 
+  // ── THE AUDIT ────────────────────────────────────────────────────────────
+  //
+  // Derived on every render from the scanned lines and the unbilled memos.
+  // Deliberately not stored: an audit kept in state drifts the moment a slip is
+  // edited on the right, and a stale verdict is worse than none.
+  const billAudit = React.useMemo(
+    () => (scannedPumpItems.length ? auditBill(scannedPumpItems, filteredUnbilledSlips) : null),
+    [scannedPumpItems, filteredUnbilledSlips]);
+  const gate = React.useMemo(
+    () => (billAudit ? settlementGate(billAudit, billResolutions) : null),
+    [billAudit, billResolutions]);
+  const auditRows = React.useMemo(() => {
+    if (!billAudit) return [];
+    return auditFilter === 'ALL'
+      ? billAudit.lines
+      : billAudit.lines.filter((l: any) => VERDICTS[l.verdict]?.blocks);
+  }, [billAudit, auditFilter]);
+
+  const resolve = (idx: number, how: string) =>
+    setBillResolutions((r) => {
+      const next = { ...r };
+      if (next[idx] === how) delete next[idx]; else next[idx] = how;
+      return next;
+    });
+
+  /** Pair a bill line with a slip the clerk picked on the right. */
+  const linkLineToSlip = (idx: number, slipId: string) => {
+    setBillResolutions((r) => ({ ...r, [idx]: 'LINKED' }));
+    setSelectedSlips((sel) => (sel.includes(slipId) ? sel : [...sel, slipId]));
+    setLinkingIdx(null);
+  };
+
   const handleMatchBill = async () => {
+    // ── THE GATEKEEPER ─────────────────────────────────────────────────────
+    // A 15-day bill with unresolved lines must not post. Without this a bill
+    // carrying six ghost lines settles as quietly as a clean one, and the pump
+    // is paid for diesel nobody issued.
+    if (gate && !gate.ok) {
+      const worst = gate.open_lines.slice(0, 6)
+        .map((l: any) => `  • #${l.sno} ${l.date} ${l.vehicle} — ${VERDICTS[l.verdict]?.label ?? l.verdict}`)
+        .join(String.fromCharCode(10));
+      const more = gate.open > 6 ? String.fromCharCode(10) + `  …aur ${gate.open - 6}` : '';
+      const NL = String.fromCharCode(10);
+      alert(`🚫 ${gate.open} line(s) abhi tay nahi hui hain.` + NL + NL + worst + more
+        + NL + NL + 'Har line par Link / Accept / Dispute karein, tab hi 15-din ka bill post hoga.');
+      return;
+    }
     if (!vendorBillAmount) return alert("⚠️ Enter the Total Amount from Physical Bill!");
     if (selectedSlips.length === 0) return alert("⚠️ Please select at least one slip to verify!");
     
@@ -674,6 +783,211 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
             </div>
           </div>
 
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', minWidth: 0 }}>
+
+          {/* ═══ 1:1 LINE AUDIT — the pump's paper against our own memos ═════
+              Shown only once a bill has been read. Each row is one printed
+              line: on the left what the pump billed and what is wrong with it,
+              on the right the memo it was paired to — or the memos it could be
+              paired to, one click away. */}
+          {billAudit && (
+            <div className="glass-card" style={{ padding: '20px', borderTop: '3px solid #a78bfa' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <h3 style={{ color: '#a78bfa', margin: 0 }}>
+                  🔍 Line-by-line audit
+                  <span style={{ fontSize: '12px', color: '#9aadd4', fontWeight: 'normal', marginLeft: '10px' }}>
+                    {scanMeta?.exact
+                      ? (scanMeta.pump || '') + ' · PDF ka asli text padha gaya'
+                      : 'Photo se padha gaya — ank khud check karein'}
+                  </span>
+                </h3>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {(['FLAGGED', 'ALL'] as const).map((f) => (
+                    <button key={f} onClick={() => setAuditFilter(f)}
+                      style={{ background: auditFilter === f ? 'rgba(167,139,250,0.2)' : 'transparent',
+                               color: auditFilter === f ? '#c4b5fd' : '#9aadd4',
+                               border: '1px solid ' + (auditFilter === f ? '#a78bfa' : '#27395f'),
+                               borderRadius: '6px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', fontWeight: 600 }}>
+                      {f === 'FLAGGED' ? 'Sirf gadbad (' + billAudit.summary.blocking + ')' : 'Sab (' + billAudit.summary.lines + ')'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* What each side claims. The difference is the figure a
+                  total-only check hides, because an over-bill and a missing
+                  line cancel each other in a sum. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: '1px',
+                            background: '#27395f', border: '1px solid #27395f', borderRadius: '8px', overflow: 'hidden', margin: '14px 0' }}>
+                {[
+                  ['Pump ne laga', '₹' + billAudit.summary.billed_amount.toLocaleString('en-IN'), '#eef3ff'],
+                  ['Humne di thi', '₹' + billAudit.summary.authorised_amount.toLocaleString('en-IN'), '#2fe39b'],
+                  ['Antar', '₹' + billAudit.summary.difference.toLocaleString('en-IN'),
+                    Math.abs(billAudit.summary.difference) > 1 ? '#ff6b81' : '#2fe39b'],
+                  ['Milte hain', billAudit.summary.matched + '/' + billAudit.summary.lines, '#2fe39b'],
+                  ['Bill me nahi', String(billAudit.summary.unbilled_slips), '#ffb224'],
+                ].map((cell: any) => (
+                  <div key={cell[0]} style={{ background: '#121c38', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '10px', color: '#9aadd4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{cell[0]}</div>
+                    <div style={{ fontSize: '17px', fontWeight: 700, color: cell[2], fontVariantNumeric: 'tabular-nums' }}>{cell[1]}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* THE GATE, stated before the work rather than after it. */}
+              <div style={{ padding: '10px 14px', borderRadius: '8px', marginBottom: '14px',
+                            background: gate && gate.ok ? 'rgba(47,227,155,0.08)' : 'rgba(255,178,36,0.08)',
+                            border: '1px solid ' + (gate && gate.ok ? 'rgba(47,227,155,0.4)' : 'rgba(255,178,36,0.4)'),
+                            color: gate && gate.ok ? '#2fe39b' : '#ffb224', fontSize: '12.5px', lineHeight: 1.5 }}>
+                {gate && gate.ok ? (
+                  <>✅ Sab line tay ho gayi — 15-din ka bill post ho sakta hai.
+                    {gate.disputed > 0 && (
+                      <span style={{ color: '#ff6b81' }}> {gate.disputed} line dispute me hai, uska paisa rok liya —
+                        settle ₹{gate.settleable_amount.toLocaleString('en-IN')}.</span>
+                    )}</>
+                ) : (
+                  <>🚫 {gate ? gate.open : 0} line abhi tay nahi hui. Jab tak har gadbad par Link / Accept / Dispute
+                    nahi hota, poora 15-din ka bill settle nahi hoga.</>
+                )}
+              </div>
+
+              {auditRows.length === 0 ? (
+                <p style={{ color: '#5d7196', fontSize: '13px' }}>
+                  {auditFilter === 'FLAGGED' ? '✅ Koi gadbad nahi — har line memo se milti hai.' : 'Koi line nahi.'}
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '520px', overflowY: 'auto' }}>
+                  {auditRows.map((l: any) => {
+                    const v = VERDICTS[l.verdict] || { label: l.verdict, tone: 'warn', blocks: true };
+                    const tone = v.tone === 'ok' ? '#2fe39b' : v.tone === 'bad' ? '#ff6b81' : '#ffb224';
+                    const decided = billResolutions[l.idx];
+                    return (
+                      <div key={l.idx} style={{ border: '1px solid ' + (decided ? 'rgba(47,227,155,0.45)' : '#27395f'),
+                                                background: decided ? 'rgba(47,227,155,0.05)' : 'rgba(18,28,56,0.6)',
+                                                borderRadius: '10px', padding: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+
+                          {/* LEFT — what the pump billed, and what is wrong */}
+                          <div style={{ borderRight: '1px dashed #27395f', paddingRight: '14px', minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <b style={{ color: '#eef3ff', fontSize: '13px' }}>#{l.sno} {l.vehicle_raw || '—'}</b>
+                              <span style={{ color: '#9aadd4', fontSize: '12px' }}>{l.date}</span>
+                              <span style={{ border: '1px solid ' + tone, color: tone, borderRadius: '99px',
+                                             padding: '1px 8px', fontSize: '10px', fontWeight: 700 }}>{v.label}</span>
+                              {decided && <span style={{ color: '#2fe39b', fontSize: '10px', fontWeight: 700 }}>✓ {decided}</span>}
+                            </div>
+                            <div style={{ color: '#c4d1ea', fontSize: '12px', marginTop: '5px', fontVariantNumeric: 'tabular-nums' }}>
+                              {l.qty == null ? '—' : l.qty} L · ₹{l.rate == null ? '—' : l.rate}/L ·{' '}
+                              <b>₹{Number(l.amount || 0).toLocaleString('en-IN')}</b>
+                            </div>
+                            {l.notes.map((n: string, i: number) => (
+                              <div key={i} style={{ color: tone, fontSize: '11.5px', marginTop: '5px', lineHeight: 1.45 }}>⚠ {n}</div>
+                            ))}
+                          </div>
+
+                          {/* RIGHT — the memo it was paired to, or the ones it could be */}
+                          <div style={{ minWidth: 0 }}>
+                            {l.slip ? (
+                              <>
+                                <div style={{ fontSize: '10px', color: '#9aadd4', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                                  Humara memo
+                                </div>
+                                <div style={{ color: '#eef3ff', fontSize: '13px', marginTop: '3px' }}>
+                                  {l.slip.memo_no || l.slip.id} · {String(l.slip.entry_date || l.slip.date || '').slice(0, 10)}
+                                </div>
+                                <div style={{ color: '#c4d1ea', fontSize: '12px', marginTop: '3px', fontVariantNumeric: 'tabular-nums' }}>
+                                  {l.slip_liters == null ? '—' : l.slip_liters} L · ₹{l.slip_rate == null ? '—' : l.slip_rate}/L ·{' '}
+                                  <b>₹{Number(l.slip_amount || 0).toLocaleString('en-IN')}</b>
+                                </div>
+                              </>
+                            ) : linkingIdx === l.idx ? (
+                              <>
+                                <div style={{ fontSize: '10px', color: '#22d3ee', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '5px' }}>
+                                  Kis memo se jodein?
+                                </div>
+                                <div style={{ maxHeight: '130px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  {filteredUnbilledSlips.length === 0 && (
+                                    <span style={{ color: '#5d7196', fontSize: '12px' }}>Is pump ka koi unbilled memo nahi.</span>
+                                  )}
+                                  {filteredUnbilledSlips.map((sl: any) => (
+                                    <button key={sl.id} onClick={() => linkLineToSlip(l.idx, sl.id)}
+                                      style={{ textAlign: 'left', background: 'rgba(34,211,238,0.08)', border: '1px solid #27395f',
+                                               borderRadius: '6px', padding: '5px 8px', color: '#c4d1ea', fontSize: '11.5px', cursor: 'pointer' }}>
+                                      {String(sl.entry_date || '').slice(0, 10)} · {sl.vehicle_no} · {sl.liters}L · ₹{Number(sl.amount || 0).toLocaleString('en-IN')}
+                                    </button>
+                                  ))}
+                                </div>
+                                <button onClick={() => setLinkingIdx(null)}
+                                  style={{ marginTop: '6px', background: 'transparent', border: 'none', color: '#9aadd4', fontSize: '11px', cursor: 'pointer' }}>
+                                  rehne do
+                                </button>
+                              </>
+                            ) : (
+                              <div style={{ color: '#5d7196', fontSize: '12px', paddingTop: '14px' }}>Koi memo nahi juda.</div>
+                            )}
+
+                            {/* ACTION TOOLS */}
+                            <div style={{ display: 'flex', gap: '6px', marginTop: '10px', flexWrap: 'wrap' }}>
+                              <button onClick={() => setLinkingIdx(linkingIdx === l.idx ? null : l.idx)}
+                                style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)',
+                                         borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                                🔗 Link / Adjust
+                              </button>
+                              <button onClick={() => resolve(l.idx, 'ACCEPTED')}
+                                style={{ background: decided === 'ACCEPTED' ? '#2fe39b' : 'rgba(47,227,155,0.12)',
+                                         color: decided === 'ACCEPTED' ? '#0a1024' : '#2fe39b',
+                                         border: '1px solid rgba(47,227,155,0.5)', borderRadius: '6px',
+                                         padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                                ✅ Accept pump bill
+                              </button>
+                              <button onClick={() => resolve(l.idx, 'DISPUTED')}
+                                style={{ background: decided === 'DISPUTED' ? '#ff6b81' : 'rgba(255,107,129,0.12)',
+                                         color: decided === 'DISPUTED' ? '#0a1024' : '#ff6b81',
+                                         border: '1px solid rgba(255,107,129,0.5)', borderRadius: '6px',
+                                         padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                                ⚠ Dispute
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* The other side of the audit: diesel we issued that this bill
+                  does not carry. Nobody finds these from a total. */}
+              {billAudit.unbilled_slips.length > 0 && (
+                <div style={{ marginTop: '16px', borderTop: '1px solid #27395f', paddingTop: '12px' }}>
+                  <div style={{ fontSize: '11px', color: '#ffb224', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
+                    Humne di, par is bill me nahi ({billAudit.unbilled_slips.length})
+                  </div>
+                  <div style={{ marginTop: '6px', maxHeight: '150px', overflowY: 'auto' }}>
+                    {billAudit.unbilled_slips.map((u: any) => (
+                      <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px',
+                                               borderBottom: '1px solid #18244a', padding: '4px 0', fontSize: '12px' }}>
+                        <span style={{ color: '#c4d1ea' }}>{u.date} · {u.key} · {u.liters == null ? '—' : u.liters}L</span>
+                        <span style={{ color: '#ffb224', fontVariantNumeric: 'tabular-nums' }}>₹{Number(u.amount || 0).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* the pump layout we could not read, said plainly */}
+          {scanMeta && scanMeta.refused && !billAudit && (
+            <div className="glass-card" style={{ padding: '16px', borderLeft: '3px solid #ffb224' }}>
+              <b style={{ color: '#ffb224', fontSize: '13px' }}>Yeh PDF seedha padha nahi ja saka</b>
+              <p style={{ color: '#9aadd4', fontSize: '12px', margin: '6px 0 0', lineHeight: 1.5 }}>
+                {scanMeta.refused_detail || scanMeta.refused}
+                {' '}Photo wale bill ke ank khud check karein — unka OCR bharosemand nahi hai.
+              </p>
+            </div>
+          )}
+
           <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
             <h3 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '5px' }}>2. Match & Edit System Slips (Unbilled)</h3>
             <p style={{ color: '#9aadd4', fontSize: '12px', marginBottom: '15px' }}>Verify rates and quantities before posting to the Vendor Ledger.</p>
@@ -747,6 +1061,7 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
             <GlobalPagination {...pgFilteredUnbilledSlips} />
               </>
             )}
+          </div>
           </div>
         </div>
       )}
