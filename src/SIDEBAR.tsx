@@ -88,6 +88,13 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
       if (itemId === 'TRIP' || itemId === 'LOCATION_RTKM') return checkView('Trip Management');
       if (itemId === 'FUEL' || itemId === 'MAINTENANCE' || itemId === 'TYRE' || itemId === 'DOCS') return checkView('Fuel & Maintenance');
       if (itemId === 'LOADING' || itemId === 'UNLOADING' || itemId === 'SETTLEMENT') return checkView('Loading / Unloading');
+      // Vehicle 15-Day Settlement was missing here, so it fell through to the
+      // `return false` below and was invisible to every NON-admin. The owner
+      // sees it (admin bypasses this whole function), the desk did not — and
+      // the desk is who works the queue. Same permission as Master Trip
+      // Settlement: both are the settlement desk, one for the driver's hisaab
+      // and one for the lorry's.
+      if (itemId === 'VEHICLE_SETTLEMENT') return checkView('Loading / Unloading') || checkView('Trip Management');
       return false;
     }
     
