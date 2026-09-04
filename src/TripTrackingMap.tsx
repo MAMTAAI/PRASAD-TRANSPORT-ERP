@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './lib/maps';
 import {
   loadingPin, unloadingPin, truckIcon, truckLabel,
-  gateIcon, gateLabel, pingIcon, plazaKey, inr, observeAndRefit,
+  gateIcon, driverIcon, pingIcon, plazaKey, inr, observeAndRefit,
 } from './lib/mapSymbols.mjs';
 import { loadTollPlazas } from './lib/tollPlazaMaster';
 import { plazasOnRoute, tollTotals } from './lib/tollRoute.mjs';
@@ -134,7 +134,14 @@ export default function TripTrackingMap() {
       const pos = { lat: s.lat, lng: s.lng };
       overlays.current.push(new g.maps.Marker({
         map, position: pos, title: `${st.label} · ${new Date(s.recorded_at).toLocaleTimeString()}`,
-        icon: pingIcon(st.color, detail.best?.source === s.source),
+        // A DRIVER-APP FIX IS A MAN WITH A PHONE, and it is drawn as one. The
+        // other two sources are hardware and stay as plain dots — the point of
+        // the distinction is that a person's phone can be in a different vehicle,
+        // in his pocket at a dhaba, or switched off, and the desk should never
+        // read it as the lorry's own position.
+        icon: s.source === 'DRIVER_APP'
+          ? driverIcon(detail.best?.source === s.source)
+          : pingIcon(st.color, detail.best?.source === s.source),
       }));
       extend(pos);
     }
@@ -188,7 +195,7 @@ export default function TripTrackingMap() {
         const done = crossed.has(gate.name_key);
         const m = new g.maps.Marker({
           map, position: { lat: Number(gate.lat), lng: Number(gate.lng) },
-          icon: gateIcon(done, known), label: gateLabel(gate.rate),
+          icon: gateIcon(done, known, gate.rate),
           title: gate.plaza_name, zIndex: 25,
         });
         overlays.current.push(m);

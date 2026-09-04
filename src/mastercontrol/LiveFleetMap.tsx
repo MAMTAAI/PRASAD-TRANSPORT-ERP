@@ -31,7 +31,7 @@ import { connectFleetSocket, disconnectFleetSocket } from '../lib/fleetSocket';
 import { openDriverControl } from '../components/DriverControlDrawer';
 import {
   loadingPin, unloadingPin, truckIcon as sharedTruckIcon, truckLabel,
-  gateIcon, gateLabel, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+  gateIcon, plazaKey, inr, infoCard, fitTo, observeAndRefit,
 } from '../lib/mapSymbols.mjs';
 import { loadTollPlazas } from '../lib/tollPlazaMaster';
 import { plazasOnRoute, tollTotals } from '../lib/tollRoute.mjs';
@@ -564,7 +564,7 @@ export default function LiveFleetMap() {
           const known = gate.rate !== null && gate.rate !== undefined && gate.rate !== '';
           const done = crossed.has(gate.name_key);
           const m = mk({ lat: Number(gate.lat), lng: Number(gate.lng) },
-            gateIcon(done, known), gate.plaza_name, gateLabel(gate.rate));
+            gateIcon(done, known, gate.rate), gate.plaza_name);
           m.setZIndex(25);
           m.addListener('click', () => {
             if (!infoRef.current) infoRef.current = new g.maps.InfoWindow();

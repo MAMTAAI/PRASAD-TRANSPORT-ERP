@@ -506,3 +506,17 @@ select:-webkit-autofill {
   -webkit-box-shadow: 0 0 0 1000px var(--pt-bg-2) inset;
   caret-color: var(--pt-text);
 }
+
+/* ── THE LORRY'S NUMBER PLATE ────────────────────────────────────────────────
+   Google renders a Marker label as bare text in its own div with no background,
+   so the registration under a truck sat unreadable the moment the map scrolled
+   over a pale road or a town name. A halo costs nothing and works on the dark
+   dispatch board and the driver app's light map alike. `!important` because the
+   SDK writes colour and font inline on that element. */
+.pt-truck-label {
+  text-shadow:
+    0 0 3px #04070f, 0 0 3px #04070f, 0 1px 2px #04070f,
+    -1px 0 2px #04070f, 1px 0 2px #04070f !important;
+  letter-spacing: .3px !important;
+  font-family: Inter, 'Segoe UI', system-ui, sans-serif !important;
+}

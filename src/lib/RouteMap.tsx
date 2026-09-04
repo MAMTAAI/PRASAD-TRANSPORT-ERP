@@ -20,7 +20,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './maps';
 import {
   loadingPin, unloadingPin, truckIcon, truckLabel,
-  gateIcon, gateLabel, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+  gateIcon, plazaKey, inr, infoCard, fitTo, observeAndRefit,
 } from './mapSymbols.mjs';
 import { loadTollPlazas } from './tollPlazaMaster';
 import { plazasOnRoute, tollTotals } from './tollRoute.mjs';
@@ -88,7 +88,9 @@ export default function RouteMap({
   const ptKey = (p) => (p && Number.isFinite(Number(p.lat)) ? `${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}` : '-');
   const originKey = ptKey(origin);
   const destKey = ptKey(destination);
-  const truckKey = `${ptKey(truck)}@${Math.round(Number(truck?.heading) || 0)}`;
+  // Rounded to 3°: the lorry's icon is an SVG rebuilt per heading, and a truck
+  // on a straight highway reports a heading that wanders by a degree at a time.
+  const truckKey = `${ptKey(truck)}@${Math.round((Number(truck?.heading) || 0) / 3) * 3}`;
   const crossedKey = (crossedTolls || [])
     .map((t) => plazaKey(t?.plaza_name ?? t?.plaza ?? t)).join('|');
   const tollSent = useRef('');
@@ -207,8 +209,7 @@ export default function RouteMap({
       const m = new g.maps.Marker({
         map: map.current,
         position: { lat: Number(gate.lat), lng: Number(gate.lng) },
-        icon: gateIcon(done, known),
-        label: gateLabel(gate.rate),
+        icon: gateIcon(done, known, gate.rate),
         title: gate.plaza_name,
         zIndex: 25,
       });

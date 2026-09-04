@@ -50,7 +50,7 @@ import { placeOf, routeAppUrl } from './tripPlaces';
 import { plazasOnRoute, tollTotals } from './tollRoute.mjs';
 import {
   loadingPin, unloadingPin, truckIcon, truckLabel,
-  gateIcon, gateLabel, pingIcon, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+  gateIcon, pingIcon, plazaKey, inr, infoCard, fitTo, observeAndRefit,
 } from './mapSymbols.mjs';
 
 // Night styling, matched to the ERP shell. Roads and water only: a dispatch map
@@ -443,10 +443,11 @@ export default function TripRouteMap({
       const m = new g.maps.Marker({
         map: map.current,
         position: { lat: Number(gate.lat), lng: Number(gate.lng) },
-        icon: gateIcon(gate.crossed, known),
-        // The rate ON the gate. This is the whole ask: an operator should read
-        // the toll off the map without opening anything.
-        label: gateLabel(gate.rate),
+        // The rate is drawn INSIDE the booth's own plate — a Marker label is
+        // bare text with nothing behind it, and "₹210" floating over a highway
+        // is unreadable. This is the whole ask: read the toll off the map
+        // without opening anything.
+        icon: gateIcon(gate.crossed, known, gate.rate),
         title: `${i + 1}. ${gate.plaza_name}`,
         zIndex: 25,
       });
