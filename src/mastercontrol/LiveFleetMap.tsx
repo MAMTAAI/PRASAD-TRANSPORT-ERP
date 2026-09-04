@@ -68,7 +68,13 @@ const DARK_STYLE = [
 // The board's own arrow is gone: it pointed a different way from the trip
 // sheet's and was a different colour from the driver app's. One vocabulary now
 // (../lib/mapSymbols.mjs), so a lorry looks like a lorry on every screen.
-const truckIcon = (heading = 0) => sharedTruckIcon(heading, 1.5);
+//
+// 0.8, NOT THE 1.5 THE OLD ARROW USED. That scale multiplied a Symbol's tiny
+// path; it now multiplies a 52x58 SVG, and 1.5 would put 78-pixel lorries on a
+// board that shows the whole fleet at once — they would overlap each other and
+// the road under them. This is the one screen where the vehicle marker has to
+// give way to the others.
+const truckIcon = (heading = 0) => sharedTruckIcon(heading, 0.8);
 
 export default function LiveFleetMap() {
   const boxRef = useRef(null);

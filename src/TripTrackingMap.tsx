@@ -220,7 +220,10 @@ export default function TripTrackingMap() {
         title: `${geo.trip?.vehicle_no ?? 'Vehicle'} · ${geo.truck.source ?? 'gps'} · `
              + new Date(geo.truck.at).toLocaleString('en-IN'),
         // Same arrow, same plate, as the dispatch board and the driver's phone.
-        icon: truckIcon(Number(geo.truck.heading) || 0, 1.5),
+        // Full size: this screen follows ONE trip, so the lorry is the subject
+        // and not one of eighteen. (1.5 was the old Symbol's multiplier and
+        // would now mean an 78-pixel truck.)
+        icon: truckIcon(Number(geo.truck.heading) || 0),
         label: truckLabel(geo.trip?.vehicle_no),
       }));
       extend(pos);
