@@ -35,6 +35,7 @@ const FuelMgmt = lazy(() => import('./FuelMgmt'));
 const LodingDetals = lazy(() => import('./LodingDetals'));
 const MasterTripSettlement = lazy(() => import('./MasterTripSettlement'));
 const VehicleSettlement = lazy(() => import('./VehicleSettlement'));
+const CommissionMaster = lazy(() => import('./CommissionMaster'));
 const VehicleDocs = lazy(() => import('./VehicleDocs'));
 const TyreMgmt = lazy(() => import('./TyreMgmt'));
 const BatteryMgmt = lazy(() => import('./BatteryMgmt'));
@@ -635,6 +636,7 @@ function AppShell() {
       case 'LOADING': return <LodingDetals />;
       case 'SETTLEMENT': return <MasterTripSettlement />;
       case 'VEHICLE_SETTLEMENT': return <VehicleSettlement />;
+      case 'COMMISSION_MASTER': return <CommissionMaster />;
       // Legacy key (stale saved nav state) → same module, unloading lives in its tab
       case 'UNLOADING': return <MasterTripSettlement />;
       case 'DOCS': return <VehicleDocs />;

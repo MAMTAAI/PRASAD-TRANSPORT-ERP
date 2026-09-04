@@ -94,7 +94,8 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
     if (module === 'ACCOUNTS') {
       if (itemId === 'BANK' || itemId === 'LEDGER') return checkView('Ledger & Cash Book');
       if (itemId === 'PNL' || itemId === 'LOAN') return checkView('Finance Hub');
-      if (itemId === 'BILLING' || itemId === 'AUTO_BILLING' || itemId === 'AI_SCANNER' || itemId === 'RATE_MASTER') return checkView('Billing & Invoicing');
+      if (itemId === 'BILLING' || itemId === 'AUTO_BILLING' || itemId === 'AI_SCANNER'
+          || itemId === 'RATE_MASTER' || itemId === 'COMMISSION_MASTER') return checkView('Billing & Invoicing');
       if (itemId === 'EXPENSE_APPROVALS') return checkView('Billing & Invoicing') || checkView('Ledger & Cash Book');
       if (itemId === 'CUST_LEDGER' || itemId === 'OWNER_STATEMENT' || itemId === 'FUEL_REVIEW') return checkView('Ledger & Cash Book') || checkView('Billing & Invoicing');
       if (itemId === 'CA_PNL') return checkView('Finance Hub');
@@ -172,6 +173,11 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'EXPENSE_APPROVALS', label: 'Pending Expenses', icon: '⏳' },
         { id: 'AUTO_BILLING', label: 'Auto Billing (Monthly)', icon: '⚡' },
         { id: 'RATE_MASTER', label: 'Rate Master (Freight Rules)', icon: '💹' },
+        // Sits beside Rate Master because it answers the mirror question:
+        // Rate Master is what we CHARGE the customer, this is what we KEEP
+        // out of an attached or market lorry's freight. 16 attached lorries
+        // carry ~45% of a fortnight's freight and none of them has a rate.
+        { id: 'COMMISSION_MASTER', label: 'Commission & Rate Master', icon: '💼' },
         { id: 'AI_SCANNER', label: 'AI Bill Scanner', icon: '🤖' },
         { id: 'EMAIL_PARSER', label: 'Email Bill Parser (Auto)', icon: '📧' },
         { id: 'FLEET_CARD', label: 'Fleet Card & Settlement', icon: '💳' },
