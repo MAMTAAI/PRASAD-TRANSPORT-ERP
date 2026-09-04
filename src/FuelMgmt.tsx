@@ -821,6 +821,24 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
      return matchVendor && matchDate && matchSearch && matchSettled;
   });
 
+  // Ten rows at a time, newest first. The same hook the unbilled-slips table two
+  // tabs over already uses, so the control is the one the staff know and the
+  // chosen page size follows them across the ERP.
+  //
+  // What was slow here was never the fetch — the reconciliation tab needs the
+  // whole register anyway — it was painting 1,042 rows with three buttons each
+  // into the DOM. Slicing fixes exactly that and nothing else.
+  //
+  // Ordering needs no work: the API returns entry_date DESC and nothing here
+  // re-sorts, so page 1 is always the latest.
+  const pgHistory = usePagination(filteredHistory, { defaultSize: 10 });
+
+  // Any change to WHAT is being listed goes back to page 1. Sitting on page 14
+  // of a list that just became four pages long shows an empty table, which
+  // reads as "the data is gone".
+  useEffect(() => { pgHistory.setPage(1); },
+    [historyVendor, historyFromDate, historyToDate, historySearch, showSettled]);
+
   const totalHsdFixedGiven = pumps.filter(p => p.fuel_type === 'FIXED').reduce((sum, p) => sum + (parseFloat(p.qty) || 0), 0);
   const totalCashFixedGiven = pumps.filter(p => p.fuel_type === 'FIXED').reduce((sum, p) => sum + (parseFloat(p.cash_advance) || 0), 0);
   
@@ -1643,9 +1661,9 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                 </tr>
               </thead>
               <tbody>
-                {filteredHistory.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>No Fuel Memos Found for selected filters.</td></tr> : 
-                  filteredHistory.map((f, i) => (
-                  <tr key={i}>
+                {filteredHistory.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>No Fuel Memos Found for selected filters.</td></tr> :
+                  pgHistory.slice.map((f: any, i: number) => (
+                  <tr key={f.id ?? i}>
                     <td>{f.entry_date}<br/><span style={{ color: '#ffb224', fontSize: '11px' }}>{f.memo_no}</span></td>
                     <td style={{ fontWeight: 'bold', color: '#fff', fontSize: '14px' }}>
                       {f.vehicle_no}<br/>
@@ -1723,6 +1741,11 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
               </tbody>
             </table>
           )}
+
+          {/* The ERP's own pagination footer. `total` is the whole filtered
+              set, not this page — a screen saying "1–10 of 10" while 501 slips
+              wait would be lying about how much work is left. */}
+          <GlobalPagination {...pgHistory} label="slips" />
         </div>
       )}
 
