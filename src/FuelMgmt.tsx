@@ -80,6 +80,10 @@ export default function FuelMgmt() {
   const [historyFromDate, setHistoryFromDate] = useState('');
   const [historyToDate, setHistoryToDate] = useState('');
   const [historySearch, setHistorySearch] = useState('');
+  // Settled memos are hidden by default: 540 of 1,042 rows are finished work,
+  // and burying the ones still owed under them is what made the screen unusable.
+  const [showSettled, setShowSettled] = useState(false);
+  const [unlinked, setUnlinked] = useState<any>(null);
 
   useEffect(() => {
     fetchData();
@@ -101,8 +105,41 @@ export default function FuelMgmt() {
       const fSnap = await apiJson(`${QUEUES_API}/fuel-entries?limit=2000`);
       // Already newest-first from the API (entry_date DESC).
       setFuelHistory(fSnap.entries ?? []);
+
+      // The memos that name a pump the vendor master does not hold. Failing to
+      // load this must not take the history screen down with it.
+      try {
+        setUnlinked(await apiJson(`${QUEUES_API}/fuel-unlinked-pumps`));
+      } catch { setUnlinked(null); }
     } catch (e) { console.error(e); }
     setLoading(false);
+  };
+
+  /**
+   * Attach every memo carrying one nickname to the pump the master holds. Only
+   * offered where exactly one vendor matches; the confirm spells out how many
+   * memos and how much money move, because after this they start appearing in
+   * that pump's fortnight bill.
+   */
+  const linkPump = async (n: any) => {
+    if (!n?.suggested_vendor_id) return;
+    const money = `₹${Math.round(Number(n.amount)).toLocaleString('en-IN')}`;
+    const NL = String.fromCharCode(10);
+    if (!window.confirm(
+      `"${n.vendor_name}" ke ${n.slips} slip (${money}) ko` + NL
+      + `"${n.suggested_vendor_name}" se jod dein?` + NL + NL
+      + `Iske baad ye us pump ke 15-din ke bill me aayenge.` + NL
+      + `Settle ho chuke slip nahi chhuenge.`)) return;
+    try {
+      const r = await apiJson(`${QUEUES_API}/fuel-link-pump`, {
+        method: 'POST',
+        body: JSON.stringify({ vendor_name: n.vendor_name, vendor_id: n.suggested_vendor_id }),
+      });
+      alert(`✅ ${r.linked} slip jud gaye — ${r.vendor_name}.`);
+      await fetchData();
+    } catch (e: any) {
+      alert(`❌ Nahi jud paaye: ${e?.message ?? 'unknown'}`);
+    }
   };
 
   // --- MULTI-PUMP LOGIC ---
@@ -747,20 +784,40 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
   };
 
   // 📈 HISTORY FILTERS LOGIC
+  //
+  // The date comparisons read `entry_date`. They used to read `f.date`, which
+  // fuel_entries has never had — so From/To silently matched everything and the
+  // Date column beside every memo rendered blank. Both were the same undefined.
+  const historyCounts = React.useMemo(() => fuelHistory.reduce((a: any, f: any) => {
+    const s = f.slip_status ?? (f.bill_status === 'BILLED_VERIFIED' ? 'SETTLED'
+              : (f.vendor_id ? 'PENDING' : 'NO_PUMP'));
+    a[s] = (a[s] ?? 0) + 1;
+    if (s !== 'SETTLED') a.open_amount += Number(f.amount) || 0;
+    return a;
+  }, { SETTLED: 0, PENDING: 0, NO_PUMP: 0, open_amount: 0 }), [fuelHistory]);
+
   const filteredHistory = fuelHistory.filter(f => {
      const matchVendor = historyVendor === 'ALL' || f.vendor_id === historyVendor;
      let matchDate = true;
-     if (historyFromDate && f.date < historyFromDate) matchDate = false;
-     if (historyToDate && f.date > historyToDate) matchDate = false;
+     if (historyFromDate && f.entry_date < historyFromDate) matchDate = false;
+     if (historyToDate && f.entry_date > historyToDate) matchDate = false;
 
      let matchSearch = true;
      if (historySearch) {
         const q = historySearch.toLowerCase();
-        matchSearch = (f.vehicle_no || '').toLowerCase().includes(q) || 
+        matchSearch = (f.vehicle_no || '').toLowerCase().includes(q) ||
                       (f.driver_name || '').toLowerCase().includes(q) ||
                       (f.memo_no || '').toLowerCase().includes(q);
      }
-     return matchVendor && matchDate && matchSearch;
+     // A settled memo is finished work. It is kept out of the way by default so
+     // the screen shows what is still owed, and put back by the toggle for an
+     // audit — never deleted, and never hidden while someone is searching for a
+     // particular memo, because then "not found" would be a lie.
+     const settled = (f.slip_status ?? f.bill_status) === 'SETTLED'
+                  || f.bill_status === 'BILLED_VERIFIED';
+     const matchSettled = showSettled || historySearch ? true : !settled;
+
+     return matchVendor && matchDate && matchSearch && matchSettled;
   });
 
   const totalHsdFixedGiven = pumps.filter(p => p.fuel_type === 'FIXED').reduce((sum, p) => sum + (parseFloat(p.qty) || 0), 0);
@@ -1477,6 +1534,100 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
             )}
           </div>
 
+          {/* ── what the list is actually showing ───────────────────────── */}
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap',
+                        marginBottom: '14px' }}>
+            {[['⏳ Baaki', historyCounts.PENDING, '#ffb224'],
+              ['⚠️ Pump nahi juda', historyCounts.NO_PUMP, '#ff6b81'],
+              ['✅ Settle ho gaye', historyCounts.SETTLED, '#2fe39b']].map((t: any) => (
+              <div key={t[0]} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid #27395f',
+                                       borderRadius: '8px', padding: '7px 12px' }}>
+                <span style={{ color: t[2], fontWeight: 800, fontSize: '15px' }}>{t[1]}</span>
+                <span style={{ color: '#9aadd4', fontSize: '11.5px', marginLeft: '7px' }}>{t[0]}</span>
+              </div>
+            ))}
+            <div style={{ color: '#5d7196', fontSize: '11.5px' }}>
+              ₹{Math.round(historyCounts.open_amount).toLocaleString('en-IN')} abhi tak settle nahi hua
+            </div>
+            <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '7px',
+                            color: showSettled ? '#2fe39b' : '#9aadd4', fontSize: '12px',
+                            cursor: 'pointer', userSelect: 'none' }}>
+              <input type="checkbox" checked={showSettled} onChange={(e) => setShowSettled(e.target.checked)}
+                     style={{ accentColor: '#2fe39b', width: '15px', height: '15px', cursor: 'pointer' }} />
+              Settle hue slip bhi dikhaayein
+            </label>
+          </div>
+
+          {/* ── the memos no fortnight can ever pick up ──────────────────── */}
+          {/* These are the reason ₹75 lakh of diesel reads as "pending". The
+              memo carries the pump's WhatsApp nickname — 'B N filling' — where
+              the master holds 'B N FILLING STATION', so it belongs to no
+              vendor, lands in no fortnight, and can never be billed. The link
+              is offered, never taken: two of these names reach more than one
+              vendor row, and choosing for the desk would be a coin flip on
+              104 memos. */}
+          {unlinked?.names?.length > 0 && (
+            <div style={{ border: '1px solid rgba(255,107,129,0.45)', borderRadius: '10px',
+                          background: 'rgba(255,107,129,0.06)', padding: '14px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px',
+                            flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <b style={{ color: '#ff6b81', fontSize: '13.5px' }}>
+                  ⚠️ {unlinked.slips} slip kisi pump se jude nahi — ₹{Math.round(unlinked.amount).toLocaleString('en-IN')}
+                </b>
+                <span style={{ color: '#9aadd4', fontSize: '11.5px' }}>
+                  Jab tak pump nahi juda, in ka 15-din ka bill ban hi nahi sakta.
+                </span>
+              </div>
+              <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                <table style={{ width: '100%', minWidth: '640px', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr>
+                      {['Slip par likha naam', 'Slip', 'Rakam', 'Master ka pump', ''].map((h, i) => (
+                        <th key={i} style={{ padding: '6px 9px', textAlign: i === 1 || i === 2 ? 'right' : 'left',
+                                             fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.07em',
+                                             color: '#5d7196', borderBottom: '1px solid #27395f' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unlinked.names.map((n: any) => (
+                      <tr key={n.vendor_name}>
+                        <td style={{ padding: '7px 9px', borderBottom: '1px solid #18244a', color: '#eef3ff', fontWeight: 600 }}>
+                          {n.vendor_name}
+                          <div style={{ fontSize: '10px', color: '#5d7196', fontWeight: 400 }}>
+                            {n.first_slip} → {n.last_slip}
+                          </div>
+                        </td>
+                        <td style={{ padding: '7px 9px', borderBottom: '1px solid #18244a', color: '#c4d1ea',
+                                     textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{n.slips}</td>
+                        <td style={{ padding: '7px 9px', borderBottom: '1px solid #18244a', color: '#c4d1ea',
+                                     textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          ₹{Math.round(Number(n.amount)).toLocaleString('en-IN')}
+                        </td>
+                        <td style={{ padding: '7px 9px', borderBottom: '1px solid #18244a',
+                                     color: n.suggested_vendor_id ? '#22d3ee' : '#ffb224' }}>
+                          {n.suggested_vendor_name ?? n.advice}
+                        </td>
+                        <td style={{ padding: '7px 9px', borderBottom: '1px solid #18244a', textAlign: 'right' }}>
+                          {n.suggested_vendor_id ? (
+                            <button onClick={() => linkPump(n)}
+                              style={{ background: 'rgba(47,227,155,0.14)', color: '#2fe39b',
+                                       border: '1px solid rgba(47,227,155,0.5)', borderRadius: '6px',
+                                       padding: '4px 11px', fontSize: '11.5px', fontWeight: 700, cursor: 'pointer' }}>
+                              🔗 Jod dein
+                            </button>
+                          ) : (
+                            <span style={{ color: '#5d7196', fontSize: '11px' }}>desk ka faisla</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {loading ? <p style={{ color: '#ffb224', textAlign: 'center', padding: '20px' }}>Loading History...</p> : (
             <table>
               <thead>
@@ -1494,7 +1645,7 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                 {filteredHistory.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>No Fuel Memos Found for selected filters.</td></tr> : 
                   filteredHistory.map((f, i) => (
                   <tr key={i}>
-                    <td>{f.date}<br/><span style={{ color: '#ffb224', fontSize: '11px' }}>{f.memo_no}</span></td>
+                    <td>{f.entry_date}<br/><span style={{ color: '#ffb224', fontSize: '11px' }}>{f.memo_no}</span></td>
                     <td style={{ fontWeight: 'bold', color: '#fff', fontSize: '14px' }}>
                       {f.vehicle_no}<br/>
                       <span style={{ fontSize: '10px', color: '#9aadd4', fontWeight: 'normal' }}>👤 {f.driver_name || 'N/A'}</span>
@@ -1510,9 +1661,40 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                       <small style={{ color: '#2fe39b' }}>₹{f.amount}</small>
                     </td>
                     <td>
-                      <span className="badge" style={{ background: f.bill_status === 'BILLED_VERIFIED' ? 'rgba(47, 227, 155,0.2)' : 'rgba(255, 107, 129,0.2)', color: f.bill_status === 'BILLED_VERIFIED' ? '#2fe39b' : '#ff6b81' }}>
-                        {f.bill_status === 'BILLED_VERIFIED' ? '✅ Reconciled' : '⏳ Pending'}
-                      </span>
+                      {/* Three states, not two. "Pending" used to cover both a
+                          memo waiting for its pump's fortnight to close and a
+                          memo whose pump name reaches no vendor at all — which
+                          no fortnight can ever pick up. The second one is work
+                          for the desk and was invisible. */}
+                      {(() => {
+                        const s = f.slip_status
+                          ?? (f.bill_status === 'BILLED_VERIFIED' ? 'SETTLED'
+                              : (f.vendor_id ? 'PENDING' : 'NO_PUMP'));
+                        const look: any = {
+                          SETTLED: ['rgba(47,227,155,0.18)', '#2fe39b', '✅ Settled'],
+                          PENDING: ['rgba(255,178,36,0.18)', '#ffb224', '⏳ Pending'],
+                          NO_PUMP: ['rgba(255,107,129,0.18)', '#ff6b81', '⚠️ Pump nahi juda'],
+                        }[s] ?? ['rgba(255,178,36,0.18)', '#ffb224', '⏳ Pending'];
+                        return (
+                          <>
+                            <span className="badge" style={{ background: look[0], color: look[1] }}>
+                              {look[2]}
+                            </span>
+                            {/* Which bill paid it — the difference between a
+                                badge that claims and a badge that proves. */}
+                            {s === 'SETTLED' && f.status_label && (
+                              <div style={{ fontSize: '10px', color: '#5d7196', marginTop: '4px', maxWidth: '150px' }}>
+                                {f.settled_invoice_no ? `Bill ${f.settled_invoice_no}` : f.status_label}
+                              </div>
+                            )}
+                            {s === 'NO_PUMP' && (
+                              <div style={{ fontSize: '10px', color: '#8a5c6a', marginTop: '4px', maxWidth: '150px' }}>
+                                bill nahi ban sakta
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
                     </td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', alignItems: 'center' }}>

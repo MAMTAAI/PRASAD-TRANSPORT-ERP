@@ -543,6 +543,24 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
        JSON.stringify(b.resolutions ?? {}), JSON.stringify(b.lines ?? []),
        recon?.voucher_id ?? null, b.created_by ?? 'desk']);
 
+    // ── point the slips back at the bill that just paid them ──────────────
+    //
+    // /fuel-reconcile stamps settled_voucher_id and settled_at, but it cannot
+    // stamp settled_bill_id: the bill row does not exist yet when it runs — it
+    // is written directly above. So the last step of settling a fortnight is
+    // telling its slips which fortnight it was. Without this the memo knows it
+    // was paid and cannot say by what, and the history screen falls back to
+    // "settled before the reference was recorded" on a bill settled minutes
+    // ago.
+    //
+    // Scoped to the slips this call posted, and only where the link is still
+    // missing — a slip already pointing at an earlier bill is not re-pointed.
+    const { rowCount: linked } = await query(
+      `UPDATE fuel_entries
+          SET settled_bill_id = $1::uuid, updated_at = now()
+        WHERE id = ANY($2::uuid[]) AND settled_bill_id IS NULL`,
+      [bill.id, slipIds]);
+
     const { rows: [out] } = await query(
       `SELECT * FROM v_pump_outstanding WHERE vendor_id = $1::uuid`, [vendorId]);
 
@@ -562,6 +580,7 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
       },
       voucher_id: recon?.voucher_id ?? null,
       slips_posted: recon?.slips ?? 0,
+      slips_linked: linked,
       trips_adjusted: recon?.trips_adjusted ?? 0,
       pump_outstanding: out ?? null,
       note: disputed > 0

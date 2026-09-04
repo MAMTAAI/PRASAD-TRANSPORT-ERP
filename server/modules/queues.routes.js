@@ -345,10 +345,72 @@ export async function registerQueueRoutes(app) {
     if (from) { args.push(from); where.push(`entry_date >= $${args.length}::date`); }
     if (to) { args.push(to); where.push(`entry_date <= $${args.length}::date`); }
     args.push(clamp(limit, 1000, 5000));
+    // v_fuel_slip_status, not the table: the history screen used to decide the
+    // badge itself with `bill_status === 'BILLED_VERIFIED' ? ✅ : ⏳`, which
+    // painted the same amber "Pending" on a memo waiting for its fortnight to
+    // close and on a memo whose pump name reaches no vendor at all and which
+    // therefore can never be billed. Those are different problems and only one
+    // of them is anybody's to fix. The view carries `slip_status` and the bill
+    // it was settled under; the rest of the row is unchanged, so every existing
+    // consumer still finds the columns it reads.
     const { rows } = await query(
-      `SELECT * FROM fuel_entries ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY entry_date DESC NULLS LAST, created_at DESC LIMIT $${args.length}`, args);
+      `SELECT * FROM v_fuel_slip_status ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+        ORDER BY entry_date DESC NULLS LAST LIMIT $${args.length}`, args);
     return { entries: rows };
+  });
+
+  /**
+   * The memos that name a pump the vendor master does not hold — the reason
+   * ₹75 lakh of diesel sits on the history screen looking merely "pending".
+   * Read-only and grouped by the name as typed; the link itself is a person's
+   * decision, taken below.
+   */
+  app.get('/fuel-unlinked-pumps', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query('SELECT * FROM v_fuel_slip_unlinked');
+    return {
+      names: rows,
+      slips: rows.reduce((n, r) => n + Number(r.slips || 0), 0),
+      amount: rows.reduce((n, r) => n + Number(r.amount || 0), 0),
+    };
+  });
+
+  /**
+   * Attach every memo carrying one pump nickname to a real vendor. The vendor
+   * is named by the caller, never guessed here — the view offers a suggestion
+   * and a person confirms it, because two of these names reach more than one
+   * vendor row and picking for them would be a coin flip on 104 memos.
+   *
+   * Settled memos are left alone: their money has already moved under the
+   * vendor they were posted against, and re-pointing them would move history.
+   */
+  app.post('/fuel-link-pump', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const b = req.body ?? {};
+    const name = String(b.vendor_name ?? '').trim();
+    const vendorId = String(b.vendor_id ?? '');
+    if (!name) return reply.code(400).send({ error: 'NO_NAME' });
+    if (!UUID_RE.test(vendorId)) return reply.code(400).send({ error: 'BAD_VENDOR' });
+
+    const { rows: v } = await query(
+      'SELECT id, vendor_name FROM vendors WHERE id = $1::uuid', [vendorId]);
+    if (!v.length) return reply.code(404).send({ error: 'NO_SUCH_VENDOR' });
+
+    const { rows } = await query(
+      `UPDATE fuel_entries
+          SET vendor_id = $1::uuid, vendor_name = $2, updated_at = now()
+        WHERE vendor_id IS NULL
+          AND vendor_name = $3
+          AND COALESCE(bill_status,'UNBILLED') <> 'BILLED_VERIFIED'
+        RETURNING id, amount`,
+      [vendorId, v[0].vendor_name, name]);
+
+    return {
+      linked: rows.length,
+      amount: rows.reduce((n, r) => n + Number(r.amount || 0), 0),
+      vendor_name: v[0].vendor_name,
+      note: `${rows.length} memo ab ${v[0].vendor_name} ke fortnight bill me aayenge.`,
+    };
   });
 
   // A slip can be corrected only while it is still UNBILLED. Once verified, its
