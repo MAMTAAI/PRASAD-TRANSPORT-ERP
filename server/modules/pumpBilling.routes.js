@@ -817,7 +817,12 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
     // money. The entry screen makes a person confirm both.
     const hintPump = String(b.pump_hint ?? '').trim()
       || (sourceFile.includes('/') ? sourceFile.split('/')[0].trim() : '');
-    const dm = /(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ](\d{4})/.exec(sourceFile);
+    // "Apr 01-15 2026.pdf" matches the dd-mm-yyyy shape as day=01, MONTH=15 —
+    // which is not a month. An invalid month means this is not a date at all,
+    // so it must fall through to the range form rather than give up; four real
+    // April bills landed undated in the queue before this guard was added.
+    const dmRaw = /(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ](\d{4})/.exec(sourceFile);
+    const dm = dmRaw && Number(dmRaw[2]) >= 1 && Number(dmRaw[2]) <= 12 ? dmRaw : null;
     const range = /(\d{1,2})\s*-\s*(\d{1,2})/.exec(sourceFile.replace(/\d{4}/g, ''));
     let pf = null; let pt = null;
     if (dm) {
