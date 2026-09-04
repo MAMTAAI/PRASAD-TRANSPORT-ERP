@@ -14,13 +14,26 @@
 // lookup into one charge. A new token is minted per lookup and thrown away the
 // moment a place is chosen — reusing it across lookups is the mistake that
 // makes the grouping silently stop working.
+//
+// THE COMPANY'S OWN LANES COME FIRST (`local`, 4-Sep-2026). The trip form used
+// a plain <datalist> of the 400-odd routes in the RTKM master, because picking
+// one of those is what auto-fills the round-trip km, the fixed cash and the
+// fixed diesel. Swapping that for Google outright would have made the form
+// prettier and the numbers stop filling in. So both lists are shown in one
+// dropdown, ours above Google's and marked as ours: a route the office already
+// runs is chosen in one tap, and a place nobody has been to yet is still
+// findable. Choosing a local entry NEVER touches a Google session token — it
+// is not a Google lookup and must not be billed as the end of one.
 // ============================================================================
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './maps';
 
 export default function PlaceInput({
-  value, onChange, placeholder = 'Type a place…', className = '',
+  value, onChange, placeholder = 'Type a place…', className = '', style,
   onResolved, disabled, id, autoFocus,
+  local = [],          // [{ value, hint }] — this company's own routes/depots
+  localLabel = 'Apni routes',
+  onPickLocal,         // (value) => void — the auto-fill the datalist used to do
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -71,13 +84,34 @@ export default function PlaceInput({
     );
   }, []);
 
+  // Ours, matched on the spot — no network, no billing, so it can fire on every
+  // keystroke and from the first character rather than the third.
+  const hits = React.useMemo(() => {
+    const q = String(value ?? '').trim().toLowerCase();
+    if (!q) return (local || []).slice(0, 6);
+    return (local || [])
+      .filter((o) => String(o.value ?? '').toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [local, value]);
+
   const type = (e) => {
     const v = e.target.value;
     onChange(v);
+    if (v.trim()) setOpen(true);
     // 250ms: fast enough to feel live, slow enough that "Bongaigaon" is one
     // lookup rather than ten. Every keystroke is a billed prediction request.
     clearTimeout(timer.current);
     timer.current = setTimeout(() => ask(v), 250);
+  };
+
+  const pickLocal = (o) => {
+    onChange(o.value);
+    setOpen(false);
+    setSuggestions([]);
+    // The route master carries the money — rtkm, fixed cash, fixed diesel — and
+    // this is the callback that fills them in. Without it the dropdown looks
+    // identical and quietly stops doing the only thing it was there for.
+    onPickLocal?.(o.value);
   };
 
   const choose = (s) => {
@@ -107,18 +141,41 @@ export default function PlaceInput({
         value={value ?? ''}
         onChange={type}
         onKeyDown={key}
-        onFocus={() => suggestions.length && setOpen(true)}
+        onFocus={() => (suggestions.length || hits.length) && setOpen(true)}
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
         autoComplete="off"
         className={className}
+        style={style}
         aria-autocomplete="list"
         aria-expanded={open}
       />
-      {open && suggestions.length > 0 && (
-        <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 overflow-hidden rounded-xl
+      {open && (suggestions.length > 0 || hits.length > 0) && (
+        <ul className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-[320px] overflow-y-auto overflow-x-hidden rounded-xl
                        border border-white/10 bg-[#0b0f18]/95 shadow-[0_20px_50px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          {hits.length > 0 && (
+            <li className="border-b border-white/5 bg-cyan-500/[0.06] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300/70">
+              {localLabel}
+            </li>
+          )}
+          {hits.map((o) => (
+            <li key={`local:${o.value}`}>
+              <button
+                type="button"
+                onClick={() => pickLocal(o)}
+                className="block w-full px-3 py-2.5 text-left text-[12.5px] text-white/80 transition-colors hover:bg-cyan-500/15"
+              >
+                <span className="block font-semibold">{o.value}</span>
+                {o.hint && <span className="block text-[11px] text-cyan-200/40">{o.hint}</span>}
+              </button>
+            </li>
+          ))}
+          {suggestions.length > 0 && hits.length > 0 && (
+            <li className="border-y border-white/5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white/25">
+              Google Maps
+            </li>
+          )}
           {suggestions.map((s, i) => (
             <li key={s.place_id}>
               <button
@@ -140,7 +197,7 @@ export default function PlaceInput({
             </li>
           ))}
           <li className="border-t border-white/5 px-3 py-1.5 text-[10px] text-white/25">
-            Suggestions from Google — or just type the depot name and carry on.
+            Type karke apna naam bhi likh sakte hain — list se chunna zaroori nahi.
           </li>
         </ul>
       )}

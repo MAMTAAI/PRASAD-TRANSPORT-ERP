@@ -123,8 +123,9 @@ export default function RouteMap({
     put('dest', destination, dot('#f472b6', '#500724'), destination?.label ?? 'Unloading point');
     put('truck', truck, truckIcon(truck?.heading ?? 0), truck?.label ?? 'Vehicle');
 
+    let path = null;
     if (polyline && g.maps.geometry?.encoding?.decodePath) {
-      const path = g.maps.geometry.encoding.decodePath(polyline);
+      path = g.maps.geometry.encoding.decodePath(polyline);
       if (path?.length) {
         if (line.current) line.current.setPath(path);
         else line.current = new g.maps.Polyline({
@@ -135,8 +136,20 @@ export default function RouteMap({
 
     // Fit whatever actually exists. Fitting to a fixed box would zoom past a
     // short lane and cut a long one in half.
+    //
+    // THE ROAD IS PART OF "WHAT EXISTS". Fitting to the three points alone
+    // frames the straight line between the depots, and a road that bows out —
+    // Silchar to Agartala goes the long way round the hills — is then drawn
+    // half outside the viewport. Extending along the decoded path costs one
+    // pass over points we have already decoded.
     const pts = [origin, destination, truck].filter((p) => p && Number.isFinite(Number(p.lat)));
-    if (pts.length === 1) { map.current.setCenter({ lat: Number(pts[0].lat), lng: Number(pts[0].lng) }); map.current.setZoom(11); }
+    if (path?.length > 1) {
+      const b = new g.maps.LatLngBounds();
+      for (const p of path) b.extend(p);
+      for (const p of pts) b.extend({ lat: Number(p.lat), lng: Number(p.lng) });
+      map.current.fitBounds(b, 48);
+    }
+    else if (pts.length === 1) { map.current.setCenter({ lat: Number(pts[0].lat), lng: Number(pts[0].lng) }); map.current.setZoom(11); }
     else if (pts.length > 1) {
       const b = new g.maps.LatLngBounds();
       for (const p of pts) b.extend({ lat: Number(p.lat), lng: Number(p.lng) });

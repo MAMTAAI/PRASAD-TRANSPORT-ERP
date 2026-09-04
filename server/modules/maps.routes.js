@@ -16,6 +16,12 @@
 import { createHash } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
 import { getRoute, getDistanceMatrix, geocode, mapsConfigured } from '../lib/googleMaps.js';
+// THE SAME FILE THE BROWSER USES. Not a copy of the rule — the rule. The
+// driver's phone gets its map from this endpoint and has no access to the app's
+// own code, so if the two ever drifted the office would see a route and the
+// driver would see two pins and empty space. It is plain ESM for exactly this
+// reason; see the header in that file.
+import { placeOf } from '../../src/lib/tripPlaces.core.mjs';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -179,10 +185,22 @@ export function registerMapsRoutes(app) {
     if (!t[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such trip' });
     const trip = t[0];
 
+    // WHAT THE REGISTER STORES IS NOT WHAT A GEOCODER CAN FIND. On every trip
+    // imported from IOCL, loading_point is the literal code "7D18"; this used to
+    // ask Google for "7D18, India", get nothing, and return origin:null — which
+    // is why the driver app drew a destination pin and empty space where the
+    // road belongs. placeOf() resolves the code to the name this company already
+    // uses for that depot, and refuses to guess for codes nobody has named.
+    const from = placeOf(trip.loading_point);
+    const to = placeOf(trip.destination);
+
     const [route, o, d] = await Promise.all([
-      getRoute(trip.loading_point, trip.destination),
-      geocode(trip.loading_point ? `${trip.loading_point}, India` : ''),
-      geocode(trip.destination ? `${trip.destination}, India` : ''),
+      from.query && to.query
+        ? getRoute(from.query, to.query)
+        : Promise.resolve({ ok: false, reason: 'UNPLACEABLE',
+            detail: `cannot place ${[!from.query && from.label, !to.query && to.label].filter(Boolean).join(' and ')}` }),
+      geocode(from.query || ''),
+      geocode(to.query || ''),
     ]);
 
     const { rows: ping } = await query(`
@@ -200,8 +218,15 @@ export function registerMapsRoutes(app) {
         status: trip.status, driver_name: trip.driver_name,
         loading_point: trip.loading_point, destination: trip.destination,
       },
-      origin: o.ok ? { lat: o.lat, lng: o.lng, label: trip.loading_point, resolved: o.formatted } : null,
-      destination: d.ok ? { lat: d.lat, lng: d.lng, label: trip.destination, resolved: d.formatted } : null,
+      // `label` stays what the register holds — the office knows these depots by
+      // their codes and a screen that silently renames them is a screen nobody
+      // trusts. `resolved` is what Google actually pinned, so a wrong pin is
+      // visible rather than mysterious.
+      origin: o.ok ? { lat: o.lat, lng: o.lng, label: from.label, resolved: o.formatted } : null,
+      destination: d.ok ? { lat: d.lat, lng: d.lng, label: to.label, resolved: d.formatted } : null,
+      unplaceable: (from.unresolved || to.unresolved || !from.query || !to.query)
+        ? { origin: !from.query ? from.label : null, destination: !to.query ? to.label : null }
+        : null,
       route: route.ok
         ? { polyline: route.polyline, distance_km: route.distance_m == null ? null : +(route.distance_m / 1000).toFixed(1),
             duration_min: route.duration_s == null ? null : Math.round(route.duration_s / 60),

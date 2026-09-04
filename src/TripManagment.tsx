@@ -22,8 +22,10 @@ function TripMeter({ label, used, target, unit, color }) {
     </div>
   );
 }
-import { getDrivingDistance, loadGoogleMaps } from './lib/maps';
-import { placeOf, routeEmbedUrl, routeAppUrl } from './lib/tripPlaces';
+import { getDrivingDistance } from './lib/maps';
+import { placeOf, routeAppUrl } from './lib/tripPlaces';
+import TripRouteMap from './lib/TripRouteMap';
+import PlaceInput from './lib/PlaceInput';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -98,7 +100,6 @@ const fmtToll = (iso: any): string => {
   const m = s.match(/(\d{4})-(\d{2})-(\d{2})[ ]?(\d{2}:\d{2})?/);
   return m ? `${m[3]}-${m[2]}-${m[1]}${m[4] ? ' ' + m[4] : ''}` : (s || '—');
 };
-const escapeHtml = (s: any) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 /** Normalize a TOLL_TRANSACTIONS doc → the compact shape the UI needs. */
 const normalizeToll = (x: any) => ({
   plaza: x.plaza_name || x.Toll_Plaza_Name || x.Plaza || 'Toll Plaza',
@@ -121,115 +122,12 @@ const tollHasCoords = (toll: any) => {
 // FASTag toll crossing, auto-bounding to show both. Mounts only while its tab
 // is active; the effect's cleanup removes every marker/renderer/listener so the
 // map is torn down cleanly each time the modal (or tab) closes — no leaks.
-function FastagRouteMap({ origin, destination, toll }: { origin: string; destination: string; toll: any }) {
-  const mapRef = React.useRef<HTMLDivElement | null>(null);
-  const [status, setStatus] = React.useState<'loading' | 'ready' | 'error'>('loading');
-  const [errMsg, setErrMsg] = React.useState('');
-  const hasCoords = tollHasCoords(toll);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    const cleanups: Array<() => void> = [];
-    let map: any = null;
-    (async () => {
-      try {
-        await loadGoogleMaps();
-        if (cancelled || !mapRef.current) return;
-        const g = (window as any).google;
-        map = new g.maps.Map(mapRef.current, {
-          center: { lat: 26.15, lng: 91.75 }, zoom: 6,
-          mapTypeControl: false, streetViewControl: false, fullscreenControl: true, gestureHandling: 'greedy',
-        });
-        const bounds = new g.maps.LatLngBounds();
-        let havePoint = false;
-
-        // 📍 Last toll marker (only when coordinates are valid)
-        if (hasCoords) {
-          const pos = { lat: Number(toll.lat), lng: Number(toll.long) };
-          const marker = new g.maps.Marker({
-            position: pos, map, zIndex: 9999,
-            title: `Last Toll: ${toll.plaza || 'Toll Plaza'}`,
-            icon: { path: g.maps.SymbolPath.CIRCLE, scale: 12, fillColor: '#ffb224', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 },
-            label: { text: '🛣️', fontSize: '13px' },
-            animation: g.maps.Animation.DROP,
-          });
-          const iw = new g.maps.InfoWindow({
-            content: `<div style="color:#121c38;font-family:sans-serif;max-width:230px">
-              <div style="font-weight:800;font-size:13px">🛣️ ${escapeHtml(toll.plaza || 'Toll Plaza')}</div>
-              <div style="font-size:12px;margin-top:2px">Crossed at <b>${escapeHtml(fmtToll(toll.datetime))}</b></div>
-              ${toll.amount ? `<div style="font-size:12px;color:#b45309">Toll ₹${toll.amount}</div>` : ''}
-              ${toll.vehicle ? `<div style="font-size:11px;color:#3d548a">${escapeHtml(toll.vehicle)}</div>` : ''}
-            </div>`,
-          });
-          marker.addListener('click', () => iw.open(map, marker));
-          iw.open(map, marker);
-          bounds.extend(marker.getPosition()); havePoint = true;
-          cleanups.push(() => { g.maps.event.clearInstanceListeners(marker); iw.close(); marker.setMap(null); });
-        }
-
-        // 🛣️ Origin → Destination route
-        if (origin && destination) {
-          const ds = new g.maps.DirectionsService();
-          const dr = new g.maps.DirectionsRenderer({ map, preserveViewport: true, polylineOptions: { strokeColor: '#22d3ee', strokeWeight: 5, strokeOpacity: 0.9 } });
-          cleanups.push(() => dr.setMap(null));
-          ds.route({ origin, destination, travelMode: g.maps.TravelMode.DRIVING, region: 'in' }, (res: any, st: string) => {
-            if (cancelled || !map) return;
-            if (st === 'OK' && res) {
-              dr.setDirections(res);
-              const rb = res.routes?.[0]?.bounds;
-              if (rb) { bounds.union(rb); havePoint = true; }
-            }
-            if (havePoint) map.fitBounds(bounds, 64);
-          });
-        } else if (havePoint) {
-          map.fitBounds(bounds, 64);
-          const z = map.getZoom?.(); if (z && z > 13) map.setZoom(13);
-        }
-        if (!cancelled) setStatus('ready');
-      } catch (e: any) {
-        if (!cancelled) { setStatus('error'); setErrMsg(e?.message || 'Map failed to load'); }
-      }
-    })();
-
-    // 🧹 Cleanup on unmount / dep-change: kill overlays + listeners, drop the map.
-    return () => {
-      cancelled = true;
-      cleanups.forEach(fn => { try { fn(); } catch { /* best-effort */ } });
-      try { if (map && (window as any).google) (window as any).google.maps.event.clearInstanceListeners(map); } catch { /* noop */ }
-      map = null;
-    };
-  }, [origin, destination, toll?.lat, toll?.long, toll?.datetime, hasCoords]);
-
-  return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
-
-      {/* 📍 Floating FASTag location card (Tailwind) */}
-      {hasCoords ? (
-        <div className="absolute top-3 left-3 right-3 sm:right-auto sm:max-w-xs z-10 rounded-xl bg-slate-900/85 backdrop-blur border border-amber-400/40 px-3 py-2 shadow-lg pointer-events-none">
-          <div className="text-[10px] uppercase tracking-wider text-amber-400 font-bold">📍 Last Known Location (FASTag)</div>
-          <div className="text-sm text-white font-semibold leading-snug">Crossed {toll.plaza || 'Toll Plaza'}</div>
-          <div className="text-[12px] text-slate-300">at {fmtToll(toll.datetime)} · {timeAgo(toll.datetime) || 'recently'}</div>
-        </div>
-      ) : (
-        <div className="absolute top-3 left-3 right-3 sm:right-auto sm:max-w-xs z-10 rounded-xl bg-slate-900/85 backdrop-blur border border-slate-500/40 px-3 py-2 shadow-lg pointer-events-none">
-          <div className="text-[12px] text-slate-300">📍 {toll ? 'FASTag toll found but GPS coordinates missing.' : 'No FASTag toll crossed yet on this trip.'}</div>
-        </div>
-      )}
-
-      {status === 'loading' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 text-sky-300 text-sm font-semibold">🗺️ Loading live map…</div>
-      )}
-      {status === 'error' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/85 text-center px-6">
-          <span className="text-3xl">🗺️</span>
-          <p className="text-red-400 text-sm mt-2 font-semibold">Map error: {errMsg}</p>
-          <p className="text-slate-400 text-xs mt-1">Check the Google Maps API key / network.</p>
-        </div>
-      )}
-    </div>
-  );
-}
+// The FASTag tab used to carry its OWN Google map here — a second map, with a
+// second dark theme, a second idea of where the lane was and its own
+// DirectionsService call. Flipping between "Full Route Plan" and "FASTag Toll"
+// tore the road down and rebuilt it, and the two tabs could disagree about the
+// same trip. All four tabs now render one <TripRouteMap /> with different pins
+// switched on. Deleted 4-Sep-2026 — see src/lib/TripRouteMap.tsx.
 
 export default function TripManagment() {
   const { isMobile } = useIsMobile();
@@ -1008,6 +906,39 @@ export default function TripManagment() {
   }
   const payModalCashBal = payModalCashTarget - payModalCashIssued;
 
+  // ── WHAT THE DROPDOWNS OFFER ──────────────────────────────────────────────
+  // Built from the register itself rather than a hardcoded list, so a depot the
+  // office starts using appears on its own. Loading points come from the routes
+  // that HAVE one; the consignee list is the RTKM master, because choosing from
+  // it is what fills in the money.
+  const routeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    for (const m of rtkmMaster) {
+      const v = String(m.Consignee_Name || m.unloading_point || m.Destination || '').trim();
+      if (!v || seen.has(v.toLowerCase())) continue;
+      seen.add(v.toLowerCase());
+      const km = m.RTKM_Distance || m.rtkm_distance || m.Distance || m.RTKM;
+      const from = m.Depot_Link || m.loading_point || m.Origin;
+      out.push({ value: v, hint: [from, km ? `${km} km` : null].filter(Boolean).join(' · ') || null });
+    }
+    return out;
+  }, [rtkmMaster]);
+
+  const depotOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: any[] = [];
+    const add = (raw: any) => {
+      const v = String(raw ?? '').trim();
+      if (!v || seen.has(v.toLowerCase())) return;
+      seen.add(v.toLowerCase());
+      out.push({ value: v, hint: placeOf(v).unresolved ? 'map par nahi mil raha' : null });
+    };
+    for (const m of rtkmMaster) add(m.Depot_Link || m.loading_point || m.Origin);
+    for (const t of trips) add(t.loading_point || t.Loading_Point);
+    return out;
+  }, [rtkmMaster, trips]);
+
   const styles = {
     container: { padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top left, #121c38, #0a1024)', fontFamily: "'Inter', sans-serif", color: 'white' },
     glassCard: { background: 'rgba(24, 36, 74, 0.4)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', padding: '25px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)', overflowX: 'auto' as const },
@@ -1050,73 +981,74 @@ export default function TripManagment() {
               )}
             </div>
 
-            <div style={{ flex: 1, background: '#18244a', borderRadius: '12px', overflow: 'hidden', border: '1px solid #27395f', position: 'relative' }}>
-              {/* ── THE ROUTE MAP ────────────────────────────────────────────
-                  This used to interpolate loading_point straight into saddr.
-                  On every IOCL-imported trip that value is the literal "7T04",
-                  Google cannot geocode it, and a directions embed whose origin
-                  fails does not show an error — it shows the whole planet.
-                  That is the "map clean nahi aa rahi" in the screenshot: a pin
-                  on Chabua with an ocean around it.
+            {/* GPS FRESHNESS - its own bar, ABOVE the map.
+                It used to be a strip inside the map, which is why the Live GPS
+                tab threw the road away: no ping meant no map at all, just a
+                satellite dish and a "Check Again" button on an empty panel.
+                The lane is known whether or not the lorry is reporting, so the
+                lane stays on screen and this bar says what is missing. */}
+            {trackMode === 'GPRS' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px', padding: '8px 12px', borderRadius: '8px', fontSize: '12px',
+                            background: activeTrip.liveLocation?.lat ? 'rgba(47,227,155,0.08)' : 'rgba(255,178,36,0.08)',
+                            border: `1px solid ${activeTrip.liveLocation?.lat ? 'rgba(47,227,155,0.35)' : 'rgba(255,178,36,0.35)'}` }}>
+                {activeTrip.liveLocation?.lat ? (() => {
+                  const age = gpsAgeMinutes(activeTrip.liveLocation);
+                  const stale = age === null || age > 15;
+                  return (
+                    <span style={{ color: stale ? '#ffb224' : '#2fe39b', fontWeight: 'bold' }}>
+                      📡 {age === null ? 'Driver app se live ping' : age < 1 ? 'Updated just now' : `Updated ${age} min ago`}{stale ? ' ⚠️ (purana ho sakta hai)' : ''}
+                    </span>
+                  );
+                })() : (
+                  <span style={{ color: '#ffb224', fontWeight: 'bold' }}>
+                    📡 Abhi tak koi GPS ping nahi aayi — driver se Driver App kholne ko kahein. Rasta neeche bana hua hai.
+                  </span>
+                )}
+                <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ marginLeft: 'auto', background: '#10b981', color: '#121c38', border: 'none', padding: '6px 14px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
+                  {gpsRefreshing ? '⌛ Checking…' : '🔄 Check Again'}
+                </button>
+              </div>
+            )}
 
-                  placeOf() resolves the code against the names this company
-                  already uses for its own depots, and returns null rather than
-                  guessing when it cannot. Null gets the panel below instead of
-                  a confident pin on the wrong town. */}
-              {trackMode === 'ROUTE' && (() => {
-                const from = activeTrip.loading_point || activeTrip.Loading_Point || '';
-                const to = activeTrip.consignee_name || activeTrip.Consignee_Name
-                        || activeTrip.unloading_location || '';
-                const url = routeEmbedUrl(from, to);
-                if (url) {
-                  return <iframe width="100%" height="100%" frameBorder="0" style={{ border: 0 }}
-                            src={url} allowFullScreen loading="lazy" />;
-                }
-                const a = placeOf(from); const b = placeOf(to);
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '10px', padding: '24px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '34px' }}>🗺️</div>
-                    <div style={{ color: '#ffb224', fontWeight: 'bold', fontSize: '15px' }}>
-                      Is trip ka route map par nahi dikha sakte
-                    </div>
-                    <div style={{ color: '#9aadd4', fontSize: '13px', lineHeight: 1.6, maxWidth: '440px' }}>
-                      {a.unresolved && <>Loading point <b style={{ color: '#dde5f4' }}>{a.label}</b> ek IOCL code hai jiska naam system mein kahin nahi hai.<br /></>}
-                      {b.unresolved && <>Destination <b style={{ color: '#dde5f4' }}>{b.label}</b> ka naam system mein nahi hai.<br /></>}
-                      {!a.unresolved && !b.unresolved && <>Is trip par loading ya unloading ki jagah bhari hi nahi gayi.<br /></>}
-                      Galat jagah ka pin dikhane se behtar hai ki kuch na dikhayein — naam bharte hi map apne aap aa jayega.
-                    </div>
-                  </div>
-                );
-              })()}
-              {trackMode === 'GPRS' && (activeTrip.liveLocation?.lat ? (
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 15px', background: 'rgba(47, 227, 155,0.1)', borderBottom: '1px solid #27395f', gap: '10px', flexWrap: 'wrap' }}>
-                    {(() => { const age = gpsAgeMinutes(activeTrip.liveLocation); const stale = age === null || age > 15; return (
-                      <span style={{ color: stale ? '#ffb224' : '#2fe39b', fontWeight: 'bold', fontSize: '13px' }}>
-                        📡 {age === null ? 'Driver app se live ping' : age < 1 ? 'Updated just now' : `Updated ${age} min ago`}{stale ? ' ⚠️ (purana ho sakta hai)' : ''}
-                      </span>
-                    ); })()}
-                    <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ background: '#10b981', color: '#121c38', border: 'none', padding: '8px 15px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛' : '🔄 Refresh'}</button>
-                  </div>
-                  <iframe
-                    width="100%" style={{ border: 0, flex: 1 }} frameBorder="0"
-                    src={`https://maps.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}&z=13&output=embed`}
-                    allowFullScreen>
-                  </iframe>
-                  <a href={`https://www.google.com/maps?q=${activeTrip.liveLocation.lat},${activeTrip.liveLocation.lng}`} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center', padding: '10px', background: '#18244a', color: '#22d3ee', textDecoration: 'none', fontWeight: 'bold', fontSize: '13px' }}>🗺️ Open exact position in Google Maps</a>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign:'center', padding: '20px' }}>
-                  <span style={{ fontSize: '50px' }}>📡</span>
-                  <h2 style={{ color: '#2fe39b', margin:'10px 0' }}>No GPS Ping Yet</h2>
-                  <p style={{color:'#9aadd4'}}>Driver app khula rahega to location apne aap yahan aayegi.<br/>Ask the driver to open the Driver App — it shares live GPS automatically for the active trip.</p>
-                  <button onClick={refreshLiveLocation} disabled={gpsRefreshing} style={{ marginTop: '15px', background: '#10b981', color: '#121c38', border: 'none', padding: '10px 25px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>{gpsRefreshing ? '⌛ Checking...' : '🔄 Check Again'}</button>
-                </div>
-              ))}
+            <div style={{ flex: 1, background: '#0a1024', borderRadius: '12px', overflow: 'hidden', border: '1px solid #27395f', position: 'relative' }}>
+              {/* ONE MAP FOR THREE OF THE FOUR TABS.
+                  Full Route Plan, Live GPS and FASTag Toll were an iframe, a
+                  second iframe and a hand-rolled map. Each tab flip tore down
+                  what the last one had drawn, and the two iframes never drew a
+                  road at all - Google's legacy `output=embed` directions frame
+                  renders the search boxes and then does NOT compute the route,
+                  which is the world map in the owner's screenshot.
+
+                  <TripRouteMap /> asks DirectionsService for the real road,
+                  draws it, and fits the camera to it. It stays MOUNTED across
+                  these three tabs - the tab only changes which pins are lit and
+                  where the camera opens - so switching tabs no longer re-bills
+                  a map load or re-asks for a route that has not changed. */}
+              {trackMode !== 'MOBILE' && (
+                <TripRouteMap
+                  origin={activeTrip.loading_point || activeTrip.Loading_Point || ''}
+                  destination={activeTrip.consignee_name || activeTrip.Consignee_Name || activeTrip.unloading_location || ''}
+                  truck={activeTrip.liveLocation?.lat ? {
+                    lat: activeTrip.liveLocation.lat,
+                    lng: activeTrip.liveLocation.lng,
+                    heading: activeTrip.liveLocation.heading ?? 0,
+                    at: activeTrip.liveLocation.lastUpdated,
+                    speed_kmh: activeTrip.liveLocation.speed,
+                  } : null}
+                  tolls={tollHasCoords(modalToll) ? [modalToll] : []}
+                  trip={{
+                    vehicle_no: activeTrip.vehicle_no || activeTrip.Vehical_No,
+                    driver_name: activeTrip.driver_name || activeTrip.Driver_Name,
+                    trip_code: activeTrip.trip_id || activeTrip.Trip_ID,
+                  }}
+                  focus={trackMode === 'GPRS' ? 'TRUCK' : 'ROUTE'}
+                  height="100%"
+                />
+              )}
               {trackMode === 'MOBILE' && (
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%', textAlign: 'center', padding:'20px' }}>
                   <span style={{ fontSize: '50px' }}>📱</span>
-                  <h2 style={{ color: '#ffb224', margin:'10px 0' }}>Track via Driver's Mobile</h2>
+                  <h2 style={{ color: '#ffb224', margin:'10px 0' }}>Track via Driver&apos;s Mobile</h2>
                   <p style={{color:'#9aadd4', marginBottom:'20px'}}>Since hardware GPS is not active, you can request the driver to share their Live Location via WhatsApp.</p>
                   <button onClick={requestLiveLocation} style={{ background: '#25d366', color: 'white', padding: '15px 30px', borderRadius: '8px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/></svg>
@@ -1124,19 +1056,8 @@ export default function TripManagment() {
                   </button>
                 </div>
               )}
-              {trackMode === 'FASTAG' && (
-                modalToll === undefined ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#a78bfa', fontWeight: 'bold' }}>🛣️ Loading FASTag tolls…</div>
-                ) : (
-                  <FastagRouteMap
-                    origin={activeTrip.loading_point || activeTrip.Loading_Point || ''}
-                    destination={activeTrip.consignee_name || activeTrip.Consignee_Name || ''}
-                    toll={modalToll}
-                  />
-                )
-              )}
             </div>
-            
+
             {/* The same route in the real app — one tap to turn-by-turn on a
                 phone, and the deep link opens the installed Google Maps rather
                 than the browser. Hidden, not dead, when the route cannot be
@@ -1382,12 +1303,46 @@ export default function TripManagment() {
                 </div>
               ) : null; })()}
             </div>
-            <div><label style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold' }}>Consignee / Route *</label><input list="route-list" style={{...styles.input, borderColor: '#22d3ee', background: 'rgba(34, 211, 238, 0.05)'}} placeholder="Select Route to Auto-Fill..." value={formData.consignee_name} onChange={e=>handleConsigneeChange(e.target.value)} /><datalist id="route-list">{rtkmMaster.map(m => <option key={m.id} value={m.Consignee_Name || m.unloading_point || m.Destination} />)}</datalist></div>
+            {/* CONSIGNEE - the company's own routes first, then Google.
+                This was a bare <datalist>, which is why a lane the office had
+                never run before had to be typed blind and then failed to place
+                on the map. It is now <PlaceInput>: the RTKM master is shown at
+                the top (picking one still auto-fills rtkm / fixed cash / fixed
+                HSD through handleConsigneeChange, which is the whole reason the
+                datalist existed) and Google's India-restricted suggestions
+                follow underneath for anywhere new. Free text is still accepted
+                - half these consignees are AFS depots Google has never heard
+                of, and the operator must always be able to type what they have. */}
+            <div>
+              <label style={{ color: '#22d3ee', fontSize: '12px', fontWeight: 'bold' }}>Consignee / Route *</label>
+              <PlaceInput
+                value={formData.consignee_name}
+                onChange={handleConsigneeChange}
+                onPickLocal={handleConsigneeChange}
+                onResolved={(pl) => setFormData(prev => ({ ...prev, consignee_name: pl.description }))}
+                local={routeOptions}
+                localLabel="Apni routes (auto-fill)"
+                placeholder="Route chunein ya nayi jagah likhein..."
+                style={{...styles.input, borderColor: '#22d3ee', background: 'rgba(34, 211, 238, 0.05)'}}
+              />
+            </div>
             
             <div><label style={{ fontSize: '12px' }}>Driver</label><select style={styles.input} value={formData.driver_name} onChange={handleDriverSelect}><option value="">-- Choose --</option>{drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}</select></div>
             <div><label style={{ fontSize: '12px' }}>Driver Mobile *</label><input type="text" style={styles.input} value={formData.driver_mobil_no} onChange={e=>setFormData({...formData, driver_mobil_no: e.target.value})} placeholder="Driver Mobile" /></div>
             
-            <div><label style={{ fontSize: '12px' }}>Loading Point (Auto)</label><input style={{...styles.input, color: '#9aadd4'}} value={formData.loading_point} onChange={e=>setFormData({...formData, loading_point: e.target.value})} /></div>
+            <div>
+              <label style={{ fontSize: '12px' }}>Loading Point (Auto)</label>
+              <PlaceInput
+                value={formData.loading_point}
+                onChange={(v) => setFormData(prev => ({ ...prev, loading_point: v }))}
+                onPickLocal={(v) => setFormData(prev => ({ ...prev, loading_point: v }))}
+                onResolved={(pl) => setFormData(prev => ({ ...prev, loading_point: pl.description }))}
+                local={depotOptions}
+                localLabel="Apne depot"
+                placeholder="Depot ka naam"
+                style={{...styles.input, color: '#9aadd4'}}
+              />
+            </div>
             <div><label style={{ fontSize: '12px' }}>RTKM (Auto)</label><input style={{...styles.input, color: '#9aadd4'}} value={formData.rtkm} onChange={e=>setFormData({...formData, rtkm: e.target.value})} /></div>
             <div><label style={{ color: '#2fe39b', fontSize: '12px' }}>Fix HSD (Auto)</label><input style={{...styles.input, borderColor: 'rgba(47, 227, 155, 0.3)', color: '#2fe39b'}} value={formData.fixed_hsd} onChange={e=>setFormData({...formData, fixed_hsd: e.target.value})} /></div>
             <div><label style={{ color: '#2fe39b', fontSize: '12px' }}>Fix Cash (Auto)</label><input style={{...styles.input, borderColor: 'rgba(47, 227, 155, 0.3)', color: '#2fe39b'}} value={formData.fixed_cash} onChange={e=>setFormData({...formData, fixed_cash: e.target.value})} /></div>

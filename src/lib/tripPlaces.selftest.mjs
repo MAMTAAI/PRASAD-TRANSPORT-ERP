@@ -10,26 +10,11 @@
 // Every input below is a real value taken from trips.loading_point or
 // trips.unloading_location on the production register, with its row count.
 // ─────────────────────────────────────────────────────────────────────────────
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-// The module is TypeScript for the app's benefit; the logic is plain JS. Rather
-// than pull a compiler in, strip the few type annotations it uses. If this ever
-// stops being enough, that is the signal to give the file a real build step.
-const here = path.dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(path.join(here, 'tripPlaces.ts'), 'utf8')
-  .replace(/^export type Place = \{[\s\S]*?\};$/m, '')
-  .replace(/: Record<string, string>/g, '')
-  .replace(/\(raw: unknown\)/g, '(raw)')
-  .replace(/\(from: unknown, to: unknown\)/g, '(from, to)')
-  .replace(/\): Place \{/g, ') {')
-  .replace(/: string \| null/g, '')
-  .replace(/^export /gm, '');
-const mod = await import(`data:text/javascript;base64,${Buffer.from(
-  `${src}\nexport { DEPOT_BY_CODE, placeOf, routeEmbedUrl, routeAppUrl, placeEmbedUrl };`
-).toString('base64')}`);
-const { placeOf, routeEmbedUrl } = mod;
+// The rule is plain ESM (tripPlaces.core.mjs) precisely so it can be imported
+// as-is — by this test, by the app, and by the API box that geocodes the same
+// two ends for the driver's phone. It used to be TypeScript and this file had
+// to strip the annotations by hand to load it; that hack is gone.
+import { placeOf, routeEmbedUrl, routeAppUrl } from './tripPlaces.core.mjs';
 
 let failures = 0;
 const check = (name, got, want) => {
@@ -88,6 +73,18 @@ check('origin is the resolved name, not the code',
 check('destination lost its SAP id',
       url.includes(encodeURIComponent('Chabua AFS, India')), true);
 check('and it is an embed', url.includes('output=embed'), true);
+
+console.log('\nTHE DEEP LINK — what the phone opens');
+// The one link that leaves the app. It must carry the RESOLVED names, because
+// the Google Maps app geocodes them itself and would land on the world map for
+// exactly the same reason the old iframe did.
+const app = routeAppUrl('7D18', 'ZC7A01 -Agartala AFS 7A01');
+check('deep link resolves the depot code',
+      app.includes(encodeURIComponent('Moinarband Depot, India')), true);
+check('deep link drops the SAP id',
+      app.includes(encodeURIComponent('Agartala AFS 7A01, India')), true);
+check('deep link is driving', app.includes('travelmode=driving'), true);
+check('no link at all when an end cannot be placed', routeAppUrl('7B10', 'Guwahati'), null);
 
 console.log(failures ? `\n❌ ${failures} failed\n` : '\n✅ all passed\n');
 process.exit(failures ? 1 : 0);
