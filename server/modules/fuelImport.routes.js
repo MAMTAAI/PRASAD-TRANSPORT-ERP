@@ -26,6 +26,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
+import { parsePumpBill, pdfLines, toBulkImportRows, BillParseError } from '../lib/pumpBillParse.js';
 
 const dbGate = (reply) =>
   reply.code(503).send({ error: 'DB_UNAVAILABLE', detail: 'database not reachable' });
@@ -66,6 +67,81 @@ function pumpLedger(pumpName, ledgerNames) {
 }
 
 export function registerFuelImportRoutes(app) {
+  /**
+   * Read a pump's PDF invoice into the rows /fuel/bulk-import already accepts.
+   *
+   * This is the ONE step that was missing. Everything downstream — the lorry
+   * match, the ownership routing, the voucher through TARA, the review queue —
+   * is the code below and needs no change.
+   *
+   * NOT OCR: the B N Filling and Sree Krishna invoices carry embedded text, so
+   * the digits are read rather than guessed at. Nirmala, Shivam and Hatsingimari
+   * are photographs whose existing text layer is visibly wrong ("PETROLBUM",
+   * "JAISWAI") — those are refused here and belong to BHUVANESHWARI's OCR with a
+   * person checking the figures.
+   *
+   * THE BILL IS CHECKED AGAINST ITS OWN PRINTED TOTAL. If the rows do not add up
+   * to what the pump printed, every row comes back as REVIEW rather than OK, so
+   * a mis-read invoice cannot post. That check has already earned itself once:
+   * on the July 16–31 Sree Krishna bill one row printed its rate and amount on
+   * the same line, the rate was read as the amount, and the invoice came out
+   * exactly 34,962.82 short.
+   */
+  app.post('/fuel/parse-pdf', async (req, reply) => {
+    const b = req.body ?? {};
+    if (!b.pdf_base64) return reply.code(400).send({ error: 'NO_PDF' });
+
+    let data;
+    try {
+      data = Buffer.from(String(b.pdf_base64).replace(/^data:[^,]*,/, ''), 'base64');
+    } catch {
+      return reply.code(400).send({ error: 'BAD_BASE64' });
+    }
+    if (!data.length || data.length > 25 * 1024 * 1024) {
+      return reply.code(400).send({ error: 'BAD_SIZE', detail: 'empty, or larger than 25 MB' });
+    }
+
+    let bill;
+    try {
+      bill = parsePumpBill(await pdfLines(data));
+    } catch (e) {
+      if (e instanceof BillParseError) {
+        return reply.code(422).send({
+          error: e.code,
+          detail: e.message,
+          hint: e.code === 'UNKNOWN_PUMP_FORMAT'
+            ? 'this pump’s layout is not known yet, or the PDF is a scan with no '
+            + 'readable text — send it through the bill scanner instead'
+            : undefined,
+        });
+      }
+      throw e;
+    }
+
+    const rows = toBulkImportRows(bill, { sourceFile: b.source_file ?? null });
+    return {
+      pump: bill.pump,
+      invoice_no: bill.invoice_no,
+      invoice_date: bill.invoice_date,
+      buyer: bill.buyer,
+      period: { from: bill.period_from, to: bill.period_to },
+      // What the pump printed, and what these rows add up to. The screen shows
+      // both: a clerk should see the invoice total they can read off the paper.
+      totals: bill.totals,
+      check: bill.check,
+      anomalies: bill.anomalies,
+      counts: {
+        rows: rows.length,
+        ready: rows.filter((r) => r.confidence === 'OK').length,
+        needs_review: rows.filter((r) => r.confidence !== 'OK').length,
+      },
+      rows,
+      next: bill.check.ok
+        ? 'POST these rows to /fuel/bulk-import with commit:true'
+        : 'the invoice does not add up to its own total — every row is marked REVIEW',
+    };
+  });
+
   app.post('/fuel/bulk-import', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const body = req.body ?? {};
