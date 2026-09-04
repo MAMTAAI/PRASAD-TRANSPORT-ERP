@@ -767,7 +767,33 @@ export default function CustomerPortal({ onLogout }: CustomerPortalProps) {
                        <span className="text-slate-800 text-xs font-black tracking-widest uppercase">Live GPS Tracking</span>
                      </div>
                   </div>
-                  <iframe width="100%" height="100%" style={{ border: 0 }} loading="lazy" allowFullScreen src={`https://www.google.com/maps/embed/v1/directions?key=YOUR_ACTUAL_API_KEY&origin=8`}></iframe>
+                  {/* THIS WAS A GOOGLE ERROR PAGE, SHIPPED TO CUSTOMERS.
+                      The src was, verbatim,
+                        maps/embed/v1/directions?key=YOUR_ACTUAL_API_KEY&origin=8
+                      — a placeholder key and a destination that is the digit 8.
+                      Google answers that with its own "this page didn't load
+                      correctly" screen, inside a panel captioned "Live GPS
+                      Tracking", on the portal a paying customer logs in to.
+
+                      It is replaced with the truth rather than a working map,
+                      because there is no shipment behind this panel to draw:
+                      the rest of this tab is a hardcoded demo (the timeline
+                      dates, "Siliguri, West Bengal" and the document names are
+                      all literals). The real signed-in customer screen is
+                      portal/CustomerApp.tsx, which draws the actual lane, the
+                      toll gates and the lorry. Wiring a live map to invented
+                      surroundings would have made the fiction harder to spot,
+                      not easier. */}
+                  <div className="absolute inset-0 grid place-items-center px-8 text-center">
+                    <div>
+                      <div className="text-4xl">🛰️</div>
+                      <p className="mt-3 text-sm font-black text-slate-700">Live map yahan aayega</p>
+                      <p className="mt-1 text-xs font-bold leading-relaxed text-slate-500">
+                        Driver app se location aate hi gaadi, rasta aur toll gate<br />
+                        isi jagah dikhne lagenge.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

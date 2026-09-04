@@ -9,6 +9,12 @@
 // FASTag inside a 5-minute freshness window, else freshest wins).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './lib/maps';
+import {
+  loadingPin, unloadingPin, truckIcon, truckLabel,
+  gateIcon, gateLabel, pingIcon, plazaKey, inr, observeAndRefit,
+} from './lib/mapSymbols.mjs';
+import { loadTollPlazas } from './lib/tollPlazaMaster';
+import { plazasOnRoute, tollTotals } from './lib/tollRoute.mjs';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -32,6 +38,13 @@ export default function TripTrackingMap() {
   const overlays = useRef<any[]>([]);
   // Road geometry + geocoded endpoints for the selected trip.
   const [geo, setGeo] = useState<any>(null);
+  // Every gate we can place, fetched once per page and shared with every other
+  // map on it. See lib/tollPlazaMaster.ts.
+  const [plazas, setPlazas] = useState<any[]>([]);
+  const [toll, setToll] = useState<any>(null);
+  const refitRef = useRef<null | (() => void)>(null);
+
+  useEffect(() => { loadTollPlazas().then(setPlazas); }, []);
 
   // live board
   const loadBoard = useCallback(async () => {
@@ -121,8 +134,7 @@ export default function TripTrackingMap() {
       const pos = { lat: s.lat, lng: s.lng };
       overlays.current.push(new g.maps.Marker({
         map, position: pos, title: `${st.label} · ${new Date(s.recorded_at).toLocaleTimeString()}`,
-        icon: { path: g.maps.SymbolPath.CIRCLE, scale: detail.best?.source === s.source ? 10 : 7,
-                fillColor: st.color, fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2 },
+        icon: pingIcon(st.color, detail.best?.source === s.source),
       }));
       extend(pos);
     }
@@ -148,19 +160,46 @@ export default function TripTrackingMap() {
 
     // Endpoints, from the server's cached geocode rather than a fresh browser
     // lookup on every click.
-    const pin = (pt: any, text: string, color: string) => {
+    // "A" and "B" told a dispatcher nothing they did not already know, and the
+    // two circles were a different shape and a different green from the same
+    // two places on the trip sheet. Shared teardrops now — see lib/mapSymbols.
+    const pin = (pt: any, icon: any, what: string) => {
       if (!pt || !Number.isFinite(Number(pt.lat))) return;
       const pos = { lat: Number(pt.lat), lng: Number(pt.lng) };
       overlays.current.push(new g.maps.Marker({
-        map, position: pos, title: pt.resolved ?? pt.label ?? text, zIndex: 10,
-        label: { text, color: '#121c38', fontWeight: '900', fontSize: '11px' },
-        icon: { path: g.maps.SymbolPath.CIRCLE, scale: 11, fillColor: color,
-                fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2 },
+        map, position: pos, title: `${what}: ${pt.label ?? pt.resolved ?? ''}`, zIndex: 10, icon,
       }));
       extend(pos);
     };
-    pin(geo?.origin, 'A', '#2fe39b');
-    pin(geo?.destination, 'B', '#f472b6');
+    pin(geo?.origin, loadingPin(), 'Loading');
+    pin(geo?.destination, unloadingPin(), 'Unloading');
+
+    // ── TOLL GATES ON THIS LANE ───────────────────────────────────────────
+    // Same gates, same pills, same rates as the trip sheet and the dispatch
+    // board. Matched against the ROAD, so a plaza on the parallel highway is
+    // not claimed by this lane.
+    if (geo?.route?.polyline && g.maps.geometry?.encoding?.decodePath && plazas.length) {
+      const path = g.maps.geometry.encoding.decodePath(geo.route.polyline)
+        .map((pt: any) => ({ lat: pt.lat(), lng: pt.lng() }));
+      const gates = plazasOnRoute(path, plazas);
+      const crossed = new Set((geo?.tolls ?? []).map((x: any) => plazaKey(x.plaza_name)));
+      for (const gate of gates) {
+        const known = gate.rate !== null && gate.rate !== undefined && gate.rate !== '';
+        const done = crossed.has(gate.name_key);
+        const m = new g.maps.Marker({
+          map, position: { lat: Number(gate.lat), lng: Number(gate.lng) },
+          icon: gateIcon(done, known), label: gateLabel(gate.rate),
+          title: gate.plaza_name, zIndex: 25,
+        });
+        overlays.current.push(m);
+        extend({ lat: Number(gate.lat), lng: Number(gate.lng) });
+      }
+      const isRound = (detail?.trip?.trip_leg_kind
+        ?? (detail?.trip?.is_market_vehicle ? 'ONE_WAY' : 'ROUND')) === 'ROUND';
+      setToll(tollTotals(gates, { roundTrip: isRound }));
+    } else {
+      setToll(null);
+    }
 
     // ── THE TRUCK ───────────────────────────────────────────────────────────
     // Only ever from a real fix. `geo.truck` is null when trip_gps_pings holds
@@ -173,14 +212,24 @@ export default function TripTrackingMap() {
         map, position: pos, zIndex: 30,
         title: `${geo.trip?.vehicle_no ?? 'Vehicle'} · ${geo.truck.source ?? 'gps'} · `
              + new Date(geo.truck.at).toLocaleString('en-IN'),
-        icon: { path: 'M -7 -4 L 7 -4 L 9 0 L 7 4 L -7 4 Z', fillColor: '#22d3ee',
-                fillOpacity: 1, strokeColor: '#121c38', strokeWeight: 2, scale: 1.7 },
+        // Same arrow, same plate, as the dispatch board and the driver's phone.
+        icon: truckIcon(Number(geo.truck.heading) || 0, 1.5),
+        label: truckLabel(geo.trip?.vehicle_no),
       }));
       extend(pos);
     }
 
-    if (boundsHasPoint) map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
-  }, [detail, geo]);
+    // Kept callable so the resize observer below can re-run it. Google holds
+    // centre and zoom when its container changes size, and this page's board
+    // and map settle after the first paint.
+    refitRef.current = () => {
+      if (!boundsHasPoint) return;
+      map.fitBounds(bounds, { top: 60, bottom: 40, left: 40, right: 40 });
+    };
+    refitRef.current();
+  }, [detail, geo, plazas]);
+
+  useEffect(() => observeAndRefit(mapDiv.current, () => refitRef.current?.()), []);
 
   const badge = detail?.best?.badge;
   const badgeStyle = detail?.best ? SOURCE_STYLE[detail.best.source] : null;
@@ -194,6 +243,24 @@ export default function TripTrackingMap() {
         </span>
       </h2>
       {err && <div style={{ padding: '10px 14px', border: `1px dashed ${C.warn}`, borderRadius: 10, color: C.warn, fontSize: 12, marginBottom: 10 }}>⚠️ {err}</div>}
+
+      {/* The lane's toll, in the same words and the same rupees as every other
+          screen: gates we have a rate for are added, gates we do not are
+          counted and said out loud, and a round trip is doubled. */}
+      {toll?.gates > 0 && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 10,
+                      padding: '8px 12px', borderRadius: 10, fontSize: 12,
+                      background: 'rgba(255,178,36,0.08)', border: '1px solid rgba(255,178,36,0.3)' }}>
+          <b style={{ color: C.warn }}>🛣️ {toll.gates} toll gate</b>
+          <span style={{ color: C.text }}>ek taraf <b style={{ color: C.warn }}>{inr(toll.one_way)}</b></span>
+          {toll.round_trip && (
+            <span style={{ color: C.text }}>aana-jaana <b style={{ color: C.warn, fontSize: 14 }}>{inr(toll.total)}</b></span>
+          )}
+          {toll.incomplete && (
+            <span style={{ color: C.bad, fontSize: 11 }}>{toll.unknown} gate ka rate system mein nahi</span>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
         {/* moving-trips board */}

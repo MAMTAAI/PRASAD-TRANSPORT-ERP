@@ -245,7 +245,9 @@ export default function DriverControlDrawer({ driverId, onClose }) {
         {/* live strip */}
         <div className="border-b border-slate-800">
           <div className="relative h-[170px] bg-[#0a1626]">
-            <RouteMap height={170} className="!rounded-none !border-0" origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null} />
+            <RouteMap height={170} className="!rounded-none !border-0" origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null}
+              vehicleNo={geo?.trip?.vehicle_no ?? data?.trip?.vehicle_no}
+              crossedTolls={geo?.tolls ?? []} />
           </div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-1.5 text-[11.5px]">
             {data?.position?.lat != null

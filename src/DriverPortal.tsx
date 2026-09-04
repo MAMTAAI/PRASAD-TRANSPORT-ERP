@@ -513,7 +513,10 @@ export default function DriverPortal({ onBack, preview = false, session = null }
       {/* map */}
       <div className={`relative ${market ? 'h-[46vh]' : 'h-[36vh]'} min-h-[220px] bg-[#e8efe3]`}>
         <RouteMap light height={market ? Math.max(220, Math.round(window.innerHeight * 0.46)) : Math.max(220, Math.round(window.innerHeight * 0.36))} className="!rounded-none !border-0"
-          origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null} />
+          origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null}
+          vehicleNo={trip?.vehicle_no}
+          crossedTolls={geo?.tolls ?? []}
+          roundTrip={(trip?.trip_leg_kind ?? (trip?.is_market_vehicle ? 'ONE_WAY' : 'ROUND')) === 'ROUND'} />
         <div className="pointer-events-none absolute left-2.5 right-2.5 top-2 z-[500] flex items-start justify-between">
           <div className="pointer-events-auto rounded-xl bg-white px-2.5 py-1.5 shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
             <div className="text-[10px] font-bold text-slate-500">{market ? t.market : t.brand}</div>

@@ -858,7 +858,9 @@ export default function CustomerApp() {
 
         <div className="relative bg-[#e8efe3]" style={{ height: mapH }}>
           <RouteMap light height={mapH} className="!rounded-none !border-0"
-            origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null} />
+            origin={geo?.origin ?? null} destination={geo?.destination ?? null} truck={truck} polyline={geo?.route?.polyline ?? null}
+            vehicleNo={geo?.trip?.vehicle_no}
+            crossedTolls={geo?.tolls ?? []} />
           <div className="pointer-events-none absolute left-2.5 right-2.5 top-2 z-[500] flex items-start justify-between gap-2">
             <div className="pointer-events-auto rounded-xl bg-slate-900 px-2.5 py-1.5 text-[11px] font-bold shadow-[0_4px_14px_rgba(0,0,0,0.22)]">
               {pos ? <>📡 {t.via}: <b>{SOURCE[pos.source] ?? pos.source}</b> · {ago(tk?.age_min)}</> : <>📡 {t.viaNone}</>}

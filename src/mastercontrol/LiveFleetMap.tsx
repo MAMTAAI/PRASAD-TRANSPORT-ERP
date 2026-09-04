@@ -29,6 +29,12 @@ import { API_BASE } from '../lib/apiBase';
 import { getRoute } from '../lib/mapsCache';
 import { connectFleetSocket, disconnectFleetSocket } from '../lib/fleetSocket';
 import { openDriverControl } from '../components/DriverControlDrawer';
+import {
+  loadingPin, unloadingPin, truckIcon as sharedTruckIcon, truckLabel,
+  gateIcon, gateLabel, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+} from '../lib/mapSymbols.mjs';
+import { loadTollPlazas } from '../lib/tollPlazaMaster';
+import { plazasOnRoute, tollTotals } from '../lib/tollRoute.mjs';
 
 // The poll rate follows whether the live push is actually working.
 //
@@ -59,15 +65,10 @@ const DARK_STYLE = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050b16' }] },
 ];
 
-const truckIcon = (heading = 0) => ({
-  path: 'M -6,-3 L 4,-3 L 7,0 L 4,3 L -6,3 Z',
-  fillColor: '#22d3ee',
-  fillOpacity: 1,
-  strokeColor: '#0a1024',
-  strokeWeight: 1.5,
-  scale: 1.6,
-  rotation: heading,
-});
+// The board's own arrow is gone: it pointed a different way from the trip
+// sheet's and was a different colour from the driver app's. One vocabulary now
+// (../lib/mapSymbols.mjs), so a lorry looks like a lorry on every screen.
+const truckIcon = (heading = 0) => sharedTruckIcon(heading, 1.5);
 
 export default function LiveFleetMap() {
   const boxRef = useRef(null);
@@ -112,8 +113,17 @@ export default function LiveFleetMap() {
   // ── Focus one trip ────────────────────────────────────────────────────────
   const [focusId, setFocusId] = useState(null);
   const [focusNote, setFocusNote] = useState('');
+  // What this lane costs in toll, shown beside the distance. Separate state
+  // rather than baked into focusNote so the rupees can be styled — a money
+  // figure buried in a grey sentence is a money figure nobody reads.
+  const [focusToll, setFocusToll] = useState(null);
   const [q, setQ] = useState('');
-  const focusRef = useRef({ line: null, marks: [] });
+  const focusRef = useRef({ line: null, marks: [], toll: null });
+  // The last camera fit, kept callable. Google keeps centre and zoom when its
+  // container resizes, and on this page the map is laid out under a panel and a
+  // truck list that settle after it — so the fit has to be repeatable, not a
+  // one-shot at click time.
+  const refitRef = useRef(null);
 
   // NEWEST LOAD FIRST, not fixes first. An earlier draft put the reporting
   // trucks at the top, which sounds right and is not: zero of forty report, so
@@ -271,6 +281,11 @@ export default function LiveFleetMap() {
       if (!entry) {
         const marker = new g.maps.Marker({
           map, position: pos, icon: truckIcon(0), title: `${t.vehicle_no} · ${t.trip_code}`,
+          // THE PLATE, UNDER THE LORRY (owner, 4-Sep: "kaha vehicle and driver
+          // run kar rahay hay yah map may show honi chahiye"). Eighteen
+          // identical arrows on one board answer nothing; the desk should be
+          // able to find AS 26C 9804 without hovering over each of them.
+          label: truckLabel(t.vehicle_no),
           zIndex: 20,
         });
         // HOVER OPENS IT. This used to be click-only, which meant the detail
@@ -408,6 +423,16 @@ export default function LiveFleetMap() {
     pinnedRef.current = null;
   }, []);
 
+  // THE FIX FOR "kyo zoom karni hogi". Nothing about the route was wrong on
+  // this board — the CAMERA was, because it was fitted once against a container
+  // that had not finished laying out. This re-runs the same fit whenever the
+  // box actually changes size, which covers the first layout settle, the window
+  // resize and a phone rotation, and costs nothing when nothing moves.
+  useEffect(() => {
+    if (status !== 'ready') return;
+    return observeAndRefit(boxRef.current, () => refitRef.current?.());
+  }, [status]);
+
   const plotted = board.withFix.length;
 
   // Draw (or clear) the focused trip: origin, destination, the line between
@@ -418,7 +443,9 @@ export default function LiveFleetMap() {
     const clear = () => {
       focusRef.current.line?.setMap(null);
       focusRef.current.marks.forEach((m) => m.setMap(null));
-      focusRef.current = { line: null, marks: [] };
+      focusRef.current = { line: null, marks: [], toll: null };
+      refitRef.current = null;
+      setFocusToll(null);
     };
     clear();
     if (!focusId || status !== 'ready' || !mapRef.current) { setFocusNote(''); return; }
@@ -455,10 +482,8 @@ export default function LiveFleetMap() {
         ? (g?.maps?.geometry?.encoding?.decodePath?.(encoded) ?? null)
         : null;
       const pts = [];
-      const mk = (pos, color, title) => new g.maps.Marker({
-        map: mapRef.current, position: pos, title,
-        icon: { path: 0, fillColor: color, fillOpacity: 1, strokeColor: '#0a1024', strokeWeight: 2, scale: 7 },
-        zIndex: 40,
+      const mk = (pos, icon, title, label) => new g.maps.Marker({
+        map: mapRef.current, position: pos, title, icon, label, zIndex: 40,
       });
 
       if (path?.length) {
@@ -475,12 +500,12 @@ export default function LiveFleetMap() {
       const o = lane?.origin, d = lane?.destination;
       if (o && Number.isFinite(Number(o.lat))) {
         const at = { lat: Number(o.lat), lng: Number(o.lng) };
-        focusRef.current.marks.push(mk(at, '#22d3ee', `Loading: ${o.label ?? trip.loading_point}`));
+        focusRef.current.marks.push(mk(at, loadingPin(), `Loading: ${o.label ?? trip.loading_point}`));
         pts.push(at);
       }
       if (d && Number.isFinite(Number(d.lat))) {
         const at = { lat: Number(d.lat), lng: Number(d.lng) };
-        focusRef.current.marks.push(mk(at, '#ffb224', `Unloading: ${d.label ?? trip.destination}`));
+        focusRef.current.marks.push(mk(at, unloadingPin(), `Unloading: ${d.label ?? trip.destination}`));
         pts.push(at);
       }
 
@@ -492,7 +517,8 @@ export default function LiveFleetMap() {
         : (lane?.truck && Number.isFinite(Number(lane.truck.lat)) ? lane.truck : null);
       if (fix) {
         const at = { lat: Number(fix.lat), lng: Number(fix.lng) };
-        focusRef.current.marks.push(mk(at, '#2fe39b', `${trip.vehicle_no} — ${fix.source ?? 'fix'}`));
+        focusRef.current.marks.push(mk(at, truckIcon(Number(fix.heading) || 0),
+          `${trip.vehicle_no} — ${fix.source ?? 'fix'}`, truckLabel(trip.vehicle_no)));
         pts.push(at);
       }
 
@@ -501,11 +527,68 @@ export default function LiveFleetMap() {
         return;
       }
 
-      const b = new g.maps.LatLngBounds();
-      pts.forEach((p) => b.extend(p));
-      // One point cannot make a box; without this the map zooms to maximum.
-      if (pts.length === 1) { mapRef.current.setCenter(pts[0]); mapRef.current.setZoom(11); }
-      else mapRef.current.fitBounds(b, 56);
+      // WHY THIS IS NOT fitBounds() ANY MORE (owner, 4-Sep: "kyo zoom karni
+      // hogi"). Two things were wrong. The camera was fitted once, at the
+      // moment the trip was clicked — and on this page the map is still laying
+      // out under a panel and a truck list, so the box it fitted against was
+      // shorter than the box that ended up on screen. Google keeps the zoom
+      // when its container grows, so what the desk saw was the right route,
+      // framed for a map half the height: zoomed two levels too far out.
+      // fitTo() also caps the zoom, so a short lane no longer flies to
+      // street level, and refitRef below re-runs it whenever the box changes.
+      refitRef.current = () => fitTo(mapRef.current, pts, { padding: 56, maxZoom: 12 });
+      refitRef.current();
+      // ── TOLL GATES ON THIS LANE ────────────────────────────────────────────
+      // Owner, 4-Sep: the gates belong on THIS map too, not only on the trip
+      // sheet. Same source, same symbols: a pill with the rate written in it,
+      // green where FASTag says the lorry is already past it. The gate list is
+      // fetched once per page and shared, so opening five trips in a row costs
+      // one request.
+      //
+      // AFTER THE CAMERA HAS ALREADY MOVED, and that ordering is the point. The
+      // complaint being fixed here is "kyo zoom karni hogi" — so the zoom must
+      // not queue behind a network call. The lane is framed the instant the
+      // road is known; the gates land a moment later and the camera widens just
+      // enough to include them.
+      //
+      // Drawn from `path` — the ROAD — so a gate on the parallel highway is not
+      // claimed by this lane.
+      const drawnGateKeys = new Set();
+      if (path?.length) {
+        const plazas = await loadTollPlazas();
+        if (dead || !mapRef.current) return;
+        const asPts = path.map((pt) => ({ lat: pt.lat(), lng: pt.lng() }));
+        const gates = plazasOnRoute(asPts, plazas);
+        const crossed = new Set((lane?.tolls ?? []).map((x) => plazaKey(x.plaza_name)));
+        for (const gate of gates) {
+          const known = gate.rate !== null && gate.rate !== undefined && gate.rate !== '';
+          const done = crossed.has(gate.name_key);
+          const m = mk({ lat: Number(gate.lat), lng: Number(gate.lng) },
+            gateIcon(done, known), gate.plaza_name, gateLabel(gate.rate));
+          m.setZIndex(25);
+          m.addListener('click', () => {
+            if (!infoRef.current) infoRef.current = new g.maps.InfoWindow();
+            infoRef.current.setContent(infoCard(`🛣️ ${infoCard.esc(gate.plaza_name)}`, '#b45309', [
+              known ? `Ek baar ka rate: <b>${inr(gate.rate)}</b>` : '<b style="color:#b45309">Rate system mein nahi hai</b>',
+              known && gate.rate_source === 'MANUAL' ? 'Haath se bhara gaya' : null,
+              known && gate.rate_source !== 'MANUAL' ? `Apni FASTag history se · ${gate.observations || 0} baar` : null,
+              done ? '✅ Is trip par cross ho chuka' : '⏳ Abhi cross nahi hua',
+            ]));
+            infoRef.current.open({ anchor: m, map: mapRef.current });
+          });
+          focusRef.current.marks.push(m);
+          drawnGateKeys.add(gate.name_key);
+        }
+        if (!gates.length) { setFocusToll(null); }
+        else setFocusToll(tollTotals(gates.map((x) => ({ ...x, crossed: crossed.has(x.name_key) })),
+          { roundTrip: (trip.trip_leg_kind ?? (trip.is_market_vehicle ? 'ONE_WAY' : 'ROUND')) === 'ROUND' }));
+
+        // A plaza just past the destination belongs inside the frame that is
+        // meant to explain it, so the fit is widened — the same fit, re-run, so
+        // the resize observer keeps working off the complete picture.
+        for (const gate of gates) pts.push({ lat: Number(gate.lat), lng: Number(gate.lng) });
+        refitRef.current?.();
+      }
 
       const km = lane?.route?.distance_km ? ` · ${Math.round(lane.route.distance_km)} km` : '';
       setFocusNote(
@@ -532,7 +615,8 @@ export default function LiveFleetMap() {
       try {
         const det = await fetch(`${API_BASE}/api/v1/ops/trips/${trip.id}`).then((x) => x.json());
         if (dead) return;
-        const tolls = (det?.tolls ?? []).filter((t) => t.lat != null && t.lng != null);
+        const tolls = (det?.tolls ?? []).filter((t) => t.lat != null && t.lng != null
+          && !drawnGateKeys.has(plazaKey(t.plaza_name)));
         tolls.forEach((t) => {
           focusRef.current.marks.push(new g.maps.Marker({
             map: mapRef.current,
@@ -712,6 +796,23 @@ export default function LiveFleetMap() {
               );
             })}
           </div>
+
+          {/* THE TOLL FOR THE SELECTED LANE, in rupees rather than in prose.
+              Same figures and the same rule as the trip sheet: gates we have a
+              rate for are added up, gates we do not are counted and said out
+              loud, and a round trip is doubled because the lorry comes back. */}
+          {focusToll?.gates > 0 && (
+            <p className="shrink-0 border-t border-slate-800/70 px-2 py-1.5 text-[10px] leading-snug">
+              <span className="font-bold text-amber-400">🛣️ {focusToll.gates} gate</span>
+              <span className="text-slate-300"> · ek taraf <b className="text-amber-300">{inr(focusToll.one_way)}</b></span>
+              {focusToll.round_trip && (
+                <span className="text-slate-300"> · aana-jaana <b className="text-amber-300">{inr(focusToll.total)}</b></span>
+              )}
+              {focusToll.incomplete && (
+                <span className="text-rose-300"> · {focusToll.unknown} ka rate nahi</span>
+              )}
+            </p>
+          )}
 
           {focusNote && (
             <p className="shrink-0 border-t border-slate-800/70 px-2 py-1.5 text-[9px] leading-snug text-slate-400">

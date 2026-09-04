@@ -48,6 +48,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './maps';
 import { placeOf, routeAppUrl } from './tripPlaces';
 import { plazasOnRoute, tollTotals } from './tollRoute.mjs';
+import {
+  loadingPin, unloadingPin, truckIcon, truckLabel,
+  gateIcon, gateLabel, pingIcon, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+} from './mapSymbols.mjs';
 
 // Night styling, matched to the ERP shell. Roads and water only: a dispatch map
 // is read at a glance and POI pins, transit lines and business labels are noise
@@ -68,78 +72,23 @@ const DARK = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050b16' }] },
 ];
 
-// A teardrop pin, drawn so its point sits exactly on the coordinate. Google's
-// default red balloon cannot be recoloured, and the loading and unloading ends
-// have to be tellable apart at a glance from across an office.
-const PIN = 'M 0 0 C -1.6 -6.4 -8 -9.4 -8 -15.4 A 8 8 0 1 1 8 -15.4 C 8 -9.4 1.6 -6.4 0 0 z';
-
-const pin = (fill: string) => ({
-  path: PIN,
-  fillColor: fill,
-  fillOpacity: 1,
-  strokeColor: '#04070f',
-  strokeWeight: 1.6,
-  scale: 1.5,
-  anchor: { x: 0, y: 0 },
-  labelOrigin: { x: 0, y: -16 },
-});
-
-// Points where it is going. A dot cannot show a heading and dispatch's first
-// question about a moving lorry is which way it is pointing.
-const truckIcon = (heading = 0) => ({
-  path: 'M 0 -9 L 6.5 7 L 0 3 L -6.5 7 Z',
-  fillColor: '#22d3ee',
-  fillOpacity: 1,
-  strokeColor: '#04070f',
-  strokeWeight: 1.6,
-  scale: 1.35,
-  rotation: Number(heading) || 0,
-  anchor: { x: 0, y: 0 },
-});
-
-// A FASTag crossing — where the lorry demonstrably WAS.
-const tollIcon = {
-  path: 0, // SymbolPath.CIRCLE
-  fillColor: '#ffb224',
-  fillOpacity: 1,
-  strokeColor: '#3b2606',
-  strokeWeight: 2,
-  scale: 6.5,
-};
-
-// A toll GATE on the road ahead — what the trip will PAY. Deliberately a
-// different shape from the crossing above: one is a fact about the past and the
-// other is an estimate about the future, and a dispatcher reading the map at a
-// glance must never confuse the two. Green once the lorry has passed it.
-// A PILL, NOT A DOT, because the rate is written INSIDE it — that is the whole
-// point of the owner's "toll gate rate ke saath". A 14px square clipped "₹210"
-// to "21", which is a wrong number rather than a small one. Sized for the
-// widest realistic rate (₹1,250) so nothing has to be truncated.
-const GATE = 'M -21 -9 L 21 -9 L 21 9 L -21 9 Z';
-const gateIcon = (crossed: boolean, known: boolean) => ({
-  path: GATE,
-  fillColor: crossed ? '#2fe39b' : (known ? '#ffb224' : '#64748b'),
-  fillOpacity: 1,
-  strokeColor: '#0a1024',
-  strokeWeight: 2,
-  scale: 1,
-  labelOrigin: { x: 0, y: 0 },
-});
-
-/** The same normalisation toll_plaza_key() uses in the database, so a crossing
- *  and the gate it happened at are recognised as one place on both sides. */
-const plazaKey = (s: unknown) => String(s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '') || null;
-
-const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+// THE SYMBOLS ARE NOT DEFINED HERE ANY MORE.
+//
+// They were, and so were four other slightly different sets across the app —
+// the dispatch board drew the loading point as a cyan dot, the tracking screen
+// as a circle lettered "A", this file as a green teardrop, and amber meant
+// "unloading" on one screen and "toll plaza" on another. A dispatcher who moves
+// between two of these screens should not have to re-learn the map.
+//
+// One vocabulary now, in ./mapSymbols.mjs, imported by every map in the system
+// including the driver's phone. Change a colour there and it changes everywhere.
 
 const num = (v: unknown) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
 const isPt = (p: any) => p && num(p.lat) !== null && num(p.lng) !== null;
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => (
-  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!
-));
+const esc = infoCard.esc;
 
 const kmText = (m: number | null) => (m == null ? null : `${Math.round(m / 1000)} km`);
 const hmText = (s: number | null) => {
@@ -381,27 +330,31 @@ export default function TripRouteMap({
       }
       g.maps.event.clearInstanceListeners(m);
       m.addListener('click', () => { info.current.setContent(html); info.current.open(map.current, m); });
+      return m;
+    };
+    const putLabelled = (key: string, pt: any, icon: any, label: any, title: string, html: string, z: number) => {
+      const m = put(key, pt, icon, title, html, z);
+      m?.setLabel?.(label ?? null);
     };
 
-    const card = (head: string, colour: string, rows: string[]) => `
-      <div style="font-family:Inter,system-ui,sans-serif;color:#0f172a;min-width:170px;max-width:250px">
-        <div style="font-weight:800;font-size:13px;color:${colour}">${head}</div>
-        ${rows.filter(Boolean).map((r) => `<div style="font-size:12px;margin-top:2px">${r}</div>`).join('')}
-      </div>`;
+    const card = infoCard;
 
-    put('origin', route?.start_loc, pin('#2fe39b'), `Loading: ${a.label}`,
+    put('origin', route?.start_loc, loadingPin(), `Loading: ${a.label}`,
       card('🟢 Loading Point', '#047857', [
         `<b>${esc(a.label)}</b>`,
         route?.start ? `<span style="color:#475569">${esc(route.start)}</span>` : '',
       ]), 20);
 
-    put('dest', route?.end_loc, pin('#f472b6'), `Unloading: ${b.label}`,
+    put('dest', route?.end_loc, unloadingPin(), `Unloading: ${b.label}`,
       card('🔴 Unloading Point', '#be185d', [
         `<b>${esc(b.label)}</b>`,
         route?.end ? `<span style="color:#475569">${esc(route.end)}</span>` : '',
       ]), 20);
 
-    put('truck', truck, truckIcon(truck?.heading), `${trip?.vehicle_no || 'Vehicle'}`,
+    // THE LORRY WEARS ITS NUMBER. "kaha vehicle and driver run kar rahay hay" is
+    // not answerable by an unlabelled arrow on a board with eighteen trucks.
+    putLabelled('truck', truck, truckIcon(truck?.heading), truckLabel(trip?.vehicle_no),
+      `${trip?.vehicle_no || 'Vehicle'}`,
       card('🚚 ' + esc(trip?.vehicle_no || 'Vehicle'), '#0e7490', [
         trip?.driver_name ? `Driver: <b>${esc(trip.driver_name)}</b>` : '',
         trip?.trip_code ? `Trip: ${esc(trip.trip_code)}` : '',
@@ -425,7 +378,7 @@ export default function TripRouteMap({
       const m = new g.maps.Marker({
         map: map.current,
         position: { lat: num(t.lat), lng: num(t.lng) },
-        icon: tollIcon,
+        icon: pingIcon('#ffb224'),
         label: { text: String(i + 1), color: '#3b2606', fontSize: '10px', fontWeight: '800' },
         title: `Toll: ${t.plaza || 'Plaza'}`,
         zIndex: 30,
@@ -493,8 +446,7 @@ export default function TripRouteMap({
         icon: gateIcon(gate.crossed, known),
         // The rate ON the gate. This is the whole ask: an operator should read
         // the toll off the map without opening anything.
-        label: { text: known ? inr(Number(gate.rate)) : '?',
-                 color: '#0a1024', fontSize: '10px', fontWeight: '800' },
+        label: gateLabel(gate.rate),
         title: `${i + 1}. ${gate.plaza_name}`,
         zIndex: 25,
       });
@@ -540,12 +492,17 @@ export default function TripRouteMap({
       map.current.setZoom(12);
       return;
     }
-    const bounds = new g.maps.LatLngBounds();
-    let any = false;
-    if (route?.bounds) { bounds.union(route.bounds); any = true; }
-    for (const p of [truck, ...(tolls || [])]) if (isPt(p)) { bounds.extend({ lat: num(p.lat), lng: num(p.lng) }); any = true; }
-    if (!any) return;
-    map.current.fitBounds(bounds, 56);
+    // The road itself, not just its ends — a lane that bows out is drawn half
+    // outside a box fitted to the two depots.
+    const pts = [...(route?.path ?? [])];
+    for (const p of [truck, ...(tolls || [])]) if (isPt(p)) pts.push({ lat: num(p.lat), lng: num(p.lng) });
+    if (!pts.length && route?.bounds) {
+      const b = new g.maps.LatLngBounds();
+      b.union(route.bounds);
+      map.current.fitBounds(b, 56);
+      return;
+    }
+    fitTo(map.current, pts, { padding: 56, maxZoom: 13 });
   }, [focus, route, truck?.lat, truck?.lng, tollKey]);
 
   useEffect(() => { if (phase === 'ready') fit(); }, [phase, fit]);
@@ -560,14 +517,8 @@ export default function TripRouteMap({
   //
   // Debounced through rAF: a sheet animation fires this on every frame.
   useEffect(() => {
-    if (phase !== 'ready' || !box.current || typeof ResizeObserver === 'undefined') return;
-    let frame = 0;
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => fit());
-    });
-    ro.observe(box.current);
-    return () => { cancelAnimationFrame(frame); ro.disconnect(); };
+    if (phase !== 'ready') return;
+    return observeAndRefit(box.current, fit);
   }, [phase, fit]);
 
   // ── the surface ───────────────────────────────────────────────────────────

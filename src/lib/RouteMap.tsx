@@ -18,6 +18,12 @@
 // ============================================================================
 import React, { useEffect, useRef, useState } from 'react';
 import { loadGoogleMaps } from './maps';
+import {
+  loadingPin, unloadingPin, truckIcon, truckLabel,
+  gateIcon, gateLabel, plazaKey, inr, infoCard, fitTo, observeAndRefit,
+} from './mapSymbols.mjs';
+import { loadTollPlazas } from './tollPlazaMaster';
+import { plazasOnRoute, tollTotals } from './tollRoute.mjs';
 
 // Minimal night styling. Roads and water only — a dispatch map is read at a
 // glance, and POI pins, transit lines and business labels are noise competing
@@ -35,18 +41,9 @@ const DARK = [
   { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050b16' }] },
 ];
 
-const dot = (fill, ring) => ({
-  path: 0,                       // SymbolPath.CIRCLE
-  fillColor: fill, fillOpacity: 1,
-  strokeColor: ring, strokeWeight: 3, scale: 7,
-});
-
-const truckIcon = (heading = 0) => ({
-  path: 'M -6 -4 L 6 -4 L 8 0 L 6 4 L -6 4 Z',
-  fillColor: '#22d3ee', fillOpacity: 1,
-  strokeColor: '#0a1024', strokeWeight: 1.5,
-  rotation: heading, scale: 1.6, anchor: { x: 0, y: 0 },
-});
+// The symbols are shared with every other map in the system now — a driver
+// looking at his phone and a dispatcher looking at the board see the same green
+// teardrop for the same loading point. See ./mapSymbols.mjs.
 
 export default function RouteMap({
   origin,            // { lat, lng, label } | null
@@ -57,6 +54,11 @@ export default function RouteMap({
   className = '',
   onStatus,          // (state) => void — 'ready' | 'nokey' | 'error'
   light = false,     // the driver app is a light screen (owner, 2026-09-03): plain Google styling, not the ERP's dark theme
+  vehicleNo,         // drawn as a plate under the lorry — "kaha vehicle chal rahi hai"
+  crossedTolls = [], // [{ plaza_name }] the gates FASTag says are already behind
+  roundTrip = true,  // oil company work returns and pays twice; a market vehicle does not
+  showTolls = true,  // the bazaar's lane-preview map has no trip, so no gates
+  onToll,            // (totals) => void — the phone shows the figure in its own strip
 }) {
   const box = useRef(null);
   const map = useRef(null);
@@ -64,6 +66,41 @@ export default function RouteMap({
   const line = useRef(null);
   const [state, setState] = useState('loading');
   const [detail, setDetail] = useState('');
+  const gateMarks = useRef([]);
+  const info = useRef(null);
+  const refit = useRef(null);
+  const [plazas, setPlazas] = useState([]);
+
+  // ── WHY EVERY DEPENDENCY BELOW IS A STRING ───────────────────────────────
+  //
+  // `origin`, `destination`, `truck` and `crossedTolls` are object and array
+  // literals built fresh by the parent on every render — `origin={geo?.origin}`
+  // is stable, but `truck={{ lat, lng }}` and `crossedTolls={geo?.tolls ?? []}`
+  // are not. With those identities in the dependency list the marker effect
+  // re-ran on every parent render, which was survivable until `onToll` was
+  // added: the effect then called back into the parent, the parent set state,
+  // and React re-rendered into the same effect. "Maximum update depth
+  // exceeded", several hundred times a second, on the DRIVER'S PHONE.
+  //
+  // Caught in the browser before release. Keying on the CONTENT means the
+  // effect runs when a coordinate actually changes, which is the only time it
+  // has anything to do.
+  const ptKey = (p) => (p && Number.isFinite(Number(p.lat)) ? `${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}` : '-');
+  const originKey = ptKey(origin);
+  const destKey = ptKey(destination);
+  const truckKey = `${ptKey(truck)}@${Math.round(Number(truck?.heading) || 0)}`;
+  const crossedKey = (crossedTolls || [])
+    .map((t) => plazaKey(t?.plaza_name ?? t?.plaza ?? t)).join('|');
+  const tollSent = useRef('');
+
+  // One fetch per page, shared with every other map on it. A driver's phone on
+  // a weak connection must not pay for this twice.
+  useEffect(() => {
+    if (!showTolls) return;
+    let dead = false;
+    loadTollPlazas().then((list) => { if (!dead) setPlazas(list); });
+    return () => { dead = true; };
+  }, [showTolls]);
 
   useEffect(() => {
     let dead = false;
@@ -93,6 +130,10 @@ export default function RouteMap({
       dead = true;
       for (const m of Object.values(marks.current)) m?.setMap?.(null);
       marks.current = {};
+      gateMarks.current.forEach((m) => m?.setMap?.(null));
+      gateMarks.current = [];
+      info.current?.close?.();
+      info.current = null;
       line.current?.setMap?.(null);
       line.current = null;
       map.current = null;
@@ -119,9 +160,12 @@ export default function RouteMap({
       }
     };
 
-    put('origin', origin, dot('#2fe39b', '#064e3b'), origin?.label ?? 'Loading point');
-    put('dest', destination, dot('#f472b6', '#500724'), destination?.label ?? 'Unloading point');
+    put('origin', origin, loadingPin(), origin?.label ?? 'Loading point');
+    put('dest', destination, unloadingPin(), destination?.label ?? 'Unloading point');
     put('truck', truck, truckIcon(truck?.heading ?? 0), truck?.label ?? 'Vehicle');
+    // The registration under the arrow. On the driver's own phone it confirms
+    // he is looking at HIS lorry; on a partner's phone, which of his.
+    marks.current.truck?.setLabel?.(truckLabel(vehicleNo ?? truck?.label) ?? null);
 
     let path = null;
     if (polyline && g.maps.geometry?.encoding?.decodePath) {
@@ -142,20 +186,78 @@ export default function RouteMap({
     // Silchar to Agartala goes the long way round the hills — is then drawn
     // half outside the viewport. Extending along the decoded path costs one
     // pass over points we have already decoded.
-    const pts = [origin, destination, truck].filter((p) => p && Number.isFinite(Number(p.lat)));
-    if (path?.length > 1) {
-      const b = new g.maps.LatLngBounds();
-      for (const p of path) b.extend(p);
-      for (const p of pts) b.extend({ lat: Number(p.lat), lng: Number(p.lng) });
-      map.current.fitBounds(b, 48);
-    }
-    else if (pts.length === 1) { map.current.setCenter({ lat: Number(pts[0].lat), lng: Number(pts[0].lng) }); map.current.setZoom(11); }
-    else if (pts.length > 1) {
-      const b = new g.maps.LatLngBounds();
-      for (const p of pts) b.extend({ lat: Number(p.lat), lng: Number(p.lng) });
-      map.current.fitBounds(b, 48);
-    }
-  }, [state, origin, destination, truck, polyline]);
+    // ── TOLL GATES, ON THE PHONE TOO ───────────────────────────────────────
+    //
+    // Owner, 4-Sep: "har modal par and mobil aap par vi". A driver who can see
+    // which plaza is next and what it costs does not have to ring the office to
+    // ask, and a customer looking at his consignment can see what the lane
+    // actually carries. Same pills, same rates, same green-once-crossed rule as
+    // the dispatch board — the rates are what OUR trucks have really paid.
+    //
+    // Matched against the ROAD, not the two endpoints, so a plaza on the
+    // parallel highway is never billed to this lane.
+    const asPts = (path ?? []).map((pt) => ({ lat: pt.lat(), lng: pt.lng() }));
+    const gates = (showTolls && asPts.length > 1) ? plazasOnRoute(asPts, plazas) : [];
+    const crossed = new Set((crossedTolls || []).map((t) => plazaKey(t?.plaza_name ?? t?.plaza ?? t)));
+
+    gateMarks.current.forEach((m) => m.setMap(null));
+    gateMarks.current = gates.map((gate) => {
+      const known = gate.rate !== null && gate.rate !== undefined && gate.rate !== '';
+      const done = crossed.has(gate.name_key);
+      const m = new g.maps.Marker({
+        map: map.current,
+        position: { lat: Number(gate.lat), lng: Number(gate.lng) },
+        icon: gateIcon(done, known),
+        label: gateLabel(gate.rate),
+        title: gate.plaza_name,
+        zIndex: 25,
+      });
+      m.addListener('click', () => {
+        if (!info.current) info.current = new g.maps.InfoWindow();
+        info.current.setContent(infoCard(`🛣️ ${infoCard.esc(gate.plaza_name)}`, '#b45309', [
+          known ? `Ek baar ka rate: <b>${inr(gate.rate)}</b>` : '<b style="color:#b45309">Rate abhi pata nahi</b>',
+          done ? '✅ Cross ho chuka' : '⏳ Aage padega',
+        ]));
+        info.current.open(map.current, m);
+      });
+      return m;
+    });
+    // Emitted only when the numbers move. A callback that fires on every render
+    // is a loop waiting for a parent that stores what it receives.
+    const totals = tollTotals(gates, { roundTrip });
+    const sig = JSON.stringify(totals);
+    if (sig !== tollSent.current) { tollSent.current = sig; onToll?.(totals); }
+
+    // Fit whatever actually exists. Fitting to a fixed box would zoom past a
+    // short lane and cut a long one in half.
+    //
+    // THE ROAD IS PART OF "WHAT EXISTS". Fitting to the three points alone
+    // frames the straight line between the depots, and a road that bows out —
+    // Silchar to Agartala goes the long way round the hills — is then drawn
+    // half outside the viewport. The gates go in too: a plaza just past the
+    // destination belongs inside the frame that is meant to explain it.
+    const pts = [origin, destination, truck].filter((p) => p && Number.isFinite(Number(p.lat)))
+      .map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
+    for (const gate of gates) pts.push({ lat: Number(gate.lat), lng: Number(gate.lng) });
+
+    // Kept callable: a phone map lives inside a scrolling sheet that settles
+    // after the first paint, and Google holds centre and zoom when its box
+    // changes size. Fitting once is how a correct route ends up framed for a
+    // container that no longer exists.
+    refit.current = () => fitTo(map.current, [...asPts, ...pts], { padding: 48, maxZoom: 13 });
+    refit.current();
+    // `crossedTolls` and `plazas` are arrays the parent rebuilds each render, so
+    // they are keyed on content — an array identity in this list would rebuild
+    // every marker on every parent render and make the lorry flicker.
+  }, [state, originKey, destKey, truckKey, polyline, vehicleNo, roundTrip, showTolls,
+      plazas, crossedKey]);
+
+  // Re-fit when the box changes size — a rotation, a sheet opening, a keyboard
+  // appearing under a phone map.
+  useEffect(() => {
+    if (state !== 'ready') return;
+    return observeAndRefit(box.current, () => refit.current?.());
+  }, [state]);
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0a1024] ${className}`}

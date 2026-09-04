@@ -212,6 +212,20 @@ export function registerMapsRoutes(app) {
       SELECT lat, lng, recorded_at FROM trip_gps_pings
        WHERE trip_id = $1::uuid ORDER BY recorded_at ASC LIMIT 500`, [req.params.tripId]);
 
+    // THE GATES THIS LORRY HAS ACTUALLY BEEN THROUGH.
+    //
+    // Every map that draws the lane also draws the toll gates on it, and needs
+    // to know which of them are already behind the truck — that is the
+    // difference between a green gate and an amber one. Returned here rather
+    // than fetched separately by each screen, because this endpoint is already
+    // the one call that answers "everything the map needs" and the dispatch
+    // board opens it on every click.
+    const { rows: crossings } = await query(`
+      SELECT plaza_name, amount, lat, lng, COALESCE(txn_datetime, txn_date::timestamptz) AS at
+        FROM toll_transactions
+       WHERE trip_id = $1::uuid AND plaza_name IS NOT NULL
+       ORDER BY COALESCE(txn_datetime, txn_date::timestamptz) ASC`, [req.params.tripId]);
+
     return {
       trip: {
         id: trip.id, trip_code: trip.trip_code, vehicle_no: trip.vehicle_no,
@@ -239,6 +253,14 @@ export function registerMapsRoutes(app) {
         speed_kmh: ping[0].speed_kmh, source: ping[0].source, at: ping[0].recorded_at,
       } : null,
       trail: trail.map((p) => ({ lat: Number(p.lat), lng: Number(p.lng), at: p.recorded_at })),
+      tolls: crossings.map((t) => ({
+        plaza_name: t.plaza_name,
+        amount: t.amount == null ? null : Number(t.amount),
+        lat: t.lat == null ? null : Number(t.lat),
+        lng: t.lng == null ? null : Number(t.lng),
+        at: t.at,
+      })),
+      toll_paid: crossings.reduce((sum, t) => sum + Number(t.amount || 0), 0),
       telemetry: {
         pings: trail.length,
         note: trail.length === 0
