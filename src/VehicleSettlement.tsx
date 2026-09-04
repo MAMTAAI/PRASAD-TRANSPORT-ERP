@@ -28,6 +28,8 @@ import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { sendWhatsApp } from './lib/waSend';
 import { API_BASE } from './lib/apiBase';
 import BillReport from './settlement/BillReport';
+import OwnerStatement from './settlement/OwnerStatement';
+import CommissionTerms from './settlement/CommissionTerms';
 
 const API = `${API_BASE}/api/v1/vehicle-settlement`;
 
@@ -156,7 +158,8 @@ export default function VehicleSettlement() {
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', border: '1px solid #27395f', borderRadius: '9px',
                         overflow: 'hidden' }}>
-            {[['BILL', '📄 Bill Report'], ['LIST', '📋 Kaam ki list']].map((v) => (
+            {[['BILL', '📄 Bill Report'], ['OWNER', '👥 Owner Statement'],
+              ['TERMS', '💼 Commission'], ['LIST', '📋 Kaam ki list']].map((v) => (
               <button key={v[0]} onClick={() => setView(v[0])}
                 style={{ background: view === v[0] ? 'rgba(34,211,238,0.14)' : 'transparent',
                          color: view === v[0] ? '#22d3ee' : '#9aadd4', border: 'none',
@@ -234,6 +237,21 @@ export default function VehicleSettlement() {
         <BillReport api={API} apiJson={apiJson} Badge={Badge}
                     periodFrom={String(cycle.period_from).slice(0, 10)}
                     onOpen={(id) => id && setOpenId(id)} />
+      )}
+
+      {/* Attached and market lorries, grouped by whose they are. An owner with
+          eleven lorries reads one sheet, not eleven. */}
+      {view === 'OWNER' && cycle && (
+        <OwnerStatement api={API} apiJson={apiJson}
+                        periodFrom={String(cycle.period_from).slice(0, 10)}
+                        onNeedRate={() => setView('TERMS')} />
+      )}
+
+      {/* The rates. Defaulted to the fortnight on screen, because a rate dated
+          today would not price it and nothing would appear to happen. */}
+      {view === 'TERMS' && (
+        <CommissionTerms api={API} apiJson={apiJson}
+                         defaultFrom={cycle ? String(cycle.period_from).slice(0, 10) : undefined} />
       )}
 
       {view === 'LIST' && (<>

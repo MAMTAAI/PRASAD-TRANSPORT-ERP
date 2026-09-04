@@ -20,6 +20,7 @@
 import cron from 'node-cron';
 import { query, isDegraded } from '../db/pool.js';
 import { runNightlyFuelSync } from './nightlyFuelSync.js';
+import { runVehicleBillAgent } from './vehicleBillAgent.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
   detectCompanyMasterGaps, detectEntityMismatch,
@@ -217,12 +218,35 @@ export function startScheduler(log = console) {
     state.fuelCronError = err.message;
     log.warn?.({ err: err.message }, '[scheduler] could not register the 02:00 fuel cron');
   }
+
+  // ── the 15-day vehicle bills ────────────────────────────────────────────
+  //
+  // 03:00 on the 1st and the 16th, closing the fortnight that just ended. It
+  // runs AFTER the 02:00 fuel sync on purpose: the diesel for the last days of
+  // the fortnight has to be in before a lorry's costs are totalled, or the
+  // draft understates them and the desk reviews the wrong number.
+  //
+  // It only builds drafts. Approval stays a person's signature.
+  try {
+    state.vehicleBillCron = cron.schedule('0 3 1,16 * *', async () => {
+      try {
+        const r = await runVehicleBillAgent({ log });
+        log.info?.({ job: 'vehicle_bills', ...r }, '[scheduler] 15-day vehicle bills');
+      } catch (err) {
+        log.warn?.({ job: 'vehicle_bills', err: err.message }, '[scheduler] vehicle bills failed');
+      }
+    }, { timezone: 'Asia/Kolkata' });
+  } catch (err) {
+    state.vehicleBillCronError = err.message;
+    log.warn?.({ err: err.message }, '[scheduler] could not register the vehicle bill cron');
+  }
   return state.timer;
 }
 
 export function stopScheduler() {
   if (state.timer) { clearInterval(state.timer); state.timer = null; }
   if (state.fuelCron) { state.fuelCron.stop(); state.fuelCron = null; }
+  if (state.vehicleBillCron) { state.vehicleBillCron.stop(); state.vehicleBillCron = null; }
 }
 
 export function schedulerState() {
@@ -237,5 +261,7 @@ export function schedulerState() {
     next_cycle_code: cycleCodeFor(),
     nightly_fuel_cron: state.fuelCron ? '02:00 Asia/Kolkata' : null,
     nightly_fuel_cron_error: state.fuelCronError,
+    vehicle_bill_cron: state.vehicleBillCron ? '03:00 on the 1st & 16th, Asia/Kolkata' : null,
+    vehicle_bill_cron_error: state.vehicleBillCronError,
   };
 }

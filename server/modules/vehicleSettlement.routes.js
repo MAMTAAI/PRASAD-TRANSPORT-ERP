@@ -366,51 +366,119 @@ export async function registerVehicleSettlementRoutes(app) {
       return reply.code(409).send({ error: 'ALREADY_APPROVED', settlement: s });
     }
 
-    // ── what actually posts ────────────────────────────────────────────────
+    // ── the gate the database also holds ───────────────────────────────────
     //
-    // The manual adjustments only. Everything else on this statement is already
-    // on its way to the ledger through billing and the pump bill, and posting
-    // it again would book the same diesel twice.
+    // An attached or market lorry with no commission rate on file cannot be
+    // approved: its commission is NULL, and NULL is not zero. Migration 159's
+    // trigger refuses it too (P0410) — this is the message a person reads.
+    if (['ATTACHED', 'MARKET'].includes(s.fleet_class) && s.commission_amount === null) {
+      return reply.code(409).send({
+        error: 'NO_COMMISSION_RATE',
+        detail: `${s.vehicle_no} ${s.fleet_class === 'MARKET' ? 'market' : 'attached'} lorry hai — `
+              + 'pehle iska commission rate darj kijiye, tab hi approve hoga.',
+        vehicle_key: s.vehicle_key,
+      });
+    }
+
     const adj = Array.isArray(s.adjustments) ? s.adjustments : [];
     const adjExpense = r2(adj.filter((a) => a.side === 'EXPENSE')
                              .reduce((n, a) => n + (Number(a.amount) || 0), 0));
     const adjIncome = r2(adj.filter((a) => a.side === 'INCOME')
                             .reduce((n, a) => n + (Number(a.amount) || 0), 0));
 
-    let voucher = null;
-    if (adjExpense > 0 || adjIncome > 0) {
-      const lines = [];
-      if (adjExpense > 0) {
-        lines.push({ ledger: 'Direct Expenses - Vehicle Operations', dr_cr: 'DR',
-                     amount: adjExpense, group: 'Direct Expenses - Vehicle Operations' });
-      }
-      if (adjIncome > 0) {
-        lines.push({ ledger: 'Freight & Trip Income', dr_cr: 'CR',
-                     amount: adjIncome, group: 'Direct Income' });
-      }
-      // The journal has to balance, so the difference rides on the operating
-      // control account for the lorry — the same account a later correction
-      // would reverse against.
-      const diff = r2(adjExpense - adjIncome);
-      if (diff > 0) {
-        lines.push({ ledger: 'Vehicle Settlement Control', dr_cr: 'CR',
-                     amount: diff, group: 'Current Liabilities' });
-      } else if (diff < 0) {
-        lines.push({ ledger: 'Vehicle Settlement Control', dr_cr: 'DR',
-                     amount: -diff, group: 'Current Liabilities' });
-      }
+    const isAgency = ['ATTACHED', 'MARKET'].includes(s.fleet_class);
+    const num = (v) => Number(v) || 0;
+    const lines = [];
+    let narration;
 
+    if (isAgency) {
+      // ── AN ATTACHED OR MARKET LORRY ──────────────────────────────────────
+      //
+      // The freight is the OWNER'S money that we collected. Out of it we keep
+      // the commission, withhold TDS on what we pay them, and take back the
+      // diesel and tolls we advanced. ONLY THE COMMISSION IS OUR INCOME —
+      // which is exactly what the owner asked for: "yaha ka balance sheet may
+      // profit may sirf comition hi add hogi".
+      //
+      // The journal balances by construction:
+      //   freight = commission + tds + expenses recovered + payable to owner
+      const freight = r2(num(s.billed_amount));
+      const comm = r2(num(s.commission_amount));
+      const tds = r2(num(s.tds_amount));
+      const rec = r2(num(s.expenses_recovered));
+      const payable = r2(freight - comm - tds - rec);
+
+      lines.push({ ledger: 'Attached Vehicle Freight Control', dr_cr: 'DR',
+                   amount: freight, group: 'Current Liabilities' });
+      if (comm > 0) {
+        lines.push({ ledger: 'Commission Income - Attached Vehicles', dr_cr: 'CR',
+                     amount: comm, group: 'Direct Income' });
+      }
+      if (tds > 0) {
+        lines.push({ ledger: `TDS Payable (${s.tds_pct ?? 0}% 194C)`, dr_cr: 'CR',
+                     amount: tds, group: 'Duties & Taxes' });
+      }
+      if (rec > 0) {
+        // A recovery, not income: the diesel was already booked as our expense
+        // when the pump bill posted, and this takes it back out.
+        lines.push({ ledger: 'Vehicle Expense Recovery', dr_cr: 'CR',
+                     amount: rec, group: 'Direct Expenses - Vehicle Operations' });
+      }
+      if (payable > 0) {
+        lines.push({ ledger: `Vehicle Owner: ${s.owner_name ?? s.vehicle_no}`, dr_cr: 'CR',
+                     amount: payable, group: 'Sundry Creditors (Vendors)' });
+      } else if (payable < 0) {
+        // The owner owes US — the diesel we advanced outran the freight.
+        lines.push({ ledger: `Vehicle Owner: ${s.owner_name ?? s.vehicle_no}`, dr_cr: 'DR',
+                     amount: -payable, group: 'Sundry Creditors (Vendors)' });
+      }
+      narration = `${s.fleet_class === 'MARKET' ? 'Market' : 'Attached'} vehicle settlement — `
+                + `${s.vehicle_no} (${s.owner_name ?? 'owner darj nahi'}), ${s.cycle_label}. `
+                + `Freight ₹${freight.toFixed(2)}, commission ₹${comm.toFixed(2)}, `
+                + `TDS ₹${tds.toFixed(2)}, recovery ₹${rec.toFixed(2)}, payable ₹${payable.toFixed(2)}.`;
+    }
+
+    // ── the manual adjustments, on any class of lorry ──────────────────────
+    //
+    // On an OWN lorry these are the ONLY thing that posts: its freight reaches
+    // the books through customer billing and its diesel through the fortnightly
+    // pump bill, so posting the P&L on top would book the same diesel twice.
+    if (adjExpense > 0) {
+      lines.push({ ledger: 'Direct Expenses - Vehicle Operations', dr_cr: 'DR',
+                   amount: adjExpense, group: 'Direct Expenses - Vehicle Operations' });
+    }
+    if (adjIncome > 0) {
+      lines.push({ ledger: 'Freight & Trip Income', dr_cr: 'CR',
+                   amount: adjIncome, group: 'Direct Income' });
+    }
+    const diff = r2(adjExpense - adjIncome);
+    if (diff > 0) {
+      lines.push({ ledger: 'Vehicle Settlement Control', dr_cr: 'CR',
+                   amount: diff, group: 'Current Liabilities' });
+    } else if (diff < 0) {
+      lines.push({ ledger: 'Vehicle Settlement Control', dr_cr: 'DR',
+                   amount: -diff, group: 'Current Liabilities' });
+    }
+    if (!narration) {
+      narration = `Vehicle settlement — ${s.vehicle_no}, ${s.cycle_label} `
+                + '(manual adjustments only; freight and HSD post through their own flows)';
+    }
+
+    let voucher = null;
+    if (lines.length) {
       try {
         voucher = await postVoucher({
           type: 'JOURNAL',
           source_type: 'VEHICLE_SETTLEMENT',
+          // The company the lorry belongs to, so the entry lands in THAT firm's
+          // trial balance — f_trial_balance_scoped already routes on it.
+          company_id: s.company_id ?? null,
           // Deterministic: the same lorry and the same fortnight cannot post
           // twice, however many times Approve is clicked.
           ref_no: `VEHSETL_${s.vehicle_key}_${s.period_from instanceof Date
             ? s.period_from.toISOString().slice(0, 10) : s.period_from}`,
           entry_date: s.period_to,
-          narration: `Vehicle settlement — ${s.vehicle_no}, ${s.cycle_label} `
-                   + `(manual adjustments only; freight and HSD post through their own flows)`,
+          narration,
           lines,
         });
       } catch (e) {
@@ -433,11 +501,23 @@ export async function registerVehicleSettlementRoutes(app) {
       approved: true,
       settlement: fresh,
       voucher_id: voucher?.voucher_id ?? null,
-      posted: { adjustment_income: adjIncome, adjustment_expense: adjExpense },
-      note: voucher
-        ? `Ledger me sirf manual adjustment gaya (₹${(adjExpense - adjIncome).toFixed(2)} net). `
-          + 'Freight aur HSD apne apne flow se jaate hain.'
-        : 'Koi manual adjustment nahi tha, isliye koi voucher nahi bana — settlement approve aur lock ho gaya.',
+      posted: {
+        fleet_class: s.fleet_class,
+        company: fresh?.company_name ?? null,
+        commission: isAgency ? r2(num(s.commission_amount)) : null,
+        tds: isAgency ? r2(num(s.tds_amount)) : null,
+        payable_to_owner: isAgency ? r2(num(s.payable_to_owner)) : null,
+        adjustment_income: adjIncome,
+        adjustment_expense: adjExpense,
+      },
+      note: !voucher
+        ? 'Koi manual adjustment nahi tha, isliye koi voucher nahi bana — settlement approve aur lock ho gaya.'
+        : isAgency
+          ? `${fresh?.company_name ?? 'company'} ki books me commission ₹${r2(num(s.commission_amount)).toFixed(2)} `
+            + `income gaya. Owner ko ₹${r2(num(s.payable_to_owner)).toFixed(2)} dena hai, `
+            + `TDS ₹${r2(num(s.tds_amount)).toFixed(2)} kaata gaya.`
+          : `Ledger me sirf manual adjustment gaya (₹${(adjExpense - adjIncome).toFixed(2)} net). `
+            + 'Freight aur HSD apne apne flow se jaate hain.',
     };
   });
 

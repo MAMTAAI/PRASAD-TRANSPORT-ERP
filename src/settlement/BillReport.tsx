@@ -68,6 +68,51 @@ export default function BillReport({ api, periodFrom, apiJson, onOpen, Badge }) 
 
   const g = data?.grand ?? {};
 
+  /** One lorry's block on its own sheet — the row a person is looking at. */
+  const printOne = (v) => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const st = v.subtotal;
+    const rows = v.trips.map((t, i) => `<tr>
+      <td>${i + 1}</td><td>${t.iocl_bill_no || t.trip_code || ''}</td>
+      <td>${t.unloading_date ?? t.loading_date ?? ''}</td>
+      <td class="r">${inr2(t.expense_total)}</td>
+      <td>${(t.customer_name ?? '').slice(0, 34)}</td>
+      <td class="r">${n2(t.loaded_qty).toFixed(3)}</td>
+      <td class="r">${n2(t.rtkm) || '—'}</td>
+      <td class="r">${n2(t.billed) ? inr2(t.billed) : 'billing baaki'}</td>
+    </tr>`).join('');
+    w.document.write(`<html><head><title>${v.vehicle_no} — ${data?.period?.label ?? ''}</title>
+      <style>body{font-family:system-ui;margin:24px;color:#111}
+      h1{font-size:18px;margin:0 0 3px}.sub{color:#666;font-size:12px;margin-bottom:14px}
+      table{border-collapse:collapse;width:100%;font-size:12px}
+      th{text-align:left;border-bottom:2px solid #333;padding:5px 7px;font-size:10px;
+         text-transform:uppercase;letter-spacing:.06em;color:#444}
+      td{padding:5px 7px;border-bottom:1px solid #e6e6e6}
+      td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+      tfoot td{border-top:2px solid #333;border-bottom:none;font-weight:700}
+      .note{margin-top:16px;font-size:11px;color:#666;line-height:1.5;max-width:70ch}</style>
+      </head><body>
+      <h1>${v.vehicle_no}</h1>
+      <div class="sub">${v.operating_company ?? ''} · ${data?.period?.label ?? ''}
+        · ${data?.period?.from} to ${data?.period?.to} · ${st.trips} trip</div>
+      <table>
+        <thead><tr><th>SNo</th><th>Trip / Bill No.</th><th>Date</th><th class="r">Kul kharch</th>
+          <th>Ship-to-party</th><th class="r">Qty (KL)</th><th class="r">RTKM</th>
+          <th class="r">Freight (Rs.)</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr>
+          <td colspan="3">Subtotal for Vehicle: ${v.vehicle_no}</td>
+          <td class="r">${inr2(st.expense_all)}</td><td></td>
+          <td class="r">${n2(st.qty).toFixed(3)}</td><td class="r">${n2(st.rtkm).toFixed(0)}</td>
+          <td class="r">${inr2(st.income)}</td>
+        </tr></tfoot>
+      </table>
+      <div class="note">Net: ${inr2(st.net)}. Aamdani trip ke billed amount se li gayi hai.</div>
+      </body></html>`);
+    w.document.close(); w.focus(); w.print();
+  };
+
   const th = (bg, align) => ({
     padding: '7px 9px', textAlign: align ?? 'left', fontSize: '9.5px',
     textTransform: 'uppercase', letterSpacing: '0.06em', color: '#8fa2c6',
@@ -201,15 +246,42 @@ export default function BillReport({ api, periodFrom, apiJson, onOpen, Badge }) 
                             fontVariantNumeric: 'tabular-nums', minWidth: '104px', textAlign: 'right' }}>
                   {net >= 0 ? '' : '−'}{inr(Math.abs(net))}
                 </b>
-                {v.settlement_id && (
-                  <button className="pt-noprint"
-                    onClick={(e) => { e.stopPropagation(); onOpen?.(v.settlement_id); }}
-                    style={{ background: 'transparent', border: '1px solid #3d548a', color: '#22d3ee',
-                             borderRadius: '6px', padding: '3px 9px', fontSize: '11px',
-                             fontWeight: 700, cursor: 'pointer' }}>
-                    Kholein →
-                  </button>
-                )}
+                {/* ── the staff's own controls, on the lorry itself ──────
+                    The owner asked for edit / save / print / modify to be here
+                    rather than only inside the drawer. Save is not offered on
+                    this row: the figures a person edits are the expense buckets
+                    and the adjustments, and those need the drawer's own fields.
+                    A button that opens the right screen is honest; one that
+                    pretends to save from a summary row is not.
+
+                    MODIFY is what a locked settlement gets instead of EDIT.
+                    Offering "edit" on an approved bill would offer a control
+                    that the database refuses (P0409). */}
+                <span className="pt-noprint" style={{ display: 'flex', gap: '5px' }}>
+                  {v.settlement_id ? (
+                    <>
+                      <button onClick={(e) => { e.stopPropagation(); onOpen?.(v.settlement_id); }}
+                        title={v.locked ? 'Bill locked hai — kholkar Reopen dabaiye'
+                                        : 'Kharch aur adjustment badlein'}
+                        style={{ background: v.locked ? 'rgba(255,178,36,0.13)' : 'rgba(47,227,155,0.13)',
+                                 border: '1px solid ' + (v.locked ? 'rgba(255,178,36,0.5)' : 'rgba(47,227,155,0.5)'),
+                                 color: v.locked ? '#ffb224' : '#2fe39b',
+                                 borderRadius: '6px', padding: '3px 9px', fontSize: '11px',
+                                 fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {v.locked ? '🔓 Modify' : '✏️ Edit / Save'}
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); printOne(v); }}
+                        title="Sirf is lorry ka P&L print karein"
+                        style={{ background: 'transparent', border: '1px solid #3d548a', color: '#9aadd4',
+                                 borderRadius: '6px', padding: '3px 9px', fontSize: '11px',
+                                 fontWeight: 700, cursor: 'pointer' }}>
+                        🖨️
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ color: '#5d7196', fontSize: '10.5px' }}>draft nahi bana</span>
+                  )}
+                </span>
               </span>
             </div>
 
