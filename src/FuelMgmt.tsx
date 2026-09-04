@@ -397,6 +397,24 @@ export default function FuelMgmt() {
             confidence: r.confidence, flags: r.flags,
           })));
           setScanMeta({ ...j, exact: true });
+
+          // THE BILL NAMES ITS OWN PUMP, so pick it. Without this the audit ran
+          // with reconVendor still empty, the memo pool was empty with it, and
+          // every line came back "no memo exists" while the screen showed
+          // "-- Choose Pump --" at the top. Matched on the same normalisation
+          // the database uses (pump_key), so "BN FILLING STATION (Bharat
+          // Petroleum Dealer)" on the invoice finds "B N FILLING STATION" in
+          // the vendor master.
+          const pk = (t: string) => String(t || '').toUpperCase()
+            .replace(/(BHARAT PETROLEUM DEALERS?|BPCL DEALERS?|INDIAN OIL|IOCL|HPCL|PVT LTD|PRIVATE LIMITED)/g, ' ')
+            .replace(/STN/g, 'STATION').replace(/[^A-Z0-9]/g, '');
+          const hit = fuelVendors.find((v: any) => pk(v.vendor_name) === pk(j.pump));
+          if (hit && hit.id !== reconVendor) handleVendorSelectRecon(hit.id);
+          else if (!hit) {
+            setScanMeta((m: any) => ({ ...(m ?? {}), exact: true,
+              pump_not_in_master: j.pump }));
+          }
+
           if (j.check?.stated_amount) setVendorBillAmount(String(Math.round(j.check.stated_amount)));
           if (j.period?.from) setReconFromDate(j.period.from);
           if (j.period?.to) setReconToDate(j.period.to);
@@ -976,12 +994,31 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                 )}
               </div>
 
+              {/* Why the right-hand side is empty, said before the clerk wonders. */}
+              {(!reconVendor || scanMeta?.pump_not_in_master) && (
+                <div style={{ padding: '10px 14px', borderRadius: '8px', marginBottom: '14px',
+                              background: 'rgba(255,107,129,0.08)', border: '1px solid rgba(255,107,129,0.4)',
+                              color: '#ff6b81', fontSize: '12.5px', lineHeight: 1.5 }}>
+                  {scanMeta?.pump_not_in_master
+                    ? <>⚠️ "{scanMeta.pump_not_in_master}" vendor master me nahi mila — isliye koi memo
+                        milaya nahi ja saka. Pehle is pump ko vendor master me joड़ें, phir dobara scan karein.</>
+                    : <>⚠️ Upar se pump chunna baaki hai — jab tak pump nahi chunte, kisi memo se milan
+                        nahi ho sakta aur har line "memo hi nahi" dikhegi.</>}
+                </div>
+              )}
+
               {auditRows.length === 0 ? (
                 <p style={{ color: '#5d7196', fontSize: '13px' }}>
                   {auditFilter === 'FLAGGED' ? '✅ Koi gadbad nahi — har line memo se milti hai.' : 'Koi line nahi.'}
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '520px', overflowY: 'auto' }}>
+                // A COLUMN FLEXBOX WITH A BOUNDED HEIGHT SHRINKS ITS CHILDREN.
+                // flex-shrink defaults to 1, so 31 cards inside a 520px column
+                // were squeezed to about ten pixels each and overflow:hidden on
+                // the card did the rest — thirty-one empty blue stripes. It
+                // looked fine at five cards, which is how it shipped. Plain
+                // block flow cannot do that to its children.
+                <div style={{ display: 'block', maxHeight: '620px', overflowY: 'auto', paddingRight: '4px' }}>
                   {auditRows.map((l: any) => {
                     const v = VERDICTS[l.verdict] || { label: l.verdict, tone: 'warn', blocks: true };
                     const tone = v.tone === 'ok' ? '#2fe39b' : v.tone === 'bad' ? '#ff6b81' : '#ffb224';
@@ -1004,7 +1041,8 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
                     return (
                       <div key={l.idx} style={{ border: '1px solid ' + (decided ? 'rgba(47,227,155,0.45)' : '#27395f'),
                                                 background: decided ? 'rgba(47,227,155,0.04)' : 'rgba(18,28,56,0.6)',
-                                                borderRadius: '10px', overflow: 'hidden' }}>
+                                                borderRadius: '10px', overflow: 'hidden',
+                                                marginBottom: '10px', flexShrink: 0 }}>
 
                         {/* the line's own header: which line, and what is wrong */}
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap',
