@@ -167,3 +167,8 @@ ERP_HEALER.KILL
 # Importer output — rewritten by the cron every 10 minutes on the box. A copy
 # pulled down for a dry run is a snapshot of that machine, not source.
 reports/iocl_recon/
+
+# Scratch copies of downloaded portal statements — real financial data, never committed.
+.*.tmp.csv
+.*.tmp.mjs
+.*.tmp.json

@@ -103,6 +103,7 @@ import { startScheduler } from './lib/scheduler.js';
 import { registerOwnerExpenseRoutes } from './modules/ownerExpense.routes.js';
 import { registerTripImportRoutes } from './modules/tripImport.routes.js';
 import { registerFuelImportRoutes } from './modules/fuelImport.routes.js';
+import { registerFleetCardRoutes } from './modules/fleetCard.routes.js';
 import { initRealtime } from './lib/realtime.js';
 import { startLoops, stopLoops } from './agents/loopEngine.js';
 import { startGraph, stopGraph } from './agents/graphEngine.js';
@@ -339,6 +340,10 @@ await app.register(registerTripImportRoutes,  { prefix: '/api/v1' });
 // Pump-bill import: dual accounting by ownership, and a review queue for every
 // row that must NOT reach a ledger.
 await app.register(registerFuelImportRoutes,  { prefix: '/api/v1' });
+// The three oil companies' fleet cards. Own prefix, because none of it belongs
+// to the fuel importer: those are pump bills on paper, these are the card
+// statements the oil company keeps.
+await app.register(registerFleetCardRoutes,   { prefix: '/api/v1/fleet-card' });
 await app.register(registerDashboardRoutes, { prefix: '/api/v1' });
 // Drill-down reads the dashboard's own payload through app.inject() for its
 // self-check, so it must register AFTER the routes it verifies.
