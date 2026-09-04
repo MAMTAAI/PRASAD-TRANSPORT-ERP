@@ -21,6 +21,7 @@ import { inr, inrFull } from './useDashboardData';
 import { API_BASE } from '../lib/apiBase';
 import OwnerFleetMatrix from './OwnerFleetMatrix';
 import { LivePnl, UnbilledFreight } from './OpsWidgets';
+import FleetCardSettlement from './FleetCardSettlement';
 
 // Gradients for the EMI bars. This is styling, not data — the lender names and
 // balances beside it come from loan_master.
@@ -537,6 +538,12 @@ export default function FinanceDashboard({ live, filter }) {
         <UnbilledFreight live={live} />
       </div>
 
+      {/* ── Fleet Card & Settlement ─────────────────────────────────────
+          The milan desk for IOCL/BPCL/HPCL swipes. It sits in the Finance
+          hub rather than a module of its own because the money it places is
+          the same money the cards above spent — and because a swipe left in
+          clearing is a figure on this page that is not yet anywhere else. */}
+      <FleetCardSettlement />
       {/* Owner payables sit with the money. Clicking a row scopes the whole dashboard,
           so this table and the KPI cards above always agree. */}
       <OwnerFleetMatrix

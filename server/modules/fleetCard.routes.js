@@ -21,6 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { query, isDegraded } from '../db/pool.js';
 import { ingestFleetCardCsv, IngestError } from '../lib/fleetCardIngest.js';
+import { registerFleetCardAllocationRoutes } from './fleetCardAlloc.routes.js';
 
 const dbGate = (reply) => reply.code(503).send({ error: 'DB_UNAVAILABLE' });
 
@@ -237,4 +238,8 @@ export async function registerFleetCardRoutes(app) {
       };
     }
   );
+
+  // Allocation lives in its own module — same prefix, separate file, because
+  // "what a swipe was for" is a different subject from "what the card did".
+  await registerFleetCardAllocationRoutes(app);
 }

@@ -195,6 +195,12 @@ app.setErrorHandler((err, req, reply) => {
     // one trip's expense must never land on another.
     return reply.code(409).send({ error: 'TRIP_VEHICLE_MISMATCH', detail: err.message });
   }
+  if (pgCode === 'P0406') {
+    // OVER_ALLOCATION (migration 152) — a card swipe cannot discharge more
+    // pump credit than it carried. Usually two clerks working the same swipe;
+    // the message says how much room is actually left, so it is passed through.
+    return reply.code(409).send({ error: 'OVER_ALLOCATION', detail: err.message });
+  }
   req.log.error({ err }, 'unhandled request error');
   return reply.code(err.statusCode ?? 500).send({
     error: 'INTERNAL',
