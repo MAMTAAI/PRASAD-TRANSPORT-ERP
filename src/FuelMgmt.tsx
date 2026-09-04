@@ -1421,6 +1421,25 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
             )}
           </div>
 
+          {/* The bills the machine could not read, waiting to be keyed in.
+              Clicking one puts the clerk into manual entry for that bill: the
+              pump and the period are pre-filled from the queue, and the split
+              screen below is where the lines get typed. */}
+          <ManualBillQueue onEnter={(b: any) => {
+            const NL = String.fromCharCode(10);
+            if (b.vendor_id) handleVendorSelectRecon(b.vendor_id);
+            if (b.period_from) setReconFromDate(String(b.period_from).slice(0, 10));
+            if (b.period_to) setReconToDate(String(b.period_to).slice(0, 10));
+            setScannedPumpItems([]); setScanMeta(null); setBillResolutions({});
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            alert('📝 Manual entry: ' + b.pump + ' · ' + b.cycle_label + NL + NL
+              + 'File: ' + b.source_file + NL
+              + 'Dikkat: ' + b.issue + NL + NL
+              + (b.vendor_id ? 'Pump aur tareekh upar bhar di gayi hai.'
+                             : '⚠️ Yeh pump vendor master me nahi mila — upar se khud chuniye.') + NL
+              + 'Ab bill ke line upar "Match & Edit System Slips" me daaliye.');
+          }} />
+
           {/* Every fortnight already settled, and one click into any of them. */}
           <SettledBills vendorId={reconVendor || null} />
           </div>
@@ -1922,6 +1941,211 @@ function BillDrillDown({ bill: seed, onClose }: any) {
             {bill.voucher_id ? String(bill.voucher_id).slice(0, 8) : '—'}</b></span>
           {bill.locked && <span style={{ color: '#2fe39b' }}>🔒 Locked — is period me ab koi badlav nahi</span>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ══ MANUAL REVIEW QUEUE ═════════════════════════════════════════════════════
+//
+// The bills the parser refused, waiting to be keyed in — grouped by fortnight,
+// then by pump, then by bill. That order is not a preference: a pump BILLS a
+// fortnight at a time, so a clerk works a fortnight at a time, and sorting by
+// upload date would scatter one cycle's paper down the whole list with no way
+// to tell when June was finished.
+//
+// The pump and the period on these rows come from the FILENAME, because the
+// whole reason a bill is here is that its contents could not be read. They sort
+// the queue; they never post money. The entry screen makes a person confirm
+// them.
+function ManualBillQueue({ onEnter }: any) {
+  const [data, setData] = useState<any>(null);
+  const [openCycle, setOpenCycle] = useState<string | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+
+  const load = React.useCallback(async () => {
+    setBusy(true); setErr(null);
+    try {
+      const j = await apiJson(`${API}/api/v1/fuel/pump-bill-queue?status=NEEDS_ENTRY`);
+      setData(j);
+      // Open the newest cycle by default — it is the one being worked.
+      setOpenCycle((c) => c ?? (j.cycles?.[0]?.cycle ?? null));
+    } catch (e: any) { setErr(e?.message ?? 'queue load nahi hui'); }
+    setBusy(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  /** Show the system a folder of bills. Each one is tried and recorded. */
+  const addFiles = async (e: any) => {
+    const files: File[] = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    setUploading(files.length);
+    let queued = 0; let readable = 0; let already = 0;
+    for (const file of files) {
+      try {
+        const b64: string = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result).split(',')[1] ?? '');
+          r.onerror = rej;
+          r.readAsDataURL(file);
+        });
+        // webkitRelativePath keeps the folder, and the folder is the pump —
+        // "Alam/June 30.06.2026.pdf". Without it the pump is unknown and the
+        // bill lands in the queue with nothing to sort it by.
+        const rel = (file as any).webkitRelativePath || file.name;
+        const j = await apiJson(`${API}/api/v1/fuel/pump-bill-scan`, {
+          method: 'POST',
+          body: JSON.stringify({ pdf_base64: b64, source_file: rel, uploaded_by: 'desk' }),
+        });
+        if (j.already) already += 1; else { queued += 1; if (j.readable) readable += 1; }
+      } catch { /* one bad file must not stop the folder */ }
+      setUploading((n) => n - 1);
+    }
+    setUploading(0);
+    const NL = String.fromCharCode(10);
+    alert(`${files.length} file dekhi gayi.` + NL
+      + `${queued} nayi darj hui — inme ${readable} apne aap padh li gayi.` + NL
+      + (already ? `${already} pehle se darj thi.` + NL : '')
+      + `Baaki manual queue me hain.`);
+    await load();
+  };
+
+  const cycles = data?.cycles ?? [];
+  const totals = data?.totals ?? {};
+
+  const th = { padding: '7px 10px', textAlign: 'left' as const, fontSize: '10px',
+               textTransform: 'uppercase' as const, letterSpacing: '0.08em',
+               color: '#5d7196', borderBottom: '1px solid #27395f', whiteSpace: 'nowrap' as const };
+  const td = { padding: '7px 10px', borderBottom: '1px solid #18244a', color: '#c4d1ea' };
+
+  return (
+    <div className="glass-card" style={{ padding: '20px', marginTop: '20px', borderTop: '3px solid #ffb224' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div>
+          <h3 style={{ color: '#ffb224', margin: 0 }}>📂 Manual Review Queue</h3>
+          <p style={{ color: '#9aadd4', fontSize: '12px', margin: '4px 0 0', lineHeight: 1.5, maxWidth: '62ch' }}>
+            Jo bill machine nahi padh saki. 15-din ke cycle, phir pump, phir bill —
+            usi tarteeb me jisme kaam hota hai. Pump aur tareekh <b>file ke naam</b> se
+            aayi hai, isliye entry karte waqt use confirm karna hoga.
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {[['Baaki', totals.needs_entry, '#ffb224'], ['Padh li', totals.parsed, '#2fe39b'],
+            ['Ho gayi', totals.entered, '#9aadd4']].map((t: any) => (
+            <div key={t[0]} style={{ textAlign: 'center', minWidth: '58px' }}>
+              <div style={{ fontSize: '18px', fontWeight: 800, color: t[2] }}>{t[1] ?? 0}</div>
+              <div style={{ fontSize: '9.5px', color: '#5d7196', textTransform: 'uppercase' }}>{t[0]}</div>
+            </div>
+          ))}
+          <label style={{ background: 'rgba(167,139,250,0.15)', color: '#c4b5fd',
+                          border: '1px solid rgba(167,139,250,0.5)', borderRadius: '8px',
+                          padding: '8px 14px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+            {uploading ? `⏳ ${uploading} baaki…` : '📥 Bill folder daalein'}
+            {/* A whole pump folder at once, because that is how they are kept. */}
+            <input type="file" multiple accept=".pdf,image/*" style={{ display: 'none' }}
+                   onChange={addFiles} disabled={!!uploading}
+                   {...({ webkitdirectory: '', directory: '' } as any)} />
+          </label>
+        </div>
+      </div>
+
+      {err && <p style={{ color: '#ff6b81', fontSize: '13px', marginTop: '12px' }}>{err}</p>}
+      {busy && !data && <p style={{ color: '#5d7196', marginTop: '12px' }}>Queue khul rahi hai…</p>}
+
+      {data && cycles.length === 0 && (
+        <p style={{ color: '#5d7196', fontSize: '13px', marginTop: '14px' }}>
+          Queue khaali hai. Upar se pump ka folder daaliye — har bill try hogi, aur jo
+          nahi padhi jayegi wo yahan cycle ke hisaab se lag jayegi.
+        </p>
+      )}
+
+      {/* ── accordion: cycle → pump → bill ──────────────────────────────── */}
+      <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {cycles.map((c: any) => {
+          const open = openCycle === c.cycle;
+          return (
+            <div key={c.cycle} style={{ border: '1px solid ' + (open ? '#3d548a' : '#27395f'),
+                                        borderRadius: '10px', overflow: 'hidden',
+                                        background: open ? 'rgba(24,36,74,0.5)' : 'rgba(18,28,56,0.4)' }}>
+              <button onClick={() => setOpenCycle(open ? null : c.cycle)}
+                style={{ width: '100%', display: 'flex', justifyContent: 'space-between',
+                         alignItems: 'center', gap: '12px', background: 'transparent', border: 'none',
+                         padding: '11px 14px', cursor: 'pointer', textAlign: 'left' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                  <span style={{ color: '#9aadd4', fontSize: '12px', width: '10px' }}>{open ? '▾' : '▸'}</span>
+                  <b style={{ color: '#eef3ff', fontSize: '14px' }}>{c.cycle_label}</b>
+                  {c.period_from && (
+                    <span style={{ color: '#5d7196', fontSize: '11.5px' }}>
+                      {c.period_from} → {c.period_to}
+                    </span>
+                  )}
+                </span>
+                <span style={{ display: 'flex', gap: '14px', fontSize: '11.5px', color: '#9aadd4', whiteSpace: 'nowrap' }}>
+                  <span>{c.pumps.length} pump</span>
+                  <span style={{ color: '#ffb224', fontWeight: 700 }}>{c.bills} bill</span>
+                  <span>{c.pages || '—'} page</span>
+                </span>
+              </button>
+
+              {open && (
+                <div style={{ borderTop: '1px solid #27395f' }}>
+                  {c.pumps.map((p: any) => (
+                    <div key={p.pump} style={{ borderBottom: '1px solid #18244a' }}>
+                      <div style={{ padding: '7px 14px 4px 34px', display: 'flex',
+                                    justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' }}>
+                        <b style={{ color: '#22d3ee', fontSize: '12.5px' }}>⛽ {p.pump}</b>
+                        <span style={{ color: '#5d7196', fontSize: '11px' }}>{p.bills.length} bill</span>
+                      </div>
+                      <div style={{ overflowX: 'auto', padding: '0 14px 10px 34px' }}>
+                        <table style={{ width: '100%', minWidth: '720px', borderCollapse: 'collapse', fontSize: '12px' }}>
+                          <thead>
+                            <tr>
+                              <th style={th}>Billing cycle</th>
+                              <th style={th}>Pump</th>
+                              <th style={th}>Bill no.</th>
+                              <th style={{ ...th, textAlign: 'right' }}>Pages</th>
+                              <th style={th}>Issue</th>
+                              <th style={th} />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.bills.map((b: any) => (
+                              <tr key={b.id} style={{ cursor: 'pointer' }}
+                                  onClick={() => onEnter?.(b)}
+                                  title="Manual entry kholne ke liye click karein">
+                                <td style={{ ...td, whiteSpace: 'nowrap' }}>{b.cycle_label}</td>
+                                <td style={td}>{b.pump}</td>
+                                <td style={{ ...td, fontFamily: 'monospace', fontSize: '11.5px' }}>
+                                  {b.bill_no_hint ?? <span style={{ color: '#5d7196' }}>{b.source_file}</span>}
+                                </td>
+                                <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                                  {b.pages ?? '—'}
+                                </td>
+                                <td style={{ ...td, color: '#ffb224' }}>
+                                  {b.issue}
+                                  {Number(b.text_lines) > 0 && (
+                                    <span style={{ color: '#5d7196' }}> · {b.text_lines} text line</span>
+                                  )}
+                                </td>
+                                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                  <span style={{ color: '#22d3ee', fontSize: '11.5px', fontWeight: 700 }}>
+                                    Manual entry →
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -44,7 +44,8 @@
     "pumpbill:selftest": "node server/lib/pumpBillParse.selftest.mjs",
     "audit:selftest": "node src/lib/pumpBillAudit.selftest.mjs",
     "migrate:selftest154": "node server/db/migrations/154_fuel_settlement_trail.selftest.mjs",
-    "migrate:selftest155": "node server/db/migrations/155_fortnight_bill_lock.selftest.mjs"
+    "migrate:selftest155": "node server/db/migrations/155_fortnight_bill_lock.selftest.mjs",
+    "migrate:selftest156": "node server/db/migrations/156_pump_bill_scan_queue.selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

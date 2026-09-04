@@ -100,8 +100,19 @@ export async function pdfLines(data) {
         .map((c) => c.s).join(' ').replace(/\s+/g, ' ').trim())
       .filter(Boolean));
   }
+  const flat = pages.flat();
+  // The page count is wanted by the manual queue ("how thick is this bill?")
+  // and thrown away by a plain flatten. Carried on the array rather than
+  // changing the return shape, so every existing caller is untouched.
+  Object.defineProperty(flat, 'pageCount', { value: doc.numPages, enumerable: false });
   await doc.destroy?.();
-  return pages.flat();
+  return flat;
+}
+
+/** Lines and the page count together, for callers that want both. */
+export async function pdfRead(data) {
+  const lines = await pdfLines(data);
+  return { lines, pages: lines.pageCount ?? null };
 }
 
 // ── B N Filling ─────────────────────────────────────────────────────────────

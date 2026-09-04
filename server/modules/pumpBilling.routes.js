@@ -30,6 +30,8 @@
 // This module does not change that. It only makes the comparison possible
 // beforehand, so an operator can see a variance before posting rather than
 // discovering it in the ledger afterwards.
+import { createHash } from 'node:crypto';
+import { pdfRead, parsePumpBill, toBulkImportRows } from '../lib/pumpBillParse.js';
 import { query, withTransaction } from '../db/pool.js';
 import { requireAdminOrService } from './auth.routes.js';
 
@@ -773,5 +775,220 @@ export async function registerPumpBillingRoutes(app, opts = {}) {
         return a;
       }, {}),
     };
+  });
+
+  /**
+   * Show the system a pump invoice, and record what happened to it.
+   *
+   * Every attempt is written down — read, or refused and why — because "we
+   * never tried June" and "June would not read" are different problems and
+   * only one of them is the pump's fault. A bill that was never shown is
+   * absent from the queue; a bill that failed is in it, with its reason.
+   *
+   * The same file shown twice does not queue twice: the content hash sees to
+   * that, and re-uploading a folder is the ordinary case, not a mistake.
+   */
+  app.post('/pump-bill-scan', { preHandler: guard }, async (req, reply) => {
+    const b = req.body ?? {};
+    if (!b.pdf_base64) return reply.code(400).send({ error: 'NO_PDF' });
+
+    let data;
+    try {
+      data = Buffer.from(String(b.pdf_base64).replace(/^data:[^,]*,/, ''), 'base64');
+    } catch { return reply.code(400).send({ error: 'BAD_BASE64' }); }
+    if (!data.length || data.length > 25 * 1024 * 1024) {
+      return reply.code(400).send({ error: 'BAD_SIZE' });
+    }
+
+    const sha = createHash('sha256').update(data).digest('hex');
+    const { rows: seen } = await query(
+      `SELECT * FROM v_pump_bill_queue WHERE id = (
+         SELECT id FROM pump_bill_scan_queue WHERE content_sha = $1)`, [sha]);
+    if (seen.length) return { queued: false, already: true, entry: seen[0] };
+
+    const sourceFile = String(b.source_file ?? '').slice(0, 300) || 'unnamed.pdf';
+
+    // ── what the FILENAME says, for a scan whose contents cannot be read ──
+    //
+    // "Alam/June 30.06.2026.pdf" carries the pump in its folder and the period
+    // in its name. That is the only handle an unreadable photograph gives, and
+    // it is a hint: good enough to sort a work queue, never good enough to post
+    // money. The entry screen makes a person confirm both.
+    const hintPump = String(b.pump_hint ?? '').trim()
+      || (sourceFile.includes('/') ? sourceFile.split('/')[0].trim() : '');
+    const dm = /(\d{1,2})[.\-_ ](\d{1,2})[.\-_ ](\d{4})/.exec(sourceFile);
+    const range = /(\d{1,2})\s*-\s*(\d{1,2})/.exec(sourceFile.replace(/\d{4}/g, ''));
+    let pf = null; let pt = null;
+    if (dm) {
+      const end = `${dm[3]}-${String(dm[2]).padStart(2, '0')}-${String(dm[1]).padStart(2, '0')}`;
+      if (/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(end)) {
+        // A bill dated the 15th covers 1–15; one dated the month end covers the
+        // second half. The date on a pump bill is when it was raised.
+        const d = Number(dm[1]);
+        pt = end;
+        pf = d <= 16
+          ? `${dm[3]}-${String(dm[2]).padStart(2, '0')}-01`
+          : `${dm[3]}-${String(dm[2]).padStart(2, '0')}-16`;
+        if (d <= 16) pt = `${dm[3]}-${String(dm[2]).padStart(2, '0')}-15`;
+      }
+    } else if (range) {
+      const mn = /(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.exec(sourceFile);
+      const yr = /(20\d{2})/.exec(sourceFile);
+      if (mn && yr) {
+        const mi = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+          .indexOf(mn[1].toLowerCase()) + 1;
+        const mm = String(mi).padStart(2, '0');
+        pf = `${yr[1]}-${mm}-${String(range[1]).padStart(2, '0')}`;
+        pt = `${yr[1]}-${mm}-${String(range[2]).padStart(2, '0')}`;
+      }
+    }
+
+    // ── try to read it ────────────────────────────────────────────────────
+    let lines = [];
+    let pages = null;
+    let bill = null;
+    let reason = null;
+    let reasonCode = null;
+    try {
+      ({ lines, pages } = await pdfRead(data));
+    } catch (e) {
+      reasonCode = 'PDF_UNREADABLE';
+      reason = e.message?.slice(0, 200) ?? 'the PDF could not be opened';
+    }
+    if (!reasonCode) {
+      try {
+        bill = parsePumpBill(lines);
+        if (!bill.check.ok) {
+          reasonCode = 'BILL_DOES_NOT_BALANCE';
+          reason = bill.check.why;
+          bill = null;
+        }
+      } catch (e) {
+        reasonCode = e.code ?? 'PARSE_FAILED';
+        reason = e.message?.slice(0, 300) ?? null;
+      }
+    }
+
+    const { rows: [row] } = await query(`
+      INSERT INTO pump_bill_scan_queue
+        (source_file, content_sha, pages, bytes, pump_hint, vendor_id, bill_no_hint,
+         period_from, period_to, cycle, status, reason, reason_code, rows_found,
+         text_lines, detail, uploaded_by)
+      VALUES ($1,$2,$3,$4,$5,
+              (SELECT id FROM vendors WHERE pump_key(vendor_name) = pump_key($5) LIMIT 1),
+              $6,$7::date,$8::date,
+              CASE WHEN $7::date IS NOT NULL THEN fortnight_code($7::date) END,
+              $9,$10,$11,$12,$13,$14::jsonb,$15)
+      ON CONFLICT (content_sha) DO NOTHING
+      RETURNING id`,
+      [sourceFile, sha, pages, data.length,
+       hintPump || null, bill?.invoice_no ?? null,
+       bill?.period_from ?? pf, bill?.period_to ?? pt,
+       bill ? 'PARSED' : 'NEEDS_ENTRY', reason, reasonCode,
+       bill?.rows.length ?? 0, lines.length,
+       JSON.stringify(bill
+         ? { format: bill.format, check: bill.check, anomalies: bill.anomalies }
+         : { first_lines: lines.slice(0, 6) }),
+       b.uploaded_by ?? 'desk']);
+
+    const { rows: [entry] } = await query(
+      `SELECT * FROM v_pump_bill_queue WHERE id = $1::uuid`, [row?.id ?? null]);
+
+    return {
+      queued: true,
+      readable: !!bill,
+      entry,
+      // When it DID read, hand back the rows so the same upload can go straight
+      // into the audit rather than asking for the file a second time.
+      bill: bill ? {
+        pump: bill.pump, invoice_no: bill.invoice_no,
+        period: { from: bill.period_from, to: bill.period_to },
+        check: bill.check, rows: toBulkImportRows(bill, { sourceFile }),
+      } : null,
+    };
+  });
+
+  /**
+   * The manual queue, grouped the way it is worked: fortnight, then pump.
+   *
+   * A clerk works one cycle at a time because a pump BILLS one cycle at a time.
+   * Sorting by upload date would scatter a single fortnight's paper down the
+   * whole list and there would be no way to tell when June was finished.
+   */
+  app.get('/pump-bill-queue', { preHandler: guard }, async (req, reply) => {
+    const status = String(req.query?.status ?? 'NEEDS_ENTRY');
+    const { rows } = await query(`
+      SELECT * FROM v_pump_bill_queue
+       WHERE ($1 = 'ALL' OR status = $1)
+       ORDER BY period_from DESC NULLS LAST, pump, bill_no_hint NULLS LAST, source_file`,
+      [status]);
+
+    // Grouped on the server so every screen that shows this queue groups it the
+    // same way — and so the counts are of the whole queue, not of a page.
+    const byCycle = new Map();
+    for (const r of rows) {
+      if (!byCycle.has(r.cycle)) {
+        byCycle.set(r.cycle, {
+          cycle: r.cycle, cycle_label: r.cycle_label,
+          period_from: r.period_from, period_to: r.period_to,
+          bills: 0, pages: 0, pumps: new Map(),
+        });
+      }
+      const c = byCycle.get(r.cycle);
+      c.bills += 1;
+      c.pages += Number(r.pages) || 0;
+      if (!c.pumps.has(r.pump)) c.pumps.set(r.pump, { pump: r.pump, vendor_id: r.vendor_id, bills: [] });
+      c.pumps.get(r.pump).bills.push(r);
+    }
+
+    const cycles = [...byCycle.values()].map((c) => ({
+      ...c,
+      pumps: [...c.pumps.values()].sort((a, b) => a.pump.localeCompare(b.pump)),
+    }));
+    // Undated bills last: they cannot be worked as part of a cycle and would
+    // otherwise sit at the top pretending to be the newest.
+    cycles.sort((a, b) => (a.cycle === 'UNDATED' ? 1 : b.cycle === 'UNDATED' ? -1
+      : String(b.cycle).localeCompare(String(a.cycle))));
+
+    const { rows: [tot] } = await query(`
+      SELECT count(*) FILTER (WHERE status='NEEDS_ENTRY')::int needs_entry,
+             count(*) FILTER (WHERE status='PARSED')::int      parsed,
+             count(*) FILTER (WHERE status='ENTERED')::int     entered,
+             count(*) FILTER (WHERE status='DISCARDED')::int   discarded
+        FROM pump_bill_scan_queue`);
+
+    return { cycles, rows, totals: tot };
+  });
+
+  /** Mark one queued bill entered, or set it aside. */
+  app.post('/pump-bill-queue/:id/resolve', { preHandler: guard }, async (req, reply) => {
+    const status = String(req.body?.status ?? '');
+    if (!['ENTERED', 'DISCARDED', 'NEEDS_ENTRY'].includes(status)) {
+      return reply.code(400).send({ error: 'BAD_STATUS' });
+    }
+    // Setting a bill aside has to say why — otherwise "discarded" becomes the
+    // quiet way a fortnight of diesel stops being anybody's problem.
+    const note = String(req.body?.notes ?? '').trim();
+    if (status === 'DISCARDED' && note.length < 4) {
+      return reply.code(400).send({
+        error: 'REASON_REQUIRED',
+        detail: 'discard karne ka kaaran likhna hoga',
+      });
+    }
+    const { rows } = await query(`
+      UPDATE pump_bill_scan_queue
+         SET status = $2,
+             linked_bill_id = COALESCE($3::uuid, linked_bill_id),
+             notes = COALESCE(NULLIF($4,''), notes),
+             resolved_at = CASE WHEN $2 = 'NEEDS_ENTRY' THEN NULL ELSE now() END,
+             resolved_by = CASE WHEN $2 = 'NEEDS_ENTRY' THEN NULL ELSE $5 END
+       WHERE id = $1::uuid
+      RETURNING id`, [req.params.id, status,
+       UUID_RE.test(String(req.body?.bill_id ?? '')) ? req.body.bill_id : null,
+       note, req.body?.by ?? 'desk']);
+    if (!rows.length) return reply.code(404).send({ error: 'NOT_IN_QUEUE' });
+    const { rows: [entry] } = await query(
+      `SELECT * FROM v_pump_bill_queue WHERE id = $1::uuid`, [req.params.id]);
+    return { updated: entry };
   });
 }
