@@ -73,6 +73,7 @@ import { registerIoclSyncRoutes } from './modules/ioclSync.routes.js';
 import { registerExceptionRoutes } from './modules/exceptions.routes.js';
 import { registerFortnightBillingRoutes } from './modules/fortnightBilling.routes.js';
 import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
+import { registerVehicleSettlementRoutes } from './modules/vehicleSettlement.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
 import { registerLoanImportRoutes } from './modules/loanImport.routes.js';
 import { registerComplianceRoutes } from './modules/compliance.routes.js';
@@ -279,6 +280,7 @@ await app.register(registerFortnightBillingRoutes, { prefix: '/api/v1/billing' }
 // labelled), and show the variance against the physical bill BEFORE
 // /queues/fuel-reconcile posts it to the vendor ledger.
 await app.register(registerPumpBillingRoutes, { prefix: '/api/v1/fuel' });
+await app.register(registerVehicleSettlementRoutes, { prefix: '/api/v1/vehicle-settlement' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.

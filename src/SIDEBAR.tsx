@@ -139,6 +139,9 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'TRIP', label: 'Trip Management', icon: '🛣️' },
         { id: 'LOADING', label: 'Loading Details', icon: '📦' },
         { id: 'SETTLEMENT', label: 'Master Trip Settlement', icon: '🧾' },
+        // Per-LORRY, per-fortnight P&L. Master Trip Settlement above is the
+        // DRIVER's hisaab (advances, carry-forward); this one is the vehicle's.
+        { id: 'VEHICLE_SETTLEMENT', label: 'Vehicle 15-Day Settlement', icon: '📅' },
         { id: 'VEHICLE', label: 'Our Vehicle Fleet', icon: '🚛' },
         { id: 'MARKET_VEHICLE', label: 'Market Vehicles (Fleet Partners)', icon: '🚚' },
         { id: 'DRIVER', label: 'Driver Master', icon: '👨‍✈️' },
