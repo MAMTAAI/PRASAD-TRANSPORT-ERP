@@ -452,4 +452,14 @@ UPDATE trips t
    SET customer_bill_id = NULL
   FROM customer_bills b
  WHERE t.customer_bill_id = b.id AND b.locked_at IS NULL;
+-- …and put every unassigned, billable trip onto the open draft of its
+-- unloading fortnight (the same rule customer_bills_build applies).
+UPDATE trips t
+   SET customer_bill_id = b.id
+  FROM v_customer_trip_recon r
+  JOIN customer_bills b
+    ON b.customer_id = r.customer_id AND b.books_key = r.books_key
+   AND b.locked_at IS NULL AND b.status IN ('AI_DRAFT', 'STAFF_REVIEWED')
+   AND r.bill_date BETWEEN b.period_from AND b.period_to
+ WHERE r.trip_id = t.id AND t.customer_bill_id IS NULL;
 SELECT customer_bill_refresh(id) FROM customer_bills WHERE status <> 'CANCELLED';
