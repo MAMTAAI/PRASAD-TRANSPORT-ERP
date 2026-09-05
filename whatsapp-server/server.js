@@ -313,6 +313,21 @@ function newSession(id) {
                 '--no-first-run',
                 '--no-default-browser-check',
                 '--mute-audio',
+                // ── The three that actually govern the footprint (6-Sep-2026) ──
+                // Measured on the 1.9 GB box: a freshly launched session held
+                // ~1.2 GB across ELEVEN processes. Site isolation is why there
+                // are eleven — Chromium spawns a renderer per origin, and each
+                // one carries its own V8 heap. The engine had looked like
+                // ~400 MB only because most of it had been paged into swap over
+                // three days; the working set was always this big.
+                //   renderer-process-limit  one renderer, not one per origin
+                //   disable-features        turns site isolation off (WhatsApp
+                //                           Web is a single trusted origin, so
+                //                           there is nothing to isolate it from)
+                //   js-flags                caps that renderer's V8 heap
+                '--renderer-process-limit=1',
+                '--disable-features=site-per-process,IsolateOrigins,TranslateUI',
+                '--js-flags=--max-old-space-size=256',
             ],
         },
     });
