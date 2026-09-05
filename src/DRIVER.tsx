@@ -328,17 +328,24 @@ export default function DriverMgmt() {
     // IFSC, bank, HZD certificate. No model on this PC is needed.
     let kycFilled: string[] = [];
     let kycLow: string[] = [];
+    let kycQueued: any = null;
     if (!field.startsWith('custom_')) {
       setScanningField(field);
       try {
         const fd = new FormData(); fd.append('doc_type', KYC_KIND[field] ?? 'AUTO'); fd.append('file', file);
         const r = await fetch(`${API_BASE}/api/v1/kyc/scan`, { method: 'POST', body: fd });
         const j = await r.json().catch(() => ({}));
-        if (r.ok && j.fields) { kycFilled = applyKycToForm(field, j.fields); kycLow = (j.low ?? []).filter((k: string) => kycFilled.some((f) => f.startsWith(FIELD_LABEL[k] ?? '§'))); }
+        if (r.status === 202) {
+          // FAIL-SAFE (176): the box was busy or low on memory. The document is
+          // saved and queued — say so plainly instead of showing a failure.
+          kycQueued = j.job_id ?? true;
+        } else if (r.ok && j.fields) { kycFilled = applyKycToForm(field, j.fields); kycLow = (j.low ?? []).filter((k: string) => kycFilled.some((f) => f.startsWith(FIELD_LABEL[k] ?? '§'))); }
       } catch { /* the local path below still runs */ }
       setScanningField(null);
     }
-    if (kycFilled.length) {
+    if (kycQueued) {
+      alert(`✅ ${docType} save ho gaya.\n\n⏳ Server abhi vyast hai — scan queue me daal diya gaya hai. File surakshit hai; number/date abhi haath se bhar dein, ya thodi der baad dobara kholein.`);
+    } else if (kycFilled.length) {
       alert(`✅ ${docType} saved and scanned by TARA.\n\nFilled: ${kycFilled.join(', ')}${kycLow.length ? `\n⚠ Check: ${kycLow.map((k) => FIELD_LABEL[k] ?? k).join(', ')}` : ''}\n\nCheck the fields, then press "Update Driver Profile".`);
     } else try {
       // 🤖 Extraction: local Tesseract -> DeepSeek, falling back to the server's

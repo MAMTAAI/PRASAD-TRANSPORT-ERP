@@ -1151,3 +1151,25 @@ export async function detectPayroll(exec = query) {
   }
   return { raised: raised.length };
 }
+
+// ── OCR fail-safe queue (migration 176) ─────────────────────────────────────
+export async function detectOcrBacklog(exec = query) {
+  const raised = [];
+  const { rows: [h] } = await exec('SELECT * FROM v_ocr_health').catch(() => ({ rows: [null] }));
+  if (!h) return { raised: 0 };
+  if (Number(h.queued) > 0 && Number(h.oldest_queued_minutes) >= 60) {
+    raised.push(await raiseException({ kind: 'OCR_BACKLOG', severity: Number(h.oldest_queued_minutes) >= 360 ? 'HIGH' : 'MEDIUM',
+      title: `${h.queued} scanned document${Number(h.queued) === 1 ? '' : 's'} waiting to be read — oldest ${h.oldest_queued_minutes} minutes`,
+      detail: 'Every document is saved; only the reading is behind. Either the 32 GB PC worker is off and no cloud key is set, or this box has been below its OCR memory floor. Check Accounts & Admin → OCR health, start the PC worker, or set a cloud key.',
+      subject_type: 'ocr_queue', subject_id: null, dedupe_key: 'OCR_BACKLOG', detected_by: 'scheduler',
+      evidence: { queued: h.queued, running: h.running, oldest_minutes: h.oldest_queued_minutes, tiers_24h: h.tiers_24h } }, exec));
+  }
+  const { rows: dead } = await exec("SELECT id, filename, doc_type, error, attempts FROM ocr_jobs WHERE status = 'FAILED' AND updated_at > now() - interval '2 days' ORDER BY updated_at DESC LIMIT 20").catch(() => ({ rows: [] }));
+  for (const j of dead) {
+    raised.push(await raiseException({ kind: 'OCR_JOB_FAILED', severity: 'LOW',
+      title: `Could not read ${j.filename ?? j.doc_type ?? 'a scanned document'} after ${j.attempts} attempts`,
+      detail: `${j.error ?? 'no reason recorded'}. The file itself is safe in the vault — open it and type the fields, or re-scan a clearer photo.`,
+      subject_type: 'ocr_job', subject_id: j.id, dedupe_key: `OCR_JOB_FAILED:${j.id}`, detected_by: 'scheduler', evidence: j }, exec));
+  }
+  return { raised: raised.length };
+}

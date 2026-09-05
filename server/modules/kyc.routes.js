@@ -16,6 +16,7 @@ import multipart from '@fastify/multipart';
 import { extractText } from '../services/textOcr.js';
 import { extractKyc } from '../lib/kycExtract.js';
 import { requireAuth } from './auth.routes.js';
+import { enqueue } from '../lib/ocrQueue.js';
 
 const MAX_BYTES = Number.parseInt(process.env.SCAN_MAX_BYTES ?? String(20 * 1024 * 1024), 10);
 const MIN_FREE_MB = Number(process.env.OCR_MIN_FREE_MB ?? '220');
@@ -36,12 +37,25 @@ export async function registerKycRoutes(app) {
     if (!KINDS.has(kind)) return reply.code(400).send({ error: 'BAD_DOC_TYPE', detail: 'doc_type must be DL, AADHAAR, PAN, BANK, HZD or AUTO' });
     if (part.mimetype && !ALLOWED.has(part.mimetype)) return reply.code(415).send({ error: 'UNSUPPORTED_TYPE', detail: `${part.mimetype} — send a JPEG, PNG, WEBP or PDF` });
     const freeMb = Math.round(os.freemem() / 1048576);
-    if (freeMb < MIN_FREE_MB) return reply.code(503).send({ error: 'OCR_LOW_MEMORY', detail: `the box has ${freeMb} MB free (floor ${MIN_FREE_MB}) — the document is saved; scan again in a minute or type the fields` });
-    if (busy) return reply.code(429).send({ error: 'OCR_BUSY', detail: 'another document is being read — try again in a few seconds' });
+    const buf = await part.toBuffer();
+
+    // FAIL-SAFE (176). When this box cannot read the document right now, the
+    // document is still SAVED and QUEUED, and the caller gets 202 rather than
+    // an error. A driver's licence is never lost to a busy minute.
+    if (freeMb < MIN_FREE_MB || busy) {
+      try {
+        const job = await enqueue({ buffer: buf, filename: part.filename, mime: part.mimetype, docType: kind, source: 'KYC', requestedBy: req.user?.name ?? req.user?.sub ?? null });
+        return reply.code(202).send({ ok: true, status: 'PENDING_OCR', job_id: job.id, file_url: job.file_url,
+          detail: busy ? 'another document is being read — this one is saved and queued' : `the box is below the ${MIN_FREE_MB} MB OCR floor (${freeMb} MB free) — this one is saved and queued`,
+          poll: `/api/v1/ocr/jobs/${job.id}` });
+      } catch (e) {
+        return reply.code(507).send({ error: 'STORE_FAILED', detail: `the document was NOT saved: ${e.message}` });
+      }
+    }
+
     busy = true;
     const started = Date.now();
     try {
-      const buf = await part.toBuffer();
       const out = await extractText(buf);
       const text = out?.text ?? '';
       const r = extractKyc(text, kind);

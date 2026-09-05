@@ -24,6 +24,7 @@ import multipart from '@fastify/multipart';
 import { query, isDegraded, poolStats } from '../db/pool.js';
 import { scanDocument } from '../services/universalScan.js';
 import { localEngineUp } from '../ai/router.js';
+import { enqueue } from '../lib/ocrQueue.js';
 
 const MAX_BYTES = Number.parseInt(process.env.SCAN_MAX_BYTES ?? String(20 * 1024 * 1024), 10);
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
@@ -80,8 +81,25 @@ export async function registerScanRoutes(app) {
     const source = part.fields?.source?.value ?? 'mobile';
     const uploadedBy = part.fields?.uploaded_by?.value ?? null;
 
+    // FAIL-SAFE (176): this endpoint used to read the bytes and never store
+    // them, so a failed scan lost the document. The file is filed FIRST now;
+    // the scan below is best-effort on top of a document already safe on disk.
+    let job = null;
     try {
-      return await scanDocument(buffer, { filename, source, uploadedBy });
+      job = await enqueue({ buffer, filename, mime: contentType, docType: 'AUTO', source: 'MOBILE_SCAN', requestedBy: uploadedBy });
+    } catch (e) {
+      req.log?.error?.({ err: e }, 'scan intake could not store the document');
+    }
+
+    try {
+      const out = await scanDocument(buffer, { filename, source, uploadedBy });
+      // A job that the inline scan already answered does not need the queue.
+      if (job && out?.ok !== false) {
+        await query('SELECT ocr_complete($1::uuid, $2, $3, $4::jsonb, $5::jsonb, $6, $7)',
+          [job.id, 'AWS_PATTERNS', out.engine ?? 'patterns', JSON.stringify(out.fields ?? out.document ?? {}), '{}', String(out.text ?? '').slice(0, 4000), 'answered inline by /scan'])
+          .catch(() => {});
+      }
+      return { ...out, job_id: job?.id ?? null, file_url: job?.file_url ?? null };
     } catch (e) {
       // Even a total failure answers with the shape the app expects, so the
       // phone renders "couldn't read this, try again" instead of a crash.
@@ -89,6 +107,9 @@ export async function registerScanRoutes(app) {
       return reply.code(200).send({
         ok: false, engine: 'none', kind: 'UNKNOWN', needs_human: true,
         error: 'SCAN_FAILED', detail: e.message, filename,
+        // The document is stored and queued — the reading will be retried.
+        job_id: job?.id ?? null, file_url: job?.file_url ?? null,
+        status: job ? 'PENDING_OCR' : 'NOT_SAVED',
       });
     }
   });

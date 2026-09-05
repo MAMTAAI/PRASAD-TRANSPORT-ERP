@@ -22,11 +22,12 @@ import { query, isDegraded } from '../db/pool.js';
 import { runNightlyFuelSync } from './nightlyFuelSync.js';
 import { runVehicleBillAgent, istToday } from './vehicleBillAgent.js';
 import { prepareMonth } from './monthEnd.js';
+import { dispatchOnce as ocrDispatchOnce } from './ocrQueue.js';
 import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds, detectGst, detectPayroll,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds, detectGst, detectPayroll, detectOcrBacklog,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -155,6 +156,7 @@ async function runExceptionScan() {
     ['tds', detectTds],
     ['gst', detectGst],
     ['payroll', detectPayroll],
+    ['ocr', detectOcrBacklog],
   ]) {
     try {
       const r = await fn();
@@ -357,11 +359,26 @@ async function runPayroll() {
   }
 }
 
+// OCR fail-safe (176): whatever the 32 GB PC has not claimed within its grace
+// window, this box finishes itself — cloud extraction if a key is set, else the
+// deterministic pattern tables. A job is never dropped and never lost; the file
+// was stored before the first attempt.
+async function ocrDispatch() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  try {
+    const r = await ocrDispatchOnce();
+    return (r.claimed || r.reclaimed) ? r : { skipped: 'queue empty' };
+  } catch (err) {
+    if (/ocr_jobs|ocr_claim|ocr_reclaim/.test(err.message)) return { skipped: 'migration 176 not applied' };
+    throw err;
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst], ['payroll', runPayroll], ['month_end', monthEndAgent]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst], ['payroll', runPayroll], ['month_end', monthEndAgent], ['ocr_queue', ocrDispatch]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

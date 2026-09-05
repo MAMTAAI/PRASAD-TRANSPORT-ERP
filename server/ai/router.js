@@ -27,9 +27,67 @@
 import { query, isDegraded } from '../db/pool.js';
 
 const OLLAMA = (process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434').replace(/\/$/, '');
-const LOCAL_MODEL = process.env.LOCAL_AI_MODEL ?? process.env.OCR_VISION_MODEL ?? 'gemma4:12b';
+// The old default was gemma4:12b — a model that cannot exist on a 1.9 GB box,
+// and one that any stray call would try to PULL (8 GB) onto a disk with 12 GB
+// free. The default is now the small model that is actually installed where a
+// local engine exists at all; the 12B/14B work goes to HEAVY below.
+const LOCAL_MODEL = process.env.LOCAL_AI_MODEL ?? process.env.OCR_VISION_MODEL ?? 'gemma3:270m';
 const CLOUD_FALLBACK = process.env.AI_ALLOW_CLOUD_FALLBACK === '1';
 const HEALTH_TTL_MS = 10_000;
+
+// ── HEAVY lane — the Local 32 GB PC (deepseek-r1:14b) ───────────────────────
+// These four env names existed on the AWS box for weeks and were read by NO
+// code (see docs/RND-HYBRID-ARCHITECTURE-2026-09-06.md §0). This is the wiring.
+// The PC is reached over HTTPS through the tunnel host; it never touches
+// Postgres, which BAGALAMUKHI's db_stays_loopback_or_vpc invariant forbids.
+const HEAVY_URL = (process.env.OLLAMA_HEAVY_URL ?? '').replace(/\/$/, '');
+const HEAVY_MODEL = process.env.OLLAMA_HEAVY_MODEL ?? 'deepseek-r1:14b';
+const HEAVY_TOKEN = process.env.OLLAMA_HEAVY_TOKEN ?? '';
+// Below this many characters the work is not worth a round trip to the PC.
+const HEAVY_CHAR_THRESHOLD = Number(process.env.OLLAMA_HEAVY_CHAR_THRESHOLD ?? '1500');
+const HEAVY_MAX_INFLIGHT = Number(process.env.OLLAMA_HEAVY_MAX_INFLIGHT ?? '2');
+const HEAVY_TIMEOUT_MS = Number(process.env.OLLAMA_HEAVY_TIMEOUT_MS ?? '180000');
+let heavyInflight = 0;
+let heavyProbe = { at: 0, up: false, detail: HEAVY_URL ? 'never probed' : 'OLLAMA_HEAVY_URL not set' };
+
+const heavyHeaders = () => ({ 'content-type': 'application/json', ...(HEAVY_TOKEN ? { authorization: `Bearer ${HEAVY_TOKEN}` } : {}) });
+
+/** Is the 32 GB PC answering right now? Cached, one probe per 10 s. */
+export async function heavyEngineUp() {
+  if (!HEAVY_URL) return false;
+  if (Date.now() - heavyProbe.at < HEALTH_TTL_MS) return heavyProbe.up;
+  try {
+    const res = await fetch(`${HEAVY_URL}/api/version`, { headers: heavyHeaders(), signal: AbortSignal.timeout(4000) });
+    // A tunnel hostname that resolves but has nothing behind it answers 404 —
+    // that is DOWN, not up. Only a 2xx with a version counts.
+    const body = res.ok ? await res.json().catch(() => ({})) : null;
+    heavyProbe = { at: Date.now(), up: !!res.ok, detail: res.ok ? `ollama ${body?.version ?? '?'} @ ${HEAVY_URL}` : `HTTP ${res.status} from ${HEAVY_URL}` };
+  } catch (err) {
+    heavyProbe = { at: Date.now(), up: false, detail: err.message };
+  }
+  return heavyProbe.up;
+}
+
+async function callHeavy({ prompt, images, format, timeoutMs, model }) {
+  const res = await fetch(`${HEAVY_URL}/api/generate`, {
+    method: 'POST',
+    headers: heavyHeaders(),
+    body: JSON.stringify({
+      model: model ?? HEAVY_MODEL, prompt, images, format, stream: false,
+      options: { temperature: 0.1 },
+    }),
+    signal: AbortSignal.timeout(timeoutMs ?? HEAVY_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`heavy ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  const json = await res.json();
+  return { engine: `heavy:${model ?? HEAVY_MODEL}`, tier: 'HEAVY_LOCAL_PC', text: json.response };
+}
+
+/** Any engine at all — heavy PC or an on-box one. Callers use this to decide
+ *  whether an enrichment pass is worth attempting. */
+export async function engineUp() {
+  return (await heavyEngineUp()) || (await localEngineUp());
+}
 
 // ── Local engine health (cached — one probe per 10s, not per task) ──────────
 let lastProbe = { at: 0, up: false, detail: 'never probed' };
@@ -49,7 +107,7 @@ export async function localEngineUp() {
 // scheduled task, every new task awaits the previous tail. FIFO, concurrency 1.
 let tail = Promise.resolve();
 let queueDepth = 0;
-let localStats = { done: 0, failed: 0, parked: 0, cloudFallbacks: 0 };
+let localStats = { done: 0, failed: 0, parked: 0, cloudFallbacks: 0, heavy: 0, heavyFailed: 0 };
 
 function enqueueLocal(fn) {
   queueDepth++;
@@ -79,9 +137,33 @@ async function callOllama({ prompt, images, format, timeoutMs, model }) {
   return { engine: `local:${model ?? LOCAL_MODEL}`, text: json.response };
 }
 
+// DeepSeek's cloud API is OpenAI-compatible, so it needs no SDK — plain fetch
+// keeps the 1.9 GB box free of another dependency. Preferred when its key is
+// present; Anthropic remains the second cloud option. Text only: a vision
+// prompt (images present) skips this and goes to Anthropic.
+async function callDeepSeekCloud({ prompt, timeoutMs }) {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) throw new Error('no DEEPSEEK_API_KEY');
+  const base = (process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com').replace(/\/$/, '');
+  const model = process.env.DEEPSEEK_MODEL ?? 'deepseek-chat';
+  const res = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.1, stream: false }),
+    signal: AbortSignal.timeout(timeoutMs ?? 60_000),
+  });
+  if (!res.ok) throw new Error(`deepseek ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  const json = await res.json();
+  return { engine: `cloud:${model}`, tier: 'CLOUD', text: json.choices?.[0]?.message?.content ?? '' };
+}
+
 async function callCloud({ prompt, images, mimeType, timeoutMs }) {
+  if (!(images?.length) && process.env.DEEPSEEK_API_KEY) {
+    try { return await callDeepSeekCloud({ prompt, timeoutMs }); }
+    catch (err) { if (!process.env.ANTHROPIC_API_KEY) throw err; /* else try Anthropic */ }
+  }
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key || key.startsWith('sk-ant-your')) throw new Error('cloud engine not configured (no ANTHROPIC_API_KEY)');
+  if (!key || key.startsWith('sk-ant-your')) throw new Error('cloud engine not configured (no DEEPSEEK_API_KEY or ANTHROPIC_API_KEY)');
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey: key, timeout: timeoutMs ?? 60_000 });
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
@@ -125,6 +207,25 @@ export async function run(kind, req, { lane = 'local', parkable = true } = {}) {
     return callCloud(req);
   }
 
+  // ── Tier 1: the 32 GB PC ──────────────────────────────────────────────
+  // Preferred for anything substantial. Small prompts stay on-box (a round
+  // trip to a home DSL line costs more than a 270m model does locally), and
+  // no more than HEAVY_MAX_INFLIGHT run at once so a slow PC cannot pile up
+  // requests inside the 1.9 GB API process.
+  const bigEnough = (req?.prompt?.length ?? 0) >= HEAVY_CHAR_THRESHOLD || (req?.images?.length ?? 0) > 0;
+  if (bigEnough && heavyInflight < HEAVY_MAX_INFLIGHT && await heavyEngineUp()) {
+    heavyInflight++;
+    try {
+      const out = await callHeavy(req);
+      localStats.heavy++;
+      return out;
+    } catch (err) {
+      localStats.heavyFailed++;
+      heavyProbe = { at: Date.now(), up: false, detail: err.message };
+      // fall through to the on-box engine / cloud / parking
+    } finally { heavyInflight--; }
+  }
+
   if (await localEngineUp()) {
     // Local engine alive → strict 1-at-a-time queue.
     try {
@@ -166,13 +267,15 @@ async function handleOffline(kind, req, lane, parkable, reason) {
  * records the result on the row.
  */
 export async function drainParked(batch = 3) {
-  if (isDegraded() || !(await localEngineUp())) return 0;
+  if (isDegraded() || !(await engineUp())) return 0;
   const { rows } = await query('SELECT * FROM claim_ai_tasks($1, $2)', ['local', batch]);
   let done = 0;
   for (const task of rows) {
     try {
       const req = task.payload?.req ?? {};
-      const out = await enqueueLocal(() => callOllama(req));
+      // Replay through the same gate so a parked task drains to whichever tier
+      // is alive now — the 32 GB PC first, this box second.
+      const out = await run(task.kind ?? 'parked', req, { lane: task.lane ?? 'local', parkable: false });
       await query(
         `UPDATE ai_tasks SET status = 'DONE', engine_used = $2, result = $3::jsonb, finished_at = now() WHERE id = $1`,
         [task.id, out.engine, JSON.stringify({ text: out.text?.slice(0, 100_000) })]
@@ -201,12 +304,13 @@ export async function aiStats() {
     } catch { /* table may not exist mid-migration */ }
   }
   return {
+    heavy_engine: { configured: !!HEAVY_URL, up: heavyProbe.up, url: HEAVY_URL || null, model: HEAVY_MODEL, inflight: heavyInflight, detail: heavyProbe.detail },
     local_engine: { up: lastProbe.up, model: LOCAL_MODEL, detail: lastProbe.detail },
-    cloud_fallback_enabled: CLOUD_FALLBACK,
+    cloud: { deepseek: !!process.env.DEEPSEEK_API_KEY, anthropic: !!process.env.ANTHROPIC_API_KEY, fallback_enabled: CLOUD_FALLBACK },
     in_process_queue_depth: queueDepth,
     counters: localStats,
     durable_queue: queue,
   };
 }
 
-export default { run, drainParked, aiStats, localEngineUp };
+export default { run, drainParked, aiStats, localEngineUp, heavyEngineUp, engineUp };

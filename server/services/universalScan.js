@@ -85,7 +85,7 @@ async function enrich(text, budgetMs = ENRICH_TIMEOUT_MS) {
 
   const attempt = (async () => {
     try {
-      if (!(await aiRouter.localEngineUp())) return { skipped: 'local engine down' };
+      if (!(await aiRouter.engineUp())) return { skipped: 'no AI engine reachable (heavy PC down, none on this box)' };
       const out = await aiRouter.run('document.enrich', {
         prompt: `${ENRICH_PROMPT}\n\nDOCUMENT TEXT:\n${text.slice(0, 12000)}`,
         format: 'json',

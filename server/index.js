@@ -81,6 +81,7 @@ import { registerTdsRoutes } from './modules/tds.routes.js';
 import { registerGstRoutes } from './modules/gst.routes.js';
 import { registerPayrollRoutes } from './modules/payroll.routes.js';
 import { registerKycRoutes } from './modules/kyc.routes.js';
+import { registerOcrRoutes } from './modules/ocr.routes.js';
 import { registerCommissionTermsRoutes } from './modules/commissionTerms.routes.js';
 import { registerUnmappedVehicleRoutes } from './modules/unmappedVehicles.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
@@ -303,6 +304,7 @@ await app.register(registerTdsRoutes,              { prefix: '/api/v1/tds' });
 await app.register(registerGstRoutes,              { prefix: '/api/v1/gst' });
 await app.register(registerPayrollRoutes,          { prefix: '/api/v1/payroll' });
 await app.register(registerKycRoutes,              { prefix: '/api/v1/kyc' });
+await app.register(registerOcrRoutes,              { prefix: '/api/v1/ocr' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.

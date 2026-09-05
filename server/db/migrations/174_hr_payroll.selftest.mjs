@@ -46,9 +46,10 @@ try {
   await db.query(`INSERT INTO drivers (name, mobile, license_no) VALUES ('JONAB ALI', '9000000001', 'AS0120200001234'), ('SANJIV RAY YADAV', '9000000002', 'AS0120200005678'), ('OHED ALI', '9000000003', 'AS0120200009999')`);
   await db.query(readFileSync(path.join(here, '174_hr_payroll.sql'), 'utf8'));
   await db.query(readFileSync(path.join(here, '175_month_end_and_attached_routing.sql'), 'utf8'));
-  check('160 → 175 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '175_month_end_and_attached_routing.sql'), 'utf8'));
-  check('175 is re-runnable', true, true);
+  await db.query(readFileSync(path.join(here, '176_ocr_failsafe_queue.sql'), 'utf8'));
+  check('160 → 176 apply on the production schema', true, true);
+  await db.query(readFileSync(path.join(here, '176_ocr_failsafe_queue.sql'), 'utf8'));
+  check('176 is re-runnable', true, true);
 
   console.log('\nTRIPS AND THE KHATA (fixtures)');
   const { rows: [pt] } = await db.query(`SELECT id FROM companies WHERE company_name = 'M/S PRASAD TRANSPORT'`);
@@ -129,6 +130,31 @@ try {
   await db.query(`SELECT month_end_prepare($1, '2026-08', 'test')`, [pt.id]);
   check('…once configured the gate is clear and the month is READY', await one(`SELECT status, jsonb_array_length(gate) AS blockers FROM month_end_runs WHERE id = $1`, [me]), { status: 'DRAFT', blockers: 0 });
   check('the owner bill helper answers 0 while nothing is routed', (await one(`SELECT owner_bill_routed_advances(gen_random_uuid())::text AS a`)).a, '0.00');
+
+  console.log('\nOCR FAIL-SAFE QUEUE (176)');
+  await db.query(`INSERT INTO ocr_jobs (source, doc_type, file_key, file_url, filename, mime, bytes, requested_by) VALUES
+    ('KYC', 'DL', 'ocr/2026-09/dl-aaa.jpg', '/api/v1/files/ocr/2026-09/dl-aaa.jpg', 'dl.jpg', 'image/jpeg', 120000, 'desk'),
+    ('MOBILE_SCAN', 'AUTO', 'ocr/2026-09/scan-bbb.pdf', '/api/v1/files/ocr/2026-09/scan-bbb.pdf', 'scan.pdf', 'application/pdf', 900000, 'phone')`);
+  check('a queued job starts QUEUED with no attempts', await one(`SELECT status, attempts, tier FROM ocr_jobs WHERE filename = 'dl.jpg'`), { status: 'QUEUED', attempts: 0, tier: null });
+  const claimed = (await db.query(`SELECT id, filename, status, attempts, leased_by FROM ocr_claim('local-pc', 1, 180, 0)`)).rows;
+  check('the PC leases one job, oldest first', [claimed.length, claimed[0].filename, claimed[0].status, claimed[0].attempts, claimed[0].leased_by], [1, 'dl.jpg', 'RUNNING', 1, 'local-pc']);
+  check('the grace window hides fresh jobs from the AWS dispatcher — the PC gets first refusal', (await db.query(`SELECT id FROM ocr_claim('aws-dispatcher', 5, 180, 120)`)).rows.length, 0);
+  const second = (await db.query(`SELECT id, filename, status FROM ocr_claim('aws-dispatcher', 5, 180, 0)`)).rows;
+  check('a leased job is invisible to the next worker, which gets the other one', [second.length, second[0].filename, second.some((r) => r.id === claimed[0].id)], [1, 'scan.pdf', false]);
+  await db.query(`SELECT ocr_complete($1::uuid, 'HEAVY_LOCAL_PC', 'deepseek-r1:14b', '{"license_no":"WB2020040034423"}'::jsonb, '{"license_no":0.9}'::jsonb, 'DRIVING LICENCE ...', 'read by the 32 GB PC')`, [claimed[0].id]);
+  check('a completed job keeps the fields, the tier and the engine', await one(`SELECT status, tier, engine, fields->>'license_no' AS dl, done_at IS NOT NULL AS done FROM ocr_jobs WHERE id = $1`, [claimed[0].id]), { status: 'DONE', tier: 'HEAVY_LOCAL_PC', engine: 'deepseek-r1:14b', dl: 'WB2020040034423', done: true });
+  await db.query(`SELECT ocr_fail($1::uuid, 'blurred photo')`, [second[0].id]);
+  check('a failure goes back to the queue with a backoff, not to FAILED', await one(`SELECT status, attempts, error, next_attempt_at > now() AS backed_off FROM ocr_jobs WHERE id = $1`, [second[0].id]), { status: 'QUEUED', attempts: 1, error: 'blurred photo', backed_off: true });
+  await db.query(`UPDATE ocr_jobs SET attempts = max_attempts - 1, next_attempt_at = now() WHERE id = $1`, [second[0].id]);
+  const c3 = (await db.query(`SELECT id FROM ocr_claim('local-pc', 1, 180, 0)`)).rows;
+  await db.query(`SELECT ocr_fail($1::uuid, 'still unreadable')`, [c3[0].id]);
+  check('…but the last attempt does end in FAILED', (await one(`SELECT status FROM ocr_jobs WHERE id = $1`, [c3[0].id])).status, 'FAILED');
+  await db.query(`INSERT INTO ocr_jobs (source, doc_type, file_key, filename) VALUES ('KYC', 'PAN', 'ocr/2026-09/pan-ccc.jpg', 'pan.jpg')`);
+  const c4 = (await db.query(`SELECT id FROM ocr_claim('local-pc', 1, 180, 0)`)).rows;
+  await db.query(`UPDATE ocr_jobs SET lease_until = now() - interval '1 minute' WHERE id = $1`, [c4[0].id]);
+  check('a lease that expired (the PC was switched off) returns the job', [(await one(`SELECT ocr_reclaim_stale() AS n`)).n, (await one(`SELECT status FROM ocr_jobs WHERE id = $1`, [c4[0].id])).status], [1, 'QUEUED']);
+  const h = await one(`SELECT queued, running, done, failed, oldest_queued_minutes FROM v_ocr_health`);
+  check('the health view counts the queue', { queued: h.queued, running: h.running, done: h.done, failed: h.failed }, { queued: 1, running: 0, done: 1, failed: 1 });
 
   console.log('\nOVERVIEW + AUDIT');
   const ov = await one(`SELECT drivers_trip, drivers_monthly, drivers_unconfigured, trip_blocked, trip_drafts, ready_count, ready_for_disbursal::text AS ready, staff_active, partners_active FROM v_payroll_overview WHERE company_id = $1`, [pt.id]);
