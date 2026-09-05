@@ -1029,3 +1029,48 @@ export async function detectBankUnmatched(exec = query) {
   }
   return { raised: raised.length };
 }
+
+// ── TDS: what the government will ask about ─────────────────────────────────
+// Owner, 5-Sep-2026 (TDS Management v2). Per firm: a deposit past its 7th, a
+// return past its quarter-end due date, a deductee we pay with no PAN (20%),
+// a firm with no TAN, a 26AS credit short of what the documents say.
+export async function detectTds(exec = query) {
+  const raised = [];
+  const { rows: firms } = await exec(`SELECT * FROM v_tds_overview`).catch(() => ({ rows: [] }));
+  for (const f of firms) {
+    if (!f.tan && (Number(f.tds_by_us_due) > 0 || Number(f.tds_by_us_projected) > 0)) {
+      raised.push(await raiseException({ kind: 'TDS_TAN_MISSING', severity: 'HIGH', title: `${f.company_name}: no TAN on file — TDS cannot be deposited or filed`,
+        detail: `TDS by us is ₹${Number(f.tds_by_us_due).toLocaleString('en-IN')} due / ₹${Number(f.tds_by_us_projected).toLocaleString('en-IN')} projected, but the firm has no Tax Deduction Account Number. Enter it under TDS Management → Overview.`,
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `TDS_TAN_MISSING:${f.company_id}`, detected_by: 'scheduler', evidence: { due: f.tds_by_us_due, projected: f.tds_by_us_projected } }, exec));
+    }
+    if (Number(f.overdue) > 0) {
+      raised.push(await raiseException({ kind: 'TDS_DEPOSIT_DUE', severity: 'HIGH', title: `${f.company_name}: TDS deposit overdue (${f.overdue} liability line${Number(f.overdue) === 1 ? '' : 's'})`,
+        detail: `₹${Number(f.tds_by_us_due).toLocaleString('en-IN')} of TDS deducted from owners/partners is past its 7th-of-next-month deposit date. Interest accrues at 1.5% per month. Record the ITNS 281 challan under TDS Management → Challans.`,
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, amount_at_risk: Number(f.tds_by_us_due) || null, dedupe_key: `TDS_DEPOSIT_DUE:${f.company_id}`, detected_by: 'scheduler', evidence: { overdue_lines: f.overdue, due: f.tds_by_us_due } }, exec));
+    }
+    if (Number(f.deductees_without_pan) > 0) {
+      raised.push(await raiseException({ kind: 'TDS_PAN_MISSING', severity: 'MEDIUM', title: `${f.company_name}: ${f.deductees_without_pan} deductee${Number(f.deductees_without_pan) === 1 ? '' : 's'} paid without a PAN on file`,
+        detail: 'Without a PAN the law requires 20% TDS instead of 1–2%. Enter the PAN and entity type under TDS Management → Deductees (and the 194C(6) declaration where the owner has ≤10 goods carriages).',
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `TDS_PAN_MISSING:${f.company_id}`, detected_by: 'scheduler', evidence: { count: f.deductees_without_pan } }, exec));
+    }
+  }
+  const { rows: ret } = await exec(`
+    SELECT c.id AS company_id, c.company_name, x.fy, x.quarter, tds_return_due(x.fy, x.quarter) AS due, sum(x.tds_amount)::numeric(14,2) AS tds
+      FROM tds_liabilities x JOIN companies c ON c.id = x.company_id
+      CROSS JOIN LATERAL (SELECT fy_of(x.period_month) AS fy, fq_of(x.period_month) AS quarter) q
+     WHERE x.status IN ('DUE','DEPOSITED') AND tds_return_due(fy_of(x.period_month), fq_of(x.period_month)) < current_date
+       AND NOT EXISTS (SELECT 1 FROM tds_returns r WHERE r.company_id = c.id AND r.fy = fy_of(x.period_month) AND r.quarter = fq_of(x.period_month) AND r.status = 'FILED')
+     GROUP BY 1, 2, 3, 4`).catch(() => ({ rows: [] }));
+  for (const r of ret) {
+    raised.push(await raiseException({ kind: 'TDS_RETURN_DUE', severity: 'HIGH', title: `${r.company_name}: Form 26Q ${r.quarter} ${r.fy} not filed (due ${r.due})`,
+      detail: `₹${Number(r.tds).toLocaleString('en-IN')} of TDS by us falls in this quarter and no filed return is recorded. Late filing fee under 234E is ₹200 per day. Generate the pack under TDS Management → Govt. Submission and record the token when filed.`,
+      subject_type: 'company', subject_id: r.company_id, company: r.company_name, amount_at_risk: Number(r.tds) || null, dedupe_key: `TDS_RETURN_DUE:${r.company_id}:${r.fy}:${r.quarter}`, detected_by: 'scheduler', evidence: r }, exec));
+  }
+  const { rows: mis } = await exec(`SELECT * FROM tds_credits WHERE matched_state IN ('SHORT_CREDITED','NOT_IN_26AS')`).catch(() => ({ rows: [] }));
+  for (const m of mis) {
+    raised.push(await raiseException({ kind: 'TDS_26AS_MISMATCH', severity: 'MEDIUM', title: `${m.company_name}: ${m.customer_name} ${m.quarter} ${m.fy} — 26AS ${m.matched_state === 'NOT_IN_26AS' ? 'shows nothing' : 'short'} against documents`,
+      detail: `Documents say ₹${Number(m.tds_amount).toLocaleString('en-IN')} was withheld; Form 26AS shows ₹${Number(m.amount_26as ?? 0).toLocaleString('en-IN')}. Ask the customer for Form 16A / a corrected return; until then the difference cannot be claimed.`,
+      subject_type: 'tds_credit', subject_id: m.id, company: m.company_name, amount_at_risk: Math.max(0, Number(m.tds_amount) - Number(m.amount_26as ?? 0)) || null, dedupe_key: `TDS_26AS_MISMATCH:${m.id}`, detected_by: 'scheduler', evidence: m }, exec));
+  }
+  return { raised: raised.length };
+}

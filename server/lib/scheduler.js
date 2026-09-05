@@ -25,7 +25,7 @@ import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -151,6 +151,7 @@ async function runExceptionScan() {
     ['customer_recon', detectCustomerRecon],
     ['mailboxes', detectMailboxDead],
     ['bank', detectBankUnmatched],
+    ['tds', detectTds],
   ]) {
     try {
       const r = await fn();
@@ -278,11 +279,28 @@ async function retallyBank() {
   }
 }
 
+// ── 9. TDS from the documents, once a day ─────────────────────────────────
+// Liabilities from the approved owner / partner bills, credits from the
+// advices, AC5 bills and bank credits; the desk and the government pack read
+// these. Nothing is typed by the job.
+async function rebuildTds() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  if (state.lastTdsDay === istToday()) return { skipped: 'ran today' };
+  state.lastTdsDay = istToday();
+  try {
+    const { rows: [r] } = await query('SELECT * FROM tds_rebuild(fy_of(current_date))');
+    return r;
+  } catch (err) {
+    if (/tds_rebuild|tds_liabilities/.test(err.message)) return { skipped: 'migration 169 not applied' };
+    throw err;
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

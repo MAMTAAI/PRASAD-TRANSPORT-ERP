@@ -1,295 +1,323 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { extractJsonFromImage } from './lib/aiScanner';
-
-// ✂️ TDS REGISTER — live PostgreSQL (`tds_entries`, migration 030).
+// ════════════════════════════════════════════════════════════════════════════
+// TDS MANAGEMENT v2 — both directions, per firm, per quarter, from documents.
 //
-// A REGISTER, not a ledger: what a customer withheld from us, tracked so it can
-// be claimed against the 26AS and reconciled. The accounting leg already exists
-// — TARA books TDS Receivable 194C on every RECEIPT that carries a tds amount
-// (that is how the IOCL pipeline posts it), so this screen posts nothing. Two
-// places writing the same withheld rupee is exactly the drift being unwound.
+// Owner, 5-Sep-2026 (mock approved): TDS Receivable (what IOCL / BPCL / HPCL
+// withhold from our freight, provable against Form 26AS and Form 16A), TDS
+// Payable (what we withhold when we pay attached owners and fleet partners,
+// deposited by the 7th, filed in Form 26Q), and the Govt. Submission pack
+// the CA files. Nothing on this screen is typed for an existing trip: the
+// liabilities come from the approved 15-day bills, the credits from the
+// advices, AC5 bills and bank credits. A person types only PAN, TAN, the
+// 194C(6) declaration, the challan and the return's token.
+// ════════════════════════════════════════════════════════════════════════════
+import React, { useState, useEffect, useCallback } from 'react';
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { API_BASE } from './lib/apiBase';
-const API = API_BASE;
-const TOLL = `${API}/api/v1/toll`;
+import { useIsMobile } from './hooks/useIsMobile';
 
-const fetchJson = async (url: string, opts?: RequestInit) => {
-  const res = await fetch(url, opts);
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json.detail || json.error || `HTTP ${res.status}`), { code: json.error });
-  return json;
+const API = `${API_BASE}/api/v1/tds`;
+const apiJson = async (url, opts = {}) => {
+  const res = await fetch(url, { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) } });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(j.detail || j.error || `HTTP ${res.status}`), { code: j.error });
+  return j;
 };
-
-const fromApi = (r: any) => ({
-  id: r.id,
-  Consignee_Name: r.consignee_name ?? '',
-  Date: r.entry_date ?? '',
-  Gross_Freight: r.gross_freight ?? '0',
-  TDS_Rate: r.tds_rate ?? '0',
-  TDS_Deducted: r.tds_deducted ?? '0',
-  Status: r.status ?? 'PENDING',
-  section: r.section ?? '194C',
-});
-
-const toApi = (f: any) => ({
-  consignee_name: f.Consignee_Name,
-  entry_date: f.Date || null,
-  gross_freight: parseFloat(f.Gross_Freight) || 0,
-  tds_rate: parseFloat(f.TDS_Rate) || 0,
-  tds_deducted: parseFloat(f.TDS_Deducted) || 0,
-  status: f.Status || 'PENDING',
-});
+const n2 = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+const inr = (v) => '₹' + n2(v).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const inr2 = (v) => '₹' + n2(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const day = (d) => (d ? String(d).slice(0, 10) : '');
+const dmy = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const mon = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—');
+const C = { ink: '#eef2fd', ink2: '#c4d1ea', mut: '#9aadd4', dim: '#5d7196', line: '#27395f', raised: '#18244a', panel: '#121c38', cyan: '#22d3ee', good: '#2fe39b', crit: '#ff6b81', warn: '#ffb224', ai: '#a78bfa', cust: '#38bdf8' };
+const btn = (kind, on = true) => ({ font: 'inherit', fontWeight: 700, fontSize: '12px', borderRadius: '8px', padding: '7px 13px', border: `1px solid ${C.line}`, background: 'transparent', color: C.mut, cursor: on ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap', opacity: on ? 1 : 0.5,
+  ...({ good: { background: 'rgba(47,227,155,.10)', borderColor: 'rgba(47,227,155,.55)', color: C.good }, solid: { background: C.good, borderColor: C.good, color: '#0a1024' }, cyan: { background: 'rgba(34,211,238,.12)', borderColor: 'rgba(34,211,238,.5)', color: C.cyan },
+        warn: { background: 'rgba(255,178,36,.12)', borderColor: 'rgba(255,178,36,.5)', color: C.warn }, ai: { background: 'rgba(167,139,250,.14)', borderColor: 'rgba(167,139,250,.5)', color: '#c4b5fd' }, crit: { background: 'rgba(255,107,129,.12)', borderColor: 'rgba(255,107,129,.5)', color: C.crit } }[kind] ?? {}) });
+const chip = (on) => ({ fontSize: '11px', fontWeight: 700, borderRadius: '999px', padding: '3px 9px', cursor: 'pointer', border: `1px solid ${on ? C.cyan : C.line}`, color: on ? C.cyan : C.mut, background: on ? 'rgba(34,211,238,.12)' : 'transparent', whiteSpace: 'nowrap' });
+const th = { padding: '9px 10px', textAlign: 'left', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.08em', color: C.dim, borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap', background: 'rgba(10,16,36,.5)' };
+const td = { padding: '8px 10px', borderBottom: '1px solid #1b2a4e', color: C.ink2, whiteSpace: 'nowrap', verticalAlign: 'top' };
+const tdR = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const inp = { background: '#0a1024', border: `1px solid ${C.line}`, borderRadius: '8px', color: C.ink, padding: '6px 10px', fontSize: '12px' };
+const Pill = ({ s, map }) => { const x = map[s] ?? [s, C.dim]; return <span style={{ fontSize: '10px', fontWeight: 800, letterSpacing: '.05em', borderRadius: '999px', padding: '2px 9px', border: `1px solid ${x[1]}`, color: x[1], whiteSpace: 'nowrap' }}>{x[0]}</span>; };
+const LIAB = { DUE: ['DUE', C.warn], PROJECTED: ['PROJECTED', C.ai], BLOCKED: ['BLOCKED', C.crit], EXEMPT: ['NIL (194C(6))', C.good], DEPOSITED: ['DEPOSITED', C.cyan], RETURNED: ['IN RETURN', C.good] };
+const CRED = { AWAITING_26AS: ['AWAITING 26AS', C.warn], MATCHED: ['MATCHED', C.good], SHORT_CREDITED: ['SHORT IN 26AS', C.crit], EXCESS_CREDITED: ['EXCESS IN 26AS', C.cust], NOT_IN_26AS: ['NOT IN 26AS', C.crit], ESTIMATE: ['ESTIMATE', C.dim] };
+const SRC = { ADVICE: 'Payment advice', AC5_BILL: 'AC5 bill (2%)', BANK_ESTIMATE: 'Bank credit ÷ 0.98', MANUAL: 'Manual' };
+const MONTH = { OVERDUE: ['OVERDUE', C.crit], DUE: ['DUE', C.warn], BLOCKED: ['BLOCKED', C.crit], DEPOSITED: ['DEPOSITED', C.good], NOTHING: ['—', C.dim] };
+const RET = { DRAFT: ['DRAFT', C.dim], PACK_READY: ['PACK READY', C.cyan], FILED: ['FILED', C.good], CORRECTION: ['CORRECTION', C.warn] };
+const dl = (url) => { const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove(); };
 
 export default function TdsMgmt() {
-  const [tdsRecords, setTdsRecords] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [scanningBill, setScanningBill] = useState(false);
-
-  // 📄 Scan a customer bill (PDF/photo) → auto-fill TDS (party + gross freight).
-  const handleScanBill = async (e: any) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    setScanningBill(true);
-    try {
-      const prompt = `This is a transport company's customer freight bill. Extract ONLY JSON:
-{ "party_name": "", "total_gross_amount": 0 }
-total_gross_amount = grand total gross freight amount. Numbers only, no commas.`;
-      const ai = await extractJsonFromImage(file, prompt);
-      const gross = Number(String(ai.total_gross_amount ?? '').replace(/[^0-9.]/g, '')) || 0;
-      if (gross <= 0) { alert('⚠️ Bill ka total nahi mila — saaf PDF se try karein.'); setScanningBill(false); return; }
-      setFormData(prev => ({ ...prev, Consignee_Name: ai.party_name || prev.Consignee_Name }));
-      handleAmountChange(String(gross), formData.TDS_Rate); // TDS computed in code
-      alert(`✅ Bill scan (local Gemma): ${ai.party_name || ''} · Gross ₹${gross.toLocaleString('en-IN')} — TDS ${formData.TDS_Rate}% auto-calculated. Verify karke Save.`);
-    } catch (err: any) {
-      const offline = err?.name === 'LLMOfflineError' || /ollama|engine|reach/i.test(err?.message || '');
-      alert(offline ? '❌ Local AI (Ollama) band hai.' : '❌ Bill padhi nahi gayi.');
-    }
-    setScanningBill(false);
-  };
-
-  // Form State matching your Excel Sheet
-  const [formData, setFormData] = useState({
-    Consignee_Name: '',
-    Date: new Date().toISOString().split('T')[0],
-    Gross_Freight: '',
-    TDS_Rate: '2', // Transport typical: 1% (Individual) or 2% (Company)
-    TDS_Deducted: '0',
-    Status: 'PENDING' // PENDING or FILED
-  });
-
-  useEffect(() => {
-    fetchTDSData();
-  }, []);
-
-  const fetchTDSData = async () => {
-    setLoading(true);
-    try {
-      const j = await fetchJson(`${TOLL}/tds`);
-      setTdsRecords((j.records ?? []).map(fromApi));
-    } catch (e) { console.error('tds:', e); }
-    setLoading(false);
-  };
-
-  // 🧮 Auto Calculate TDS (with NaN protection)
-  const handleAmountChange = (freight: string, rate: string) => {
-    const gross = parseFloat(freight) || 0;
-    const percent = parseFloat(rate) || 0;
-    const deducted = ((gross * percent) / 100).toFixed(2);
-    setFormData({ ...formData, Gross_Freight: freight, TDS_Rate: rate, TDS_Deducted: deducted });
-  };
-
-  // 💾 Save TDS Record
-  const handleSave = async () => {
-    if (!formData.Consignee_Name || !formData.Gross_Freight) {
-      return alert("⚠️ Please fill Consignee Name and Gross Freight!");
-    }
-    if (parseFloat(formData.Gross_Freight) <= 0) {
-      return alert("⚠️ Gross Freight must be greater than zero!");
-    }
-    
-    try {
-      await fetchJson(`${TOLL}/tds`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(toApi(formData)),
-      });
-      alert("✅ TDS Record Saved Successfully!");
-      setFormData({ ...formData, Consignee_Name: '', Gross_Freight: '', TDS_Deducted: '0' });
-      fetchTDSData();
-    } catch (e) { alert("❌ Error saving TDS data!"); }
-  };
-
-  // ✅ Toggle Filing Status (26AS Match)
-  const toggleFilingStatus = async (id: string, currentStatus: string) => {
-    const newStatus = currentStatus === 'PENDING' ? 'FILED' : 'PENDING';
-    try {
-      await fetchJson(`${TOLL}/tds/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      fetchTDSData();
-    } catch (error: any) { alert("Error updating status: " + (error?.message || '')); }
-  };
-
-  // 🗑️ Delete TDS Record
-  const handleDelete = async (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete the TDS record for ${name}?`)) {
-      try {
-        // A FILED entry is not deletable — it has been claimed against the
-        // 26AS and the API refuses rather than quietly erasing the claim.
-        await fetchJson(`${TOLL}/tds/${id}`, { method: 'DELETE' });
-        fetchTDSData();
-      } catch (error) { alert("Error deleting record"); }
-    }
-  };
-
-  // 📥 Export for CA (Form 26AS Matching)
-  const handleExportCSV = () => {
-    if (tdsRecords.length === 0) return alert("⚠️ No data to export!");
-    const headers = ["Date", "Consignee_Name", "Gross_Freight", "TDS_Rate(%)", "TDS_Deducted", "Filing_Status"];
-    let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
-
-    tdsRecords.forEach(r => {
-      // Escape commas in Consignee Name just in case
-      const safeName = r.Consignee_Name.replace(/,/g, " ");
-      const row = [r.Date, safeName, r.Gross_Freight, r.TDS_Rate, r.TDS_Deducted, r.Status].join(",");
-      csvContent += row + "\n";
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `TDS_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
+  const { isPhone } = useIsMobile();
+  const [ov, setOv] = useState(null);
+  const [tab, setTab] = useState('RECEIVABLE');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const load = useCallback(async () => { try { setOv(await apiJson(`${API}/overview`)); } catch (e) { setErr(e.message); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const rebuild = async () => { setBusy(true); try { const r = await apiJson(`${API}/rebuild`, { method: 'POST', body: JSON.stringify({}) }); alert(`🤖 Rebuilt from documents — ${r.liabilities} liability lines, ${r.credits} credit rows (FY ${r.fy}).`); await load(); } catch (e) { alert(`❌ ${e.message}`); } setBusy(false); };
+  const firms = ov?.firms ?? [];
+  const fy = ov?.fy ?? '';
   return (
-    <div style={{ padding: '30px', minHeight: '100vh', background: 'radial-gradient(circle at top right, #121c38, #0a1024)' }}>
-      <style>{`
-        .glass-card { background: rgba(24, 36, 74, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; backdrop-filter: blur(10px); }
-        .glow-btn { background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.3s; display: flex; align-items: center; gap: 8px; }
-        .glow-btn:hover { background: #2563eb; transform: translateY(-2px); box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4); }
-        .modern-input { background: rgba(18, 28, 56, 0.6); border: 1px solid rgba(39, 57, 95, 0.8); border-radius: 8px; color: white; padding: 10px; width: 100%; box-sizing: border-box; outline: none; }
-        .modern-input:focus { border-color: #22d3ee; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; color: #c4d1ea; font-size: 13px; }
-        th { background: rgba(0,0,0,0.3); padding: 12px; text-align: left; border-bottom: 2px solid #27395f; color: #22d3ee; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
-        td { padding: 12px; border-bottom: 1px solid #27395f; }
-        tr:hover { background: rgba(255,255,255,0.02); }
-        .gradient-text { background: linear-gradient(135deg, #22d3ee, #818cf8, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-      `}</style>
-
-      {/* 🚀 Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-        <div>
-          <h1 className="gradient-text" style={{ margin: 0, fontSize: '32px', fontWeight: '900' }}>TDS Management (Sec 194C)</h1>
-          <p style={{ color: '#9aadd4', margin: '5px 0' }}>Track TDS Deductions & 26AS Filing Status</p>
+    <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", padding: isPhone ? '12px' : '20px 24px 50px', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '14px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: '10.5px', letterSpacing: '.14em', textTransform: 'uppercase', color: C.dim }}>Accounts &amp; Admin · Section 194C · FY {fy}</div>
+          <h2 style={{ margin: 0, fontSize: isPhone ? '22px' : '28px', color: '#fff' }}>✂️ TDS Management</h2>
+          {!isPhone && <div style={{ color: C.mut, fontSize: '12.5px', marginTop: '4px', maxWidth: '96ch' }}>Receivable: what IOCL, BPCL and HPCL withhold from our freight, from their payment advices and bills, proved against Form 26AS. Payable: what we withhold when we pay attached owners and fleet partners, from the approved 15-day bills, deposited by the 7th and filed in Form 26Q. Nothing is typed for an existing trip.</div>}
         </div>
-        <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #ffb224, #d97706)' }} onClick={handleExportCSV}>
-          📥 Download for CA (CSV)
-        </button>
-      </div>
-
-      {/* 📝 Input Form Section */}
-      <div className="glass-card" style={{ padding: '20px', marginBottom: '30px', borderTop: '4px solid #2fe39b' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '15px' }}>
-          <h3 style={{ color: '#2fe39b', margin: 0 }}>✂️ Add TDS Deduction</h3>
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'linear-gradient(135deg,#a78bfa,#8b5cf6)', color: '#fff', padding: '8px 14px', borderRadius: '8px', fontWeight: 'bold', cursor: scanningBill ? 'not-allowed' : 'pointer', fontSize: '12px' }}>
-            {scanningBill ? '⏳ Reading…' : '📄 Scan Bill (PDF) — auto-fill'}
-            <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={handleScanBill} disabled={scanningBill} />
-          </label>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', alignItems: 'end' }}>
-          
-          <div><label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>Date</label>
-          <input type="date" className="modern-input" value={formData.Date} onChange={e=>setFormData({...formData, Date: e.target.value})} style={{colorScheme: 'dark'}} /></div>
-          
-          <div style={{gridColumn: 'span 2'}}><label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>Consignee Name (Party) *</label>
-          <input className="modern-input" placeholder="e.g. Reliance Industries" value={formData.Consignee_Name} onChange={e=>setFormData({...formData, Consignee_Name: e.target.value})} /></div>
-          
-          <div><label style={{ fontSize: '11px', color: '#22d3ee', fontWeight:'bold' }}>Gross Freight (₹) *</label>
-          <input type="number" className="modern-input" style={{ border: '1px solid #22d3ee' }} value={formData.Gross_Freight} onChange={e=>handleAmountChange(e.target.value, formData.TDS_Rate)} /></div>
-          
-          <div><label style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 'bold' }}>TDS Rate (%)</label>
-          <select className="modern-input" value={formData.TDS_Rate} onChange={e=>handleAmountChange(formData.Gross_Freight, e.target.value)}>
-            <option value="1">1% (Individual/HUF)</option>
-            <option value="2">2% (Company/Firm)</option>
-            <option value="5">5%</option>
-            <option value="10">10%</option>
-          </select></div>
-          
-          <div style={{ background: 'rgba(255, 107, 129, 0.1)', padding: '10px', borderRadius: '8px', border: '1px dashed #ff6b81' }}>
-            <label style={{ fontSize: '11px', color: '#ff6b81', fontWeight:'bold' }}>TDS Deducted (₹)</label>
-            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ff6b81', marginTop: '3px' }}>₹{formData.TDS_Deducted}</div>
-          </div>
-
-          <button className="glow-btn" style={{ background: 'linear-gradient(135deg, #2fe39b, #2fe39b)', justifyContent: 'center' }} onClick={handleSave}>✅ Save Record</button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button onClick={rebuild} disabled={busy} style={btn('ai', !busy)}>🤖 Rebuild from documents</button>
+          <button onClick={() => dl(`${API}/export/credit-claim?fy=${fy}`)} style={btn('cyan')}>⬇ TDS credit claim (CSV)</button>
         </div>
       </div>
+      {err && <p style={{ color: C.crit, fontSize: '12.5px' }}>{err}</p>}
 
-      {/* 📊 Data Table Section */}
-      <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
-        <h3 style={{ color: '#fff', marginTop: 0 }}>📋 TDS Deduction Registry</h3>
-        {loading ? <p style={{ color: '#22d3ee' }}>Loading Data...</p> : (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Consignee Name</th>
-                <th>Gross Freight</th>
-                <th>TDS Rate</th>
-                <th style={{ color: '#ff6b81' }}>TDS Deducted</th>
-                <th>Return Filing Status</th>
-                <th style={{ textAlign: 'center' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tdsRecords.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px' }}>No TDS records found.</td></tr>
-              ) : (
-                tdsRecords.map((r, i) => (
-                  <tr key={i}>
-                    <td>{r.Date}</td>
-                    <td style={{ fontWeight: 'bold', color: '#fff' }}>{r.Consignee_Name}</td>
-                    <td>₹{r.Gross_Freight}</td>
-                    <td><span style={{ background: 'rgba(34, 211, 238,0.2)', color: '#22d3ee', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>{r.TDS_Rate}%</span></td>
-                    <td style={{ color: '#ff6b81', fontWeight: 'bold' }}>₹{r.TDS_Deducted}</td>
-                    
-                    {/* Toggle Status Button */}
-                    <td>
-                      <button 
-                        onClick={() => toggleFilingStatus(r.id, r.Status)}
-                        style={{ 
-                          background: r.Status === 'FILED' ? 'rgba(47, 227, 155, 0.1)' : 'rgba(255, 107, 129, 0.1)', 
-                          color: r.Status === 'FILED' ? '#2fe39b' : '#ff6b81', 
-                          border: `1px solid ${r.Status === 'FILED' ? '#2fe39b' : '#ff6b81'}`, 
-                          padding: '6px 12px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', transition: '0.3s'
-                        }}
-                      >
-                        {r.Status === 'FILED' ? '✅ FILED (26AS OK)' : '⏳ PENDING'}
-                      </button>
-                    </td>
-
-                    {/* Delete Button */}
-                    <td style={{ textAlign: 'center' }}>
-                      <span 
-                        onClick={() => handleDelete(r.id, r.Consignee_Name)} 
-                        style={{ cursor: 'pointer', color: '#5d7196', fontSize: '16px', transition: '0.2s' }}
-                        onMouseOver={(e) => e.currentTarget.style.color = '#ff6b81'}
-                        onMouseOut={(e) => e.currentTarget.style.color = '#5d7196'}
-                        title="Delete Record"
-                      >
-                        🗑️
-                      </span>
-                    </td>
-
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        )}
+      {/* per firm */}
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${isPhone ? '240px' : '300px'}, 1fr))`, gap: '10px', marginBottom: '14px' }}>
+        {firms.map((f) => (<FirmCard key={f.company_id} f={f} onChanged={load} />))}
       </div>
 
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        {[['RECEIVABLE', '📥 TDS Receivable (26AS)'], ['PAYABLE', '📤 TDS Payable'], ['DEDUCTEES', '👤 Deductees'], ['CHALLANS', '🏦 Challans'], ['GOVT', '🏛 Govt. Submission']].map((t) => (
+          <span key={t[0]} onClick={() => setTab(t[0])} style={chip(tab === t[0])}>{t[1]}</span>))}
+      </div>
+      {tab === 'RECEIVABLE' && <Receivable fy={fy} firms={firms} onChanged={load} />}
+      {tab === 'PAYABLE' && <Payable fy={fy} firms={firms} />}
+      {tab === 'DEDUCTEES' && <Deductees onChanged={load} />}
+      {tab === 'CHALLANS' && <Challans fy={fy} firms={firms} onChanged={load} />}
+      {tab === 'GOVT' && <Govt fy={fy} firms={firms} onChanged={load} />}
+    </div>
+  );
+}
+
+function FirmCard({ f, onChanged }) {
+  const [tan, setTan] = useState(f.tan ?? ''); const [edit, setEdit] = useState(false);
+  const save = async () => { try { await apiJson(`${API}/firms/${f.company_id}`, { method: 'PATCH', body: JSON.stringify({ tan }) }); setEdit(false); onChanged?.(); } catch (e) { alert(`❌ ${e?.code === 'FORBIDDEN' ? 'Admin only' : e.message}`); } };
+  return (
+    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: '12px', padding: '12px 14px', minWidth: 0 }}>
+      <div style={{ fontSize: '10.5px', letterSpacing: '.12em', textTransform: 'uppercase', color: C.dim }}>PAN {f.pan_no ?? '—'} · TAN {f.tan ? <span style={{ color: C.good }}>{f.tan}</span> : <span style={{ color: C.crit }}>not on file</span>} {!edit && <span onClick={() => setEdit(true)} style={{ cursor: 'pointer', color: C.cust }}>✏️</span>}</div>
+      {edit && <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}><input value={tan} onChange={(e) => setTan(e.target.value.toUpperCase())} placeholder="ABCD12345E" style={{ ...inp, width: '120px' }} /><button onClick={save} style={{ ...btn('solid'), padding: '4px 9px' }}>Save</button><button onClick={() => setEdit(false)} style={{ ...btn('plain'), padding: '4px 9px' }}>✕</button></div>}
+      <div style={{ fontSize: '16px', fontWeight: 800, color: C.ink, margin: '2px 0 8px' }}>{f.company_name}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '4px 10px', fontSize: '12px' }}>
+        <span style={{ color: C.mut }}>TDS on us · per documents</span><b style={{ color: C.good }}>{inr(f.tds_on_us_documented)}</b>
+        <span style={{ color: C.mut }}>TDS on us · estimated (bank credits)</span><b style={{ color: C.warn }}>{inr(f.tds_on_us_estimated)}</b>
+        <span style={{ color: C.mut }}>Per Form 26AS</span><b>{n2(f.tds_on_us_26as) ? inr(f.tds_on_us_26as) : <span style={{ color: C.dim }}>upload 26AS</span>}</b>
+        <span style={{ color: C.mut }}>In the ledger (TDS Receivable 194C)</span><b>{inr(f.receivable_ledger)}</b>
+        <span style={{ color: C.mut, borderTop: '1px solid #1b2a4e', paddingTop: '4px' }}>TDS by us · due</span><b style={{ color: n2(f.tds_by_us_due) ? C.warn : C.ink, borderTop: '1px solid #1b2a4e', paddingTop: '4px' }}>{inr(f.tds_by_us_due)}{n2(f.overdue) ? <span style={{ color: C.crit }}> · {f.overdue} overdue</span> : null}</b>
+        <span style={{ color: C.mut }}>TDS by us · deposited</span><b>{inr(f.tds_by_us_deposited)}</b>
+        <span style={{ color: C.mut }}>Projected (drafts) · blocked</span><b>{inr(f.tds_by_us_projected)} · <span style={{ color: n2(f.blocked) ? C.crit : C.dim }}>{f.blocked} blocked</span></b>
+        <span style={{ color: C.mut }}>Deductees without PAN</span><b style={{ color: n2(f.deductees_without_pan) ? C.crit : C.good }}>{f.deductees_without_pan}</b>
+      </div>
+    </div>
+  );
+}
+
+// ══ RECEIVABLE ══════════════════════════════════════════════════════════════
+function Receivable({ fy, firms, onChanged }) {
+  const [d, setD] = useState(null); const [firm, setFirm] = useState(''); const [file, setFile] = useState(null); const [busy, setBusy] = useState(false); const [res, setRes] = useState(null);
+  const load = useCallback(async () => { if (!fy) return; try { setD(await apiJson(`${API}/receivable?fy=${fy}`)); } catch (e) { setD({ error: e.message }); } }, [fy]);
+  useEffect(() => { load(); }, [load]);
+  const rows = (d?.rows ?? []).filter((r) => !firm || r.company_id === firm);
+  const pg = usePagination(rows, { defaultSize: 20 });
+  const upload = async () => {
+    if (!firm) return alert('Choose the firm this Form 26AS belongs to.'); if (!file) return alert('Choose the 26AS / AIS export (CSV or text).');
+    setBusy(true); setRes(null);
+    try { const fd = new FormData(); fd.append('file', file); fd.append('company_id', firm); const j = await apiJson(`${API}/receivable/26as-upload`, { method: 'POST', body: fd }); setRes(j.summary); await load(); onChanged?.(); } catch (e) { setRes(`❌ ${e.message}`); }
+    setBusy(false);
+  };
+  const cert = async (r) => { const no = window.prompt(`Form 16A certificate number for ${r.customer_name} · ${r.quarter} ${r.fy}:`, r.form16a_no ?? ''); if (no === null) return; const on = window.prompt('Received on (YYYY-MM-DD):', day(r.form16a_received_at) || new Date().toISOString().slice(0, 10)); try { await apiJson(`${API}/receivable/${r.id}`, { method: 'PATCH', body: JSON.stringify({ form16a_no: no, form16a_received_at: on }) }); await load(); onChanged?.(); } catch (e) { alert(`❌ ${e.message}`); } };
+  if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
+  const T = rows.reduce((t, r) => ({ base: t.base + n2(r.freight_base), tds: t.tds + (r.source === 'BANK_ESTIMATE' ? 0 : n2(r.tds_amount)), est: t.est + (r.source === 'BANK_ESTIMATE' ? n2(r.tds_amount) : 0), as26: t.as26 + n2(r.amount_26as) }), { base: 0, tds: 0, est: 0, as26: 0 });
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px' }}>
+        <select value={firm} onChange={(e) => setFirm(e.target.value)} style={inp}><option value="">All firms</option>{firms.map((f) => <option key={f.company_id} value={f.company_id}>{f.company_name}</option>)}</select>
+        <input type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ color: C.ink2, fontSize: '12px' }} />
+        <button onClick={upload} disabled={busy || !file || !firm} style={btn('cyan', !busy && !!file && !!firm)}>{busy ? '⏳ Matching…' : '📎 Upload Form 26AS / AIS'}</button>
+        <span style={{ color: C.dim, fontSize: '11px' }}>TRACES → View Form 26AS → export as text/CSV. One file per firm.</span>
+      </div>
+      {res && <div style={{ fontSize: '12.5px', color: C.ink2, background: 'rgba(10,16,36,.55)', borderRadius: '8px', padding: '8px 12px', marginBottom: '10px' }}>{res}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: '1px', background: C.line, border: `1px solid ${C.line}`, borderRadius: '10px', overflow: 'hidden', marginBottom: '10px' }}>
+        {[['Freight base (documents)', inr(T.base), C.ink], ['TDS per documents', inr(T.tds), C.good], ['TDS estimated (bank)', inr(T.est), C.warn], ['TDS per 26AS', T.as26 ? inr(T.as26) : '—', C.cust], ['Form 16A received', `${rows.filter((r) => r.form16a_no).length} / ${rows.filter((r) => r.source !== 'BANK_ESTIMATE').length}`, C.ink]].map((k) => (
+          <div key={k[0]} style={{ background: C.panel, padding: '10px 14px' }}><div style={{ fontSize: '10px', letterSpacing: '.1em', textTransform: 'uppercase', color: C.dim }}>{k[0]}</div><div style={{ fontSize: '17px', fontWeight: 700, color: k[2], fontVariantNumeric: 'tabular-nums' }}>{k[1]}</div></div>))}
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
+        <table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <thead><tr><th style={th}>Firm</th><th style={th}>Customer (deductor)</th><th style={th}>Quarter</th><th style={{ ...th, textAlign: 'right' }}>Freight paid</th><th style={{ ...th, textAlign: 'right' }}>TDS per documents</th><th style={th}>Source</th><th style={{ ...th, textAlign: 'right' }}>26AS</th><th style={{ ...th, textAlign: 'right' }}>Difference</th><th style={th}>Form 16A</th><th style={th}>State</th></tr></thead>
+          <tbody>{pg.slice.length === 0 && <tr><td colSpan={10} style={{ ...td, color: C.dim, textAlign: 'center' }}>Nothing yet — press "Rebuild from documents".</td></tr>}
+            {pg.slice.map((r) => (<tr key={r.id}>
+              <td style={td}>{(r.company_name ?? '').replace(/^M\/S\s+/i, '')}</td><td style={{ ...td, color: C.ink }}>{r.customer_name}{r.deductor_tan ? <div style={{ fontSize: '10.5px', color: C.dim }}>TAN {r.deductor_tan}</div> : null}</td><td style={td}>{r.quarter} {r.fy}</td>
+              <td style={tdR}>{inr2(r.freight_base)}</td><td style={{ ...tdR, color: r.source === 'BANK_ESTIMATE' ? C.warn : C.good, fontWeight: 700 }}>{inr2(r.tds_amount)}</td>
+              <td style={td}>{SRC[r.source] ?? r.source}<div style={{ fontSize: '10.5px', color: C.dim }}>{r.documents} document{r.documents === 1 ? '' : 's'}</div></td>
+              <td style={tdR}>{r.amount_26as === null ? <span style={{ color: C.dim }}>—</span> : inr2(r.amount_26as)}</td>
+              <td style={{ ...tdR, color: r.amount_26as === null ? C.dim : Math.abs(n2(r.amount_26as) - n2(r.tds_amount)) <= 2 ? C.good : C.crit }}>{r.amount_26as === null ? '—' : inr2(n2(r.amount_26as) - n2(r.tds_amount))}</td>
+              <td style={td}>{r.form16a_no ? <span style={{ color: C.good }}>{r.form16a_no}<div style={{ fontSize: '10.5px', color: C.dim }}>{dmy(r.form16a_received_at)}</div></span> : <button onClick={() => cert(r)} style={{ ...btn('plain'), padding: '3px 8px', fontSize: '11px' }}>Record 16A</button>}<div style={{ fontSize: '10.5px', color: C.dim }}>due {dmy(r.form16a_due)}</div></td>
+              <td style={td}><Pill s={r.matched_state} map={CRED} /></td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+      {rows.length > 0 && <GlobalPagination {...pg} label="rows" />}
+      <div style={{ color: C.dim, fontSize: '11px', marginTop: '10px', lineHeight: 1.6 }}>Order of truth: the customer's payment advice (its TDS line) → the AC5 bill (2% on the bill) → a bank credit net of 2% (estimate, until the customer's statement or Form 16A arrives). Upload Form 26AS per firm and each row becomes MATCHED, SHORT IN 26AS or NOT IN 26AS; the CA claims the matched amount in the ITR from the "TDS credit claim" export.</div>
+    </div>
+  );
+}
+
+// ══ PAYABLE ═════════════════════════════════════════════════════════════════
+function Payable({ fy, firms }) {
+  const [d, setD] = useState(null); const [firm, setFirm] = useState(''); const [st, setSt] = useState('');
+  useEffect(() => { if (!fy) return; apiJson(`${API}/payable?fy=${fy}${firm ? `&firm=${firm}` : ''}`).then(setD).catch((e) => setD({ error: e.message })); }, [fy, firm]);
+  const rows = (d?.rows ?? []).filter((r) => !st || r.status === st);
+  const pg = usePagination(rows, { defaultSize: 20 });
+  if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '10px' }}>
+        <select value={firm} onChange={(e) => setFirm(e.target.value)} style={inp}><option value="">All firms</option>{firms.map((f) => <option key={f.company_id} value={f.company_id}>{f.company_name}</option>)}</select>
+        {[['', 'All'], ['DUE', 'Due'], ['DEPOSITED', 'Deposited'], ['PROJECTED', 'Projected (drafts)'], ['BLOCKED', 'Blocked'], ['EXEMPT', 'Nil 194C(6)']].map((s) => <span key={s[0]} onClick={() => setSt(s[0])} style={chip(st === s[0])}>{s[1]}</span>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px,1fr))', gap: '8px', marginBottom: '12px' }}>
+        {(d.months ?? []).map((m) => (<div key={m.company_id + m.period_month} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: '10px', padding: '10px 12px', fontSize: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}><b style={{ color: C.ink }}>{mon(m.period_month)} · {(m.company_name ?? '').replace(/^M\/S\s+/i, '')}</b><Pill s={m.state} map={MONTH} /></div>
+          <div style={{ color: C.mut, marginTop: '4px' }}>due {inr(m.tds_due)} · deposited {inr(m.tds_deposited)} · projected {inr(m.tds_projected)}{n2(m.blocked) ? <span style={{ color: C.crit }}> · {m.blocked} blocked</span> : null}</div>
+          <div style={{ color: C.dim, fontSize: '10.5px' }}>deposit by {dmy(m.deposit_due)} · {m.quarter} return by {dmy(m.deposit_due) && ''}{m.quarter}</div>
+        </div>))}
+        {(d.months ?? []).length === 0 && <div style={{ color: C.dim, fontSize: '12.5px' }}>No liabilities in FY {fy} — nothing approved yet, or press "Rebuild from documents".</div>}
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
+        <table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <thead><tr><th style={th}>Month · firm</th><th style={th}>Deductee</th><th style={th}>PAN · type</th><th style={th}>Source</th><th style={{ ...th, textAlign: 'right' }}>Base (commission / freight)</th><th style={{ ...th, textAlign: 'right' }}>Rate</th><th style={{ ...th, textAlign: 'right' }}>TDS</th><th style={th}>Deposit due</th><th style={th}>Challan</th><th style={th}>State</th></tr></thead>
+          <tbody>{pg.slice.length === 0 && <tr><td colSpan={10} style={{ ...td, color: C.dim, textAlign: 'center' }}>Nothing here.</td></tr>}
+            {pg.slice.map((r) => (<tr key={r.id}>
+              <td style={td}>{mon(r.period_month)}<div style={{ fontSize: '10.5px', color: C.dim }}>{(r.company_name ?? '').replace(/^M\/S\s+/i, '')}</div></td>
+              <td style={{ ...td, color: C.ink }}>{r.deductee_name}</td>
+              <td style={td}>{r.pan ? <span>{r.pan}</span> : <span style={{ color: C.crit }}>PAN missing</span>}<div style={{ fontSize: '10.5px', color: C.dim }}>{r.entity_type ?? 'type?'}{r.declaration_194c6 ? ' · 194C(6)' : ''}</div></td>
+              <td style={td}>{r.bill_no ?? r.source_kind}<div style={{ fontSize: '10.5px', color: C.dim }}>{r.source_kind === 'OWNER_BILL' ? 'attached owner 15-day bill' : r.source_kind === 'MARKET_BILL' ? 'fleet partner bill' : r.source_kind}</div></td>
+              <td style={tdR}>{inr2(r.base_amount)}</td><td style={tdR}>{r.rate_pct === null ? '—' : `${n2(r.rate_pct)}%`}</td><td style={{ ...tdR, fontWeight: 700, color: C.ink }}>{inr2(r.tds_amount)}</td>
+              <td style={{ ...td, color: r.status === 'DUE' && day(r.deposit_due) < new Date().toISOString().slice(0, 10) ? C.crit : C.ink2 }}>{dmy(r.deposit_due)}</td>
+              <td style={td}>{r.challan_serial ? <span>{r.challan_serial}<div style={{ fontSize: '10.5px', color: C.dim }}>{dmy(r.challan_paid_on)}</div></span> : <span style={{ color: C.dim }}>—</span>}</td>
+              <td style={td}><Pill s={r.status} map={LIAB} />{r.block_reason && <div style={{ fontSize: '10.5px', color: C.crit, whiteSpace: 'normal', maxWidth: '220px' }}>{r.block_reason}</div>}</td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+      {rows.length > 0 && <GlobalPagination {...pg} label="lines" />}
+      <div style={{ color: C.dim, fontSize: '11px', marginTop: '10px', lineHeight: 1.6 }}>The base is the 15-day bill's commission (our charge to the attached owner) or the fleet partner's freight. Rate: 1% individual / 2% firm / 20% without PAN / nil with a 194C(6) declaration. A liability appears when the bill is approved (Dr Vehicle Owner / Cr TDS Payable (194C)); PROJECTED rows are drafts; BLOCKED rows need a commission rate or a deductee record. Deposit by the 7th of the next month.</div>
+    </div>
+  );
+}
+
+// ══ DEDUCTEES ═══════════════════════════════════════════════════════════════
+function Deductees({ onChanged }) {
+  const [d, setD] = useState(null); const [edit, setEdit] = useState(null);
+  const load = useCallback(() => apiJson(`${API}/deductees`).then(setD).catch((e) => setD({ error: e.message })), []);
+  useEffect(() => { load(); }, [load]);
+  const save = async () => { try { await apiJson(`${API}/deductees/${edit.id}`, { method: 'PATCH', body: JSON.stringify(edit) }); setEdit(null); await load(); onChanged?.(); } catch (e) { alert(`❌ ${e.message}`); } };
+  if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
+  const rows = d.rows ?? [];
+  return (
+    <div>
+      <div style={{ color: C.mut, fontSize: '12.5px', marginBottom: '8px' }}>Everyone we pay under a contract: attached owners (from the vehicle master), fleet partners and vendors. PAN and entity type decide the rate; a 194C(6) declaration (transporter with 10 or fewer goods carriages, PAN furnished) makes it nil.</div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
+        <table style={{ width: '100%', minWidth: '1000px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <thead><tr><th style={th}>Deductee</th><th style={th}>Kind</th><th style={th}>PAN</th><th style={th}>Entity</th><th style={th}>194C(6)</th><th style={th}>Carriages</th><th style={{ ...th, textAlign: 'right' }}>Rate</th><th style={{ ...th, textAlign: 'right' }}>Base this FY</th><th style={{ ...th, textAlign: 'right' }}>Lines</th><th style={th}></th></tr></thead>
+          <tbody>{rows.map((r) => edit?.id === r.id ? (
+            <tr key={r.id} style={{ background: 'rgba(56,189,248,.06)' }}>
+              <td style={{ ...td, color: C.ink }}>{r.name}</td><td style={td}>{r.deductee_kind}</td>
+              <td style={td}><input value={edit.pan ?? ''} onChange={(e) => setEdit({ ...edit, pan: e.target.value.toUpperCase() })} placeholder="ABCDE1234F" style={{ ...inp, width: '120px' }} /></td>
+              <td style={td}><select value={edit.entity_type ?? ''} onChange={(e) => setEdit({ ...edit, entity_type: e.target.value || null })} style={inp}><option value="">—</option>{['INDIVIDUAL', 'HUF', 'FIRM', 'COMPANY', 'AOP', 'OTHER'].map((x) => <option key={x} value={x}>{x}</option>)}</select></td>
+              <td style={td}><label style={{ fontSize: '12px' }}><input type="checkbox" checked={!!edit.declaration_194c6} onChange={(e) => setEdit({ ...edit, declaration_194c6: e.target.checked })} /> on file</label></td>
+              <td style={td}><input value={edit.carriages ?? ''} onChange={(e) => setEdit({ ...edit, carriages: e.target.value === '' ? null : Number(e.target.value) })} style={{ ...inp, width: '60px' }} /></td>
+              <td style={tdR}>—</td><td style={tdR}>{inr(r.paid_fy)}</td><td style={tdR}>{r.liabilities}</td>
+              <td style={td}><button onClick={save} style={{ ...btn('solid'), padding: '3px 9px' }}>Save</button> <button onClick={() => setEdit(null)} style={{ ...btn('plain'), padding: '3px 9px' }}>✕</button></td>
+            </tr>) : (
+            <tr key={r.id}>
+              <td style={{ ...td, color: C.ink }}>{r.name}</td><td style={td}>{r.deductee_kind}</td>
+              <td style={td}>{r.pan ? r.pan : <span style={{ color: C.crit }}>missing</span>}</td><td style={td}>{r.entity_type ?? <span style={{ color: C.dim }}>—</span>}</td>
+              <td style={td}>{r.declaration_194c6 ? <span style={{ color: C.good }}>✓ nil</span> : <span style={{ color: C.dim }}>no</span>}</td><td style={td}>{r.carriages ?? '—'}</td>
+              <td style={{ ...tdR, color: n2(r.rate_pct) === 20 ? C.crit : n2(r.rate_pct) === 0 ? C.good : C.ink }}>{n2(r.rate_pct)}%</td><td style={tdR}>{inr(r.paid_fy)}</td><td style={tdR}>{r.liabilities}</td>
+              <td style={td}><button onClick={() => setEdit({ id: r.id, pan: r.pan ?? '', entity_type: r.entity_type, declaration_194c6: r.declaration_194c6, carriages: r.carriages })} style={{ ...btn('cyan'), padding: '3px 9px' }}>✏️ Edit</button></td>
+            </tr>))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ══ CHALLANS ════════════════════════════════════════════════════════════════
+function Challans({ fy, firms, onChanged }) {
+  const [d, setD] = useState(null); const [f, setF] = useState({ company_id: '', period_month: '', paid_on: new Date().toISOString().slice(0, 10), amount: '', interest: '', fee: '', bsr_code: '', challan_serial: '', bank_ledger: '' }); const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { if (!fy) return; apiJson(`${API}/challans?fy=${fy}`).then(setD).catch((e) => setD({ error: e.message })); }, [fy]);
+  useEffect(() => { load(); }, [load]);
+  const save = async () => {
+    if (!f.company_id || !f.period_month || !f.amount) return alert('Firm, month and amount are required.');
+    setBusy(true);
+    try { const r = await apiJson(`${API}/challans`, { method: 'POST', body: JSON.stringify({ ...f, period_month: `${f.period_month}-01` }) }); alert(`✅ Challan recorded — ${r.covered} liability line(s) marked deposited${n2(r.uncovered_amount) ? `; ${inr2(r.uncovered_amount)} not matched to a line` : ''}${r.voucher_id ? ' · posted to the ledger' : ''}.`); setF({ ...f, amount: '', bsr_code: '', challan_serial: '' }); load(); onChanged?.(); }
+    catch (e) { alert(`❌ ${e?.code === 'FORBIDDEN' ? 'Admin only' : e.message}`); }
+    setBusy(false);
+  };
+  if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
+  return (
+    <div>
+      <div style={{ border: '1px solid rgba(34,211,238,.4)', background: 'rgba(34,211,238,.05)', borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
+        <b style={{ color: C.cyan, fontSize: '13px' }}>🏦 Record an ITNS 281 deposit</b>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginTop: '8px' }}>
+          <select value={f.company_id} onChange={(e) => setF({ ...f, company_id: e.target.value })} style={inp}><option value="">Firm</option>{firms.map((x) => <option key={x.company_id} value={x.company_id}>{x.company_name}{x.tan ? ` · ${x.tan}` : ' · no TAN'}</option>)}</select>
+          <input type="month" value={f.period_month} onChange={(e) => setF({ ...f, period_month: e.target.value })} style={inp} title="Month the TDS belongs to" />
+          <input value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} placeholder="TDS ₹" style={{ ...inp, width: '110px', textAlign: 'right' }} />
+          <input value={f.interest} onChange={(e) => setF({ ...f, interest: e.target.value })} placeholder="Interest ₹" style={{ ...inp, width: '100px', textAlign: 'right' }} />
+          <input value={f.fee} onChange={(e) => setF({ ...f, fee: e.target.value })} placeholder="Fee ₹" style={{ ...inp, width: '90px', textAlign: 'right' }} />
+          <input value={f.bsr_code} onChange={(e) => setF({ ...f, bsr_code: e.target.value })} placeholder="BSR code" style={{ ...inp, width: '110px' }} />
+          <input value={f.challan_serial} onChange={(e) => setF({ ...f, challan_serial: e.target.value })} placeholder="Challan serial" style={{ ...inp, width: '120px' }} />
+          <input type="date" value={f.paid_on} onChange={(e) => setF({ ...f, paid_on: e.target.value })} style={inp} />
+          <input value={f.bank_ledger} onChange={(e) => setF({ ...f, bank_ledger: e.target.value })} placeholder="Bank ledger, e.g. SBI (8490)" style={{ ...inp, width: '170px' }} />
+          <button onClick={save} disabled={busy} style={btn('solid', !busy)}>💾 Save &amp; post</button>
+        </div>
+        <div style={{ color: C.dim, fontSize: '11px', marginTop: '6px' }}>Posts Dr TDS Payable (194C) / Cr bank in the firm's books and marks that month's due lines deposited, oldest first. The bank statement line then links to it on the reconciliation desk.</div>
+      </div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
+        <table style={{ width: '100%', minWidth: '900px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <thead><tr><th style={th}>Paid on</th><th style={th}>Firm · TAN</th><th style={th}>Month</th><th style={{ ...th, textAlign: 'right' }}>TDS</th><th style={{ ...th, textAlign: 'right' }}>Interest · fee</th><th style={th}>BSR · serial</th><th style={th}>Bank</th><th style={{ ...th, textAlign: 'right' }}>Lines covered</th><th style={th}>Ledger</th></tr></thead>
+          <tbody>{(d.rows ?? []).length === 0 && <tr><td colSpan={9} style={{ ...td, color: C.dim, textAlign: 'center' }}>No challans recorded in FY {fy}.</td></tr>}
+            {(d.rows ?? []).map((r) => (<tr key={r.id}><td style={td}>{dmy(r.paid_on)}</td><td style={td}>{r.company_name}<div style={{ fontSize: '10.5px', color: C.dim }}>{r.tan ?? 'no TAN'}</div></td><td style={td}>{mon(r.period_month)}</td><td style={{ ...tdR, fontWeight: 700 }}>{inr2(r.amount)}</td><td style={tdR}>{inr2(n2(r.interest) + n2(r.fee))}</td><td style={td}>{r.bsr_code ?? '—'} · {r.challan_serial ?? '—'}</td><td style={td}>{r.bank_ledger ?? '—'}</td><td style={tdR}>{r.lines} · {inr(r.covered)}</td><td style={td}>{r.voucher_id ? <span style={{ color: C.good }}>posted</span> : <span style={{ color: C.dim }}>not posted</span>}</td></tr>))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ══ GOVT. SUBMISSION ════════════════════════════════════════════════════════
+function Govt({ fy, firms, onChanged }) {
+  const [d, setD] = useState(null); const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { if (!fy) return; apiJson(`${API}/returns?fy=${fy}`).then(setD).catch((e) => setD({ error: e.message })); }, [fy]);
+  useEffect(() => { load(); }, [load]);
+  const pack = async (q) => { setBusy(true); try { const r = await apiJson(`${API}/returns/${q.company_id}/${q.fy}/${q.quarter}/pack`, { method: 'POST' }); alert(`📦 Pack ready — ${r.lines} deductee line(s), ${r.undeposited} undeposited.${r.warnings.length ? '\n⚠️ ' + r.warnings.join('\n⚠️ ') : ''}`); load(); onChanged?.(); } catch (e) { alert(`❌ ${e.message}`); } setBusy(false); };
+  const filed = async (r) => { const token = window.prompt(`Token / acknowledgement number for ${r.company_name} ${r.quarter} ${r.fy}:`, r.token_no ?? ''); if (token === null) return; const on = window.prompt('Filed on (YYYY-MM-DD):', day(r.filed_on) || new Date().toISOString().slice(0, 10)); try { await apiJson(`${API}/returns/${r.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'FILED', token_no: token, filed_on: on }) }); load(); onChanged?.(); } catch (e) { alert(`❌ ${e?.code === 'FORBIDDEN' ? 'Admin only' : e.message}`); } };
+  if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
+  const ret = (cid, q) => (d.returns ?? []).find((r) => r.company_id === cid && r.quarter === q);
+  return (
+    <div>
+      <div style={{ color: C.mut, fontSize: '12.5px', marginBottom: '10px', maxWidth: '100ch' }}>One pack per firm per quarter: the Form 26Q deductee annexure (RPU column order), the Form 27A cover figures with the challans, and the Form 16A issue list. The CA validates and files on TRACES / NSDL with the firm's TAN login; record the token here when done. Quarters: Q1 by 31 Jul · Q2 by 31 Oct · Q3 by 31 Jan · Q4 by 31 May.</div>
+      <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
+        <table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+          <thead><tr><th style={th}>Firm · TAN</th><th style={th}>Quarter</th><th style={th}>Due</th><th style={{ ...th, textAlign: 'right' }}>Deductees</th><th style={{ ...th, textAlign: 'right' }}>Amount paid</th><th style={{ ...th, textAlign: 'right' }}>TDS deducted</th><th style={{ ...th, textAlign: 'right' }}>Deposited</th><th style={{ ...th, textAlign: 'right' }}>Undeposited</th><th style={th}>Return</th><th style={th}>Download</th></tr></thead>
+          <tbody>{(d.quarters ?? []).length === 0 && <tr><td colSpan={10} style={{ ...td, color: C.dim, textAlign: 'center' }}>No TDS by us in FY {fy} yet — nothing to file. (Attached-owner bills need a commission rate and approval first.)</td></tr>}
+            {(d.quarters ?? []).map((q) => { const r = ret(q.company_id, q.quarter); const overdue = day(q.due) < new Date().toISOString().slice(0, 10) && r?.status !== 'FILED';
+              return (<tr key={q.company_id + q.quarter}>
+                <td style={td}>{q.company_name}<div style={{ fontSize: '10.5px', color: q.tan ? C.dim : C.crit }}>{q.tan ?? 'TAN missing — cannot file'}</div></td><td style={td}>{q.quarter} {q.fy}</td>
+                <td style={{ ...td, color: overdue ? C.crit : C.ink2 }}>{dmy(q.due)}{overdue ? ' · overdue' : ''}</td>
+                <td style={tdR}>{q.deductees}</td><td style={tdR}>{inr2(q.amount_paid)}</td><td style={{ ...tdR, fontWeight: 700 }}>{inr2(q.tds_deducted)}</td><td style={tdR}>{inr2(q.tds_deposited)}</td><td style={{ ...tdR, color: n2(q.undeposited) ? C.crit : C.good }}>{q.undeposited}</td>
+                <td style={td}>{r ? <span><Pill s={r.status} map={RET} />{r.token_no && <div style={{ fontSize: '10.5px', color: C.dim }}>token {r.token_no} · {dmy(r.filed_on)}</div>}</span> : <span style={{ color: C.dim }}>not started</span>}
+                  <div style={{ marginTop: '4px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}><button onClick={() => pack(q)} disabled={busy} style={{ ...btn('cyan'), padding: '3px 8px', fontSize: '11px' }}>📦 Build pack</button>{r && r.status !== 'FILED' && <button onClick={() => filed(r)} style={{ ...btn('good'), padding: '3px 8px', fontSize: '11px' }}>✅ Mark filed</button>}</div></td>
+                <td style={td}><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                  <button onClick={() => dl(`${API}/export/26q?firm=${q.company_id}&fy=${q.fy}&q=${q.quarter}`)} style={{ ...btn('solid'), padding: '3px 8px', fontSize: '11px' }}>⬇ 26Q for CA (CSV)</button>
+                  <button onClick={() => dl(`${API}/export/27a?firm=${q.company_id}&fy=${q.fy}&q=${q.quarter}`)} style={{ ...btn('plain'), padding: '3px 8px', fontSize: '11px' }}>27A</button>
+                  <button onClick={() => dl(`${API}/export/16a?firm=${q.company_id}&fy=${q.fy}&q=${q.quarter}`)} style={{ ...btn('plain'), padding: '3px 8px', fontSize: '11px' }}>16A list</button></div></td>
+              </tr>); })}</tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <b style={{ color: C.ink2, fontSize: '12.5px' }}>TDS on us, for the ITR:</b>
+        {firms.map((f) => <button key={f.company_id} onClick={() => dl(`${API}/export/credit-claim?firm=${f.company_id}&fy=${fy}`)} style={{ ...btn('cyan'), padding: '4px 10px' }}>⬇ Credit claim · {(f.company_name ?? '').replace(/^M\/S\s+/i, '')}</button>)}
+      </div>
     </div>
   );
 }

@@ -1,0 +1,134 @@
+<title>TDS Management v2</title>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;background:#0a1024;color:#eef2fd;font:13px/1.45 Inter,"Segoe UI",system-ui,sans-serif}
+  .wrap{max-width:1560px;margin:0 auto;padding:22px 24px 60px}
+  h1{font-size:24px;margin:0 0 4px;color:#fff}
+  h2{font-size:16px;margin:26px 0 10px;color:#fff}
+  h3{font-size:12px;margin:0 0 8px;color:#9aadd4;text-transform:uppercase;letter-spacing:.08em}
+  p.lead{color:#9aadd4;max-width:100ch;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .card{background:#121c38;border:1px solid #27395f;border-radius:12px;padding:14px 16px;min-width:0}
+  .eyebrow{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#5d7196}
+  .big{font-size:17px;font-weight:800;margin:2px 0 8px}
+  .dim{color:#5d7196}
+  .good{color:#2fe39b}.crit{color:#ff6b81}.warn{color:#ffb224}.ai{color:#a78bfa}.cyan{color:#22d3ee}
+  .kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:12.5px}
+  .kv b{font-variant-numeric:tabular-nums}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 12px}
+  .tab{padding:8px 14px;border:1px solid #27395f;border-radius:999px;color:#9aadd4;font-weight:700;font-size:12px}
+  .tab.on{border-color:#22d3ee;color:#22d3ee;background:rgba(34,211,238,.12)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#27395f;border:1px solid #27395f;border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .kpi{background:#121c38;padding:11px 14px}.kpi .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#5d7196}.kpi .v{font-size:18px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{padding:9px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#5d7196;border-bottom:1px solid #27395f;background:rgba(10,16,36,.5);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid #1b2a4e;color:#c4d1ea;vertical-align:top;white-space:nowrap}
+  td.wrap{white-space:normal;min-width:220px}td.r{text-align:right;font-variant-numeric:tabular-nums}
+  small{font-size:10.5px;color:#9aadd4}
+  .pill{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;border:1px solid;border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .scroll{overflow-x:auto;border:1px solid #27395f;border-radius:10px}
+  .b{font:inherit;font-weight:700;font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid #27395f;background:transparent;color:#9aadd4;white-space:nowrap}
+  .b.good{background:rgba(47,227,155,.1);border-color:rgba(47,227,155,.55);color:#2fe39b}.b.cyan{background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.5);color:#22d3ee}.b.warn{background:rgba(255,178,36,.12);border-color:rgba(255,178,36,.5);color:#ffb224}.b.ai{background:rgba(167,139,250,.14);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .two{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}@media(max-width:980px){.two{grid-template-columns:1fr}}
+  .field{display:grid;grid-template-columns:150px 1fr;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #1b2a4e;font-size:12.5px}.field .k{color:#5d7196;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
+  .findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+  .f{background:#121c38;border:1px solid #27395f;border-left:3px solid #ff6b81;border-radius:10px;padding:11px 13px;font-size:12.5px}.f b{display:block;color:#fff;margin-bottom:3px}.f.ok{border-left-color:#2fe39b}.f.w{border-left-color:#ffb224}
+  .note{color:#5d7196;font-size:11px;line-height:1.6;margin-top:10px}
+  .approve{background:rgba(47,227,155,.06);border:1px solid rgba(47,227,155,.4);border-radius:12px;padding:14px 18px;margin-top:22px}
+  .cal{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.cal .d{background:#121c38;border:1px solid #27395f;border-radius:10px;padding:10px 12px;font-size:12px}.cal .d b{display:block;color:#fff}
+</style>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start">
+    <div><div class="eyebrow">Prasad ERP · Accounts &amp; Admin · design mock v1 · 5-Sep-2026</div>
+      <h1>✂️ TDS Management v2 — both directions, per firm, per quarter</h1>
+      <p class="lead">Two books of TDS. <b>On us:</b> what IOCL, BPCL and HPCL withhold from our freight (Section 194C, 2%) — an asset we claim against income tax, provable only against Form 26AS and Form 16A. <b>By us:</b> what we must withhold when we pay attached vehicle owners, fleet partners and contractors — a liability we deposit by the 7th of the next month and report quarterly in Form 26Q. Today the ERP records neither properly: the screen holds two hand-typed rows.</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="b cyan">📎 Upload Form 26AS / AIS</button><button class="b ai">🤖 Rebuild from documents</button><button class="b good">⬇ 26Q pack (Q2 FY26-27)</button><button class="b">⬇ 26AS reconciliation for CA</button></div>
+  </div>
+
+  <div class="tabs"><span class="tab on">Overview</span><span class="tab">TDS on us (receivable)</span><span class="tab">TDS by us (payable)</span><span class="tab">Deductee master</span><span class="tab">Challans</span><span class="tab">Returns &amp; certificates</span><span class="tab">Exceptions (7)</span></div>
+
+  <h2>Per firm — FY 2026-27, from documents (real figures, production 5-Sep)</h2>
+  <div class="grid">
+    <div class="card"><div class="eyebrow">M/S Prasad Transport · PAN AAKFP2339R · <span class="crit">TAN not on file</span></div><div class="big">IOCL, HPCL, BPCL</div>
+      <div class="kv"><span>TDS on us · Q1 (Apr–Jun) per IOCL advices</span><b>₹2,49,218</b><span>TDS on us · Q2 to date per IOCL advices</span><b>₹1,56,029</b><span>TDS on us · BPCL / HPCL (bank credits, net of 2%)</span><b class="warn">≈ ₹36,000 (estimate)</b><span>Booked on 'TDS Receivable 194C'</span><b>₹4,05,247</b><span>Form 16A received</span><b class="crit">none on file</b><span>TDS by us · attached owners (Apr–Aug drafts)</span><b class="crit">₹0 computed — 34 bills, no commission rate</b></div></div>
+    <div class="card"><div class="eyebrow">M/S Jaiswal Enterprise · PAN AAMFJ3644H · <span class="crit">TAN not on file</span></div><div class="big">IOCL (vendor 0011043022), BPCL, HPCL</div>
+      <div class="kv"><span>TDS on us · IOCL per AC5 bills (Q1+Q2)</span><b>≈ ₹91,000</b><span>TDS on us · BPCL (₹44.4 L received net)</span><b class="warn">≈ ₹90,600 (estimate)</b><span>TDS on us · HPCL (₹18.1 L received net)</span><b class="warn">≈ ₹37,000 (estimate)</b><span>Booked in the ledger</span><b class="crit">₹0</b><span>Advices / Form 16A</span><b class="crit">none — mailbox dead since 16-Aug</b><span>TDS by us · market partners</span><b>₹0 (no market loads yet)</b></div></div>
+    <div class="card"><div class="eyebrow">M/S Gautam Prasad · PAN BQFPP5877G · <span class="crit">TAN not on file</span></div><div class="big">HPCL, IOCL (via Prasad's code)</div>
+      <div class="kv"><span>TDS on us · HPCL (₹16.3 L received net)</span><b class="warn">≈ ₹33,000 (estimate)</b><span>TDS on us · IOCL trips in Gautam books (AC5)</span><b>≈ ₹33,100</b><span>Booked in the ledger</span><b class="crit">₹0</b><span>Gautam is also an ATTACHED owner of Prasad (3 lorries)</span><b class="warn">₹18.5 L freight Apr–Aug — TDS by Prasad due on his commission bills</b></div></div>
+  </div>
+
+  <h2>① TDS on us — receivable desk (per customer × quarter, against 26AS)</h2>
+  <div class="scroll"><table><thead><tr><th>Firm</th><th>Customer · TAN</th><th>Quarter</th><th class="r">Freight paid</th><th class="r">TDS per documents</th><th>Source</th><th class="r">26AS credit</th><th class="r">Difference</th><th>Form 16A</th><th>State</th><th>Action</th></tr></thead><tbody>
+    <tr><td>Prasad</td><td>INDIAN OIL CORPORATION LTD</td><td>Q1 FY26-27</td><td class="r">₹1,24,60,875</td><td class="r">₹2,49,218</td><td><small>20 payment advices</small></td><td class="r dim">— upload 26AS —</td><td class="r dim">—</td><td><small class="crit">not received</small></td><td><span class="pill warn" style="color:#ffb224;border-color:#ffb224">AWAITING 26AS</span></td><td><button class="b" style="padding:4px 9px;font-size:11px">Ask IOCL for 16A</button></td></tr>
+    <tr><td>Prasad</td><td>INDIAN OIL CORPORATION LTD</td><td>Q2 (to 11-Aug)</td><td class="r">₹77,67,885</td><td class="r">₹1,56,029</td><td><small>13 payment advices</small></td><td class="r dim">—</td><td class="r dim">—</td><td><small class="dim">due after 31-Oct</small></td><td><span class="pill" style="color:#9aadd4;border-color:#9aadd4">OPEN QUARTER</span></td><td></td></tr>
+    <tr><td>Jaiswal</td><td>INDIAN OIL CORPORATION LTD</td><td>Q1 FY26-27</td><td class="r">₹39,22,518</td><td class="r">≈ ₹78,450</td><td><small>22 AC5 bills (2%) — no advice read</small></td><td class="r dim">—</td><td class="r dim">—</td><td><small class="crit">not received</small></td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">ESTIMATE ONLY</span></td><td><button class="b" style="padding:4px 9px;font-size:11px">Re-auth mailbox</button></td></tr>
+    <tr><td>Jaiswal</td><td>BHARAT PETROLEUM CORPORATION LTD</td><td>Q1–Q2</td><td class="r">₹45,30,015 <small>(gross = net ÷ 0.98)</small></td><td class="r">≈ ₹90,600</td><td><small>5 bank credits, no bill document</small></td><td class="r dim">—</td><td class="r dim">—</td><td><small class="crit">not received</small></td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">ESTIMATE ONLY</span></td><td><button class="b" style="padding:4px 9px;font-size:11px">Upload BPCL statement</button></td></tr>
+    <tr><td>Jaiswal</td><td>HINDUSTAN PETROLEUM CORPORATION LIMITED</td><td>Q1–Q2</td><td class="r">₹18,51,528</td><td class="r">≈ ₹37,030</td><td><small>16 bank credits</small></td><td class="r dim">—</td><td class="r dim">—</td><td><small class="crit">not received</small></td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">ESTIMATE ONLY</span></td><td></td></tr>
+    <tr><td>Gautam</td><td>HINDUSTAN PETROLEUM CORPORATION LIMITED</td><td>Q1–Q2</td><td class="r">₹16,60,415</td><td class="r">≈ ₹33,208</td><td><small>13 bank credits</small></td><td class="r dim">—</td><td class="r dim">—</td><td><small class="crit">not received</small></td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">ESTIMATE ONLY</span></td><td></td></tr>
+  </tbody></table></div>
+  <div class="note">Source order of truth: payment advice (TDS line) → AC5 bill (2% on the bill) → bank credit (gross = net ÷ 0.98, marked ESTIMATE). Upload the TRACES Form 26AS / AIS export per firm and each row becomes MATCHED / SHORT-CREDITED / NOT IN 26AS. Every quarter ends with a "TDS credit claim" statement for the CA (what to claim in the ITR) and a Form 16A tracker per customer.</div>
+
+  <h2>② TDS by us — payable desk (what we must withhold and deposit)</h2>
+  <div class="two">
+    <div class="scroll"><table><thead><tr><th>Firm · month</th><th>Deductee</th><th>PAN · type</th><th class="r">Payment base</th><th>Section · rate</th><th class="r">TDS to deduct</th><th>Deposit due</th><th>Challan</th><th>State</th></tr></thead><tbody>
+      <tr><td>Prasad · Apr–Aug</td><td>SANDEEP KUMAR PRASAD <small>(11 attached lorries, 10 bills)</small></td><td><span class="crit">PAN missing</span></td><td class="r">commission on ₹67,98,930 freight</td><td>194C · 1% / <span class="crit">20% without PAN</span></td><td class="r crit">not computable — no commission rate on file</td><td>7-Sep for Aug</td><td class="dim">—</td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">BLOCKED</span></td></tr>
+      <tr><td>Prasad · Apr–Aug</td><td>GAUTAM PRASAD <small>(3 lorries, 10 bills)</small></td><td>BQFPP5877G · individual</td><td class="r">commission on ₹18,45,904</td><td>194C · 1%</td><td class="r crit">rate missing</td><td>7-Sep</td><td class="dim">—</td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">BLOCKED</span></td></tr>
+      <tr><td>Prasad · Apr–Aug</td><td>SANTOSH PRASAD <small>(1 lorry, 8 bills)</small></td><td><span class="crit">PAN missing</span></td><td class="r">commission on ₹6,73,385</td><td>194C · 1% / 20%</td><td class="r crit">rate missing</td><td>7-Sep</td><td class="dim">—</td><td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">BLOCKED</span></td></tr>
+      <tr><td>Prasad · Apr–Aug</td><td>PRASAD TRANSPORT <small>(attached to itself — data fault)</small></td><td>—</td><td class="r">₹6,00,205</td><td>—</td><td class="r">nil (own vehicle)</td><td>—</td><td class="dim">—</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">FIX MASTER</span></td></tr>
+      <tr><td>Jaiswal · any</td><td>Fleet partners (market loads)</td><td>per partner</td><td class="r">₹0 so far</td><td>194C · 1% / 2% / nil with 194C(6)</td><td class="r">₹0</td><td>—</td><td>—</td><td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">NOTHING DUE</span></td></tr>
+      <tr><td>All · any</td><td>Service vendors (pumps, tyres, garages) — 18, no PAN on file</td><td><span class="crit">0 of 18 with PAN</span></td><td class="r">per bill</td><td>194C where it is a works contract; goods (HSD) not 194C</td><td class="r dim">—</td><td>—</td><td>—</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">MASTER GAP</span></td></tr>
+    </tbody></table></div>
+    <div class="card"><h3>How the liability is built</h3>
+      <div class="field"><span class="k">Base</span><span>The 15-day bill's <b>commission</b> (our charge to the attached owner) — not the freight, which is the owner's — plus any other contractor payment the tax engine marks 194C.</span></div>
+      <div class="field"><span class="k">Rate</span><span>1% individual/HUF with PAN · 2% firm/company · <b>20% when no PAN</b> · nil with a 194C(6) declaration (≤10 goods carriages + PAN). Thresholds ₹30,000 single / ₹1,00,000 in the FY.</span></div>
+      <div class="field"><span class="k">When</span><span>At the earlier of credit (bill approval) or payment. Deposit by the 7th of the next month (30 April for March) — challan ITNS 281 under the firm's TAN.</span></div>
+      <div class="field"><span class="k">Ledger</span><span>Approve: Dr Vehicle Owner / Cr TDS Payable 194C (per firm, Duties &amp; Taxes). Challan: Dr TDS Payable 194C / Cr Bank — and the bank line auto-tallies to it.</span></div>
+      <div class="field"><span class="k">Return</span><span>Form 26Q per quarter: Q1 by 31 Jul · Q2 by 31 Oct · Q3 by 31 Jan · Q4 by 31 May. Form 16A to each owner within 15 days of the return.</span></div>
+      <div class="note">Blocked today by two masters, not by code: commission rates for 16 attached lorries (Commission Master) and PAN + entity type per owner. Both become one screen: the Deductee master.</div></div>
+  </div>
+
+  <h2>③ Deductee master — one row per person we pay</h2>
+  <div class="scroll"><table><thead><tr><th>Deductee</th><th>Kind</th><th>PAN</th><th>Entity</th><th>194C(6) declaration</th><th>Rate that applies</th><th class="r">Paid FY26-27</th><th>Threshold</th><th>Form 16A</th><th></th></tr></thead><tbody>
+    <tr><td>SANDEEP KUMAR PRASAD</td><td>Attached owner · 11 lorries</td><td><input placeholder="ABCDE1234F" style="background:#0a1024;border:1px solid #ff6b81;border-radius:6px;color:#eef2fd;padding:3px 6px;width:110px"></td><td>Individual ▾</td><td>☐ on file (needs PAN; &gt;10 carriages → not eligible)</td><td class="crit">20% until PAN</td><td class="r">—</td><td>crossed</td><td>—</td><td><button class="b" style="padding:3px 8px;font-size:11px">Save</button></td></tr>
+    <tr><td>GAUTAM PRASAD</td><td>Attached owner · 3 lorries · also a firm</td><td>BQFPP5877G</td><td>Individual ▾</td><td>☑ eligible (3 carriages) — declaration to be signed</td><td class="good">nil with declaration, else 1%</td><td class="r">—</td><td>crossed</td><td>—</td><td><button class="b" style="padding:3px 8px;font-size:11px">Save</button></td></tr>
+    <tr><td>SANTOSH PRASAD</td><td>Attached owner · 1 lorry</td><td><input placeholder="ABCDE1234F" style="background:#0a1024;border:1px solid #ff6b81;border-radius:6px;color:#eef2fd;padding:3px 6px;width:110px"></td><td>Individual ▾</td><td>☑ eligible — declaration to be signed</td><td class="crit">20% until PAN</td><td class="r">—</td><td>crossed</td><td>—</td><td><button class="b" style="padding:3px 8px;font-size:11px">Save</button></td></tr>
+    <tr><td>B N FILLING STATION</td><td>Service vendor · pump</td><td><input placeholder="PAN" style="background:#0a1024;border:1px solid #27395f;border-radius:6px;color:#eef2fd;padding:3px 6px;width:110px"></td><td>Firm ▾</td><td>n/a</td><td>goods — no 194C (194Q only above ₹50 L)</td><td class="r">—</td><td>—</td><td>—</td><td></td></tr>
+  </tbody></table></div>
+
+  <h2>④ Challans &amp; ⑤ Returns — the government side</h2>
+  <div class="two">
+    <div class="card"><h3>Challan register (ITNS 281) — per firm, per month</h3>
+      <div class="field"><span class="k">Entry</span><span>Firm · TAN · month · section 194C · amount · BSR code · challan serial · date · bank. Entered when paid (or auto-suggested when the bank line "CBDT / TDS" appears in the statement).</span></div>
+      <div class="field"><span class="k">Check</span><span>Challan amount vs liability of the month → SHORT / EXACT / EXCESS; interest 1.5% per month on late deposit shown, not hidden.</span></div>
+      <div class="field"><span class="k">Ledger</span><span>Dr TDS Payable 194C / Cr Bank, ref CHALLAN-&lt;serial&gt;. The bank desk links the debit to it automatically.</span></div>
+      <div class="cal" style="margin-top:10px">
+        <div class="d"><b>7 Sep 2026</b>deposit Aug TDS <span class="crit">— ₹0 computed, masters blocked</span></div>
+        <div class="d"><b>31 Jul 2026</b>Form 26Q Q1 <span class="crit">— overdue if any 194C payment was due in Q1</span></div>
+        <div class="d"><b>31 Oct 2026</b>Form 26Q Q2 · Form 16A by 15 Nov</div>
+        <div class="d"><b>each quarter</b>26AS vs documents for TDS on us · collect Form 16A from IOCL / BPCL / HPCL</div>
+      </div></div>
+    <div class="card"><h3>Return pack — what the system hands to the CA / TRACES</h3>
+      <div class="field"><span class="k">26Q annexure</span><span>Deductee-wise CSV in the RPU column order: deductee PAN, name, section, date of payment/credit, amount paid, TDS deducted, rate, reason for lower/nil (194C(6) code), challan BSR + serial + date mapping. One file per firm per quarter.</span></div>
+      <div class="field"><span class="k">27A cover</span><span>Totals: deductees, amount paid, TDS deducted, TDS deposited, challans — for the signed Form 27A.</span></div>
+      <div class="field"><span class="k">Form 16A</span><span>Issue list per deductee per quarter; certificate number recorded when downloaded from TRACES.</span></div>
+      <div class="field"><span class="k">TDS on us</span><span>"TDS credit claim" statement per firm per quarter: documents vs 26AS, difference by customer, Form 16A received or not — the CA claims it in the ITR.</span></div>
+      <div class="field"><span class="k">Filing itself</span><span><b>Done by the CA / owner on TRACES–NSDL with the TAN login</b> (RPU + FVU validation). The ERP produces the validated data and the cover figures; it does not hold your TAN login.</span></div>
+      <div class="field"><span class="k">Status</span><span>Return filed → token number, date, status (FILED / CORRECTION) recorded; the rows freeze.</span></div></div>
+  </div>
+
+  <h2>Deep audit — what the ERP holds today</h2>
+  <div class="findings">
+    <div class="f"><b>The TDS screen is a hand-typed registry</b>tds_entries has 2 rows (both IOCL, 20-Jul, typed on 13-Aug). It is not linked to trips, advices, bills, the ledger or any quarter. "Return Filing Status" is a manual toggle.</div>
+    <div class="f ok"><b>TDS on us from IOCL is provable to the rupee</b>33 payment advices carry the TDS line: Q1 ₹2,49,218 on ₹1.25 cr, Q2 ₹1,56,029 so far. All of it sits on 'TDS Receivable 194C' (₹4,05,247). No Form 16A, no 26AS match.</div>
+    <div class="f w"><b>Jaiswal, Gautam, BPCL, HPCL: nothing booked</b>Jaiswal's IOCL AC5 bills (₹45.6 L, 29 bills) imply ≈₹91 K withheld; BPCL and HPCL pay net of 2% into Jaiswal (₹62.5 L) and Gautam (₹16.3 L) — ≈₹1.6 L of TDS on us with no record anywhere.</div>
+    <div class="f"><b>TDS by us has never been computed</b>34 attached-owner bills (Apr–Aug, ₹96 L of freight) are all drafts with "rate missing" — no commission rate for 16 lorries, so no commission, so no TDS, so nothing deposited. If any commission was due in Q1, the Q1 return (31-Jul) is already late.</div>
+    <div class="f"><b>No TAN on any firm, no PAN on any owner or vendor</b>companies has PAN for all three firms and no TAN column; vehicle owners have a name only; 0 of 18 vendors have PAN. Without PAN the law says 20%; without TAN nothing can be deposited or filed.</div>
+    <div class="f w"><b>One owner is the firm itself</b>"PRASAD TRANSPORT" is registered as an attached owner (1 lorry, ₹6 L freight) — an own vehicle; no TDS arises. Vehicle master → Own.</div>
+    <div class="f w"><b>Gautam Prasad is both a firm and an attached owner</b>His 3 lorries earn ₹18.5 L under Prasad. Prasad must withhold on the commission bill (1% with his PAN, nil with a 194C(6) declaration since he owns ≤10 carriages) — and Gautam's books must show it as TDS receivable.</div>
+    <div class="f ok"><b>The tax engine already exists</b>server/lib/taxEngine.js: 194C (1/2/20%, thresholds, 194C(6)), 194Q, GST RCM — deterministic, paise-exact. Nothing calls it for owner bills yet.</div>
+  </div>
+
+  <div class="approve"><b class="good" style="font-size:14px">Waiting for your YES.</b>
+    <div style="color:#c4d1ea;margin-top:6px;font-size:12.5px;line-height:1.7">Build on YES: migration (companies.tan; tds_deductees with PAN / entity / 194C(6); tds_liabilities computed from approved owner, partner and vendor bills through the tax engine; tds_challans; tds_returns; tds_credits per customer × quarter from advices / AC5 / bank; tds_26as_lines from the TRACES upload with matching), 'TDS Payable 194C' per firm and the approval journal on owner bills, challan posting + bank auto-tally rule, the 26Q / 27A / 16A / credit-claim exports, the 7-tab screen above replacing the registry, dashboard exceptions (PAN missing, deposit overdue, return overdue, 26AS short-credit), and the first rebuild over Apr–Aug.</div>
+    <div style="color:#9aadd4;margin-top:8px;font-size:12px">Decisions I need: (1) TAN of each firm (Prasad, Jaiswal, Gautam) — or confirm which firms have one. (2) Attached owners' PAN + whether Gautam and Santosh sign the 194C(6) declaration (nil TDS). (3) The 16 commission rates — without them no TDS by us exists. (4) Q1 FY26-27: was any commission actually paid/credited to owners Apr–Jun? If yes, the Q1 26Q is late and interest applies; the system will show it, not hide it.</div></div>
+</div>
