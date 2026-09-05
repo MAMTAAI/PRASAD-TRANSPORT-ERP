@@ -117,7 +117,7 @@ try {
   await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, bill_date, reverse_charge, s_no, invoice_no, line_date, vehicle_no_raw, vehicle_norm, ship_to_raw, gross_amt, penalty_amt, igst_amt, cgst_amt, sgst_amt, page_no, source_line)
                   VALUES ('L1', '11111111-1111-1111-1111-111111111111', 'G1', '0011024699', '2026-07-05', true, 1, '11024699AS26045', '2026-06-16', 'AS26C9814', 'AS26C9814', 'ZC7A01 - Agartala AFS', 70961.11, 0, 0, 0, 0, 1, 'x')`);
 
-  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql', '166_fortnight_by_unloading.sql']) {
+  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql', '166_fortnight_by_unloading.sql', '168_reattach_open_drafts.sql']) {
     await db.query(readFileSync(path.join(here, f), 'utf8'));
   }
   check('160 → 163 apply on the production schema', true, true);
