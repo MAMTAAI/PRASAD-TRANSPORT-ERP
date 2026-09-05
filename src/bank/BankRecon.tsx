@@ -10,6 +10,7 @@
 // never reversed.
 // ════════════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import GlobalPagination, { usePagination } from '../components/GlobalPagination';
 import { API_BASE } from '../lib/apiBase';
 import { useIsMobile } from '../hooks/useIsMobile';
 
@@ -65,6 +66,10 @@ export default function BankRecon({ onLegacy }) {
   }, [account, q, status, tab]);
   useEffect(() => { loadSummary(); }, [loadSummary]);
   useEffect(() => { if (['BOOK', 'DESK'].includes(tab)) loadRows(); }, [loadRows, tab]);
+  // Newest first, 10 / 20 / 30 / 40 / 50 per page (owner, 5-Sep) — the server
+  // already orders waiting lines first, then by date descending.
+  const pg = usePagination(rows, { defaultSize: 10 });
+  useEffect(() => { pg.setPage(1); }, [account, q, status, tab]);
   const refreshAll = async () => { await loadSummary(); await loadRows(); };
 
   const retally = async () => { setBusy(true); try { const t = await apiJson(`${API}/tally`, { method: 'POST', body: JSON.stringify({ account_id: account || null }) }); alert(`🤖 TARA: ${t.lines} lines · posted ${t.auto_posted} · linked ${t.linked} · for the desk ${t.review} · not ours ${t.not_ours}${t.errors ? ` · errors ${t.errors}` : ''}`); await refreshAll(); } catch (e) { alert(`❌ ${e.message}`); } setBusy(false); };
@@ -123,7 +128,7 @@ export default function BankRecon({ onLegacy }) {
           : rows.length === 0 ? <p style={{ color: tab === 'DESK' ? C.good : C.dim, textAlign: 'center', padding: '24px', fontSize: '13px' }}>{tab === 'DESK' ? '✅ Nothing waiting — every statement line is posted, linked or decided.' : 'No statement lines yet — upload a statement.'}</p>
           : (<table style={{ width: '100%', minWidth: '1100px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
               <thead><tr><th style={th}>Date</th><th style={th}>Account</th><th style={th}>Counterparty · narration · UTR</th><th style={{ ...th, textAlign: 'right' }}>Withdrawal</th><th style={{ ...th, textAlign: 'right' }}>Deposit</th><th style={{ ...th, textAlign: 'right' }}>Balance</th><th style={th}>TARA · target</th><th style={th}>State</th></tr></thead>
-              <tbody>{rows.map((l) => (
+              <tbody>{pg.slice.map((l) => (
                 <tr key={l.id} onClick={() => setOpenId(l.id)} style={{ cursor: 'pointer' }}>
                   <td style={td}>{dmy(l.txn_date)}<div style={{ fontSize: '10.5px', color: C.dim }}>{l.channel}</div></td>
                   <td style={td}>{l.ledger_name}<div style={{ fontSize: '10.5px', color: C.dim }}>{(l.company_name ?? '').replace(/^M\/S\s+/i, '')}</div></td>
@@ -136,6 +141,7 @@ export default function BankRecon({ onLegacy }) {
                 </tr>))}</tbody>
             </table>)}
         </div>)}
+      {['BOOK', 'DESK'].includes(tab) && rows.length > 0 && <GlobalPagination {...pg} label="lines" />}
       {openId && <LineDrawer id={openId} onClose={() => setOpenId(null)} onChanged={refreshAll} />}
     </div>
   );

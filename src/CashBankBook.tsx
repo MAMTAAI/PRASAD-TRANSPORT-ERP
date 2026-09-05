@@ -17,6 +17,7 @@
 //     these live entries. The old screen invented its statement rows.
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import BankRecon from './bank/BankRecon';
+import GlobalPagination, { usePagination } from './components/GlobalPagination';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -142,6 +143,9 @@ export default function CashBankBook() {
 
   const accounts = book?.accounts ?? [];
   const entries = book?.entries ?? [];
+  // Newest first, 10 / 20 / 30 / 40 / 50 per page (owner, 5-Sep): the server orders by date desc.
+  const pg = usePagination(entries, { defaultSize: 10 });
+  useEffect(() => { pg.setPage(1); }, [entries.length]);
   const totalIn = Number(book?.total_in ?? 0);
   const totalOut = Number(book?.total_out ?? 0);
   const opening = Number(book?.opening_balance ?? 0);
@@ -520,7 +524,7 @@ export default function CashBankBook() {
               <tr><td colSpan={7} style={{ padding: '20px', textAlign: 'center', color: '#5d7196' }}>
                 {err ? 'Could not load — see the message above.' : 'No entries for these filters.'}
               </td></tr>
-            ) : entries.map((t: any) => {
+            ) : pg.slice.map((t: any) => {
               const ui = TYPE_UI[t.type] ?? { label: t.type, color: '#9aadd4', sign: '' };
               return (
                 <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea', fontSize: '14px' }}>
@@ -559,6 +563,7 @@ export default function CashBankBook() {
           </tbody>
         </table>
       </div>
+      {entries.length > 0 && <GlobalPagination {...pg} label="entries" />}
 
       {/* VOUCHER MODAL */}
       {showModal && (
