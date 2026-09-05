@@ -13,6 +13,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import GlobalPagination, { usePagination } from '../components/GlobalPagination';
 import { API_BASE } from '../lib/apiBase';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { Disbursal } from '../StaffPayroll';
 
 const API = `${API_BASE}/api/v1/bank-recon`;
 const apiJson = async (url, opts = {}) => {
@@ -76,6 +77,7 @@ export default function BankRecon({ onLegacy }) {
   const accts = sum?.accounts ?? []; const T = sum?.totals ?? {};
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', padding: isPhone ? '12px' : '20px 24px 50px' }}>
+      <div style={{ padding: '12px 14px 0' }}><Disbursal compact /></div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '14px', flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '14px' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: '10.5px', letterSpacing: '.14em', textTransform: 'uppercase', color: C.dim }}>Accounts &amp; Admin · Bank &amp; Cash Book</div>

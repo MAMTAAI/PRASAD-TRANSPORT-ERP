@@ -492,9 +492,8 @@ export async function registerMastersRoutes(app) {
            LEFT JOIN LATERAL (
              SELECT SUM(amount) FILTER (WHERE txn_type IN ('ADVANCE_GIVEN','PAYMENT_GIVEN')) AS advances,
                     SUM(amount) FILTER (WHERE txn_type IN ('SHORTAGE_RECOVERY','FINAL_PAYMENT')) AS recovered,
-                    SUM(CASE WHEN txn_type IN ('ADVANCE_GIVEN','PAYMENT_GIVEN') THEN amount
-                             WHEN txn_type = 'SALARY_CREDIT' THEN -amount
-                             ELSE -amount END) AS balance,
+                    -- running account: cash given, shortage charged and pay handed over are debits; earnings credit (174)
+                    SUM(CASE WHEN txn_type = 'SALARY_CREDIT' THEN -amount ELSE amount END) AS balance,
                     count(*) AS txns
                FROM driver_transactions
               WHERE driver_id = d.id OR driver_name = d.name) k ON true

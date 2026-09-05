@@ -25,7 +25,7 @@ import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds, detectGst,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds, detectGst, detectPayroll,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -153,6 +153,7 @@ async function runExceptionScan() {
     ['bank', detectBankUnmatched],
     ['tds', detectTds],
     ['gst', detectGst],
+    ['payroll', detectPayroll],
   ]) {
     try {
       const r = await fn();
@@ -313,11 +314,28 @@ async function rebuildGst() {
   }
 }
 
+// Payroll (174): once a day settle every open completed trip under its
+// driver's model and refresh the khata-vs-ledger audit; from the 1st, build
+// last month's runs for every firm (a posted run is never rebuilt).
+async function runPayroll() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  if (state.lastPayrollDay === istToday()) return { skipped: 'ran today' };
+  state.lastPayrollDay = istToday();
+  try {
+    const { rows: [a] } = await query("SELECT payroll_deep_audit('scheduler') AS s");
+    const { rows: runs } = await query(`SELECT payroll_run_build(c.id, to_char((current_date - interval '1 month')::date, 'YYYY-MM'), k.k, 'scheduler') AS id FROM companies c CROSS JOIN (VALUES ('DRIVER'), ('STAFF')) k(k) WHERE c.status::text = 'ACTIVE'`).catch(() => ({ rows: [] }));
+    return { settled: a.s?.trips_settled_now ?? null, blocked: a.s?.open?.blocked ?? null, runs_built: runs.length };
+  } catch (err) {
+    if (/payroll_deep_audit|driver_trip_settlements/.test(err.message)) return { skipped: 'migration 174 not applied' };
+    throw err;
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst], ['payroll', runPayroll]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

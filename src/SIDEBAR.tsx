@@ -193,6 +193,7 @@ export default function SIDEBAR({ activeComponent, setActiveComponent, activeMod
         { id: 'TOLL', label: 'Toll & Fastag', icon: '🛣️' },
         { id: 'GST', label: 'GST Management', icon: '🏛️' },
         { id: 'TDS', label: 'TDS Management', icon: '✂️' },
+        { id: 'STAFF_PAYROLL', label: 'Staff & Partner Payroll', icon: '🧑‍💼' },
         { id: 'VENDOR', label: 'Vendor Master', icon: '🤝' },
       ];
     } else { 

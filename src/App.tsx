@@ -63,6 +63,7 @@ const OwnerStatement = lazy(() => import('./OwnerStatement'));
 const FuelReviewQueue = lazy(() => import('./FuelReviewQueue'));
 const ProfitAndLoss = lazy(() => import('./ProfitAndLoss'));
 const TdsMgmt = lazy(() => import('./TdsMgmt'));
+const StaffPayroll = lazy(() => import('./StaffPayroll'));
 const UGER = lazy(() => import('./UGER'));
 const CompanyInbox = lazy(() => import('./CompanyInbox'));
 const AiLetterPad = lazy(() => import('./AiLetterpad'));
@@ -666,6 +667,7 @@ function AppShell() {
       case 'EXCEPTIONS': return <ExceptionResolution />;
       case 'GST': return <GstMgmt />;
       case 'TDS': return <TdsMgmt />;
+      case 'STAFF_PAYROLL': return <StaffPayroll />;
       case 'INBOX': return <CompanyInbox />;
       case 'VEHICLE_DRIVER_LINK': return <VehicleDriverLink />;
       // 🔥 MAIN FIX IS HERE TOO

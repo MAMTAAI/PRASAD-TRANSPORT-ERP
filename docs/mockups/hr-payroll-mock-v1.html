@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR, Payroll & AI-KYC — mock v1</title>
+<style>
+  :root { --bg:#0a1024; --panel:#121c38; --line:#27395f; --ink:#eef2fd; --ink2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196; --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa; --gold:#fcd34d; }
+  * { box-sizing: border-box; } body { margin:0; background: radial-gradient(circle at top right, #121c38, #0a1024); color: var(--ink); font: 13px/1.45 Inter, system-ui, sans-serif; padding: 20px 24px 60px; }
+  h1 { font-size: 26px; margin: 0; } h2 { font-size: 15px; margin: 22px 0 8px; color: var(--ink2); }
+  .eyebrow { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .lead { color: var(--mut); max-width: 100ch; font-size: 12.5px; margin-top: 4px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 12px 0; }
+  .btn { font-weight:700; font-size:12px; border-radius:8px; padding:7px 13px; border:1px solid var(--line); color: var(--mut); white-space:nowrap; }
+  .btn.ai { color:#c4b5fd; border-color: rgba(167,139,250,.5); background: rgba(167,139,250,.14); } .btn.gold { color: var(--gold); border-color: rgba(252,211,77,.55); background: rgba(252,211,77,.12); }
+  .btn.cyan { color: var(--cyan); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.12); } .btn.solid { color:#0a1024; background: var(--good); border-color: var(--good); } .btn.good { color: var(--good); border-color: rgba(47,227,155,.55); background: rgba(47,227,155,.10); } .btn.warn { color: var(--warn); border-color: rgba(255,178,36,.5); background: rgba(255,178,36,.12); }
+  .chip { font-size:11px; font-weight:700; border-radius:999px; padding:4px 10px; border:1px solid var(--line); color: var(--mut); } .chip.on { color: var(--cyan); border-color: var(--cyan); background: rgba(34,211,238,.10); }
+  .sel { background:#0a1024; border:1px solid var(--line); border-radius:8px; color: var(--ink); padding:6px 10px; font-size:12px; }
+  .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:10px; } .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .big { font-size:22px; font-weight:900; }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background: rgba(10,16,36,.45); }
+  table { border-collapse: collapse; width:100%; font-size:12px; } th { padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color: var(--dim); border-bottom:1px solid var(--line); white-space:nowrap; background: rgba(10,16,36,.6); }
+  td { padding:8px 10px; border-bottom:1px solid #1b2a4e; color: var(--ink2); white-space:nowrap; vertical-align:top; } td.r, th.r { text-align:right; font-variant-numeric: tabular-nums; }
+  .pill { font-size:10px; font-weight:800; letter-spacing:.05em; border-radius:999px; padding:2px 9px; border:1px solid; white-space:nowrap; }
+  .p-ai { color: var(--ai); } .p-warn { color: var(--warn); } .p-dim { color: var(--dim); } .p-good { color: var(--good); } .p-crit { color: var(--crit); } .p-cyan { color: var(--cyan); }
+  .sub { font-size:10px; color: var(--dim); } .note { color: var(--mut); font-size: 12px; line-height:1.55; } .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .two { display:grid; grid-template-columns: minmax(280px, 1fr) 2.2fr; gap:12px; } @media (max-width: 800px) { .two { grid-template-columns: 1fr; } body { padding: 12px; } }
+  .banner { border:1px dashed var(--gold); color: var(--gold); border-radius: 10px; padding: 8px 12px; font-size: 12px; margin-bottom: 14px; }
+  .modal { border:1px solid var(--ai); border-radius: 16px; padding: 18px; background: #121c38; }
+  .grid2 { display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px; } label { font-size: 11px; color: var(--mut); display:grid; gap:3px; }
+  .scan { background: rgba(167,139,250,.18); color:#c4b5fd; padding: 12px; text-align:center; border-radius:10px; font-weight:700; margin: 10px 0; }
+</style>
+</head>
+<body>
+<div class="banner">MOCK v1 · 5-Sep-2026 · HR, Payroll &amp; AI-KYC. Three places: the Driver Master modal (KYC scan + compensation model), the Salary &amp; Settlement tab (instant trip settlements), and the new Accounts &amp; Admin → Staff &amp; Partner Payroll page. Production figures where known.</div>
+
+<div class="eyebrow">Operations · Driver Master · Update Driver &amp; Approvals</div>
+<h1>✏️ Update Driver &amp; Approvals — ABHADHESH DAS</h1>
+<div class="modal">
+  <div class="scan">🔎 Scanning Document… TARA is reading the driving licence and will fill the empty fields.</div>
+  <div class="card" style="border-top:4px solid var(--ai); margin-bottom:12px">
+    <h2 style="margin:0 0 8px; color:#c4b5fd">💰 Compensation Model <span class="sub">— mandatory; decides how every completed trip is paid</span></h2>
+    <div class="grid2">
+      <label style="grid-column:1/-1">Compensation model *<select class="sel"><option>Trip Basis (Instant Settlement)</option><option>Fixed Salary (Monthly)</option></select></label>
+      <label>Trip pay basis<select class="sel"><option>Route bhatta (Route &amp; RTKM master)</option><option>₹ per trip</option><option>% of trip freight</option><option>₹ per RTKM</option></select></label>
+      <label>Shortage recovered from driver (%)<input class="sel" value="100"></label>
+      <label>Paying firm (books)<select class="sel"><option>— the trip's firm —</option><option>M/S PRASAD TRANSPORT</option></select></label>
+      <label style="grid-column:1/-1">Notes<input class="sel" placeholder="e.g. ₹300/trip from Oct, agreed with owner"></label>
+    </div>
+    <div class="row" style="justify-content:space-between"><span class="sub">Every completed trip settles at once: earning − korki (advances on the trip, shortage, challans) = net payable.</span><span class="btn solid">Save compensation</span></div>
+  </div>
+  <div class="grid2">
+    <label>DL No <input class="sel" value="WB2020040034423"></label><label>DL expiry (TR) <input class="sel" value="2026-06-14"></label><label>Aadhaar <input class="sel" value="9999 9999 0019 ✓ checksum"></label><label>PAN <input class="sel" value="AEUPY6171N"></label>
+    <label>Bank <input class="sel" value="State Bank of India"></label><label>A/c No <input class="sel" value="32145678901"></label><label>IFSC <input class="sel" value="SBIN0001234"></label><label>HZD cert <input class="sel" value="HZD/ASM/2024/00987 · 2027-11-30"></label>
+  </div>
+  <div class="row"><span class="btn cyan">📎 Upload DL</span><span class="btn ai">🔎 Scanning Document…</span><span class="btn cyan">📎 Upload UID</span><span class="btn cyan">📎 Upload PAN File</span><span class="btn cyan">📎 Upload Passbook</span><span class="btn">👁 View File</span></div>
+  <div class="note">Only EMPTY fields are filled. Aadhaar must pass the Verhoeff check digit, PAN and IFSC their formats, else the value is refused and the desk is told to re-scan or type. Files are stored in the vault under the driver and opened with View File.</div>
+</div>
+
+<div class="eyebrow" style="margin-top:22px">Operations · Driver Master · 💸 Salary &amp; Settlement</div>
+<h1>Driver Payroll Desk</h1>
+<div class="cards" style="margin-top:10px">
+  <div class="card"><div class="eyebrow">Drivers on trip basis</div><div class="big p-cyan">0</div></div>
+  <div class="card"><div class="eyebrow">On monthly salary</div><div class="big p-ai">0</div></div>
+  <div class="card"><div class="eyebrow">No model yet</div><div class="big p-crit">57</div></div>
+  <div class="card"><div class="eyebrow">Blocked settlements</div><div class="big p-crit">1,014</div></div>
+  <div class="card"><div class="eyebrow">Ready to post</div><div class="big p-warn">₹0</div></div>
+  <div class="card"><div class="eyebrow">Ready for disbursal</div><div class="big p-good">₹0</div></div>
+</div>
+<div class="row"><select class="sel"><option>JONAB ALI · trip basis</option></select><span class="btn ai">🔎 Deep audit (settle all open trips)</span><span class="p-crit" style="font-size:11.5px">⚠ 57 active drivers have no compensation model — SANJIV RAY YADAV, JIYARUL HOQUE, OHED ALI, …</span></div>
+<div class="two">
+  <div style="display:grid; gap:12px; align-content:start">
+    <div class="card"><div class="eyebrow">Compensation model</div><div style="font-size:18px; font-weight:800">JONAB ALI</div><div class="p-good" style="font-size:12.5px">Trip Basis (Instant Settlement) · % of trip freight 6 · pays from M/S PRASAD TRANSPORT</div></div>
+    <div class="card"><div class="eyebrow">Khata</div><div class="note">Driver owes (advances not yet recovered) <b class="p-warn">₹26,500.00</b><br>Settlements blocked <b>0</b><br>Ready to post (net) <b class="p-warn">₹2,200.00</b><br>Posted, waiting for cash <b class="p-cyan">₹2,500.00</b><br>Paid <b class="p-good">₹0.00</b></div></div>
+    <div class="card"><b class="p-warn">✍️ Manual khata entry (advance / final payment / deduction)</b><div class="sub">folded — the old form, unchanged</div></div>
+  </div>
+  <div>
+    <div class="row"><span class="chip on">⚡ Instant trip settlements (2)</span><span class="chip">📅 Monthly lines (0)</span><span class="chip">📓 Khata entries (4)</span></div>
+    <div class="wrap"><table>
+      <thead><tr><th>Trip</th><th>Completed</th><th>Basis</th><th class="r">Earning</th><th class="r">Korki</th><th class="r">Net payable</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <tr><td class="mono">PT00901<div class="sub">DTS-000002 · AS 26C 9801</div></td><td>23 Aug 2026</td><td>% of trip freight 6<div class="sub">freight ₹1,20,000 · 900 km</div></td><td class="r p-good">₹7,200.00</td><td class="r">₹5,000.00<div class="sub">adv ₹5,000 (pump cash, ALAM FUEL STATION)</div></td><td class="r"><b>₹2,200.00</b></td><td><span class="pill p-warn">READY TO POST</span></td><td><span class="btn good">✅ Approve &amp; Post</span> <span class="btn cyan">↻</span></td></tr>
+        <tr><td class="mono">PT00902<div class="sub">DTS-000001 · AS 26C 9801</div></td><td>13 Aug 2026</td><td>% of trip freight 6<div class="sub">freight ₹1,00,000 · 800 km</div></td><td class="r p-good">₹6,000.00</td><td class="r">₹3,500.00<div class="sub">adv ₹1,500 · short ₹2,000 (0.04 KL × 100%)</div></td><td class="r"><b>₹2,500.00</b></td><td><span class="pill p-cyan">POSTED · PAY NOW</span></td><td><span class="btn solid">💸 Pay</span></td></tr>
+        <tr><td class="mono">PT00904<div class="sub">DTS-000003 · AS 26C 9803</div></td><td>15 Aug 2026</td><td>—</td><td class="r p-good">₹0.00</td><td class="r">₹0.00</td><td class="r"><b>₹0.00</b></td><td><span class="pill p-crit">BLOCKED</span><div class="sub p-crit">no route allowance on this trip — set a per-trip rate or fix the route</div></td><td><span class="btn cyan">↻</span> <span class="btn">✕</span></td></tr>
+      </tbody></table></div>
+    <div class="note" style="margin-top:8px">Approve &amp; Post → journal: Dr Driver Wages &amp; Trip Pay 6,000 / Cr Shortage Recovery (Drivers) 2,000 / Cr Driver Advance: JONAB ALI 1,500 / Cr Driver Payable: JONAB ALI 2,500. Pay → PAYMENT voucher Dr Driver Payable 2,500 / Cr SBI (8490). The khata gets SALARY_CREDIT, SHORTAGE_RECOVERY and FINAL_PAYMENT rows so the Driver App and All Transactions agree.</div>
+  </div>
+</div>
+
+<div class="eyebrow" style="margin-top:22px">Accounts &amp; Admin · new page</div>
+<h1>🧑‍💼 Staff &amp; Partner Payroll</h1>
+<div class="row"><select class="sel"><option>M/S PRASAD TRANSPORT</option></select><span class="chip on">📅 Monthly runs</span><span class="chip">👥 Staff &amp; partners</span><span class="chip">💸 Ready for disbursal</span></div>
+<div class="cards"><div class="card"><div class="eyebrow">Office staff</div><div class="big p-cyan">0</div></div><div class="card"><div class="eyebrow">Partners</div><div class="big" style="color:var(--gold)">0</div></div><div class="card"><div class="eyebrow">Salaried drivers</div><div class="big p-ai">0</div></div><div class="card"><div class="eyebrow">Monthly commitment</div><div class="big">₹0</div></div><div class="card"><div class="eyebrow">Ready for disbursal</div><div class="big p-dim">₹0</div></div></div>
+<div class="card" style="margin-top:10px"><div class="row"><label>Month <input type="month" class="sel" value="2026-08"></label><span class="btn cyan">Build staff &amp; partner run</span><span class="btn ai">Build salaried-driver run</span><span class="sub">A build reads the masters and the advances as of month end; lines a person edited are kept.</span></div></div>
+<div class="wrap" style="margin-top:10px"><table>
+  <thead><tr><th>Person</th><th class="r">Gross</th><th class="r">Advances</th><th class="r">Shortage · challans</th><th class="r">Other</th><th class="r">Net payable</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+    <tr><td><span class="pill p-cyan">STAFF</span> <b>MAMTA DEVI</b><div class="sub">Accounts</div></td><td class="r"><input class="sel" value="18000" style="width:100px;text-align:right"></td><td class="r">₹3,000.00</td><td class="r">₹0.00</td><td class="r"><input class="sel" value="0" style="width:80px;text-align:right"></td><td class="r"><b>₹15,000.00</b></td><td><span class="pill p-warn">READY TO POST</span></td><td><span class="btn">skip</span></td></tr>
+    <tr><td><span class="pill" style="color:var(--gold)">PARTNER</span> <b>SANDEEP KUMAR PRASAD</b><div class="sub">Partner · remuneration</div></td><td class="r">₹50,000.00</td><td class="r">₹0.00</td><td class="r">₹0.00</td><td class="r">₹0.00</td><td class="r"><b>₹50,000.00</b></td><td><span class="pill p-cyan">POSTED · PAY NOW</span></td><td><span class="btn solid">💸 Pay</span></td></tr>
+  </tbody></table></div>
+<div class="row"><span class="btn good">✅ Approve &amp; Post</span><span class="btn solid">💸 Pay all posted</span><span class="note">Post → one journal per person (Dr Salaries - Office Staff / Partner Remuneration: NAME, Cr Salary / Remuneration Payable: NAME). Partner drawings post Dr Partner Capital: NAME / Cr bank the moment they are given.</span></div>
+
+<div class="eyebrow" style="margin-top:22px">Accounts &amp; Admin · Cash &amp; Bank Book (top strip)</div>
+<div class="card"><b>💸 Ready for disbursal · 3 payables · <span class="p-good">₹67,500.00</span></b> <span class="sub">Approved &amp; posted, not yet paid. Paying posts the PAYMENT voucher from the account you pick.</span>
+  <div class="wrap" style="margin-top:8px"><table><thead><tr><th>For</th><th>Person</th><th>Firm</th><th>Payable ledger</th><th class="r">Amount</th><th>Posted</th><th></th></tr></thead>
+  <tbody><tr><td class="mono">trip PT00902<div class="sub">DTS-000001</div></td><td><b>JONAB ALI</b></td><td>M/S PRASAD TRANSPORT</td><td class="note">Driver Payable: JONAB ALI</td><td class="r p-good"><b>₹2,500.00</b></td><td>05 Sep 2026</td><td><span class="btn solid">💸 Pay</span></td></tr>
+  <tr><td class="mono">2026-08<div class="sub">PR-202608-PT-S/SANDEEP KUMAR PRASAD</div></td><td><b>SANDEEP KUMAR PRASAD</b></td><td>M/S PRASAD TRANSPORT</td><td class="note">Remuneration Payable: SANDEEP KUMAR PRASAD</td><td class="r p-good"><b>₹50,000.00</b></td><td>05 Sep 2026</td><td><span class="btn solid">💸 Pay</span></td></tr></tbody></table></div></div>
+</body>
+</html>

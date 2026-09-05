@@ -1116,3 +1116,38 @@ export async function detectGst(exec = query) {
   }
   return { raised: raised.length };
 }
+
+// ── Payroll (migration 174) ─────────────────────────────────────────────────
+export async function detectPayroll(exec = query) {
+  const raised = [];
+  const inr = (v) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  const { rows: unconf } = await exec(`SELECT d.id, d.name, (SELECT count(*)::int FROM trips t WHERE driver_of_trip(t.id) = d.id AND t.status IN ('COMPLETED','SETTLED') AND t.loading_date >= DATE '2026-04-01') AS trips_fy
+                                          FROM drivers d WHERE d.pay_model IS NULL AND d.status::text = 'ACTIVE'`).catch(() => ({ rows: [] }));
+  for (const d of unconf.filter((x) => Number(x.trips_fy) > 0)) {
+    raised.push(await raiseException({ kind: 'PAYROLL_UNCONFIGURED', severity: 'MEDIUM', title: `${d.name}: ${d.trips_fy} completed trips this FY and no compensation model`,
+      detail: 'Every completed trip of this driver sits BLOCKED in the payroll desk. Open Driver Master → Configure and choose Trip Basis (Instant Settlement) or Fixed Salary (Monthly).',
+      subject_type: 'driver', subject_id: d.id, dedupe_key: `PAYROLL_UNCONFIGURED:${d.id}`, detected_by: 'scheduler', evidence: { trips_fy: d.trips_fy } }, exec));
+  }
+  const { rows: blocked } = await exec(`SELECT c.id, c.company_name, count(*)::int AS n, coalesce(sum(s.earning), 0)::numeric(14,2) AS earning FROM driver_trip_settlements s JOIN companies c ON c.id = s.company_id WHERE s.status = 'BLOCKED' AND s.block_reason NOT LIKE 'no compensation model%' GROUP BY 1, 2`).catch(() => ({ rows: [] }));
+  for (const b of blocked) {
+    raised.push(await raiseException({ kind: 'PAYROLL_BLOCKED', severity: 'MEDIUM', title: `${b.company_name}: ${b.n} trip settlement${b.n === 1 ? '' : 's'} blocked on a missing rate or freight`,
+      detail: 'The driver has a model but the trip cannot be priced (no route allowance, no per-trip rate, no freight or RTKM yet). Fix the rate in Driver Master → Configure or price the trip, then recompute.',
+      subject_type: 'company', subject_id: b.id, company: b.company_name, dedupe_key: `PAYROLL_BLOCKED:${b.id}`, detected_by: 'scheduler', evidence: { count: b.n } }, exec));
+  }
+  const { rows: [last] } = await exec(`SELECT summary FROM payroll_audit_runs ORDER BY ran_at DESC LIMIT 1`).catch(() => ({ rows: [] }));
+  for (const k of (last?.summary?.khata_vs_ledger ?? []).filter((x) => Math.abs(Number(x.diff)) >= 500).slice(0, 40)) {
+    raised.push(await raiseException({ kind: 'PAYROLL_KHATA_MISMATCH', severity: 'LOW', title: `${k.driver}: khata says ${inr(k.khata)}, the ledger says ${inr(k.ledger)}`,
+      detail: `The driver transactions and the 'Driver Advance' ledgers disagree by ${inr(Math.abs(k.diff))} (ledgers: ${(k.ledgers ?? []).join(', ') || 'none'}). Old advances were posted to a pooled 'Driver Advance (Pump Cash)' head; a person should attribute or write off the difference — the payroll never guesses it.`,
+      subject_type: 'driver', subject_id: null, dedupe_key: `PAYROLL_KHATA_MISMATCH:${k.driver}`, detected_by: 'scheduler', amount_at_risk: Math.abs(Number(k.diff)) || null, evidence: k }, exec));
+  }
+  const { rows: due } = await exec(`SELECT c.id, c.company_name, to_char((current_date - interval '1 month')::date, 'YYYY-MM') AS period
+                                       FROM companies c WHERE c.status::text = 'ACTIVE' AND extract(day FROM current_date) >= 7
+                                        AND EXISTS (SELECT 1 FROM staff_members s WHERE s.company_id = c.id AND s.status = 'ACTIVE')
+                                        AND NOT EXISTS (SELECT 1 FROM payroll_runs r WHERE r.company_id = c.id AND r.kind = 'STAFF' AND r.period = to_char((current_date - interval '1 month')::date, 'YYYY-MM') AND r.status IN ('POSTED','PAID'))`).catch(() => ({ rows: [] }));
+  for (const d of due) {
+    raised.push(await raiseException({ kind: 'PAYROLL_RUN_DUE', severity: 'MEDIUM', title: `${d.company_name}: ${d.period} staff & partner payroll not approved`,
+      detail: 'It is past the 7th and last month’s run is not posted. Open Accounts & Admin → Staff & Partner Payroll, check the lines and Approve & Post.',
+      subject_type: 'company', subject_id: d.id, company: d.company_name, dedupe_key: `PAYROLL_RUN_DUE:${d.id}:${d.period}`, detected_by: 'scheduler', evidence: d }, exec));
+  }
+  return { raised: raised.length };
+}

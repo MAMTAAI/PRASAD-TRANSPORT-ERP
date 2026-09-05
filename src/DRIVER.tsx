@@ -22,6 +22,8 @@ import { sendWhatsApp, waResultText } from './lib/waSend';
 
 import { API_BASE } from './lib/apiBase';
 import { openDriverControl } from './components/DriverControlDrawer';
+import DriverPayrollDesk from './payroll/DriverPayrollDesk';
+import { PayConfigForm } from './payroll/payrollShared';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 
@@ -112,6 +114,8 @@ export default function DriverMgmt() {
   }, [searchInput]);
 
   const [uploadingField, setUploadingField] = useState<string | null>(null);
+  const [scanningField, setScanningField] = useState<string | null>(null);   // 🔎 TARA is reading the paper
+  const [selectedDriverId, setSelectedDriverId] = useState('');
   const [localPicPreview, setLocalPicPreview] = useState<string | null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
@@ -319,7 +323,24 @@ export default function DriverMgmt() {
       return;
     }
 
-    try {
+    // 🔎 TARA KYC scan — the server's OCR + document checksums (Aadhaar Verhoeff,
+    // PAN, IFSC) fill the EMPTY fields: licence no + expiry, Aadhaar, PAN, account,
+    // IFSC, bank, HZD certificate. No model on this PC is needed.
+    let kycFilled: string[] = [];
+    let kycLow: string[] = [];
+    if (!field.startsWith('custom_')) {
+      setScanningField(field);
+      try {
+        const fd = new FormData(); fd.append('doc_type', KYC_KIND[field] ?? 'AUTO'); fd.append('file', file);
+        const r = await fetch(`${API_BASE}/api/v1/kyc/scan`, { method: 'POST', body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.fields) { kycFilled = applyKycToForm(field, j.fields); kycLow = (j.low ?? []).filter((k: string) => kycFilled.some((f) => f.startsWith(FIELD_LABEL[k] ?? '§'))); }
+      } catch { /* the local path below still runs */ }
+      setScanningField(null);
+    }
+    if (kycFilled.length) {
+      alert(`✅ ${docType} saved and scanned by TARA.\n\nFilled: ${kycFilled.join(', ')}${kycLow.length ? `\n⚠ Check: ${kycLow.map((k) => FIELD_LABEL[k] ?? k).join(', ')}` : ''}\n\nCheck the fields, then press "Update Driver Profile".`);
+    } else try {
       // 🤖 Extraction: local Tesseract -> DeepSeek, falling back to the server's
       // own OCR + pattern tables (POST /api/v1/scan) when no local model answers.
       const ex = await extractDocument(file, docType);
@@ -349,6 +370,18 @@ export default function DriverMgmt() {
   /** Which form fields each document can populate. Bank passbook maps only to
    *  the account number: OCR reads an IFSC reliably far less often, and a wrong
    *  IFSC sends a driver's wages to the wrong branch. */
+  const KYC_KIND: Record<string, string> = { dl_photo: 'DL', aadhar_photo: 'AADHAAR', pan_photo: 'PAN', bank_photo: 'BANK', hzd_photo: 'HZD' };
+  const KYC_FIELDS: Record<string, string[]> = { dl_photo: ['license_no', 'license_expiry'], hzd_photo: ['hzd_cert_no', 'hzd_expiry'], aadhar_photo: ['aadhar_no'], pan_photo: ['pan_no'], bank_photo: ['account_no', 'ifsc_code', 'bank_name'] };
+  /** Only EMPTY form fields are filled from a TARA scan; returns the labels filled. */
+  const applyKycToForm = (field: string, fields: Record<string, string>): string[] => {
+    const filled: string[] = [];
+    setDriverData((prev: any) => {
+      const next: any = { ...prev };
+      for (const k of KYC_FIELDS[field] ?? []) { const v = fields[k]; if (v && !String(prev[k] ?? '').trim()) { next[k] = String(v); filled.push(`${FIELD_LABEL[k] ?? k}: ${v}`); } }
+      return next;
+    });
+    return filled;
+  };
   const SCAN_TARGETS: Record<string, { num?: string; exp?: string }> = {
     dl_photo: { num: 'license_no', exp: 'license_expiry' },
     hzd_photo: { num: 'hzd_cert_no', exp: 'hzd_expiry' },
@@ -908,70 +941,36 @@ export default function DriverMgmt() {
 
       {/* 💸 TAB 2: SETTLEMENT & FINAL PAY */}
       {activeTab === 'SETTLEMENT' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '25px' }}>
-          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #ffb224' }}>
-            <h2 style={{ color: '#ffb224', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Create Ledger Entry</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div><label>Select Driver *</label>
-                <select className="modern-input" value={selectedDriver} onChange={e=>setSelectedDriver(e.target.value)}>
-                  <option value="">-- Choose Driver --</option>
-                  {drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-                </select>
-              </div>
-              <div><label>Entry Type *</label>
-                <select className="modern-input" value={settleData.txn_type} onChange={e=>setSettleData({...settleData, txn_type: e.target.value})}>
-                  <option value="SALARY_CREDIT">🟢 (+) Add Salary / Trip Bhatta</option>
-                  <option value="ADVANCE_GIVEN">🟡 (-) Give Advance</option>
-                  <option value="FINAL_PAYMENT">🔵 (-) Make Final Payment</option>
-                  <option value="SHORTAGE_DEDUCTION">🔴 (-) Manual Shortage Deduction</option>
-                </select>
-              </div>
-              <div><label>Transaction Date</label><input type="date" className="modern-input" value={settleData.date} onChange={e=>setSettleData({...settleData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
-              <div><label style={{ color:'#22d3ee' }}>Amount (₹) *</label>
-                <input type="number" className="modern-input" placeholder="0.00" style={{ fontSize: '24px', fontWeight: 'bold', border: '1px solid #22d3ee', color: '#22d3ee' }} value={settleData.amount} onChange={e=>setSettleData({...settleData, amount: e.target.value})} />
-              </div>
-              <div><label>Remarks / Notes</label><input className="modern-input" placeholder="e.g. Trip Advance for AS01X1234" value={settleData.remarks} onChange={e=>setSettleData({...settleData, remarks: e.target.value})} /></div>
-              <button className="glow-btn" style={{ marginTop: '10px', width: '100%', fontSize: '16px' }} onClick={handleSaveTransaction}>✅ Post to Ledger</button>
-            </div>
-          </div>
-
-          <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #22d3ee' }}>
-            <h2 style={{ color: '#22d3ee', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Driver Khata Summary</h2>
-            {!selectedDriver ? (
-              <div style={{ textAlign: 'center', padding: '100px 20px', color: '#5d7196', fontSize: '18px' }}>👈 Please select a driver from the dropdown above to view their complete financial summary.</div>
-            ) : (
-              <>
-                <h2 style={{ color: '#fff', margin: '0 0 20px 0', fontSize: '28px' }}>👤 {selectedDriver}</h2>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-                  <div style={{ background: 'rgba(47, 227, 155, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(47, 227, 155, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#2fe39b', fontWeight: 'bold', textTransform: 'uppercase' }}>(+) Total Earned (Salary)</div>
-                    <div style={{ fontSize: '32px', color: '#2fe39b', fontWeight: '900', marginTop: '5px' }}>₹{totalSalary.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+        <DriverPayrollDesk drivers={drivers} firms={[]} selectedId={selectedDriverId} onSelect={(id: string) => { setSelectedDriverId(id); setSelectedDriver(drivers.find((x: any) => x.id === id)?.name ?? ''); }}>
+          <details className="glass-card" style={{ padding: '10px 14px' }}>
+            <summary style={{ cursor: 'pointer', color: '#ffb224', fontWeight: 700 }}>✍️ Manual khata entry (advance / final payment / deduction)</summary>
+            <div className="glass-card" style={{ padding: '30px', borderTop: '4px solid #ffb224' }}>
+                <h2 style={{ color: '#ffb224', marginTop: 0, marginBottom: '25px', fontSize: '20px' }}>Create Ledger Entry</h2>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div><label>Select Driver *</label>
+                    <select className="modern-input" value={selectedDriver} onChange={e=>setSelectedDriver(e.target.value)}>
+                      <option value="">-- Choose Driver --</option>
+                      {drivers.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+                    </select>
                   </div>
-                  <div style={{ background: 'rgba(255, 178, 36, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(255, 178, 36, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#ffb224', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Total Advance Taken</div>
-                    <div style={{ fontSize: '32px', color: '#ffb224', fontWeight: '900', marginTop: '5px' }}>₹{totalAdvance.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div><label>Entry Type *</label>
+                    <select className="modern-input" value={settleData.txn_type} onChange={e=>setSettleData({...settleData, txn_type: e.target.value})}>
+                      <option value="SALARY_CREDIT">🟢 (+) Add Salary / Trip Bhatta</option>
+                      <option value="ADVANCE_GIVEN">🟡 (-) Give Advance</option>
+                      <option value="FINAL_PAYMENT">🔵 (-) Make Final Payment</option>
+                      <option value="SHORTAGE_DEDUCTION">🔴 (-) Manual Shortage Deduction</option>
+                    </select>
                   </div>
-                  <div style={{ background: 'rgba(255, 107, 129, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(255, 107, 129, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#ff6b81', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Shortages / Penalties</div>
-                    <div style={{ fontSize: '32px', color: '#ff6b81', fontWeight: '900', marginTop: '5px' }}>₹{totalShortage.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+                  <div><label>Transaction Date</label><input type="date" className="modern-input" value={settleData.date} onChange={e=>setSettleData({...settleData, date: e.target.value})} style={{colorScheme:'dark'}}/></div>
+                  <div><label style={{ color:'#22d3ee' }}>Amount (₹) *</label>
+                    <input type="number" className="modern-input" placeholder="0.00" style={{ fontSize: '24px', fontWeight: 'bold', border: '1px solid #22d3ee', color: '#22d3ee' }} value={settleData.amount} onChange={e=>setSettleData({...settleData, amount: e.target.value})} />
                   </div>
-                  <div style={{ background: 'rgba(34, 211, 238, 0.05)', padding: '20px', borderRadius: '15px', border: '1px solid rgba(34, 211, 238, 0.3)' }}>
-                    <div style={{ fontSize: '13px', color: '#22d3ee', fontWeight: 'bold', textTransform: 'uppercase' }}>(-) Final Payments Cleared</div>
-                    <div style={{ fontSize: '32px', color: '#22d3ee', fontWeight: '900', marginTop: '5px' }}>₹{totalPaid.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-                  </div>
+                  <div><label>Remarks / Notes</label><input className="modern-input" placeholder="e.g. Trip Advance for AS01X1234" value={settleData.remarks} onChange={e=>setSettleData({...settleData, remarks: e.target.value})} /></div>
+                  <button className="glow-btn" style={{ marginTop: '10px', width: '100%', fontSize: '16px' }} onClick={handleSaveTransaction}>✅ Post to Ledger</button>
                 </div>
-                <div style={{ background: netPayable >= 0 ? 'rgba(47, 227, 155, 0.15)' : 'rgba(255, 107, 129, 0.15)', padding: '30px', borderRadius: '15px', border: `2px dashed ${netPayable >= 0 ? '#2fe39b' : '#ff6b81'}`, textAlign: 'center' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: netPayable >= 0 ? '#2fe39b' : '#ff6b81', letterSpacing: '1px' }}>
-                    {netPayable >= 0 ? '💰 NET BALANCE PAYABLE TO DRIVER' : '⚠️ DRIVER OWES COMPANY (NEGATIVE BALANCE)'}
-                  </h3>
-                  <div style={{ fontSize: '48px', fontWeight: '900', color: netPayable >= 0 ? '#2fe39b' : '#ff6b81' }}>
-                    ₹{Math.abs(netPayable).toLocaleString(undefined, {minimumFractionDigits: 2})}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+              </div>
+          </details>
+        </DriverPayrollDesk>
       )}
 
       {/* 📓 TAB 3: ALL TRANSACTIONS */}
@@ -1016,6 +1015,11 @@ export default function DriverMgmt() {
               <button onClick={closeModal} style={{ background: 'none', border: 'none', color: '#ff6b81', fontSize: '28px', cursor: 'pointer' }}>✕</button>
             </div>
             
+            {scanningField && <div style={{ background: 'rgba(167, 139, 250, 0.18)', color: '#c4b5fd', padding: '12px', textAlign: 'center', borderRadius: '10px', marginBottom: '14px', fontWeight: 700 }}>🔎 Scanning Document… TARA is reading the {({ dl_photo: 'driving licence', aadhar_photo: 'Aadhaar', pan_photo: 'PAN card', bank_photo: 'passbook', hzd_photo: 'hazardous certificate' } as any)[scanningField] ?? 'document'} and will fill the empty fields.</div>}
+            {editingId && (<div className="glass-card" style={{ padding: '16px 18px', marginBottom: '16px', borderTop: '4px solid #a78bfa' }}>
+              <h3 style={{ margin: '0 0 8px', color: '#c4b5fd', fontSize: '15px' }}>💰 Compensation Model <span style={{ fontSize: '11px', color: '#9aadd4', fontWeight: 400 }}>— mandatory; decides how every completed trip is paid</span></h3>
+              <PayConfigForm driver={drivers.find((x: any) => x.id === editingId)} firms={[]} onSaved={() => fetchData()} />
+            </div>)}
             {isScanning && <div style={{ background: 'rgba(34, 211, 238, 0.2)', color: '#22d3ee', padding: '15px', textAlign: 'center', borderRadius: '10px', marginBottom: '20px', fontWeight: 'bold', border: '1px dashed #22d3ee', fontSize: '16px' }}>{scanMessage}</div>}
 
             <div style={{ display: 'grid', gridTemplateColumns: window.innerWidth > 768 ? 'repeat(3, 1fr)' : '1fr', gap: '30px', overflowY: 'auto', paddingRight: '10px', flex: 1 }}>
@@ -1075,7 +1079,7 @@ export default function DriverMgmt() {
                       </>
                     ) : (
                       <label className="upload-btn">
-                        {uploadingField === 'dl_photo' ? '⏳ Uploading...' : '📎 Upload DL'}
+                        {uploadingField === 'dl_photo' ? '⏳ Uploading...' : scanningField === 'dl_photo' ? '🔎 Scanning Document…' : '📎 Upload DL'}
                         <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'dl_photo')} />
                       </label>
                     )}
@@ -1098,7 +1102,7 @@ export default function DriverMgmt() {
                       </>
                     ) : (
                       <label className="upload-btn">
-                        {uploadingField === 'aadhar_photo' ? '⏳ Uploading...' : '📎 Upload UID'}
+                        {uploadingField === 'aadhar_photo' ? '⏳ Uploading...' : scanningField === 'aadhar_photo' ? '🔎 Scanning Document…' : '📎 Upload UID'}
                         <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'aadhar_photo')} />
                       </label>
                     )}
@@ -1112,7 +1116,7 @@ export default function DriverMgmt() {
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.pan_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
                     {driverData.pan_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.pan_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
                     <label className={`upload-btn ${driverData.pan_photo ? 'update-btn' : ''}`}>
-                      {uploadingField === 'pan_photo' ? '⏳ Uploading...' : driverData.pan_photo ? '🔄 Change File' : '📎 Upload PAN File'}
+                      {uploadingField === 'pan_photo' ? '⏳ Uploading...' : scanningField === 'pan_photo' ? '🔎 Scanning Document…' : driverData.pan_photo ? '🔄 Change File' : '📎 Upload PAN File'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'pan_photo')} />
                     </label>
                   </div>
@@ -1131,7 +1135,7 @@ export default function DriverMgmt() {
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.hzd_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
                     {driverData.hzd_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.hzd_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View File</a>}
                     <label className={`upload-btn ${driverData.hzd_photo ? 'update-btn' : ''}`}>
-                      {uploadingField === 'hzd_photo' ? '⏳ Uploading...' : driverData.hzd_photo ? '🔄 Change File' : '📎 Upload HZD File'}
+                      {uploadingField === 'hzd_photo' ? '⏳ Uploading...' : scanningField === 'hzd_photo' ? '🔎 Scanning Document…' : driverData.hzd_photo ? '🔄 Change File' : '📎 Upload HZD File'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'hzd_photo')} />
                     </label>
                   </div>
@@ -1144,7 +1148,7 @@ export default function DriverMgmt() {
                   <div style={{ display: 'grid', gridTemplateColumns: driverData.bank_photo ? '1fr 1fr' : '1fr', gap: '8px' }}>
                     {driverData.bank_photo && <a href="#" onClick={(e) => { e.preventDefault(); openDocument(driverData.bank_photo); }} target="_blank" rel="noreferrer" className="view-btn">👁️ View Passbook</a>}
                     <label className={`upload-btn ${driverData.bank_photo ? 'update-btn' : ''}`}>
-                      {uploadingField === 'bank_photo' ? '⏳ Uploading...' : driverData.bank_photo ? '🔄 Change File' : '📎 Upload Passbook'}
+                      {uploadingField === 'bank_photo' ? '⏳ Uploading...' : scanningField === 'bank_photo' ? '🔎 Scanning Document…' : driverData.bank_photo ? '🔄 Change File' : '📎 Upload Passbook'}
                       <input type="file" accept="image/*,.pdf" style={{ display: 'none' }} onChange={(e) => handleDocUpload(e, 'bank_photo')} />
                     </label>
                   </div>
