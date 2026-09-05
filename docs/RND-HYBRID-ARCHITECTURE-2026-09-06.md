@@ -371,6 +371,47 @@ the Approval Queue is the tab that opens first.
 
 ---
 
+## 6a. ADDENDUM — Phase 1 executed, 6 Sep 2026 (sha `34d022c`)
+
+Phase 1 and the OCR fail-safe were applied. Two corrections to §1 of this
+report, found only by executing it:
+
+**① Chrome's real cost was hidden in swap.** §1.1 recorded Chrome at 399 MB
+across 4 processes. That was a *three-day-old* process with most of its pages
+swapped out. On a fresh launch it is **701 MB PSS across 11 processes**
+(summed RSS reads ~1,180 MB, but PSS counts shared pages once and is the
+honest figure). Swap fell 854 MB → 357 MB as those pages came back into RAM.
+The conclusion of §1.3 ④ is therefore *stronger*, not weaker: Chrome does not
+fit on this box, and moving the WhatsApp engine to the 32 GB PC is the single
+biggest remaining win. Renderer and heap caps were added
+(`--renderer-process-limit=1`, site isolation off, `--js-flags=256 MB`) and
+recovered only ~30 MB — the footprint is structural.
+
+**② Two items in the prune list were wrong, and are withdrawn.**
+- *nginx does not serve `dist`.* It proxies `127.0.0.1:3200`, which **is**
+  `prasad-erp-web`. Those two processes (~90 MB) are load-bearing. Removing
+  them would have taken the UI down. §1.3 ⑥ is withdrawn.
+- *Mongoose is already inert.* `whatsapp-server/server.js:176` only connects
+  when `MONGO_URI` is set, and it is not. Nothing to remove. §1.3 ⑤ withdrawn.
+
+**What actually changed**
+
+| | Before | After |
+|---|---|---|
+| Ollama on AWS | running, enabled at boot | **stopped, disabled** (models left on disk) |
+| API V8 heap ceiling | 2,048 MB (above physical RAM) | **512 MB** |
+| pm2 ceilings (sum) | 2,850 MB (150% of RAM) | **1,270 MB (67%)** |
+| `effective_cache_size` | 5 GB | **900 MB** |
+| `AI_LOCAL_ENRICH` | unset → tried a dead engine every scan | **0** |
+| `LOCAL_AI_MODEL` | `gemma4:12b` (an 8 GB pull waiting to happen) | **`gemma3:270m`** |
+| RAM + swap committed | 1,781 MB | **1,673 MB**, and the 300–450 MB Ollama spike class is gone |
+
+Still open and deliberately not done: `max_connections` 100 → 30 needs a
+Postgres restart (maintenance window), and the WhatsApp engine's move to the
+PC is Phase 4.
+
+---
+
 ## 7. One caution
 
 The most valuable thing in this codebase is that **the degradation paths are
