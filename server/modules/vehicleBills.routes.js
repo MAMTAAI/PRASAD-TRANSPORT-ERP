@@ -31,6 +31,7 @@ import { postVoucher } from '../agents/tara.js';
 import { query, withTransaction } from '../db/pool.js';
 import { requireAuth, requireAdminRole } from './auth.routes.js';
 import { send as sendMail } from '../lib/mailChannel.js';
+import { notifyWhatsApp } from '../lib/notify.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -61,6 +62,23 @@ export function journalFor(b) {
   const push = (ledger, dr_cr, amount, group) => {
     if (r2(amount) > 0) lines.push({ ledger, dr_cr, amount: r2(amount), group });
   };
+  // ── A MARKET (fleet partner) bill — migration 162 ────────────────────────
+  // The cost (BZLOCK) and the income (BZINC) were posted by the bazaar when
+  // the deal locked and the POD verified; the advance (BZADV) went out at
+  // loading. The ONLY thing this bill posts on approval is the TDS withheld
+  // on the partner's whole freight. Both legs sit inside the market segment
+  // (migration 129's guard), under a BAZAAR_ source type.
+  if (b.class_key === 'MARKET') {
+    const tds = r2(num(b.tds));
+    push(`Market Partner: ${b.owner_name}`, 'DR', tds, 'Market Fleet Payables (Partners)');
+    push('Market Fleet TDS Payable 194C', 'CR', tds, 'Market Fleet Duties & Taxes');
+    return {
+      market: true, agency: false, lines, tds,
+      partner_freight: r2(num(b.partner_freight)), advances: r2(num(b.advances_paid)),
+      margin: b.margin === null || b.margin === undefined ? null : r2(num(b.margin)),
+      payable: b.payable === null || b.payable === undefined ? null : r2(num(b.payable)),
+    };
+  }
   const agency = ['ATTACHED', 'MARKET'].includes(b.class_key);
   if (agency) {
     const freight = r2(num(b.freight) + num(b.adj_income));
@@ -107,9 +125,36 @@ export function deltaLines(before, after) {
   return out;
 }
 
-/** The bill as a WhatsApp / e-mail text. */
+/** The bill as a WhatsApp / e-mail text. A partner never sees the customer
+ *  side or the margin (migration 141's rule) — only what he is owed. */
 function billText(b, lorries) {
   const NL = String.fromCharCode(10);
+  if (b.class_key === 'MARKET') {
+    const loads = Array.isArray(b.lines) ? b.lines : [];
+    const L = [
+      `*${b.owner_name}* — 15-din ka bill (market load)`,
+      `${b.bill_no} · ${b.cycle_label} (${isoDate(b.period_from)} se ${isoDate(b.period_to)})`,
+      `${b.trucks} truck · ${b.loads} load (POD verified)`,
+      '',
+    ];
+    for (const l of loads) {
+      L.push(`🚛 ${l.truck ?? 'truck'} · ${l.load_id} · ${l.origin ?? ''} → ${l.destination ?? ''} · POD ${l.pod_date ?? ''}`);
+      L.push(`   freight ${inr(l.partner_rate)} · advance ${inr(l.advance)} · baaki ${inr(num(l.partner_rate) - num(l.advance))}`);
+    }
+    L.push('');
+    L.push(`Kul freight: ${inr(b.partner_freight)}`);
+    L.push(`− Advance pehle diya: ${inr(b.advances_paid)}`);
+    L.push(`− TDS 194C${b.tds_pct !== null && b.tds_pct !== undefined ? ` ${num(b.tds_pct)}%` : ''}: ${b.tds === null ? 'rate darj nahi' : inr(b.tds)}`);
+    if (num(b.adj_income)) L.push(`+ Anya: ${inr(b.adj_income)}`);
+    if (num(b.adj_expense)) L.push(`− Kataauti: ${inr(b.adj_expense)}`);
+    L.push(`*Balance: ${b.payable === null ? 'rate ke baad' : inr(b.payable)}*`);
+    L.push('');
+    L.push(b.pay_voucher_id ? `💸 Balance bhej diya — ${inr(b.paid_amount)} (${isoDate(b.paid_at)})`
+      : b.status === 'APPROVED' ? `✅ Approved — ${b.approved_by} · bhugtan baaki`
+      : b.status === 'STAFF_REVIEWED' ? '📝 Office check kar raha hai'
+      : '🤖 Draft');
+    return L.join(NL);
+  }
   const agency = ['ATTACHED', 'MARKET'].includes(b.class_key);
   const L = [
     `*${b.owner_name}* — 15-din ka vehicle bill`,
@@ -165,7 +210,7 @@ export async function registerVehicleBillRoutes(app) {
     const q = req.query ?? {};
     const from = DATE_RE.test(String(q.period_from ?? '')) ? q.period_from : null;
     const status = ['AI_DRAFT', 'STAFF_REVIEWED', 'APPROVED'].includes(q.status) ? q.status : null;
-    const cls = q.class === 'OWN' ? 'OWN' : q.class === 'AGENCY' ? 'AGENCY' : null;
+    const cls = ['OWN', 'AGENCY', 'MARKET'].includes(q.class) ? q.class : null;
     const owner = String(q.owner ?? '').trim() || null;
     const limit = clamp(q.limit, 200, 500);
 
@@ -175,7 +220,8 @@ export async function registerVehicleBillRoutes(app) {
          AND ($2::text IS NULL OR b.status = $2::text)
          AND ($3::text IS NULL
               OR ($3 = 'OWN' AND b.class_key NOT IN ('ATTACHED','MARKET'))
-              OR ($3 = 'AGENCY' AND b.class_key IN ('ATTACHED','MARKET')))
+              OR ($3 = 'AGENCY' AND b.class_key = 'ATTACHED')
+              OR ($3 = 'MARKET' AND b.class_key = 'MARKET'))
          AND ($4::text IS NULL OR b.owner_name ILIKE '%' || $4 || '%' OR b.bill_no ILIKE '%' || $4 || '%')
        ORDER BY b.period_from DESC,
                 CASE WHEN b.class_key IN ('ATTACHED','MARKET') THEN 0 ELSE 1 END,
@@ -273,6 +319,28 @@ export async function registerVehicleBillRoutes(app) {
     if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
     const bill = await billById(id);
     if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
+
+    // A market bill has loads, not lorries; its partner's TDS facts come from
+    // the vendor master so the drawer can say WHY the rate is what it is.
+    if (bill.class_key === 'MARKET') {
+      const { rows: [vendor] } = await query(
+        `SELECT id, vendor_name, mobile_no, pan_no, entity_type, tds_declaration_194c, bank_account, ifsc_code
+           FROM vendors WHERE id = $1::uuid`, [bill.vendor_id]);
+      const { rows: running } = await query(`
+        SELECT count(*)::int AS n, COALESCE(sum(awarded_amount), 0)::numeric(14,2) AS partner_freight
+          FROM bazaar_settlements
+         WHERE vendor_id = $1::uuid AND pod_verified_at IS NULL
+           AND status NOT IN ('CANCELLED', 'SETTLED')`, [bill.vendor_id]);
+      return {
+        bill, lorries: [], entries: [],
+        loads: Array.isArray(bill.lines) ? bill.lines : [],
+        vendor: vendor ?? null,
+        running: running[0],
+        journal: journalFor(bill),
+        posted_lines: bill.posted_lines ?? [],
+      };
+    }
+
     const lorries = await lorriesOf(id);
 
     // The typed-in entries under every trip on this bill, so a reviewer can
@@ -314,6 +382,31 @@ export async function registerVehicleBillRoutes(app) {
       return reply.code(409).send({ error: 'LOCKED', detail: 'Yeh bill approve ho chuka hai. Pehle "Modify" kijiye.' });
     }
     const who = actor(req);
+
+    // A market bill has no trip register to key into: the desk may add a
+    // bill-level adjustment (+ partner ko / − kataauti) and a note. The loads
+    // themselves are the bazaar's and are corrected there.
+    if (bill.class_key === 'MARKET') {
+      const sets = []; const args = [id];
+      if (Array.isArray(b.adjustments)) {
+        const adj = b.adjustments.map((a) => ({
+          label: String(a?.label ?? '').slice(0, 120).trim(),
+          amount: money(a?.amount) ?? 0,
+          side: a?.side === 'INCOME' ? 'INCOME' : 'EXPENSE',
+          added_by: a?.added_by ?? who,
+          added_at: a?.added_at ?? new Date().toISOString(),
+        })).filter((a) => a.label && a.amount !== 0);
+        args.push(JSON.stringify(adj)); sets.push(`adjustments = $${args.length}::jsonb`);
+      }
+      if (typeof b.notes === 'string') { args.push(b.notes.slice(0, 2000)); sets.push(`notes = $${args.length}`); }
+      if (!sets.length) return reply.code(400).send({ error: 'NOTHING_TO_SAVE' });
+      args.push(who);
+      sets.push(`reviewed_by = $${args.length}`, 'reviewed_at = now()',
+                `status = CASE WHEN status = 'AI_DRAFT' THEN 'STAFF_REVIEWED' ELSE status END`);
+      await query(`UPDATE vehicle_owner_bills SET ${sets.join(', ')} WHERE id = $1::uuid AND locked_at IS NULL`, args);
+      await query('SELECT vehicle_owner_bill_refresh($1::uuid)', [id]);
+      return { saved: true, bill: await billById(id), lorries: [] };
+    }
 
     // Which trips belong to this bill — an entry for any other trip is refused.
     const { rows: tripRows } = await query(`
@@ -427,6 +520,13 @@ export async function registerVehicleBillRoutes(app) {
     await query('SELECT vehicle_owner_bill_refresh($1::uuid)', [id]);
     bill = await billById(id);
     if (num(bill.needs_rate) > 0) {
+      if (bill.class_key === 'MARKET') {
+        return reply.code(409).send({
+          error: 'NO_TDS_RATE',
+          detail: `${bill.owner_name} — TDS ka rate pata nahi: Fleet Partner master me "Individual ya Firm" chuniye `
+                + '(ya 194C(6) declaration tick kijiye), tab approve hoga.',
+        });
+      }
       const { rows: missing } = await query(`
         SELECT vehicle_no FROM vehicle_fortnight_settlements
          WHERE owner_bill_id = $1::uuid AND fleet_class IN ('ATTACHED','MARKET') AND commission_amount IS NULL`, [id]);
@@ -437,16 +537,23 @@ export async function registerVehicleBillRoutes(app) {
         vehicles: missing.map((m) => m.vehicle_no),
       });
     }
+    if (bill.class_key === 'MARKET' && !bill.company_id) {
+      return reply.code(409).send({ error: 'NO_COMPANY', detail: 'Is partner ke load par firm (company) darj nahi — Bazaar desk par settlement me company set kijiye.' });
+    }
 
     const journal = journalFor(bill);
     const previously = Array.isArray(bill.posted_lines) ? bill.posted_lines : [];
     const n = num(bill.post_count);
     const lines = n > 0 ? deltaLines(previously, journal.lines) : journal.lines;
-    const ref = `VEHBILL_${bill.bill_no}` + (n > 0 ? `_R${n + 1}` : '');
+    const ref = `${journal.market ? 'MBTDS' : 'VEHBILL'}_${bill.bill_no}` + (n > 0 ? `_R${n + 1}` : '');
 
     let voucher = null;
     if (lines.length) {
-      const narration = journal.agency
+      const narration = journal.market
+        ? `15-din partner bill ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label}: `
+          + `TDS 194C ${num(bill.tds_pct)}% on partner freight ${inr(journal.partner_freight)} = ${inr(journal.tds)}.`
+          + (n > 0 ? ` (revision ${n + 1}: antar posted)` : '')
+        : journal.agency
         ? `15-din vehicle bill ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label}. `
           + `Freight ${inr(journal.freight)}, commission ${inr(journal.commission)}, TDS ${inr(journal.tds)}, `
           + `kharch wapas ${inr(journal.recovered)}, owner ko ${inr(journal.payable)}.`
@@ -456,7 +563,9 @@ export async function registerVehicleBillRoutes(app) {
       try {
         voucher = await postVoucher({
           type: 'JOURNAL',
-          source_type: 'VEHICLE_OWNER_BILL',
+          // BAZAAR_ so migration 129 stamps it MARKET and lets it touch the
+          // partner's khata; anything else is refused as a crossover.
+          source_type: journal.market ? 'BAZAAR_TDS' : 'VEHICLE_OWNER_BILL',
           company_id: bill.company_id ?? null,
           ref_no: ref,
           entry_date: isoDate(bill.period_to),
@@ -500,7 +609,12 @@ export async function registerVehicleBillRoutes(app) {
       voucher_id: voucher?.voucher_id ?? null,
       posted: lines,
       note: !voucher
-        ? 'Post karne ko kuch nahi tha (koi antar / adjustment nahi) — bill approve aur lock ho gaya.'
+        ? (journal.market
+            ? 'TDS shunya — koi voucher nahi; bill approve aur lock ho gaya. Ab "💸 Balance bhejein" se bhugtan kijiye.'
+            : 'Post karne ko kuch nahi tha (koi antar / adjustment nahi) — bill approve aur lock ho gaya.')
+        : journal.market
+          ? `TDS ${inr(journal.tds)} partner ke khaate se kat kar Market Fleet TDS Payable me gaya. `
+            + `Balance ${inr(journal.payable)} — ab "💸 Balance bhejein" dabaiye.`
         : journal.agency
           ? `${fresh?.company_name ?? 'Company'} ki books me commission ${inr(journal.commission)} income gaya; `
             + `owner ${fresh.owner_name} ke khaate me ${inr(journal.payable)} credit; TDS ${inr(journal.tds)} kaata.`
@@ -546,6 +660,88 @@ export async function registerVehicleBillRoutes(app) {
     const bill = await billById(id);
     if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
     return { text: billText(bill, await lorriesOf(id)), bill };
+  });
+
+  // ═══ THE BANK / CASH ACCOUNTS A PAYMENT CAN LEAVE FROM ══════════════════
+  app.get('/accounts', staff, async () => {
+    const { rows } = await query(`
+      SELECT ledger_name, group_head FROM ledgers
+       WHERE group_head IN ('Bank Accounts', 'Cash-in-Hand') AND status = 'ACTIVE'
+       ORDER BY group_head, ledger_name`);
+    return { accounts: rows };
+  });
+
+  // ═══ PAY THE PARTNER'S BALANCE — one voucher for the whole bill ═════════
+  //
+  // Admin, after approval. One PAYMENT voucher (Dr Market Partner / Cr bank)
+  // for the bill's balance, the same BAZAAR_BALANCE discipline as the per-load
+  // route: vendor_txns pairing, every load on the bill → SETTLED, WhatsApp to
+  // the partner. A locked bill accepts exactly these columns (migration 162).
+  app.post('/:id/pay-balance', admin, async (req, reply) => {
+    const id = String(req.params.id ?? '');
+    if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
+    const bill = await billById(id);
+    if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (bill.class_key !== 'MARKET') return reply.code(400).send({ error: 'NOT_MARKET', detail: 'Sirf market (fleet partner) bill ka balance yahan se jaata hai.' });
+    if (!bill.locked_at) return reply.code(409).send({ error: 'NOT_APPROVED', detail: 'Pehle bill Approve kijiye, phir balance.' });
+    if (bill.pay_voucher_id) return reply.code(409).send({ error: 'ALREADY_PAID', detail: `Balance pehle hi bheja ja chuka hai (${inr(bill.paid_amount)}).` });
+    if (!bill.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: 'Bill par firm darj nahi.' });
+    const account = String(req.body?.account ?? '').trim();
+    if (!account) return reply.code(400).send({ error: 'NO_ACCOUNT', detail: 'Kis bank / cash account se bhej rahe hain — naam dijiye.' });
+    const amount = r2(num(bill.payable));
+    if (!(amount > 0)) return reply.code(400).send({ error: 'NOTHING_TO_PAY', detail: `Balance ${inr(amount)} — bhejne ko kuch nahi.` });
+    const entryDate = DATE_RE.test(String(req.body?.entry_date ?? '')) ? req.body.entry_date : new Date().toISOString().slice(0, 10);
+    const who = actor(req);
+
+    let voucher;
+    try {
+      voucher = await postVoucher({
+        type: 'PAYMENT',
+        account,
+        party_ledger: `Market Partner: ${bill.owner_name}`,
+        party_group: 'Market Fleet Payables (Partners)',
+        amount,
+        ref_no: `MBPAY_${bill.bill_no}`,
+        entry_date: entryDate,
+        narration: `15-din partner bill ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label}: balance of ${bill.loads} load(s)`,
+        source_type: 'BAZAAR_BALANCE',
+        company_id: bill.company_id,
+        created_by: who,
+      });
+    } catch (e) {
+      const map = { DUPLICATE_REF: 409, OVERDRAFT: 422, NO_ACCOUNT: 400, NO_PARTY: 400, BAD_AMOUNT: 400 };
+      return reply.code(map[e.code] ?? 422).send({ error: e.code ?? 'POSTING_FAILED', detail: e.message, balance: e.balance });
+    }
+
+    const ids = (Array.isArray(bill.lines) ? bill.lines : []).map((l) => l.settlement_id).filter((x) => UUID_RE.test(String(x)));
+    await withTransaction(async (t) => {
+      await t.query(
+        `INSERT INTO vendor_txns (vendor_id, vendor_name, txn_date, txn_type, amount, payment_mode, remarks, voucher_id, created_by)
+         VALUES ($1::uuid, $2, $3::date, 'PAYMENT_GIVEN', $4, $5, $6, $7::uuid, $8)`,
+        [bill.vendor_id, bill.owner_name, entryDate, amount, req.body?.payment_mode ?? null,
+         `15-din bill ${bill.bill_no} balance`, voucher.voucher_id, who]);
+      if (ids.length) {
+        await t.query(`
+          UPDATE bazaar_settlements
+             SET status = 'SETTLED',
+                 balance_voucher_id = COALESCE(balance_voucher_id, $2::uuid),
+                 balance_amount = COALESCE(balance_amount, awarded_amount - COALESCE(advance_amount, 0)),
+                 updated_at = now()
+           WHERE id = ANY($1::uuid[]) AND status = 'POD_VERIFIED'`, [ids, voucher.voucher_id]);
+      }
+      await t.query(`
+        UPDATE vehicle_owner_bills
+           SET pay_voucher_id = $2::uuid, paid_amount = $3, paid_at = now(), paid_by = $4
+         WHERE id = $1::uuid`, [id, voucher.voucher_id, amount, who]);
+    });
+
+    const { rows: [v] } = await query('SELECT mobile_no FROM vendors WHERE id = $1::uuid', [bill.vendor_id]);
+    if (v?.mobile_no) {
+      notifyWhatsApp(v.mobile_no,
+        `✅ ${bill.owner_name}: 15-din ka bill ${bill.bill_no} (${bill.cycle_label}) settle ho gaya — `
+        + `balance ${inr(amount)} bhej diya. ${bill.loads} load SETTLED. Dhanyavaad!`).catch(() => {});
+    }
+    return { paid: true, voucher_id: voucher.voucher_id, amount, loads_settled: ids.length, bill: await billById(id) };
   });
 
   app.post('/:id/email', staff, async (req, reply) => {

@@ -1167,7 +1167,9 @@ export async function registerMastersRoutes(app) {
   const VENDOR_COLS = ['vendor_name', 'vendor_type', 'contact_person', 'mobile_no', 'address',
     'gst_no', 'bank_account', 'ifsc_code', 'opening_balance', 'status',
     'owner_name', 'email', 'pan_no', 'payment_terms', 'portal_access',
-    'subscription_plan', 'max_vehicle_limit', 'portal_features'];
+    'subscription_plan', 'max_vehicle_limit', 'portal_features',
+    // migration 162 — who the fleet partner is for TDS 194C
+    'entity_type', 'tds_declaration_194c'];
 
   app.get(
     '/vendors',

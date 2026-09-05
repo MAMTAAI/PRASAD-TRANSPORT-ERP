@@ -48,6 +48,11 @@ const vendorToApi = (f: any) => ({
   address: f.address || null,
   bank_account: f.bank_account || null,
   ifsc_code: f.ifsc_code || null,
+  // TDS 194C on the 15-day partner bill (migration 162): INDIVIDUAL 1%,
+  // FIRM 2%, no PAN 20%, 194C(6) declaration NIL. Blank = the bill says
+  // "rate nahi" and cannot be approved.
+  entity_type: f.entity_type || null,
+  tds_declaration_194c: f.tds_declaration_194c === true,
   payment_terms: f.payment_terms || null,
   opening_balance: Number.parseFloat(f.opening_balance || '0'),
   status: f.status === 'APPROVED' ? 'ACTIVE' : (f.status || 'ACTIVE'),
@@ -72,6 +77,7 @@ export default function MarketVehicles() {
   const [vendorFormData, setVendorFormData] = useState({
     agency_name: '', owner_name: '', mobile: '', email: '', pan_no: '', gst_no: '', address: '', 
     opening_balance: '0', payment_terms: 'Advance', bank_account: '', ifsc_code: '', status: 'APPROVED',
+    entity_type: '', tds_declaration_194c: false,
     // 💰 NEW: SUBSCRIPTION & LIMITS
     subscription_plan: 'FREE', max_vehicle_limit: 2,
     // 🎛️ NEW: 110% PORTAL CONTROL
@@ -127,6 +133,7 @@ export default function MarketVehicles() {
     setVendorFormData({ 
       agency_name: '', owner_name: '', mobile: '', email: '', pan_no: '', gst_no: '', address: '', 
       opening_balance: '0', payment_terms: 'Advance', bank_account: '', ifsc_code: '', status: 'APPROVED',
+    entity_type: '', tds_declaration_194c: false,
       subscription_plan: 'FREE', max_vehicle_limit: 2, portal_access: true,
       // Keys are the REAL portal module keys (068: vend.<key>) that
     // visibleModules() reads — the old live_loads/fleet_mgmt/wallet names
@@ -406,6 +413,19 @@ export default function MarketVehicles() {
                 <div><label style={{fontSize:'11px', color:'#2fe39b', fontWeight:'bold'}}>Opening Balance (Cr)</label><input type="number" className="glass-input" style={{borderColor:'#2fe39b'}} value={vendorFormData.opening_balance} onChange={e => setVendorFormData({...vendorFormData, opening_balance: e.target.value})} /></div>
                 <div><label style={{fontSize:'11px', color:'#9aadd4'}}>Bank Account No.</label><input className="glass-input" value={vendorFormData.bank_account} onChange={e => setVendorFormData({...vendorFormData, bank_account: e.target.value})} /></div>
                 <div><label style={{fontSize:'11px', color:'#9aadd4'}}>IFSC Code</label><input className="glass-input" value={vendorFormData.ifsc_code} onChange={e => setVendorFormData({...vendorFormData, ifsc_code: e.target.value})} /></div>
+                {/* TDS 194C for the 15-day partner bill (migration 162). The
+                    bill reads the rate from here; blank = "rate nahi", no approve. */}
+                <div><label style={{fontSize:'11px', color:'#f472b6', fontWeight:'bold'}}>TDS: Individual ya Firm? *</label>
+                  <select className="glass-input" style={{borderColor:'#f472b6'}} value={vendorFormData.entity_type || ''} onChange={e => setVendorFormData({...vendorFormData, entity_type: e.target.value})}>
+                    <option value="">-- chuniye --</option>
+                    <option value="INDIVIDUAL">Individual / HUF — TDS 1%</option>
+                    <option value="FIRM">Firm / Company — TDS 2%</option>
+                  </select>
+                </div>
+                <div style={{gridColumn:'span 2', display:'flex', alignItems:'center', gap:'10px', paddingTop:'18px'}}>
+                  <input type="checkbox" id="tds194c6" checked={!!vendorFormData.tds_declaration_194c} onChange={e => setVendorFormData({...vendorFormData, tds_declaration_194c: e.target.checked})} style={{width:'18px', height:'18px'}} />
+                  <label htmlFor="tds194c6" style={{fontSize:'12px', color:'#c4d1ea'}}>194C(6) declaration mili hai (≤10 gaadi, PAN ke saath) — <b style={{color:'#2fe39b'}}>TDS NIL</b>. Bina PAN 20% kat-ta hai.</label>
+                </div>
               </div>
 
               {/* 🔥 NEW SECTION: SUBSCRIPTION & 110% PORTAL CONTROL */}
