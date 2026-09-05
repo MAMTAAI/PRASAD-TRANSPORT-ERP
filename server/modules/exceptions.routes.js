@@ -352,6 +352,69 @@ function dmyish(d) {
  * is a very good guess, and a guess is exactly what must not be written into
  * the field that decides who gets billed.
  */
+// ── The customer bill's reconciliation, on the board (migration 163) ─────────
+//
+// Owner, 5-Sep-2026: "error / missing trip ko dashboard par show karega." A
+// trip IOCL did not bill, a bill somebody disputed, and a line of THEIRS with
+// no trip of ours — each is money and each is a task for a person. Idempotent
+// by bill: the row updates as the counts move and closes itself when they hit
+// zero (the board's dedupe handles the update; a zero count is skipped, so an
+// existing row simply stops being seen).
+export async function detectCustomerRecon(exec = query) {
+  const { rows } = await exec(`
+    SELECT b.id, b.bill_no, b.customer_name, b.company_name, b.cycle_label, b.status,
+           b.missing_count, b.missing_amount, b.pending_count, b.pending_amount,
+           b.short_count, b.short_amount, b.unpriced_count,
+           b.their_unmatched, b.their_unmatched_amount, b.disputes
+      FROM v_customer_bill b
+     WHERE b.status <> 'CANCELLED'
+       AND (b.missing_count > 0 OR b.their_unmatched > 0 OR b.status = 'DISPUTED')`).catch(() => ({ rows: [] }));
+  const raised = [];
+  for (const b of rows) {
+    if (Number(b.missing_count) > 0) {
+      raised.push(await raiseException({
+        kind: 'MISSING_FREIGHT',
+        severity: Number(b.missing_amount) >= 100000 ? 'HIGH' : 'MEDIUM',
+        title: `${b.missing_count} trip IOCL ke bill me nahi — ${b.customer_name}, ${b.cycle_label}`,
+        detail: `${b.customer_name} ne is pakhwade ke bill bheje hain par hamare ${b.missing_count} trip (${Number(b.missing_amount).toLocaleString('en-IN')} rupaye) kisi bill me nahi hain. `
+              + `Bill ${b.bill_no} kholiye → milaan → dispute uthaiye ya trip ka invoice number bhariye.`,
+        subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
+        amount_at_risk: Number(b.missing_amount) || null,
+        dedupe_key: `MISSING_FREIGHT:${b.id}`,
+        evidence: { bill_no: b.bill_no, missing_count: b.missing_count, missing_amount: b.missing_amount, status: b.status },
+      }));
+    }
+    if (Number(b.their_unmatched) > 0) {
+      raised.push(await raiseException({
+        kind: 'UNMATCHED_CUSTOMER_LINE',
+        severity: 'MEDIUM',
+        title: `${b.their_unmatched} line IOCL ke bill me, hamara trip nahi — ${b.cycle_label}`,
+        detail: `IOCL ke transportation bill me ${b.their_unmatched} line (${Number(b.their_unmatched_amount).toLocaleString('en-IN')} rupaye) hain jinka hamare register me trip nahi mila. `
+              + `Ya trip register me nahi bana, ya lorry/tareekh alag likhi hai. Bill ${b.bill_no} → milaan → "Trip jodo".`,
+        subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
+        amount_at_risk: Number(b.their_unmatched_amount) || null,
+        dedupe_key: `UNMATCHED_CUSTOMER_LINE:${b.id}`,
+        evidence: { bill_no: b.bill_no, lines: b.their_unmatched, amount: b.their_unmatched_amount },
+      }));
+    }
+    if (b.status === 'DISPUTED') {
+      const d = Array.isArray(b.disputes) ? b.disputes : [];
+      raised.push(await raiseException({
+        kind: 'CUSTOMER_DISPUTE',
+        severity: 'HIGH',
+        title: `Dispute khula — ${b.customer_name}, ${b.cycle_label} (${d.length} baat)`,
+        detail: d.map((x) => `${x.trip_code || ''} ${x.kind}: ${Number(x.amount || 0).toLocaleString('en-IN')} — ${x.note || ''}`).join(' · ').slice(0, 900)
+              || 'Bill par dispute darj hai.',
+        subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
+        amount_at_risk: d.reduce((n, x) => n + (Number(x.amount) || 0), 0) || null,
+        dedupe_key: `CUSTOMER_DISPUTE:${b.id}`,
+        evidence: { bill_no: b.bill_no, disputes: d },
+      }));
+    }
+  }
+  return raised;
+}
+
 export async function detectBlankCustomer(exec = query) {
   const { rows } = await exec(`
     SELECT COALESCE(btrim(t.operating_company), '(no company)')   AS company,

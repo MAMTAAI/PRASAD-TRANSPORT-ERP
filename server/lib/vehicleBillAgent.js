@@ -91,6 +91,27 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
         FROM vehicle_fortnight_settlements
        WHERE period_from = $1::date AND status = 'AI_DRAFT'`, [from]);
 
+    // THE CUSTOMER SIDE (migration 163, owner 5-Sep-2026): the same pass drafts
+    // every customer's bill for the fortnight that closed — and, for a monthly
+    // (contract) customer, the month it falls in. Raised bills are touched only
+    // for the money that arrived; a person raises, TARA never does.
+    let customerBills = { created: 0, refreshed: 0, skipped: 0 };
+    try {
+      await startStep(run.run_id, 'customer_bills', { agent_code: agent });
+      const { rows: [cb] } = await query('SELECT * FROM customer_bills_build($1::date, $2)', [from, 'agent:TARA']);
+      customerBills = cb ?? customerBills;
+    } catch (e) {
+      // Before 163 lands, or on a fault — the lorry bills must still go out.
+      log.warn?.({ job: JOB, err: e.message }, '[agent] customer bills build failed');
+    }
+    const { rows: [custState] } = await query(`
+      SELECT count(*)::int AS customer_bills,
+             COALESCE(sum(gross), 0)::numeric(14,2) AS customer_gross,
+             COALESCE(sum(missing_count), 0)::int AS customer_missing,
+             COALESCE(sum(unpriced_count), 0)::int AS customer_unpriced
+        FROM customer_bills WHERE period_from = $1::date OR (cycle_kind = 'MONTH' AND $1::date BETWEEN period_from AND period_to)`, [from])
+      .catch(() => ({ rows: [{ customer_bills: 0, customer_gross: 0, customer_missing: 0, customer_unpriced: 0 }] }));
+
     // The owner bills the lorries were grouped into (migration 160) — what the
     // desk actually opens on the 1st and the 16th.
     const { rows: [bills] } = await query(`
@@ -101,7 +122,9 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
              COALESCE(sum(payable), 0)::numeric(14,2) AS payable
         FROM vehicle_owner_bills WHERE period_from = $1::date`, [from]);
 
-    const counts = { ...built, ...state, ...bills, period_from: from };
+    const counts = { ...built, ...state, ...bills, ...custState,
+                     customer_created: customerBills.created, customer_refreshed: customerBills.refreshed,
+                     customer_skipped: customerBills.skipped, period_from: from };
     await finishRun(run.run_id, 'OK', { counts });
     log.info?.({ job: JOB, ...counts }, '[agent] vehicle fortnight bills ready for the desk');
     return { ran: true, period_from: from, ...counts };

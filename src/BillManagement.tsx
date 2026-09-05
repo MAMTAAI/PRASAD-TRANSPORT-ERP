@@ -28,6 +28,7 @@ import { computeFreight, effectiveBillingType, findRouteForTrip, resolveRate, pa
 import { useIsMobile } from './hooks/useIsMobile';
 
 import { API_BASE } from './lib/apiBase';
+import CustomerBills from './billing/CustomerBills';
 const API = API_BASE;
 const BILLING = `${API}/api/v1/billing`;
 const FIN = `${API}/api/v1/finance`;
@@ -48,7 +49,9 @@ const GST_PCT = 5;
 
 export default function BillManagement() {
   const { isPhone } = useIsMobile();
-  const [activeTab, setActiveTab] = useState('UNBILLED_TRIPS');
+  // The 15-day customer bill (migration 163) opens first: it is the whole
+  // cycle — draft, raise, reconcile — and the two legacy tabs stay beneath it.
+  const [activeTab, setActiveTab] = useState('CUSTOMER_BILLS');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -694,6 +697,9 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
 
       {/* TABS */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid #27395f', flexWrap: 'wrap' }}>
+        <button className={`tab-btn ${activeTab === 'CUSTOMER_BILLS' ? 'active' : ''}`} onClick={() => setActiveTab('CUSTOMER_BILLS')}>
+          🧾 15-DAY BILLS &amp; MILAAN
+        </button>
         <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>
           🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span className="badge" style={{ background: '#10b981', color: '#04241a', marginLeft: 6 }}>{filteredUnbilledTrips.length}</span>}
         </button>
@@ -701,6 +707,8 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
           🧾 GENERATED INVOICES {filteredGeneratedBills.length > 0 && <span className="badge" style={{ background: '#38bdf8', color: '#04222e', marginLeft: 6 }}>{filteredGeneratedBills.length}</span>}
         </button>
       </div>
+
+      {activeTab === 'CUSTOMER_BILLS' && <CustomerBills />}
 
       {/* ── PENDING BILLING ── */}
       {activeTab === 'UNBILLED_TRIPS' && (

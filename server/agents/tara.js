@@ -45,7 +45,10 @@ export default defineAgent({
     'Since 5-Sep-2026 Tara is the 15-DAY VEHICLE BILL expert: at 03:00 on the 1st and the 16th ' +
     'she drafts every vehicle owner\'s bill for the fortnight that just closed — every lorry of ' +
     'theirs, the seven expense columns, commission and TDS — and puts it in front of the desk. ' +
-    'She drafts; a person approves; the posting to the owner\'s khata follows that signature.',
+    'She drafts; a person approves; the posting to the owner\'s khata follows that signature. ' +
+    'The same pass drafts every CUSTOMER\'s 15-day bill (branch-wise, IOCL format); as BHUVANESHWARI ' +
+    'brings the customer\'s bills and payment advices in from mail, Tara reconciles them trip by trip ' +
+    'and the desk sees Paid / Short / Missing / Pending on the bill and the dashboard.',
 
   subscribes: [
     'trip.settlement.authorised',
@@ -79,7 +82,10 @@ export default defineAgent({
   owns: {
     tables: ['ledgers', 'ledger_entries', 'journal', 'invoices', 'payments', 'trip_settlements',
              // the 15-day vehicle bills (migrations 158–160): Tara drafts them
-             'vehicle_fortnight_settlements', 'vehicle_owner_bills'],
+             'vehicle_fortnight_settlements', 'vehicle_owner_bills',
+             // the customer 15-day bills (migration 163): drafted in the same
+             // pass; BHUVANESHWARI brings the customer's documents in from mail
+             'customer_bills'],
     modules: ['LedgerMgmt.tsx', 'CashBankBook.tsx', 'FinancialReports.tsx',
               'MasterTripSettlement.tsx', 'MonthlyBilling.tsx', 'BillManagement.tsx',
               'LoanEmiMgmt.tsx'],

@@ -51,7 +51,8 @@
     "migrate:selftest159": "node server/db/migrations/159_vehicle_class_and_commission.selftest.mjs",
     "migrate:selftest160": "node server/db/migrations/160_vehicle_owner_bills.selftest.mjs",
     "migrate:selftest161": "node server/db/migrations/161_vehicle_ownership_rule.selftest.mjs",
-    "migrate:selftest162": "node server/db/migrations/162_market_partner_bills.selftest.mjs"
+    "migrate:selftest162": "node server/db/migrations/162_market_partner_bills.selftest.mjs",
+    "migrate:selftest163": "node server/db/migrations/163_customer_bills.selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

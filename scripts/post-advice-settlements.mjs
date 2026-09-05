@@ -24,7 +24,7 @@
 // Per advice, one balanced journal:
 //
 //     Dr  SBI (8490)                     amount actually remitted
-//     Dr  Direct Expenses - Fuel & HSD   CCMS recovery
+//     Dr  IOCL XTRAPOWER Card Wallet     CCMS recovery = IOCL loading our card (asset, not expense)
 //     Dr  Direct Expenses - Toll & FASTag toll paid by IOCL
 //     Dr  Shortage & Penalty             misc recoveries
 //     Dr  TDS Receivable 194C            tax withheld
@@ -47,9 +47,18 @@ const { query, closePool, initDb } = await import('../server/db/pool.js');
 const { postVoucher } = await import('../server/agents/tara.js');
 
 const BANK = 'SBI (8490)';
-const PARTY = 'INDIAN OIL CORPORATION LTD';
+// 5-Sep-2026 (migration 163): the receipt must land on the SAME ledger the
+// revenue was raised on — 'Debtors: <customer>' — or the debtor never clears.
+// Until today receipts went to the plain-named master ledger while BILL_RAISED
+// debited 'Debtors: …'; the two never met (Rs2.02 cr sitting on each side).
+const PARTY = 'Debtors: INDIAN OIL CORPORATION LTD';
 const L = {
-  fuel: 'Direct Expenses - Fuel & HSD',
+  // Owner's rule (5-Sep-2026): "oil company ka payment me HSD ka 35–40% direct
+  // fleet account me jata hai, baaki bank me." The CCMS recovery is IOCL
+  // loading OUR XtraPower card, not diesel burnt — the card's own sales book
+  // the diesel when it is drawn. So it is an asset movement: Dr card wallet.
+  // Resolved from fleet_card_accounts after the pool is up (see below).
+  fuel: 'IOCL XTRAPOWER Card Wallet',
   toll: 'Direct Expenses - Toll & FASTag',
   misc: 'Shortage & Penalty',
   tds: 'TDS Receivable 194C',
@@ -63,7 +72,7 @@ const L = {
   unclass: 'IOCL Unclassified Receipts',
 };
 const G = {
-  fuel: 'Direct Expenses - Fuel & HSD',
+  fuel: 'Prepaid Cards & Wallets (Asset)',
   toll: 'Direct Expenses - Toll & FASTag',
   misc: 'Shortage & Penalty',
   tds: 'Loans & Advances (Asset)',
@@ -78,7 +87,17 @@ const money = (v) => Math.round(Number(v ?? 0) * 100) / 100;
 const inr = (v) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 await initDb({ attempts: 1, quiet: true });
+// The IOCL card wallet is whatever the fleet-card module calls it for the firm
+// that runs IOCL's trucks (Prasad Transport). Never guess a ledger name twice.
+{
+  const { rows: [acct] } = await query(`
+    SELECT wallet_ledger FROM fleet_card_accounts
+     WHERE provider = 'IOCL' AND active AND wallet_ledger IS NOT NULL
+     ORDER BY (operating_company ILIKE '%PRASAD%') DESC LIMIT 1`);
+  if (acct?.wallet_ledger) L.fuel = acct.wallet_ledger;
+}
 console.log(`\n${'='.repeat(76)}\n ADVICE-LEVEL SETTLEMENT   [${LIVE ? 'LIVE' : 'DRY RUN'}]\n${'='.repeat(76)}`);
+console.log(` party ledger: ${PARTY}   CCMS → ${L.fuel}`);
 
 const stats = { reversed: 0, reverseSkipped: 0, settled: 0, settleSkipped: 0, failed: 0,
                 bank: 0, fuel: 0, toll: 0, misc: 0, tds: 0 };

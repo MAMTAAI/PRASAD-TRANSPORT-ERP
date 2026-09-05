@@ -21,10 +21,11 @@ import cron from 'node-cron';
 import { query, isDegraded } from '../db/pool.js';
 import { runNightlyFuelSync } from './nightlyFuelSync.js';
 import { runVehicleBillAgent, istToday } from './vehicleBillAgent.js';
+import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -147,6 +148,7 @@ async function runExceptionScan() {
     ['blank_customer', detectBlankCustomer],
     ['company_master_gaps', detectCompanyMasterGaps],
     ['entity_mismatch', detectEntityMismatch],
+    ['customer_recon', detectCustomerRecon],
   ]) {
     try {
       const r = await fn();
@@ -217,11 +219,51 @@ export async function requestVehicleBills({ force = false, trigger = 'SCHEDULE' 
   }
 }
 
+// ── 6. keep the customer bills' reconciliation current ────────────────────
+//
+// The advice pipeline writes receipts onto trips whenever a mail lands; the
+// customer bill (migration 163) DERIVES its flags from those trips, so it only
+// has to be re-read. Half-hourly over the last four months — cheap, and it is
+// what turns "advice aaya" into "bill PAID" without anyone pressing anything.
+async function refreshCustomerBills() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const now = Date.now();
+  if (state.lastCustomerRefresh && now - state.lastCustomerRefresh < 30 * 60_000) return { skipped: 'recent' };
+  state.lastCustomerRefresh = now;
+  try {
+    const { rows } = await query(`
+      SELECT customer_bill_refresh(id) FROM customer_bills
+       WHERE status <> 'CANCELLED' AND period_from >= current_date - interval '120 days'`);
+    return { refreshed: rows.length };
+  } catch (err) {
+    // Before 163 lands the function does not exist; say so quietly once.
+    if (/customer_bill_refresh|customer_bills/.test(err.message)) return { skipped: 'migration 163 not applied' };
+    throw err;
+  }
+}
+
+// ── 7. collect the customer's payment advices, post them, reconcile ───────
+//
+// The oil company's payment advice is the only document that says what was
+// remitted and what was kept back (CCMS diesel → our card, toll, TDS).
+// BHUVANESHWARI brings it in from the mailbox (fetch + load), TARA posts the
+// settlement against the SAME debtor ledger the bill was raised on, and the
+// customer bills re-read their trips. Once a day after 04:30 IST; the day-claim
+// in agent_execution_logs stops a second run after a restart.
+async function collectAdvices() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const hourIst = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false }).format(new Date()));
+  if (hourIst < 4) return { skipped: 'before 04:00 IST' };
+  if (state.lastAdviceDay === istToday()) return { skipped: 'ran today' };
+  state.lastAdviceDay = istToday();
+  return runAdviceCollect({ trigger: 'SCHEDULE', log: state.log ?? console });
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);
