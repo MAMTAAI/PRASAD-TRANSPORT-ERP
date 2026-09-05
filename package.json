@@ -52,7 +52,10 @@
     "migrate:selftest160": "node server/db/migrations/160_vehicle_owner_bills.selftest.mjs",
     "migrate:selftest161": "node server/db/migrations/161_vehicle_ownership_rule.selftest.mjs",
     "migrate:selftest162": "node server/db/migrations/162_market_partner_bills.selftest.mjs",
-    "migrate:selftest163": "node server/db/migrations/163_customer_bills.selftest.mjs"
+    "migrate:selftest163": "node server/db/migrations/163_customer_bills.selftest.mjs",
+    "mail:reauth": "node scripts/mail-reauth.mjs",
+    "bills:raise": "node scripts/raise-customer-bills.mjs",
+    "advices:post": "node scripts/post-advice-settlements.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
