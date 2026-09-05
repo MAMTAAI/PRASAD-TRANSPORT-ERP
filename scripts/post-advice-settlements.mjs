@@ -43,6 +43,10 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const LIVE = process.argv.includes('--live');
+// The one-time reversal of the pre-advice "assumed" receipts (Aug-2026) is
+// NOT part of the daily run: a scheduled job must never reverse a receipt on
+// its own. Pass --reverse-legacy by hand to attempt the ones still standing.
+const REVERSE_LEGACY = process.argv.includes('--reverse-legacy');
 const { query, closePool, initDb } = await import('../server/db/pool.js');
 const { postVoucher } = await import('../server/agents/tara.js');
 
@@ -96,6 +100,11 @@ await initDb({ attempts: 1, quiet: true });
      ORDER BY (operating_company ILIKE '%PRASAD%') DESC LIMIT 1`);
   if (acct?.wallet_ledger) L.fuel = acct.wallet_ledger;
 }
+// Whose books: IOCL's vendor code and SBI (8490) are Prasad Transport's. The
+// ledger route guard (migration 147) refuses a voucher that names no firm and
+// cannot derive one — 'Debtors: …' and the bank name nothing, so say it.
+const { rows: [firm] } = await query(`SELECT id FROM companies WHERE company_name ILIKE '%PRASAD TRANSPORT%' ORDER BY company_name LIMIT 1`);
+const COMPANY_ID = firm?.id ?? null;
 console.log(`\n${'='.repeat(76)}\n ADVICE-LEVEL SETTLEMENT   [${LIVE ? 'LIVE' : 'DRY RUN'}]\n${'='.repeat(76)}`);
 console.log(` party ledger: ${PARTY}   CCMS → ${L.fuel}`);
 
@@ -118,10 +127,10 @@ const { rows: originals } = await query(`
   SELECT voucher_id::text AS voucher_id, MIN(source_ref) AS ref, MIN(entry_date) AS entry_date,
          json_agg(json_build_object('ledger', ledger_name, 'dr_cr', dr_cr, 'amount', amount)) AS lines
     FROM ledger_entries
-   WHERE source_type = 'VOUCHER' AND source_ref LIKE 'IOCL-%'
-   GROUP BY voucher_id`);
+   WHERE source_type = 'VOUCHER' AND source_ref LIKE 'IOCL-%' AND $1::boolean
+   GROUP BY voucher_id`, [REVERSE_LEGACY]);
 
-console.log(`\n REVERSING ${originals.length} assumed receipt voucher(s)`);
+console.log(`\n REVERSING ${originals.length} assumed receipt voucher(s)${REVERSE_LEGACY ? '' : ' (skipped — pass --reverse-legacy)'}`);
 for (const o of originals) {
   const flipped = o.lines.map((l) => ({
     ledger: l.ledger,
@@ -132,6 +141,7 @@ for (const o of originals) {
   const r = await post(`reverse ${o.ref}`, {
     type: 'JOURNAL',
     source_type: 'RECEIPT_REVERSAL',
+    company_id: COMPANY_ID,
     ref_no: `REV-${o.ref}`,
     entry_date: o.entry_date,
     narration: `Reversal of ${o.ref} — receipt was assumed from the bill; actual settlement comes from the payment advice`,
@@ -184,6 +194,7 @@ for (const a of advices) {
   const r = await post(`settle ${a.odn}`, {
     type: 'JOURNAL',
     source_type: 'ADVICE_SETTLEMENT',
+    company_id: COMPANY_ID,
     ref_no: `ADV-${a.odn}`,
     entry_date: a.advice_date,
     narration: `IOCL payment advice ${a.odn} (UTR ${a.bank_ref ?? '-'}) — remitted ${inr(a.remitted)}, fuel ${inr(a.fuel)}, toll ${inr(a.toll)}, TDS ${inr(a.tds)}`,

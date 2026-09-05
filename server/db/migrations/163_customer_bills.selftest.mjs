@@ -105,6 +105,8 @@ try {
   // contract customer, monthly
   await trip({ code: 'PT00600', cust: 'AADHAR GREEN  INDUSTRIES LLP', loc: 'NRL Numaligarh', ld: '2026-06-05', qty: 20, billed: 30000, veh: 'AS 26C 9801' });
   await trip({ code: 'PT00601', cust: 'AADHAR GREEN  INDUSTRIES LLP', loc: 'NRL Numaligarh', ld: '2026-06-22', qty: 20, billed: 30000, veh: 'AS 26C 9801' });
+  // no amount typed on the trip: the contract (Rs1,500/KL, migration 164) prices it
+  await trip({ code: 'PT00602', cust: 'AADHAR GREEN  INDUSTRIES LLP', loc: 'NRL Numaligarh', ld: '2026-06-25', qty: 10, billed: 0, veh: 'AS 26C 9801' });
   // a trip with no customer at all
   await trip({ code: 'PT00700', cust: null, loc: 'IMPHAL DEPOT', ld: '2026-06-18', billed: 40000 });
   // the legacy bill that already posted PT00482
@@ -115,11 +117,12 @@ try {
   await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, bill_date, reverse_charge, s_no, invoice_no, line_date, vehicle_no_raw, vehicle_norm, ship_to_raw, gross_amt, penalty_amt, igst_amt, cgst_amt, sgst_amt, page_no, source_line)
                   VALUES ('L1', '11111111-1111-1111-1111-111111111111', 'G1', '0011024699', '2026-07-05', true, 1, '11024699AS26045', '2026-06-16', 'AS26C9814', 'AS26C9814', 'ZC7A01 - Agartala AFS', 70961.11, 0, 0, 0, 0, 1, 'x')`);
 
-  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql']) {
+  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql']) {
     await db.query(readFileSync(path.join(here, f), 'utf8'));
   }
   check('160 → 163 apply on the production schema', true, true);
   await db.query(readFileSync(path.join(here, '163_customer_bills.sql'), 'utf8'));
+  await db.query(readFileSync(path.join(here, '164_customer_contract_rate.sql'), 'utf8'));
   check('163 is re-runnable', true, true);
 
   console.log('\nONE NAME, HOWEVER TYPED');
@@ -171,7 +174,9 @@ try {
   const gp = bills.find((b) => b.bill_no === 'CB-IOCL-JUN-H2-2026');
   check('IOCL in Jaiswal books is its own bill', [gp.trips, gp.gross], [1, '12000.00']);
   const agi = bills.find((b) => b.bill_no === 'CB-AGIL-JUN-2026');
-  check('the contract customer got the whole month', [agi.cycle_kind, agi.trips, agi.gross], ['MONTH', 2, '60000.00']);
+  check('a contract trip with no amount is priced by KL x rate (164)', await one("SELECT gross, rate, flag FROM v_customer_trip_recon WHERE trip_code='PT00602'"), { gross: '15000.00', rate: '1500.0000', flag: 'PENDING' });
+  check('...and the oil company trip without an AC5 stays UNPRICED (no contract rate)', (await one("SELECT count(*)::int AS n FROM v_customer_trip_recon WHERE flag='UNPRICED' AND customer_code='11024699'")).n, 1);
+  check('the contract customer got the whole month', [agi.cycle_kind, agi.trips, agi.gross], ['MONTH', 3, '75000.00']);
   check('…with no TDS', agi.tds, '0.00');
   check('trips point at their bill', (await one('SELECT count(*)::int n FROM trips WHERE customer_bill_id=$1', [ioc.id])).n, 6);
   check('the no-customer trip is on no bill', (await one(`SELECT customer_bill_id FROM trips WHERE trip_code='PT00700'`)).customer_bill_id, null);

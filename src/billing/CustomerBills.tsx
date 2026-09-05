@@ -564,12 +564,13 @@ function MappingDesk({ onChanged }) {
             </div>))}
           <div style={{ fontSize: '11px', color: C.mut, textTransform: 'uppercase', letterSpacing: '.06em', margin: '12px 0 6px' }}>Customer master — prakaar · cycle · print · TDS · GST</div>
           {customers.map((c) => (
-            <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr .6fr .6fr', gap: '6px', alignItems: 'center', padding: '6px 10px', background: 'rgba(10,16,36,.55)', borderRadius: '8px', marginBottom: '4px', fontSize: '11.5px' }}>
+            <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr .6fr .7fr .6fr', gap: '6px', alignItems: 'center', padding: '6px 10px', background: 'rgba(10,16,36,.55)', borderRadius: '8px', marginBottom: '4px', fontSize: '11.5px' }}>
               <span style={{ color: C.ink, fontWeight: 700 }}>{c.customer_name}<div style={{ fontSize: '10px', color: C.dim, fontWeight: 400 }}>{c.customer_code ? `code ${c.customer_code}` : ''}{c.gst_no ? ` · ${c.gst_no}` : ''}</div></span>
               <select value={c.customer_type ?? ''} onChange={(e) => setCust(c, { customer_type: e.target.value })} style={{ ...sel1, borderColor: c.customer_type ? C.line : C.crit }}><option value="">prakaar?</option><option value="OIL_COMPANY">🛢 Oil Company</option><option value="CONTRACT">📜 Contract</option><option value="MARKET">🛒 Market</option></select>
               <select value={c.bill_cycle} onChange={(e) => setCust(c, { bill_cycle: e.target.value })} style={sel1}><option value="FORTNIGHT">15 din</option><option value="MONTH">Mahina</option><option value="PER_LOAD">Load-wise</option></select>
               <select value={c.print_format} onChange={(e) => setCust(c, { print_format: e.target.value })} style={sel1}><option value="OIL_CO">Print: Oil Co</option><option value="CONTRACT_RCM">Print: Tax Invoice RCM</option><option value="MARKET_LR">Print: LR bill</option></select>
               <input value={c.tds_pct_deducted} onChange={(e) => setCust(c, { tds_pct_deducted: e.target.value })} title="TDS % unka" style={{ ...sel1, width: '52px', textAlign: 'right' }} />
+              <input defaultValue={c.contract_rate_per_kl ?? ''} onBlur={(e) => { if ((e.target.value || '') !== String(c.contract_rate_per_kl ?? '')) setCust(c, { contract_rate_per_kl: e.target.value }); }} placeholder="₹/KL" title="Contract ₹ per KL — jab trip par amount na ho to KL × rate (Aadhar 1500); oil company ke liye khali" style={{ ...sel1, width: '64px', textAlign: 'right', borderColor: c.customer_type === 'CONTRACT' && !c.contract_rate_per_kl ? C.crit : C.line }} />
               <select value={c.gst_mode} onChange={(e) => setCust(c, { gst_mode: e.target.value })} style={sel1}><option value="RCM">RCM</option><option value="FORWARD">GST</option><option value="EXEMPT">Exempt</option></select>
             </div>))}
         </div>

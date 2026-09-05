@@ -250,11 +250,13 @@ export async function registerCustomerBillRoutes(app) {
     if (['FORTNIGHT', 'MONTH', 'PER_LOAD'].includes(b.bill_cycle)) put('bill_cycle', b.bill_cycle);
     if (['OIL_CO', 'CONTRACT_RCM', 'MARKET_LR'].includes(b.print_format)) put('print_format', b.print_format);
     if (money(b.tds_pct_deducted) !== null) put('tds_pct_deducted', money(b.tds_pct_deducted));
+    // Contract ₹/KL (164): blank clears it; an oil company should stay NULL.
+    if ('contract_rate_per_kl' in b) put('contract_rate_per_kl', money(b.contract_rate_per_kl) > 0 ? money(b.contract_rate_per_kl) : null);
     if (money(b.gst_pct) !== null) put('gst_pct', money(b.gst_pct));
     if (['RCM', 'FORWARD', 'EXEMPT'].includes(b.gst_mode)) put('gst_mode', b.gst_mode);
     if (typeof b.customer_code === 'string') put('customer_code', b.customer_code.trim() || null);
     if (!sets.length) return reply.code(400).send({ error: 'NOTHING_TO_UPDATE' });
-    const { rows } = await query(`UPDATE customers SET ${sets.join(', ')} WHERE id = $1::uuid RETURNING id, customer_name, customer_type, bill_cycle, print_format, tds_pct_deducted, gst_pct, gst_mode`, args);
+    const { rows } = await query(`UPDATE customers SET ${sets.join(', ')} WHERE id = $1::uuid RETURNING id, customer_name, customer_type, bill_cycle, print_format, tds_pct_deducted, gst_pct, gst_mode, contract_rate_per_kl`, args);
     if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
     // Open bills of this customer follow the new terms.
     await query(`SELECT customer_bill_refresh(id) FROM customer_bills WHERE customer_id = $1::uuid AND locked_at IS NULL`, [id]).catch(() => {});
