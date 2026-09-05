@@ -1,0 +1,259 @@
+<title>Market Partner 15-Day Bill</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0a1024; --panel:#121c38; --raised:#18244a; --line:#27395f; --line-soft:#1b2a4e;
+    --ink:#eef2fd; --ink-2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196;
+    --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa; --mkt:#f472b6;
+    --ui:'Archivo','Segoe UI',system-ui,-apple-system,Roboto,sans-serif;
+    --num:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box} html{color-scheme:dark}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--ui);font-size:14px;line-height:1.45}
+  .wrap{max-width:1460px;margin:0 auto;padding:22px 22px 60px}
+  h1,h2,h3,h4{margin:0;text-wrap:balance}
+  .num{font-family:var(--num);font-variant-numeric:tabular-nums} .mono{font-family:var(--num)} .r{text-align:right}
+  .mast{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px}
+  .mast h1{font-size:26px;font-weight:800;letter-spacing:-.01em} .mast p{margin:6px 0 0;color:var(--mut);max-width:76ch}
+  .tag{display:inline-block;background:var(--warn);color:#1f1300;font-weight:800;font-size:12px;letter-spacing:.06em;padding:6px 12px;border-radius:999px;text-transform:uppercase}
+  .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:700}
+  .delta{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:30px}
+  .delta div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .delta b{display:block;color:var(--mkt);font-size:13px;margin-bottom:6px} .delta p{margin:0;color:var(--ink-2);font-size:13px}
+  .screen{margin:0 0 40px} .screen-h{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+  .screen-h h2{font-size:18px;font-weight:700} .screen-h span{color:var(--dim);font-size:12.5px}
+  .frame{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .apphead{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px}
+  .apphead h3{font-size:20px;font-weight:800} .apphead .sub{color:var(--mut);font-size:12.5px;margin-top:3px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{font:inherit;font-weight:700;font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;white-space:nowrap}
+  .btn.cyan{background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.5);color:var(--cyan)}
+  .btn.good{background:rgba(47,227,155,.10);border-color:rgba(47,227,155,.55);color:var(--good)}
+  .btn.solid{background:var(--good);border-color:var(--good);color:#0a1024}
+  .btn.warn{background:rgba(255,178,36,.12);border-color:rgba(255,178,36,.5);color:var(--warn)}
+  .btn.mkt{background:rgba(244,114,182,.12);border-color:rgba(244,114,182,.5);color:var(--mkt)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--mut)}
+  .chip.on{background:rgba(34,211,238,.12);border-color:var(--cyan);color:var(--cyan)}
+  .chip.mkt{background:rgba(244,114,182,.12);border-color:var(--mkt);color:var(--mkt)}
+  .st{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:2px 9px;border:1px solid currentColor;white-space:nowrap}
+  .st.draft{color:var(--ai)} .st.review{color:var(--warn)} .st.approved{color:var(--good)}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:rgba(10,16,36,.5)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:top;white-space:nowrap}
+  tr.sel td{background:rgba(244,114,182,.07)}
+  td .sub{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+  .ink{color:var(--ink)} .good{color:var(--good)} .crit{color:var(--crit)} .warn{color:var(--warn)} .cyan{color:var(--cyan)} .dim{color:var(--dim)} .ai{color:var(--ai)} .mkt{color:var(--mkt)}
+  .list th.r,.list td.r{text-align:right}
+  .billhead{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:14px 0}
+  .billhead div{background:var(--panel);padding:11px 14px} .billhead .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)} .billhead .v{font-size:17px;font-weight:700;margin-top:3px}
+  .bill{overflow-x:auto;border:1px solid var(--line);border-radius:10px} .bill table{min-width:1500px} .bill th,.bill td{padding:7px 8px}
+  .bill th.c,.bill td.c{background:rgba(47,227,155,.06)} .bill th.p,.bill td.p{background:rgba(244,114,182,.06)} .bill th.c{color:#5eead4} .bill th.p{color:#f9a8d4}
+  .bill .fold{border-left:2px solid var(--line)} .bill th.r,.bill td.r{text-align:right}
+  .bill tr.side th{font-size:11px;letter-spacing:.12em;text-align:center;padding:8px}
+  .bill tr.veh td{background:var(--raised);color:var(--ink);font-weight:700;border-top:1px solid var(--line)} .bill tr.veh .own{font-weight:500;color:var(--mut);font-size:11px;margin-left:8px}
+  .bill tr.sub td{background:rgba(24,36,74,.55);font-weight:700;color:var(--ink);border-bottom:2px solid var(--line)}
+  .bill tr.grand td{background:var(--raised);color:var(--ink);font-weight:800;font-size:13px;border-top:2px solid var(--line)}
+  .zero{color:#3d548a}
+  .note{color:var(--dim);font-size:11.5px;margin:10px 0 0;line-height:1.6;max-width:110ch}
+  .foot{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px} @media (max-width:900px){.foot{grid-template-columns:1fr}}
+  .box{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .box h4{font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:8px;letter-spacing:.04em}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px} .kv:last-child{border-bottom:0}
+  .kv.tot{border-top:2px solid var(--line);border-bottom:0;margin-top:4px;padding-top:10px;font-weight:800;font-size:15px}
+  .kv .lab{color:var(--ink-2)} .kv .lab small{color:var(--dim);font-size:11px;margin-left:6px}
+  .jl{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;align-items:baseline} .jl:last-child{border-bottom:0}
+  .jl .drcr{font-family:var(--num);font-weight:700;font-size:11px;color:var(--dim)} .jl .led{color:var(--ink-2)} .jl .led small{display:block;color:var(--dim);font-size:10.5px}
+  .after{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;padding:10px 14px;border:1px solid rgba(47,227,155,.35);background:rgba(47,227,155,.10);border-radius:10px;font-size:12.5px;color:var(--ink-2)} .after b{color:var(--good)}
+  .audit{border:1px solid rgba(255,107,129,.45);background:rgba(255,107,129,.06);border-radius:12px;padding:16px 18px;margin-bottom:22px}
+  .audit h2{font-size:16px;color:var(--crit);margin-bottom:8px}
+  .audit ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px} .audit li{color:var(--ink-2);font-size:13.5px} .audit li b{color:var(--ink)}
+  .dec{border:1px solid rgba(255,178,36,.45);background:rgba(255,178,36,.06);border-radius:12px;padding:16px 18px}
+  .dec h2{font-size:16px;color:var(--warn);margin-bottom:8px} .dec ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px} .dec li{color:var(--ink-2);font-size:13.5px} .dec li b{color:var(--ink)}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:14px}
+  .fact{background:rgba(10,16,36,.55);border:1px solid var(--line);border-radius:9px;padding:10px 12px} .fact .n{font-size:20px;font-weight:800;color:var(--ink)} .fact .n.crit{color:var(--crit)} .fact small{color:var(--dim);font-size:11px;display:block;margin-top:2px;white-space:normal}
+  .flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px} .flow li{display:grid;grid-template-columns:22px 1fr;gap:10px;font-size:13px;color:var(--ink-2)} .flow li i{font-style:normal;color:var(--mkt);font-family:var(--num);font-weight:600} .flow li b{color:var(--ink)}
+</style>
+
+<div class="wrap">
+  <div class="mast">
+    <div>
+      <div class="eyebrow">Prasad ERP · Operations · Vehicle 15-Day Bill · naya section</div>
+      <h1>Market Vehicle (Fleet Partner) 15-Day Bill — design v1</h1>
+      <p>Usi Bills screen me teesra prakaar: <b>MARKET</b>. Own aur Attached ke bagal me, par alag model — fleet partner apna diesel, toll, driver khud bharta hai,
+        isliye kharch ke 7 column nahi hote. Yahan har load ki <b>customer freight</b> (hamari aay), <b>partner freight</b> (hamari lagat), <b>margin</b>
+        (sirf office ko dikhta hai), <b>advance</b> jo loading par diya, <b>TDS 194C</b>, aur <b>balance</b> jo POD ke baad dena hai. Har load uske truck ke neeche, IOCL jaisa.</p>
+    </div>
+    <div style="text-align:right">
+      <span class="tag">Mock · YES chahiye</span>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">5 Sep 2026 · production me abhi 0 partner, 0 load settle — saare aankde <b class="warn">namuna</b></div>
+    </div>
+  </div>
+
+  <div class="audit">
+    <h2>Deep audit — market side ki asli halat (production, 5 Sep 08:10)</h2>
+    <ol>
+      <li><b>Data shunya hai.</b> 2 load (dono OPEN, koi bid nahi), 0 bid, 0 settlement, 0 market vehicle, 0 fleet partner (18 vendor sab SERVICE — pump/tyre), 0 market ledger, 0 bazaar voucher. Model sirf code me hai; asli paise par kabhi chala nahi.</li>
+      <li><b>Partner ko TDS kahin nahi kat-ta.</b> Advance (BZADV) aur balance (BZBAL) PAYMENT voucher poora gross post karte hain. Tax engine me 194C ka niyam (1% individual / 2% firm / 20% bina PAN, ₹30,000 single / ₹1,00,000 FY threshold, 194C(6) declaration) likha hai par bazaar use bulata hi nahi.</li>
+      <li><b>TDS post ho bhi nahi sakta.</b> Migration 129 ka segment guard: BAZAAR_* voucher sirf "Market Fleet %" group ya Bank/Cash chhoo sakta hai. "TDS Payable" Duties &amp; Taxes me hai → FLEET_CROSSOVER (P0403). Bill ke liye naya group <b>Market Fleet Duties &amp; Taxes</b> + ledger <b>Market Fleet TDS Payable 194C</b> banana hoga.</li>
+      <li><b>Partner master me TDS ke liye field nahi.</b> vendors me pan_no, bank_account, ifsc_code hain; par individual/firm (1% ya 2%) aur 194C(6) declaration ka flag nahi — bina iske rate anuman hoga, aur anuman post nahi karte.</li>
+      <li><b>Paisa load-wise, haath se.</b> 90% advance loading par, balance POD verify ke baad — har load par admin alag voucher. Koi 15-din ka chakra nahi; partner apne app me sirf khata (vendor_txns) dekhta hai, statement nahi.</li>
+      <li><b>Books sahi disha me hain.</b> Lock par Dr Market Fleet Freight Cost / Cr Market Partner (BZLOCK); POD par Dr Market Debtors / Cr Market Fleet Freight Income (BZINC); margin kabhi teesri entry nahi. Bill inhi par ek statement hai — kuch dobara post nahi hota.</li>
+      <li><b>Settlement par company_id staff set karta hai</b>; bina firm ke koi paisa nahi chalta (CHECK). Bill bhi firm-wise banega — jaise own/attached.</li>
+    </ol>
+  </div>
+
+  <div class="delta">
+    <div><b>1 · Bill = ek partner × 15 din, uske truck ke neeche uske load</b><p>Bill no <span class="mono">MB-AR-JUN-H2-2026</span>. Jis load ka POD us pakhwade me verify hua, wo is bill me. Truck-wise subtotal, neeche Total of All Loads.</p></div>
+    <div><b>2 · Alag column, kyunki alag model</b><p>Customer freight · Partner freight · Margin (office only) · Advance diya · TDS 194C · Balance due · POD. Kharch ke column nahi — partner ka diesel/toll uska apna.</p></div>
+    <div><b>3 · Approve = TDS post + lock; Pay = ek balance voucher</b><p>Approve par TDS ka journal aur bill lock. Phir "💸 Balance bhejein" ek PAYMENT voucher (bank se) poore bill ka — har load SETTLED, partner ko WhatsApp.</p></div>
+  </div>
+
+  <!-- ═══════════════ SCREEN 1 · list, same screen ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 1 · Usi Bills list me — chip "Market"</h2><span>Operations → Vehicle 15-Day Bill → Bills. Own, Attached aur Market ek jagah; Market ki row ka rang alag.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div><h3>🧾 Vehicle 15-Day Bills</h3><div class="sub">Har malik / partner ka ek bill. TARA har 1 aur 16 tareekh 03:00 baje teeno prakaar ke draft banati hai.</div></div>
+        <div class="toolbar">
+          <div class="chips"><span class="chip on">Jun 2026 · 16–30</span><span class="chip">Sab cycles</span></div>
+          <div class="chips"><span class="chip on">Sab</span><span class="chip">Draft</span><span class="chip">Review</span><span class="chip">Approved</span></div>
+          <div class="chips"><span class="chip">Sab lorry</span><span class="chip">Attached</span><span class="chip">Apni gaadi</span><span class="chip mkt">🛒 Market (fleet partner)</span></div>
+        </div>
+      </div>
+      <div class="tbl list">
+        <table>
+          <thead><tr><th>Bill No</th><th>Malik / Partner</th><th>Cycle</th><th class="r">Truck / Lorry</th><th class="r">Load / Trip</th><th class="r">Freight</th><th class="r">Kharch / Partner freight</th><th class="r">Commission / Margin</th><th class="r">TDS</th><th class="r">Payable</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="mono cyan">VB-SKP-JUN-H2-2026</td><td class="ink">SANDEEP KUMAR PRASAD<span class="sub">ATTACHED · M/S PRASAD TRANSPORT ki books</span></td><td>Jun 2026 · 16–30</td><td class="r num">11</td><td class="r num">30</td><td class="r num ink">₹11,51,802.82</td><td class="r num crit">₹5,09,605.00</td><td class="r num dim">—</td><td class="r num dim">—</td><td class="r num dim">—</td><td><span class="st draft">🤖 AI DRAFT</span></td></tr>
+            <tr class="sel"><td class="mono mkt">MB-AR-JUN-H2-2026</td><td class="ink">ASSAM ROADWAYS <span class="warn" style="font-size:10px">namuna</span><span class="sub">MARKET · fleet partner · M/S PRASAD TRANSPORT ki books</span></td><td>Jun 2026 · 16–30</td><td class="r num">2</td><td class="r num">3</td><td class="r num ink">₹1,86,000.00</td><td class="r num mkt">₹1,62,000.00</td><td class="r num good">₹24,000.00</td><td class="r num">₹1,620.00</td><td class="r num good" style="font-weight:700">₹14,580.00</td><td><span class="st review">📝 REVIEW</span></td></tr>
+            <tr><td class="mono cyan">VB-PT-OWN-JUN-H2-2026</td><td class="ink">PRASAD TRANSPORT · apni gaadi<span class="sub">OWN · payable nahi, sirf P&amp;L</span></td><td>Jun 2026 · 16–30</td><td class="r num">15</td><td class="r num">24</td><td class="r num ink">₹13,57,872.13</td><td class="r num crit">₹6,64,713.80</td><td class="r num dim">—</td><td class="r num dim">—</td><td class="r num good">munafa ₹6,93,158</td><td><span class="st draft">🤖 AI DRAFT</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Market row me "Kharch" ki jagah <b>partner freight</b> (jo hum partner ko dete hain) aur "Commission" ki jagah <b>margin</b> (customer − partner) dikhta hai — column ek hi, matlab alag, header dono naam bolta hai. Payable = partner freight − advance diya − TDS.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ SCREEN 2 · the partner statement ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 2 · Partner ka bill khula hua</h2><span>Click par yahi khulta hai — load truck ke neeche, customer side baayein (green), partner side daayein (pink).</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div>
+          <div class="eyebrow">15-Day Market Partner Bill · Audit &amp; Approval</div>
+          <h3>ASSAM ROADWAYS <span class="warn" style="font-size:12px;font-weight:600">namuna</span></h3>
+          <div class="sub"><span class="mono mkt">MB-AR-JUN-H2-2026</span> · Jun 2026 · 16–30 · 2026-06-16 → 2026-06-30 · 2 truck · 3 load (POD verified) · books: M/S PRASAD TRANSPORT · PAN AAXPR1234K · firm (2%)</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn cyan">✏️ Edit</button><button class="btn solid">💾 Save</button><button class="btn">🖨️ Print / PDF</button><button class="btn good">🟢 WhatsApp</button><button class="btn">✉️ Email bill</button><button class="btn good">✅ Approve (TDS post + lock)</button><button class="btn mkt">💸 Balance bhejein</button><button class="btn">✕ Band karein</button>
+        </div>
+      </div>
+      <div class="billhead">
+        <div><div class="k">Customer freight (aay)</div><div class="v num">₹1,86,000.00</div></div>
+        <div><div class="k">Partner freight (lagat)</div><div class="v num mkt">₹1,62,000.00</div></div>
+        <div><div class="k">Margin · office only</div><div class="v num good">₹24,000.00 · 12.9%</div></div>
+        <div><div class="k">Advance diya</div><div class="v num">₹1,45,800.00</div></div>
+        <div><div class="k">TDS 194C 2%</div><div class="v num">₹1,620.00</div></div>
+        <div><div class="k">Partner ko dena (balance)</div><div class="v num good">₹14,580.00</div></div>
+        <div><div class="k">Status</div><div class="v warn">📝 REVIEW</div></div>
+      </div>
+      <div class="bill">
+        <table>
+          <thead>
+            <tr class="side">
+              <th rowspan="2" style="text-align:left">Load ID<br><span class="dim" style="letter-spacing:0;font-weight:500">POD tareekh · route</span></th>
+              <th class="c" colspan="4">◀ CUSTOMER SIDE (hamari aay)</th>
+              <th class="p fold" colspan="7">PARTNER SIDE (hum partner ko) ▶</th>
+            </tr>
+            <tr>
+              <th class="c">Customer</th><th class="c">Material · Wt</th><th class="c r">Customer freight</th><th class="c r">Margin</th>
+              <th class="p fold r">Partner freight</th><th class="p r">Advance diya</th><th class="p">Advance date</th><th class="p r">TDS 194C</th><th class="p r">Balance due</th><th class="p">POD</th><th class="p">Khata</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="veh"><td colspan="12">🚛 AS 01 AB 4521 <span class="own">market truck · 10-wheeler · driver RAJU DAS · 2 load</span></td></tr>
+            <tr>
+              <td><span class="mono mkt">LD-30801</span><span class="sub">POD 18 Jun · Bongaigaon → Siliguri · 428 km</span></td>
+              <td class="c">IOCL<span class="sub">contract load</span></td><td class="c">HSD · 20 KL</td><td class="c r num ink">64,000.00</td><td class="c r num good">8,000.00</td>
+              <td class="p fold r num mkt">56,000.00</td><td class="p r num">50,400.00</td><td class="p">10 Jun · BZADV</td><td class="p r num">1,120.00</td><td class="p r num good">4,480.00</td><td class="p">✅ 18 Jun</td><td class="p dim">BZLOCK ✓ · BZINC ✓</td>
+            </tr>
+            <tr>
+              <td><span class="mono mkt">LD-30811</span><span class="sub">POD 27 Jun · Bongaigaon → Guwahati · 190 km</span></td>
+              <td class="c">HPCL<span class="sub">market load · bid</span></td><td class="c">MS · 16 KL</td><td class="c r num ink">40,000.00</td><td class="c r num good">4,000.00</td>
+              <td class="p fold r num mkt">36,000.00</td><td class="p r num">32,400.00</td><td class="p">22 Jun · BZADV</td><td class="p r num">720.00</td><td class="p r num good">2,880.00</td><td class="p">✅ 27 Jun</td><td class="p dim">BZLOCK ✓ · BZINC ✓</td>
+            </tr>
+            <tr class="sub"><td>Subtotal for Truck: AS 01 AB 4521</td><td class="c dim">2 load</td><td class="c"></td><td class="c r num">1,04,000.00</td><td class="c r num good">12,000.00</td><td class="p fold r num mkt">92,000.00</td><td class="p r num">82,800.00</td><td class="p"></td><td class="p r num">1,840.00</td><td class="p r num good">7,360.00</td><td class="p"></td><td class="p"></td></tr>
+
+            <tr class="veh"><td colspan="12">🚛 AS 01 CD 7788 <span class="own">market truck · 12-wheeler · driver MOFIZUL HAQUE · 1 load</span></td></tr>
+            <tr>
+              <td><span class="mono mkt">LD-30822</span><span class="sub">POD 29 Jun · Bongaigaon → Agartala · 612 km</span></td>
+              <td class="c">BPCL<span class="sub">market load · book-now</span></td><td class="c">ATF · 40 KL</td><td class="c r num ink">82,000.00</td><td class="c r num good">12,000.00</td>
+              <td class="p fold r num mkt">70,000.00</td><td class="p r num">63,000.00</td><td class="p">24 Jun · BZADV</td><td class="p r num">1,400.00</td><td class="p r num good">5,600.00</td><td class="p">✅ 29 Jun</td><td class="p dim">BZLOCK ✓ · BZINC ✓</td>
+            </tr>
+            <tr class="sub"><td>Subtotal for Truck: AS 01 CD 7788</td><td class="c dim">1 load</td><td class="c"></td><td class="c r num">82,000.00</td><td class="c r num good">12,000.00</td><td class="p fold r num mkt">70,000.00</td><td class="p r num">63,000.00</td><td class="p"></td><td class="p r num">1,400.00</td><td class="p r num good">5,600.00</td><td class="p"></td><td class="p"></td></tr>
+
+            <tr class="grand"><td>Total of All Loads · 2 truck · 3 load</td><td class="c"></td><td class="c"></td><td class="c r num">1,86,000.00</td><td class="c r num good">24,000.00</td><td class="p fold r num mkt">1,62,000.00</td><td class="p r num">1,45,800.00</td><td class="p"></td><td class="p r num">3,240.00</td><td class="p r num good">12,960.00</td><td class="p"></td><td class="p"></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">TDS yahan namune me <b>poore partner freight par 2%</b> (₹3,240) dikhaya hai; header me ₹1,620 = sirf balance par kata. <b>Yeh aap tay karein (neeche #2)</b> — kanoon poore bhugtan par TDS maangta hai, matlab advance ke waqt bhi katna chahiye tha. Margin partner ko kabhi nahi dikhta — Print/WhatsApp/Email me customer side hat jaata hai, sirf partner side jaata hai. Jo load is pakhwade me chal rahe hain par POD nahi hua, wo bill me nahi — neeche "chal rahe load" ki line me ginti dikhti hai.</p>
+
+      <div class="foot">
+        <div class="box">
+          <h4>HISAAB — partner ko kitna dena hai</h4>
+          <div class="kv"><span class="lab">Partner freight <small>3 load · awarded amount</small></span><span class="num ink">₹1,62,000.00</span></div>
+          <div class="kv"><span class="lab">− Advance pehle diya <small>BZADV voucher, 90% loading par</small></span><span class="num">₹1,45,800.00</span></div>
+          <div class="kv"><span class="lab">− TDS 194C 2% <small>firm with PAN · Market Fleet TDS Payable</small></span><span class="num">₹1,620.00</span></div>
+          <div class="kv"><span class="lab">± Manual adjustment <small>detention, damage, deposit refund</small></span><span class="num dim">₹0.00</span></div>
+          <div class="kv tot"><span class="lab">Balance bhejna</span><span class="num good">₹14,580.00</span></div>
+          <div class="kv" style="border-top:1px dashed var(--line);margin-top:6px"><span class="lab">Hamari kamai (margin) <small>office only · income − cost, teesri entry nahi</small></span><span class="num good">₹24,000.00</span></div>
+          <div class="kv"><span class="lab">Customer se lena <small>Market Debtors · POD par posted</small></span><span class="num">₹1,86,000.00</span></div>
+          <div class="kv"><span class="lab">Chal rahe load (POD baaki) <small>bill me nahi</small></span><span class="num dim">1 load · ₹48,000</span></div>
+        </div>
+        <div class="box">
+          <h4>APPROVE PAR — sirf TDS post + lock (baaki pehle se posted)</h4>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Market Partner: ASSAM ROADWAYS<small>Market Fleet Payables (Partners)</small></span><span class="num ink">1,620.00</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led"><b class="mkt">Market Fleet TDS Payable 194C</b><small>naya group: Market Fleet Duties &amp; Taxes (segment guard ke andar)</small></span><span class="num">1,620.00</span></div>
+          <h4 style="margin-top:12px">💸 BALANCE BHEJEIN PAR — ek PAYMENT voucher, MBPAY-AR-JUN-H2-2026</h4>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Market Partner: ASSAM ROADWAYS</span><span class="num ink">14,580.00</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">HDFC Bank<small>account chunna padega · vendor_txns me PAYMENT_GIVEN · teeno load SETTLED · partner ko WhatsApp</small></span><span class="num">14,580.00</span></div>
+          <div class="note" style="margin-top:8px">Pehle se posted: BZLOCK (Dr Market Fleet Freight Cost / Cr Market Partner ₹1,62,000) award par; BZINC (Dr Market Debtors / Cr Market Fleet Freight Income ₹1,86,000) POD par; BZADV ₹1,45,800 loading par. Bill inhe dobara nahi chhoota — sirf padhta hai. 0% error rule: margin = income − cost, v_market_margin_audit se mel.</div>
+        </div>
+      </div>
+      <div class="after"><b>Approve ke baad:</b> <span class="st approved">✅ APPROVED 🔒</span> · teeno settlement lock · buttons sirf <span class="btn warn" style="padding:3px 9px">🔓 Modify (admin, reason)</span> <span class="btn" style="padding:3px 9px">🖨️ Print</span> <span class="btn good" style="padding:3px 9px">🟢 WhatsApp</span> <span class="btn" style="padding:3px 9px">✉️ Email</span> <span class="btn mkt" style="padding:3px 9px">💸 Balance bhejein</span> · Partner ke app me "My Money" me yahi bill (bina margin) dikhega.</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ SCREEN 3 · how it fills ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 3 · Rasta — load se bill tak (kuch naya likhna nahi padta)</h2><span>Sab kuch pehle se Bazaar me hai; bill sirf 15 din ka statement hai.</span></div>
+    <div class="frame">
+      <ul class="flow">
+        <li><i>1</i><span><b>Partner master</b> (Market Vehicle &amp; Fleet Partner Master) — KYC approve par vendor_kind FLEET_PARTNER. <b>Naya:</b> individual/firm + PAN + 194C(6) declaration ✓/✗ → TDS rate 1% / 2% / 20% / NIL, master se, anuman nahi.</span></li>
+        <li><i>2</i><span><b>Load award / lock</b> — settlement khulta hai, BZLOCK post (cost). Firm (company) desk set karta hai — bina firm paisa nahi.</span></li>
+        <li><i>3</i><span><b>Advance</b> loading par (BZADV, 90%). <b>Naya:</b> TDS yahin se kat-ta hai agar aap #2 me "advance par bhi" chunte hain.</span></li>
+        <li><i>4</i><span><b>POD verify</b> — BZINC post (income). Yahi tareekh tay karti hai load kis pakhwade ke bill me jaayega.</span></li>
+        <li><i>5</i><span><b>1 aur 16 tareekh 03:00</b> — TARA har partner ka MB- bill draft banati hai (POD-verified load, truck-wise), own/attached ke saath, usi list me.</span></li>
+        <li><i>6</i><span><b>Desk</b> Edit/Save (adjustment) → <b>Admin Approve</b> (TDS post + lock) → <b>Balance bhejein</b> (ek PAYMENT voucher, bank se) → load SETTLED, partner app me bill.</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="dec">
+    <h2>YES se pehle 3 baatein</h2>
+    <ol>
+      <li><b>TDS kab kate?</b> (a) sirf balance par (namune ka header, ₹1,620) — aasaan par kanoonan advance par bhi banta hai; (b) <b>poore partner freight par, bill me ek baar</b> — advance gross gaya tha, bill balance se poora TDS kaat leta hai (₹3,240, balance ₹11,340). Main (b) ki salah dunga: sahi bhi, aur ek jagah.</li>
+      <li><b>Bill ka pakhwada POD-verify ki tareekh se</b> (jab delivery pakki hui), award ki tareekh se nahi. Chal rahe load agle bill me.</li>
+      <li><b>Partner master me TDS ke 3 field</b> (individual/firm, 194C(6) declaration, PAN pehle se) — bina inke bill "rate nahi" dikhayega, approve nahi hoga; own/attached ki tarah anuman nahi.</li>
+    </ol>
+    <div class="facts">
+      <div class="fact"><div class="n crit">0</div><small>fleet partner, market truck, settlement, bazaar voucher — production me aaj</small></div>
+      <div class="fact"><div class="n">2</div><small>load OPEN (LD-21615 IOCL Bongaigaon→Siliguri, LD-30729) — koi bid nahi</small></div>
+      <div class="fact"><div class="n crit">₹0</div><small>TDS market flow me kabhi kata nahi — engine hai, bulaya nahi</small></div>
+      <div class="fact"><div class="n">1</div><small>naya account group chahiye: Market Fleet Duties &amp; Taxes (P0403 se bachne ke liye)</small></div>
+      <div class="fact"><div class="n">5</div><small>market ledger group pehle se: Income, Expenses, Payables, Deposits, Receivables</small></div>
+    </div>
+  </section>
+</div>
