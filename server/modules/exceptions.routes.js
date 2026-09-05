@@ -1074,3 +1074,45 @@ export async function detectTds(exec = query) {
   }
   return { raised: raised.length };
 }
+
+// ── GST (migration 171) ─────────────────────────────────────────────────────
+export async function detectGst(exec = query) {
+  const raised = [];
+  const inr = (v) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  const { rows: firms } = await exec(`SELECT * FROM v_gst_overview`).catch(() => ({ rows: [] }));
+  for (const f of firms) {
+    if (!f.gstin && Number(f.fy_docs) > 0) {
+      raised.push(await raiseException({ kind: 'GST_GSTIN_MISSING', severity: 'HIGH', title: `${f.company_name}: no GSTIN on file — ${f.fy_docs} GST documents cannot be filed`,
+        detail: `The firm has issued documents worth ${inr(f.fy_rcm_taxable)} under reverse charge this FY but no GSTIN is recorded. Enter it on the firm card under GST Management (the PAN inside it must be ${f.pan_no ?? 'the firm PAN'}).`,
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `GST_GSTIN_MISSING:${f.company_id}`, detected_by: 'scheduler', evidence: { docs: f.fy_docs, rcm_taxable: f.fy_rcm_taxable } }, exec));
+    }
+    if (Number(f.customers_without_gstin) > 0) {
+      raised.push(await raiseException({ kind: 'GST_CUSTOMER_GSTIN_MISSING', severity: 'MEDIUM', title: `${f.company_name}: ${f.customers_without_gstin} customer${Number(f.customers_without_gstin) === 1 ? '' : 's'} billed without a GSTIN on the master`,
+        detail: 'A reverse-charge or forward-charge invoice to a registered customer must name their GSTIN in GSTR-1 (table 4B / 4A). Enter it under GST Management → Output → customer treatment, or under the customer master.',
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `GST_CUSTOMER_GSTIN_MISSING:${f.company_id}`, detected_by: 'scheduler', evidence: { count: f.customers_without_gstin } }, exec));
+    }
+    if (Number(f.docs_needing_attention) > 0) {
+      raised.push(await raiseException({ kind: 'GST_DOC_ATTENTION', severity: 'MEDIUM', title: `${f.company_name}: ${f.docs_needing_attention} GST document${Number(f.docs_needing_attention) === 1 ? '' : 's'} cannot go into GSTR-1 as they stand`,
+        detail: 'Inter-state IOCL bills need the recipient state GSTIN and place of supply; other documents lack the recipient GSTIN. They are held back from the b2b sheet until fixed under GST Management → Output.',
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `GST_DOC_ATTENTION:${f.company_id}`, detected_by: 'scheduler', evidence: { count: f.docs_needing_attention } }, exec));
+    }
+    if (f.gst_scheme === 'FCM_12' && Number(f.itc_needing_invoice) > 0) {
+      raised.push(await raiseException({ kind: 'GST_ITC_INVOICE_MISSING', severity: 'LOW', title: `${f.company_name}: ${f.itc_needing_invoice} purchase${Number(f.itc_needing_invoice) === 1 ? '' : 's'} carry no tax invoice — credit cannot be claimed`,
+        detail: 'Under the 12% option every credit needs the supplier GSTIN, invoice number and GST amount. Enter them under GST Management → Input tax credit.',
+        subject_type: 'company', subject_id: f.company_id, company: f.company_name, dedupe_key: `GST_ITC_INVOICE_MISSING:${f.company_id}`, detected_by: 'scheduler', evidence: { count: f.itc_needing_invoice } }, exec));
+    }
+  }
+  const { rows: due } = await exec(`SELECT f.*, c.company_name, gst_period_label(f.period) AS label FROM gst_filings f JOIN companies c ON c.id = f.company_id WHERE f.status IN ('DRAFT','EXPORTED') AND f.due_date < current_date`).catch(() => ({ rows: [] }));
+  for (const f of due) {
+    raised.push(await raiseException({ kind: 'GST_RETURN_DUE', severity: 'HIGH', title: `${f.company_name}: ${f.form === 'GSTR1' ? 'GSTR-1' : 'GSTR-3B'} ${f.label} not filed (due ${String(f.due_date).slice(0, 10)})`,
+      detail: 'Late fee accrues per day of delay (₹50/day, ₹20/day for a nil return) and interest at 18% on tax paid late. Download the pack under GST Management → Govt. submission, file on the portal, then record the ARN.',
+      subject_type: 'gst_filing', subject_id: f.id, company: f.company_name, dedupe_key: `GST_RETURN_DUE:${f.id}`, detected_by: 'scheduler', evidence: { form: f.form, period: f.period, due: f.due_date } }, exec));
+  }
+  const { rows: [last] } = await exec(`SELECT summary FROM gst_audit_runs ORDER BY ran_at DESC LIMIT 1`).catch(() => ({ rows: [] }));
+  for (const x of last?.summary?.gstin_vs_books ?? []) {
+    raised.push(await raiseException({ kind: 'GST_BOOKS_MISMATCH', severity: 'MEDIUM', title: `${x.docs} IOCL bills under ${x.gstin_firm}'s GSTIN are booked in ${x.books_firm}'s books`,
+      detail: `${inr(x.taxable)} of freight is invoiced on ${x.gstin_firm}'s GSTIN (the document IOCL holds) but the revenue sits in ${x.books_firm}. GST is reported by the firm on the document; the owner and the CA should decide whether the books or the IOCL vendor registration should change.`,
+      subject_type: 'company', subject_id: null, company: x.gstin_firm, amount_at_risk: Number(x.taxable) || null, dedupe_key: `GST_BOOKS_MISMATCH:${x.gstin_firm}:${x.books_firm}`, detected_by: 'scheduler', evidence: x }, exec));
+  }
+  return { raised: raised.length };
+}

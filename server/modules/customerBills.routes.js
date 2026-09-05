@@ -62,7 +62,13 @@ function billText(b) {
   L.push(`Gross: ${inr(b.gross)}`);
   if (num(b.shortage_penalty)) L.push(`− Shortage penalty: ${inr(b.shortage_penalty)}`);
   L.push(`− TDS 194C${b.tds_pct !== null ? ` ${num(b.tds_pct)}%` : ''}: ${inr(b.tds)}`);
-  if (b.gst_mode === 'RCM') L.push(`GST ${num(b.gst_pct)}% RCM (memo): ${inr(b.gst_memo)}`);
+  {
+    const t = b.gst_treatment ?? b.gst_mode; const gst = num(b.gst_amount) || num(b.gst_memo);
+    if (b.gst_invoice_no) L.push(`Tax invoice: ${b.gst_invoice_no}`);
+    if (t === 'RCM') L.push(`GST ${num(b.gst_pct)}% under reverse charge: ${inr(gst)} — payable by you to the government, not added to this bill`);
+    else if (t === 'FORWARD') L.push(`+ GST ${num(b.gst_pct)}%${b.supply_type === 'INTER' ? ' (IGST)' : ' (CGST + SGST)'}: ${inr(gst)}`);
+    else if (t === 'EXEMPT') L.push('GST: exempt (Notification 12/2017 entry 21A)');
+  }
   L.push(`*Net receivable: ${inr(b.net_receivable)}*`);
   L.push(`Received: ${inr(b.received)} · Balance: ${inr(b.balance)}`);
   if (num(b.missing_count)) L.push(`❌ Missing freight: ${b.missing_count} trip · ${inr(b.missing_amount)}`);

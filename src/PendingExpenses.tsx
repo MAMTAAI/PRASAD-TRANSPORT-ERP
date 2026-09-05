@@ -567,6 +567,8 @@ vehicle_no: Indian plate on the bill if printed (e.g. AS26C5102), else "". Empty
             <div><label className="pt-label">Bill Date</label><input type="date" className="pt-input" style={S.input} value={form.bill_date} onChange={e => setForm({ ...form, bill_date: e.target.value })} /></div>
             <div><label className="pt-label" style={{ color: '#2fe39b' }}>Amount (₹) *</label><input type="number" inputMode="decimal" className="pt-input" style={{ borderColor: '#2fe39b', fontWeight: 'bold', fontSize: '18px' }} value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="0.00" /></div>
             <div><label className="pt-label">GST (₹)</label><input type="number" inputMode="decimal" className="pt-input" value={form.gst_amount} onChange={e => setForm({ ...form, gst_amount: e.target.value })} placeholder="0.00" /></div>
+            <div><label className="pt-label">GST rate</label><select className="pt-input" value={form.gst_rate ?? ''} onChange={e => setForm({ ...form, gst_rate: e.target.value })}><option value="">—</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select></div>
+            <div><label className="pt-label">Supplier GSTIN</label><input className="pt-input" value={form.supplier_gstin ?? ''} onChange={e => setForm({ ...form, supplier_gstin: e.target.value.toUpperCase() })} placeholder="15-character GSTIN (for input credit)" /></div>
           </div>
           <div style={{ marginTop: '15px' }}>
             <label className="pt-label">Description / Remarks</label>

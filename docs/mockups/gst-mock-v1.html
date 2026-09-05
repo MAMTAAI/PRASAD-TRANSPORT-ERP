@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GST Management (GTA) 360° — mock v1</title>
+<style>
+  :root { --bg:#0a1024; --panel:#121c38; --line:#27395f; --ink:#eef2fd; --ink2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196; --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa; --gold:#fcd34d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background: radial-gradient(circle at top right, #121c38, #0a1024); color: var(--ink); font: 13px/1.45 Inter, system-ui, sans-serif; padding: 20px 24px 60px; }
+  h1 { font-size: 26px; margin: 0; } h2 { font-size: 15px; margin: 18px 0 8px; color: var(--ink2); }
+  .eyebrow { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .lead { color: var(--mut); max-width: 100ch; font-size: 12.5px; margin-top: 4px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 12px 0; }
+  .btn { font-weight:700; font-size:12px; border-radius:8px; padding:7px 13px; border:1px solid var(--line); color: var(--mut); background:transparent; white-space:nowrap; }
+  .btn.ai { color:#c4b5fd; border-color: rgba(167,139,250,.5); background: rgba(167,139,250,.14); }
+  .btn.gold { color: var(--gold); border-color: rgba(252,211,77,.55); background: rgba(252,211,77,.12); }
+  .btn.cyan { color: var(--cyan); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.12); }
+  .btn.solid { color:#0a1024; background: var(--good); border-color: var(--good); }
+  .btn.good { color: var(--good); border-color: rgba(47,227,155,.55); background: rgba(47,227,155,.10); }
+  .chip { font-size:11px; font-weight:700; border-radius:999px; padding:4px 10px; border:1px solid var(--line); color: var(--mut); }
+  .chip.on { color: var(--cyan); border-color: var(--cyan); background: rgba(34,211,238,.10); }
+  .sel { background:#0a1024; border:1px solid var(--line); border-radius:8px; color: var(--ink); padding:6px 10px; font-size:12px; }
+  .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:10px; }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .card.active { border-color: var(--cyan); box-shadow: 0 0 0 1px rgba(34,211,238,.35); }
+  .card .name { font-size:16px; font-weight:800; margin:2px 0; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .kv { display:grid; grid-template-columns: 1fr auto; gap:4px 10px; font-size:12px; margin-top:8px; }
+  .kv span { color: var(--mut); } .kv b.tot { border-top:1px solid #1b2a4e; padding-top:4px; font-size:14px; }
+  .kv span.tot { border-top:1px solid #1b2a4e; padding-top:4px; }
+  .gap { margin-top:8px; font-size:11.5px; color: var(--crit); }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background: rgba(10,16,36,.45); }
+  table { border-collapse: collapse; width:100%; font-size:12px; }
+  th { padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color: var(--dim); border-bottom:1px solid var(--line); white-space:nowrap; background: rgba(10,16,36,.6); }
+  td { padding:8px 10px; border-bottom:1px solid #1b2a4e; color: var(--ink2); white-space:nowrap; vertical-align:top; }
+  td.r, th.r { text-align:right; font-variant-numeric: tabular-nums; }
+  .pill { font-size:10px; font-weight:800; letter-spacing:.05em; border-radius:999px; padding:2px 9px; border:1px solid; white-space:nowrap; }
+  .p-ai { color: var(--ai); } .p-warn { color: var(--warn); } .p-dim { color: var(--dim); } .p-good { color: var(--good); } .p-crit { color: var(--crit); } .p-cyan { color: var(--cyan); }
+  .sub { font-size:10px; color: var(--dim); }
+  .note { color: var(--mut); font-size: 12px; line-height:1.55; }
+  .two { display:grid; grid-template-columns: 1.2fr 1fr; gap:12px; }
+  @media (max-width: 760px) { body { padding: 12px; } .two { grid-template-columns: 1fr; } h1 { font-size: 22px; } }
+  .banner { border:1px dashed var(--gold); color: var(--gold); border-radius: 10px; padding: 8px 12px; font-size: 12px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<div class="banner">MOCK v1 · 5-Sep-2026 · what the live GST Management screen shows, with production figures where they are known. Built in the same dark deck as TDS Management; phone layout stacks the cards and scrolls the tables.</div>
+
+<div class="eyebrow">Accounts &amp; Admin · Goods Transport Agency · SAC 996791</div>
+<h1>🏛️ GST Management</h1>
+<div class="lead">Output: every invoice the recipients hold — IOCL’s AC5 bills and our own 15-day bills — as reverse charge (shown, paid by them) or forward charge (charged by us). Input: GST paid on spares, tyres, insurance and vehicles, with what the law lets this firm claim. Net = forward-charge output − eligible credit, set off in the statutory order. The government files come out in the offline tool’s own format.</div>
+<div class="row"><span class="btn ai">🔎 Deep audit</span><span class="btn gold">⬇ Download for Govt Portal / CA (Excel)</span></div>
+<div class="row"><select class="sel"><option>M/S PRASAD TRANSPORT</option><option>M/S JAISWAL ENTERPRISE</option><option>M/S GAUTAM PRASAD</option></select><select class="sel"><option>Aug 2026</option><option>Jul 2026</option><option>Jun 2026</option></select><span class="note">GSTIN <b class="p-good">18AAKFP2339R2ZG</b> · Reverse charge (recipient pays 5%, no ITC) · monthly</span></div>
+
+<div class="cards">
+  <div class="card active">
+    <div class="eyebrow">PAN AAKFP2339R · Assam</div>
+    <div class="name">M/S PRASAD TRANSPORT</div>
+    <div class="mono p-good">18AAKFP2339R2ZG <span class="sub">· IOCL AC5 bills (vendor GSTIN), PAN matched</span></div>
+    <div class="kv"><span>RCM supplies this FY · GST shown, paid by recipients</span><b class="p-ai">₹2.24 cr · ₹11.2 L</b><span>Forward-charge output tax</span><b>₹0</b><span>ITC eligible · on record but blocked</span><b>₹0 · <span class="p-dim">₹62,136</span></b><span class="tot">Net GST payable (FY)</span><b class="tot p-good">₹0</b><span>Documents · filed returns</span><b>93 · 0</b></div>
+    <div class="gap">⚠ 2 customers without GSTIN · 4 documents need attention · 10 filings overdue</div>
+  </div>
+  <div class="card">
+    <div class="eyebrow">PAN AAMFJ3644H · Assam</div>
+    <div class="name">M/S JAISWAL ENTERPRISE</div>
+    <div class="mono p-crit">GSTIN not on file</div>
+    <div class="kv"><span>RCM supplies this FY · GST shown, paid by recipients</span><b class="p-ai">₹45.6 L · ₹2.3 L</b><span>Forward-charge output tax</span><b>₹0</b><span>ITC eligible · on record but blocked</span><b>₹0 · <span class="p-dim">₹0</span></b><span class="tot">Net GST payable (FY)</span><b class="tot p-good">₹0</b><span>Documents · filed returns</span><b>18 · 0</b></div>
+    <div class="gap">⚠ no GSTIN · 2 customers without GSTIN</div>
+  </div>
+  <div class="card">
+    <div class="eyebrow">PAN BQFPP5877G · Assam</div>
+    <div class="name">M/S GAUTAM PRASAD</div>
+    <div class="mono p-crit">GSTIN not on file</div>
+    <div class="kv"><span>RCM supplies this FY · GST shown, paid by recipients</span><b class="p-ai">₹0 · ₹0</b><span>Forward-charge output tax</span><b>₹0</b><span>ITC eligible · on record but blocked</span><b>₹0 · <span class="p-dim">₹0</span></b><span class="tot">Net GST payable (FY)</span><b class="tot p-good">₹0</b><span>Documents · filed returns</span><b>0 · 0</b></div>
+    <div class="gap">⚠ 20 IOCL bills booked here carry Prasad Transport’s GSTIN — GST follows the document</div>
+  </div>
+</div>
+
+<div class="row"><span class="chip on">📊 Net GST by month</span><span class="chip">📤 Output · RCM / FCM</span><span class="chip">📥 Input tax credit</span><span class="chip">🔁 GSTR-2B reconciliation</span><span class="chip">🏛 Govt. submission</span></div>
+
+<h2>Net GST by month — Prasad Transport</h2>
+<div class="wrap"><table>
+<thead><tr><th>Month</th><th class="r">Docs</th><th class="r">RCM taxable</th><th class="r">GST paid by recipients</th><th class="r">FCM taxable</th><th class="r">Output tax</th><th class="r">ITC eligible</th><th class="r">ITC blocked</th><th class="r">Net payable</th><th>Attention</th></tr></thead>
+<tbody>
+<tr><td><b>Aug 2026</b></td><td class="r">14</td><td class="r">₹41,20,318</td><td class="r p-ai">₹2,06,016</td><td class="r">₹0</td><td class="r">₹0</td><td class="r p-good">₹0</td><td class="r p-dim">₹3,600</td><td class="r"><b class="p-good">₹0.00</b></td><td><span class="p-crit">1 docs</span> <span class="p-warn">3 purchases</span></td></tr>
+<tr><td><b>Jul 2026</b></td><td class="r">21</td><td class="r">₹58,66,410</td><td class="r p-ai">₹2,93,321</td><td class="r">₹0</td><td class="r">₹0</td><td class="r p-good">₹0</td><td class="r p-dim">₹18,404</td><td class="r"><b class="p-good">₹0.00</b></td><td><span class="p-crit">2 docs</span></td></tr>
+<tr><td><b>Jun 2026</b></td><td class="r">19</td><td class="r">₹51,02,775</td><td class="r p-ai">₹2,55,139</td><td class="r">₹0</td><td class="r">₹0</td><td class="r p-good">₹0</td><td class="r p-dim">₹9,000</td><td class="r"><b class="p-good">₹0.00</b></td><td></td></tr>
+</tbody></table></div>
+<div class="two" style="margin-top:12px">
+  <div class="card"><div class="eyebrow">How the number is built</div><div class="note" style="margin-top:6px"><b class="p-ai">Reverse charge</b> — IOCL, BPCL, HPCL, Aadhar Green and every other registered or corporate customer: the invoice shows 5% GST, the recipient pays it, it never enters our receivable (Notification 13/2017).<br><b class="p-warn">Forward charge</b> — customers a person switched to FORWARD: we add 5% (no credit) or 12% (with credit) to the invoice and the receivable.<br><b class="p-good">Input credit</b> — GST on spares, tyres, batteries, insurance, repairs and goods carriages. Claimable only under the 12% option; under reverse charge it stays on record as blocked (Sec 17(3)). Toll is exempt, diesel is outside GST — both go to GSTR-3B table 5.<br><b class="p-crit">Net payable</b> = output tax − eligible credit, set off IGST → CGST → SGST (Rule 88A).</div></div>
+  <div class="card"><div class="eyebrow">Last deep audit</div><div class="note" style="margin-top:6px">05 Sep 2026 by migration 171 · 93 documents issued, 4 need attention · 90 bills carry GST lines · 61 purchase entries<br><span class="p-warn">⚠ 20 IOCL documents (₹1.9 cr) carry <b>M/S PRASAD TRANSPORT</b>’s GSTIN but their freight sits in <b>M/S GAUTAM PRASAD</b>’s books — GST follows the GSTIN on the document.</span><br><span class="p-crit">✖ Vendor master: HEY KRISHNA BHAGAWAN SERVICE STATION has an invalid GSTIN 18AEPC6036L1Z9</span><br><span class="p-crit">✖ M/S JAISWAL ENTERPRISE: no GSTIN on file — enter it on the firm card</span></div></div>
+</div>
+
+<h2>📤 Output · RCM / FCM — the documents the government will see</h2>
+<div class="row"><select class="sel"><option>All customers</option></select><span class="chip on">Aug 2026</span><span class="chip">👤 customer treatment</span><span class="note">14 issued · 0 drafts · RCM ₹41,20,318 (GST ₹2,06,016 by recipients) · FCM ₹0 · exempt ₹0 · <b class="p-crit">1 need attention</b></span></div>
+<div class="wrap"><table>
+<thead><tr><th>Document</th><th>Date</th><th>Customer · GSTIN</th><th>Treatment</th><th>Supply · POS</th><th class="r">Taxable</th><th class="r">CGST</th><th class="r">SGST</th><th class="r">IGST</th><th class="r">Invoice value</th><th>Status</th><th>Needs</th></tr></thead>
+<tbody>
+<tr><td class="mono">11024699AS26084<div class="sub">IOCL AC5 bill · 5 lines</div></td><td>31 Jul 2026</td><td>INDIAN OIL CORPORATION LTD<div class="sub mono">18AAACI1681G1ZO</div></td><td><span class="pill p-ai">RCM · recipient pays</span></td><td>INTRA · 18</td><td class="r">₹3,65,363.10</td><td class="r">₹9,134.09</td><td class="r">₹9,134.09</td><td class="r">₹0.00</td><td class="r"><b>₹3,65,363.10</b><div class="sub">+ ₹18,268.18 GST paid by recipient</div></td><td><span class="pill p-good">ISSUED</span></td><td class="p-good">✓</td></tr>
+<tr><td class="mono">MNP26000930<div class="sub">IOCL AC5 bill · 16 lines</div></td><td>31 Jul 2026</td><td>INDIAN OIL CORPORATION LTD<div class="sub mono p-crit">no GSTIN</div></td><td><span class="pill p-ai">RCM · recipient pays</span></td><td>INTER · ?</td><td class="r">₹37,569.42</td><td class="r">₹0.00</td><td class="r">₹0.00</td><td class="r">₹1,878.46</td><td class="r"><b>₹37,569.42</b><div class="sub">+ ₹1,878.46 GST paid by recipient</div></td><td><span class="pill p-good">ISSUED</span></td><td class="p-crit">inter-state: recipient state GSTIN + place of supply needed <span class="btn cyan">fix</span></td></tr>
+<tr><td class="mono">PT/2627/00004<div class="sub">our tax invoice · 13 trips</div></td><td>01 Sep 2026</td><td>AADHAR GREEN INDUSTRIES LLP<div class="sub mono">18ABUFA6737D1Z3</div></td><td><span class="pill p-ai">RCM · recipient pays</span></td><td>INTRA · 18</td><td class="r">₹7,80,000.00</td><td class="r">₹19,500.00</td><td class="r">₹19,500.00</td><td class="r">₹0.00</td><td class="r"><b>₹7,80,000.00</b><div class="sub">+ ₹39,000.00 GST paid by recipient</div></td><td><span class="pill p-good">ISSUED</span></td><td class="p-good">✓</td></tr>
+<tr><td class="mono">CB-BPCL-AUG-H2-2026-PT<div class="sub">our tax invoice · 6 trips</div></td><td>31 Aug 2026</td><td>BHARAT PETROLEUM CORPORATION LTD<div class="sub mono p-crit">no GSTIN</div></td><td><span class="pill p-ai">RCM · recipient pays</span></td><td>INTRA · 18</td><td class="r">₹2,11,400.00</td><td class="r">₹5,285.00</td><td class="r">₹5,285.00</td><td class="r">₹0.00</td><td class="r"><b>₹2,11,400.00</b><div class="sub">+ ₹10,570.00 GST paid by recipient</div></td><td><span class="pill p-dim">DRAFT</span></td><td class="p-crit">recipient GSTIN missing <span class="btn cyan">fix</span></td></tr>
+</tbody></table></div>
+
+<h2>👤 Customer treatment (inside Output)</h2>
+<div class="wrap"><table>
+<thead><tr><th>Customer</th><th>GSTIN</th><th>Treatment</th><th>Rate</th><th>Why</th><th class="r">Bills</th></tr></thead>
+<tbody>
+<tr><td><b>INDIAN OIL CORPORATION LTD</b> <span class="sub">· body corporate</span></td><td class="mono">18AAACI1681G1ZO</td><td><select class="sel"><option>RCM — recipient pays</option></select></td><td><select class="sel"><option>5%</option></select></td><td class="note">registered recipient (GSTIN 18AAACI1681G1ZO) — tax payable by the recipient under reverse charge</td><td class="r">24</td></tr>
+<tr><td><b>BHARAT PETROLEUM CORPORATION LTD</b> <span class="sub">· body corporate</span></td><td><input class="sel" placeholder="GSTIN" style="border-color:#ff6b81"></td><td><select class="sel"><option>RCM — recipient pays</option></select></td><td><select class="sel"><option>5%</option></select></td><td class="note">body corporate / firm — reverse charge applies even without a GSTIN on file; GSTIN needed to report the B2B invoice</td><td class="r">24</td></tr>
+<tr><td><b>AADHAR GREEN INDUSTRIES LLP</b> <span class="sub">· body corporate</span></td><td class="mono">18ABUFA6737D1Z3</td><td><select class="sel"><option>RCM — recipient pays</option></select></td><td><select class="sel"><option>5%</option></select></td><td class="note">registered recipient — tax payable by the recipient under reverse charge</td><td class="r">5</td></tr>
+</tbody></table></div>
+
+<h2>📥 Input tax credit</h2>
+<div class="row"><span class="chip on">Aug 2026</span><span class="chip">show toll &amp; diesel months</span><span class="btn cyan">＋ purchase invoice</span><span class="note">eligible <b class="p-good">₹0</b> · blocked under scheme <b class="p-dim">₹3,600</b> · exempt inward (toll) ₹1,02,340 · non-GST (diesel) ₹24,80,115 · <b class="p-crit">3 await an invoice</b></span></div>
+<div class="wrap"><table>
+<thead><tr><th>Date</th><th>Category</th><th>Supplier · GSTIN</th><th>Invoice</th><th>Description</th><th class="r">Total</th><th class="r">Taxable</th><th class="r">GST</th><th>Credit</th><th>Why</th><th>2B</th><th></th></tr></thead>
+<tbody>
+<tr><td>10 Aug 2026</td><td>TYRES</td><td>S P AUTOMOBILE<div class="sub mono">18AXTPD0252D1ZP</div></td><td class="mono">SPA/221</td><td class="note">MRF 10.00-20 TY-1</td><td class="r">₹23,600.00</td><td class="r">₹20,000.00</td><td class="r">₹3,600.00</td><td><span class="pill p-warn">BLOCKED · scheme</span></td><td class="note">GTA under reverse charge: the supply counts as exempt for credit (Sec 17(3)) — ITC cannot be availed; kept on record for the 12% option</td><td><span class="pill p-dim">CAPTURED</span></td><td><span class="btn cyan">✎</span></td></tr>
+<tr><td>15 Aug 2026</td><td>INSURANCE</td><td><span class="p-dim">—</span><div class="sub mono p-dim">no GSTIN</div></td><td class="mono">INS-1</td><td class="note">Vehicle Insurance Expenses — ICICI Lombard AS26C5109</td><td class="r">₹45,000.00</td><td class="r">—</td><td class="r p-dim">not recorded</td><td><span class="pill p-warn">BLOCKED · scheme</span></td><td class="note">GTA under reverse charge: ITC cannot be availed; kept on record for the 12% option</td><td><span class="pill p-dim">CAPTURED</span></td><td><span class="btn cyan">✎</span></td></tr>
+<tr><td>01 Aug 2026</td><td>TOLL</td><td><span class="p-dim">—</span></td><td>—</td><td class="note">Direct Expenses - Toll &amp; FASTag — Aug 2026</td><td class="r">₹1,02,340.00</td><td class="r">—</td><td class="r p-dim">not recorded</td><td><span class="pill p-dim">EXEMPT SUPPLY</span></td><td class="note">Toll charges are exempt from GST (Notification 12/2017 entry 23) — reported as exempt inward supply in GSTR-3B table 5</td><td><span class="pill p-dim">CAPTURED</span></td><td></td></tr>
+</tbody></table></div>
+
+<h2>🏛 Govt. submission</h2>
+<div class="card two">
+  <div><div class="eyebrow">Download for Govt Portal · M/S PRASAD TRANSPORT · Aug 2026</div>
+    <div class="row"><span class="btn gold">⬇ GSTR-1 (Excel · b2b, exemp, hsn, docs)</span><span class="btn cyan">⬇ GSTR-1 JSON (portal / offline tool)</span><span class="btn cyan">⬇ GSTR-1 b2b.csv</span><span class="btn gold">⬇ GSTR-3B summary (Excel)</span><span class="btn cyan">⬇ GSTR-3B CSV</span><span class="btn cyan">⬇ ITC register CSV</span><span class="btn solid">⬇ Complete CA pack (one Excel)</span></div>
+    <div class="note">GSTR-1 table 4B carries the reverse-charge invoices with “Reverse Charge = Y”; forward-charge invoices go to 4A; exempt supplies to table 8; HSN summary under SAC 996791. Documents flagged “needs attention” are listed on the Attention sheet and left out of the b2b sheet until fixed — never filed with a blank GSTIN. GTA is exempt from e-invoicing.</div></div>
+  <div><div class="eyebrow">This period</div>
+    <div class="note" style="margin-top:6px"><b class="p-cyan">GSTR-1</b> · due 11 Sep 2026 · <span class="pill p-warn">DUE SOON</span> <span class="pill p-cyan">PACK EXPORTED</span> <span class="btn good">filed ✓</span> <span class="btn">nil</span></div>
+    <div class="note" style="margin-top:6px"><b class="p-cyan">GSTR-3B</b> · due 20 Sep 2026 · <span class="pill p-dim">OPEN</span> <span class="pill p-dim">DRAFT</span> <span class="btn good">filed ✓</span> <span class="btn">nil</span></div></div>
+</div>
+<div class="wrap" style="margin-top:12px"><table>
+<thead><tr><th>Period</th><th>Form</th><th>Due</th><th>Status</th><th class="r">Docs</th><th class="r">RCM taxable</th><th class="r">Output tax</th><th class="r">ITC</th><th class="r">Net payable</th><th>Attention</th><th>ARN</th><th></th></tr></thead>
+<tbody>
+<tr><td><b>Aug 2026</b></td><td>GSTR-1</td><td>11 Sep 2026 <span class="pill p-warn">DUE SOON</span></td><td><span class="pill p-cyan">PACK EXPORTED</span></td><td class="r">14</td><td class="r">₹41,20,318</td><td class="r">₹0</td><td class="r">₹0</td><td class="r"><b class="p-good">₹0.00</b></td><td><span class="p-crit">1 docs</span></td><td class="mono p-dim">—</td><td><span class="btn good">filed ✓</span></td></tr>
+<tr><td><b>Jul 2026</b></td><td>GSTR-3B</td><td>20 Aug 2026 <span class="pill p-crit">OVERDUE</span></td><td><span class="pill p-dim">DRAFT</span></td><td class="r">21</td><td class="r">₹58,66,410</td><td class="r">₹0</td><td class="r">₹0</td><td class="r"><b class="p-good">₹0.00</b></td><td><span class="p-crit">2 docs</span></td><td class="mono p-dim">—</td><td><span class="btn good">filed ✓</span></td></tr>
+<tr><td><b>Jul 2026</b></td><td>GSTR-1</td><td>11 Aug 2026 <span class="pill p-crit">OVERDUE</span></td><td><span class="pill p-dim">DRAFT</span></td><td class="r">21</td><td class="r">₹58,66,410</td><td class="r">₹0</td><td class="r">₹0</td><td class="r"><b class="p-good">₹0.00</b></td><td><span class="p-crit">2 docs</span></td><td class="mono p-dim">—</td><td><span class="btn good">filed ✓</span></td></tr>
+</tbody></table></div>
+
+<h2>What the printed bill now says (customer copy)</h2>
+<div class="card note">
+  <b>Taxable value (SAC 996791) ₹3,90,000.00</b><br>CGST 2.5% (reverse charge) ₹9,750.00 · SGST 2.5% (reverse charge) ₹9,750.00<br>Invoice value incl. GST (GST payable by the recipient) ₹4,09,500.00<br><b>Amount payable to us (GST not added) ₹3,90,000.00</b><br><span class="sub">GST 5% payable by the recipient under reverse charge (Notification 13/2017-CT(R)) — shown for information, not added to this bill. Tax invoice PT/2627/00004.</span><br><br>A FORWARD customer instead sees “Invoice total (incl. GST)” with the tax added; an EXEMPT one sees “Exempt — Notification 12/2017 entry 21A”.
+</div>
+</body>
+</html>

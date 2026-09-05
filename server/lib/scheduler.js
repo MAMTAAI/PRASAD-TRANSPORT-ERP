@@ -25,7 +25,7 @@ import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched, detectTds, detectGst,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -152,6 +152,7 @@ async function runExceptionScan() {
     ['mailboxes', detectMailboxDead],
     ['bank', detectBankUnmatched],
     ['tds', detectTds],
+    ['gst', detectGst],
   ]) {
     try {
       const r = await fn();
@@ -296,11 +297,27 @@ async function rebuildTds() {
   }
 }
 
+// GST (171): once a day the deep audit re-reads the documents — customers a
+// person has not decided for get the statutory treatment, every bill carries
+// its GST lines, purchase entries land in the ITC register, filings sync.
+async function rebuildGst() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  if (state.lastGstDay === istToday()) return { skipped: 'ran today' };
+  state.lastGstDay = istToday();
+  try {
+    const { rows: [r] } = await query("SELECT gst_deep_audit('scheduler') AS s");
+    return { documents: r.s?.documents ?? null, itc_rows: r.s?.itc_rows ?? null, bills: r.s?.bills_backfilled ?? null };
+  } catch (err) {
+    if (/gst_deep_audit|gst_itc_register/.test(err.message)) return { skipped: 'migration 171 not applied' };
+    throw err;
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

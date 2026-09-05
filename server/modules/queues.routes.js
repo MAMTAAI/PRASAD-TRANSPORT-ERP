@@ -43,7 +43,9 @@ export async function registerQueueRoutes(app) {
   // ═══ EXPENSE APPROVALS ════════════════════════════════════════════════════
   const EXPENSE_COLS = ['trip_id', 'trip_ref', 'vehicle_no', 'driver_name', 'vendor_name',
     'expense_type', 'bill_no', 'bill_date', 'amount', 'description', 'source',
-    'match_confidence', 'trip_status_at_entry', 'entered_by'];
+    'match_confidence', 'trip_status_at_entry', 'entered_by',
+    'gst_amount', 'gst_rate', 'taxable_amount', 'supplier_gstin', 'invoice_no'];
+  const GST_NUM = new Set(['gst_amount', 'gst_rate', 'taxable_amount']);
 
   app.get('/expenses', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
@@ -64,7 +66,10 @@ export async function registerQueueRoutes(app) {
     const cols = EXPENSE_COLS.filter((c) => b[c] !== undefined);
     // A trip_id that is not a uuid is a Firestore-era trip code; it belongs in
     // trip_ref, where it stays readable instead of failing the cast.
-    const vals = cols.map((c) => (c === 'trip_id' && !UUID_RE.test(String(b.trip_id ?? '')) ? null : b[c]));
+    const vals = cols.map((c) => (c === 'trip_id' && !UUID_RE.test(String(b.trip_id ?? '')) ? null
+      : GST_NUM.has(c) && (b[c] === '' || b[c] === null) ? null
+      : c === 'supplier_gstin' ? (String(b[c] ?? '').trim().toUpperCase() || null)
+      : b[c]));
     if (b.trip_id && !UUID_RE.test(String(b.trip_id)) && !cols.includes('trip_ref')) {
       cols.push('trip_ref'); vals.push(String(b.trip_id));
     }

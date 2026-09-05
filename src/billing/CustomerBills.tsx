@@ -349,13 +349,11 @@ function BillDrawer({ id, onClose, onChanged }) {
     if (fmt === 'CONTRACT_RCM') {
       let i = 0;
       for (const blk of blocks) for (const t of blk.trips) { i += 1; body += `<tr><td>${i}</td><td>${esc(t.trip_code)}<br><small>${esc(t.vehicle_no)} · ${day(t.unloading_date)}</small></td><td>${esc(blk.branch_name)}</td><td class="r">${n2(t.qty).toFixed(3)}</td><td class="r">${t.rate ? n2(t.rate).toFixed(2) : (n2(t.qty) ? (n2(t.gross) / n2(t.qty)).toFixed(2) : '')}</td><td class="r">${num2(t.gross)}</td></tr>`; }
-      const half = n2(b.gst_memo) / 2;
+      const gstFoot = gstFooter(b, 5);
       body = `<table><thead><tr><th>Sl</th><th>CN / Trip</th><th>Destination</th><th>Qty (KL)</th><th>Rate</th><th>Amount</th></tr></thead><tbody>${body}</tbody>
-        <tfoot><tr><td colspan="5" class="r">Taxable value (HSN 996791)</td><td class="r b">${num2(b.gross)}</td></tr>
-        <tr><td colspan="5" class="r">CGST ${(n2(b.gst_pct) / 2).toFixed(1)}% (RCM)</td><td class="r">${num2(half)}</td></tr>
-        <tr><td colspan="5" class="r">SGST ${(n2(b.gst_pct) / 2).toFixed(1)}% (RCM)</td><td class="r">${num2(half)}</td></tr>
-        <tr><td colspan="5" class="r b">Total (GST payable by recipient under RCM)</td><td class="r b">${num2(n2(b.gross) + n2(b.gst_memo))}</td></tr></tfoot></table>
-        <p class="note">GST payable by the recipient under reverse charge (Notification 13/2017-CT(R)). MSME registered. Detention, if any, on a separate annexure.</p>`;
+        <tfoot><tr><td colspan="5" class="r">Taxable value (SAC ${esc(b.hsn_sac ?? '996791')})</td><td class="r b">${num2(b.gross)}</td></tr>
+        ${gstFoot}</tfoot></table>
+        <p class="note">${gstNote(b)} MSME registered. Detention, if any, on a separate annexure.</p>`;
     } else if (fmt === 'MARKET_LR') {
       for (const blk of blocks) for (const t of blk.trips) body += `<tr><td>${esc(t.trip_code)}</td><td>${day(t.loading_date)} → ${day(t.unloading_date)}</td><td>${esc(blk.branch_name)}</td><td>${esc(t.vehicle_no)}</td><td>${esc(t.product ?? '')} ${n2(t.qty) ? n2(t.qty).toFixed(3) : ''}</td><td class="r">${num2(t.gross)}</td></tr>`;
       body = `<table><thead><tr><th>LR / Trip</th><th>Dates</th><th>Destination</th><th>Truck</th><th>Material · Qty</th><th>Freight</th></tr></thead><tbody>${body}</tbody>
@@ -369,13 +367,13 @@ function BillDrawer({ id, onClose, onChanged }) {
       }
       body = `<table><thead><tr><th>Invoice / Trip</th><th>Vehicle</th><th>Material</th><th>Qty (KL)</th><th>Short (KL)</th><th>RTKM</th><th>Rate</th><th>Gross</th><th>Penalty</th><th>TDS ${n2(b.tds_pct)}%</th><th>Net</th><th>Reconciliation</th></tr></thead><tbody>${body}
         <tr class="grand"><td>Total of All Branches · ${b.branches} branches · ${b.trips} trips</td><td colspan="2"></td><td class="r">${n2(b.loaded_qty).toFixed(3)}</td><td></td><td class="r">${n2(b.rtkm).toFixed(1)}</td><td></td><td class="r">${num2(b.gross)}</td><td class="r">${num2(b.shortage_penalty)}</td><td class="r">${num2(b.tds)}</td><td class="r b">${num2(b.net_receivable)}</td><td></td></tr></tbody></table>
-        <p class="note">GST ${n2(b.gst_pct)}% under RCM (memo ${num2(b.gst_memo)}) — payable by the recipient. * rate derived = gross ÷ (KL × RTKM). Vendor code ${esc(b.customer_code ?? '')}.</p>`;
+        <p class="note">${gstNote(b)} * rate derived = gross ÷ (KL × RTKM). Vendor code ${esc(b.customer_code ?? '')}.</p>`;
     }
     w.document.write(`<html><head><title>${esc(b.bill_no)} — ${esc(b.customer_name)}</title><style>@page{size:A4 landscape;margin:10mm}body{font-family:system-ui,Segoe UI,sans-serif;color:#111;margin:14px;font-size:10.5px}h1{font-size:16px;margin:0}.sub{color:#555;margin:3px 0 10px;font-size:11px}
       table{border-collapse:collapse;width:100%}th,td{border:1px solid #bbb;padding:3px 5px;vertical-align:top}th{background:#eee;font-size:9px;text-transform:uppercase}td.r{text-align:right;font-variant-numeric:tabular-nums}td.b{font-weight:700}small{color:#666;font-size:9px}
       tr.veh td{background:#f2f2f2;font-weight:700}tr.sub td{background:#f7f7f7;font-weight:700}tr.grand td{background:#e8e8e8;font-weight:800}.note{margin-top:10px;color:#555;font-size:9.5px}</style></head><body>
       <h1>${esc(b.company_name ?? b.operating_company ?? '')} — ${fmt === 'CONTRACT_RCM' ? 'Tax Invoice (Transportation Bill · RCM)' : fmt === 'MARKET_LR' ? 'Freight Bill' : 'Transportation Bill · 15-day'}</h1>
-      <div class="sub">To: ${esc(b.customer_name)}${b.gst_no ? ' · GSTIN ' + esc(b.gst_no) : ''} · Bill ${esc(b.bill_no)} · ${esc(b.cycle_label)} · ${day(b.period_from)} → ${day(b.period_to)} · ${esc((STATUS[b.status] ?? [b.status])[0])}</div>
+      <div class="sub">To: ${esc(b.customer_name)}${b.gst_no ? ' · GSTIN ' + esc(b.gst_no) : ''} · Bill ${esc(b.bill_no)}${b.gst_invoice_no ? ' · Tax invoice ' + esc(b.gst_invoice_no) : ''} · ${esc(b.cycle_label)} · ${day(b.period_from)} → ${day(b.period_to)} · ${esc((STATUS[b.status] ?? [b.status])[0])}</div>
       ${body}</body></html>`);
     w.document.close(); w.focus(); w.print();
   };
@@ -490,7 +488,7 @@ function BillDrawer({ id, onClose, onChanged }) {
                 <h4 style={{ margin: '0 0 8px', fontSize: '12.5px', color: C.mut }}>SETTLEMENT — receivable from the customer</h4>
                 {[['Gross freight', `${b.trips} trips`, b.gross, C.ink], n2(b.adj_income) ? ['+ Other income (manual)', '', b.adj_income, C.ai] : null, ['− Shortage penalty', 'deducted at unloading', b.shortage_penalty, C.warn],
                   [`− TDS 194C ${n2(b.tds_pct)}%`, 'TDS Receivable — our asset', b.tds, C.ink2], n2(b.adj_expense) ? ['− Manual deductions', '', b.adj_expense, C.ai] : null,
-                  [`GST ${n2(b.gst_pct)}% ${b.gst_mode}`, b.gst_mode === 'RCM' ? 'memo — paid by the customer' : 'output tax', b.gst_memo, C.dim]].filter(Boolean).map((r) => (
+                  [`GST ${n2(b.gst_pct)}% ${b.gst_treatment ?? b.gst_mode}`, (b.gst_treatment ?? b.gst_mode) === 'RCM' ? 'shown — paid by the customer under reverse charge, not in the receivable' : (b.gst_treatment ?? b.gst_mode) === 'FORWARD' ? 'charged — in the receivable' : 'exempt', n2(b.gst_amount) || b.gst_memo, C.dim]].filter(Boolean).map((r) => (
                   <div key={r[0]} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '6px 0', borderBottom: '1px solid #1b2a4e', fontSize: '13px' }}><span style={{ color: C.ink2 }}>{r[0]} <span style={{ color: C.dim, fontSize: '11px', marginLeft: '6px' }}>{r[1]}</span></span><span style={{ color: r[3], fontVariantNumeric: 'tabular-nums' }}>{inr2(r[2])}</span></div>))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 0', marginTop: '4px', borderTop: `2px solid ${C.line}`, fontWeight: 800, fontSize: '15px' }}><span style={{ color: C.ink2 }}>Net receivable</span><span style={{ color: C.ink }}>{inr2(b.net_receivable)}</span></div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 0', fontSize: '13px' }}><span style={{ color: C.ink2 }}>− Received <span style={{ color: C.dim, fontSize: '11px' }}>per payment advices, gross basis</span></span><span style={{ color: C.good }}>{inr2(b.received)}</span></div>
@@ -731,4 +729,28 @@ function LedgerAudit() {
       {(d.fixes ?? []).length > 0 && <div style={{ fontSize: '11.5px', color: C.good, marginTop: '8px' }}>Posted corrections: {d.fixes.map((f) => `${f.source_ref} ${inr(f.amount)} (${day(f.entry_date)})`).join(' · ')}</div>}
     </div>
   );
+}
+
+// GST on the printed bill (migration 171): the rows follow the customer's
+// treatment — reverse charge shows the tax the recipient pays and keeps it
+// out of the total payable to us; forward charge adds it; exempt says so.
+function gstFooter(b, colspan) {
+  const t = b.gst_treatment ?? b.gst_mode ?? 'RCM';
+  const gst = n2(b.gst_amount) || n2(b.gst_memo);
+  const inter = b.supply_type === 'INTER';
+  const tag = t === 'RCM' ? ' (reverse charge)' : '';
+  const pct = n2(b.gst_pct);
+  let rows = '';
+  if (t === 'EXEMPT') rows = `<tr><td colspan="${colspan}" class="r">GST</td><td class="r">Exempt — Notification 12/2017 entry 21A</td></tr>`;
+  else if (inter) rows = `<tr><td colspan="${colspan}" class="r">IGST ${pct.toFixed(1)}%${tag}</td><td class="r">${num2(n2(b.igst) || gst)}</td></tr>`;
+  else rows = `<tr><td colspan="${colspan}" class="r">CGST ${(pct / 2).toFixed(1)}%${tag}</td><td class="r">${num2(n2(b.cgst) || gst / 2)}</td></tr><tr><td colspan="${colspan}" class="r">SGST ${(pct / 2).toFixed(1)}%${tag}</td><td class="r">${num2(n2(b.sgst) || gst - gst / 2)}</td></tr>`;
+  if (t === 'FORWARD') return rows + `<tr><td colspan="${colspan}" class="r b">Invoice total (incl. GST)</td><td class="r b">${num2(n2(b.invoice_value) || n2(b.gross) + gst)}</td></tr>`;
+  if (t === 'RCM') return rows + `<tr><td colspan="${colspan}" class="r">Invoice value incl. GST (GST payable by the recipient)</td><td class="r">${num2(n2(b.gross) + gst)}</td></tr><tr><td colspan="${colspan}" class="r b">Amount payable to us (GST not added)</td><td class="r b">${num2(b.gross)}</td></tr>`;
+  return rows + `<tr><td colspan="${colspan}" class="r b">Total</td><td class="r b">${num2(b.gross)}</td></tr>`;
+}
+function gstNote(b) {
+  const t = b.gst_treatment ?? b.gst_mode ?? 'RCM';
+  if (t === 'RCM') return `GST ${n2(b.gst_pct)}% payable by the recipient under reverse charge (Notification 13/2017-CT(R)) — shown for information, not added to this bill.`;
+  if (t === 'FORWARD') return `GST ${n2(b.gst_pct)}% charged under forward charge and included in the invoice total.`;
+  return 'GST exempt — service to an unregistered person (Notification 12/2017 entry 21A).';
 }
