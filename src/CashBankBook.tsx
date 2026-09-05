@@ -16,6 +16,7 @@
 //   • Reconciliation reads a real CSV bank statement and matches it against
 //     these live entries. The old screen invented its statement rows.
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import BankRecon from './bank/BankRecon';
 
 import { API_BASE } from './lib/apiBase';
 const API = API_BASE;
@@ -80,6 +81,7 @@ export default function CashBankBook() {
   const [paymentLink, setPaymentLink] = useState('');
 
   // 🔄 RECONCILIATION (real CSV, no fabricated rows)
+  const [view, setView] = useState<'RECON' | 'BOOK'>('RECON');   // 167: reconciliation first, the legacy book behind it
   const [statementRows, setStatementRows] = useState<any[]>([]);
   const [reconNote, setReconNote] = useState('');
 
@@ -406,6 +408,7 @@ export default function CashBankBook() {
 
   const companyBanks = accounts;
 
+  if (view === 'RECON') return <BankRecon onLegacy={() => setView('BOOK')} />;
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px', background: 'radial-gradient(circle at top right, #121c38, #0a1024)', minHeight: '100vh', padding: '30px' }}>
 
@@ -413,6 +416,7 @@ export default function CashBankBook() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: '32px', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}>🏦 Cash & Bank Book</h2>
+          <button onClick={() => setView('RECON')} style={{ font: 'inherit', fontWeight: 700, fontSize: '12px', borderRadius: '8px', padding: '6px 12px', border: '1px solid rgba(34,211,238,.5)', background: 'rgba(34,211,238,.12)', color: '#22d3ee', cursor: 'pointer', marginTop: '6px' }}>🏦 Bank &amp; Cash Reconciliation →</button>
           <p style={{ margin: '5px 0 0 0', color: '#9aadd4', fontSize: '14px' }}>
             Live from the general ledger · PostgreSQL
             {book?.entry_count != null && <> · {book.entry_count} entr{book.entry_count === 1 ? 'y' : 'ies'} in range</>}

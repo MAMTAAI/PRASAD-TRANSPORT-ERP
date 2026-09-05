@@ -25,7 +25,7 @@ import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead, detectBankUnmatched,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -150,6 +150,7 @@ async function runExceptionScan() {
     ['entity_mismatch', detectEntityMismatch],
     ['customer_recon', detectCustomerRecon],
     ['mailboxes', detectMailboxDead],
+    ['bank', detectBankUnmatched],
   ]) {
     try {
       const r = await fn();
@@ -260,11 +261,28 @@ async function collectAdvices() {
   return runAdviceCollect({ trigger: 'SCHEDULE', log: state.log ?? console });
 }
 
+// ── 8. re-tally the bank lines still waiting ──────────────────────────────
+// Rules are learned on the desk all day; an advice posted this morning links
+// a UTR the desk saw yesterday. Twice a day TARA re-reads what is waiting.
+async function retallyBank() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const now = Date.now();
+  if (state.lastBankTally && now - state.lastBankTally < 12 * 3600_000) return { skipped: 'recent' };
+  state.lastBankTally = now;
+  try {
+    const { tallyAccount } = await import('./bankTally.js');
+    return await tallyAccount({ statuses: ['NEW', 'REVIEW'], by: 'agent:TARA', log: state.log ?? console });
+  } catch (err) {
+    if (/bank_statement_lines|bank_accounts/.test(err.message)) return { skipped: 'migration 167 not applied' };
+    throw err;
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

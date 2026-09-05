@@ -996,3 +996,36 @@ export async function detectMailboxDead(exec = query) {
   }
   return { raised: raised.length, mailboxes_failed: failed };
 }
+
+// ── THE BANK LINES NOBODY HAS CLAIMED ────────────────────────────────────────
+// Owner, 5-Sep-2026: "jo match na ho staff ke dashboard par". One exception
+// per bank account with lines waiting on the desk, and one for the book
+// entries the bank does not know (flagged, never reversed — decision 4).
+export async function detectBankUnmatched(exec = query) {
+  const { rows } = await exec(`SELECT * FROM v_bank_account_summary WHERE lines > 0`).catch(() => ({ rows: [] }));
+  const raised = [];
+  for (const a of rows) {
+    if (Number(a.waiting) > 0) {
+      const { rows: [w] } = await exec(`SELECT COALESCE(sum(credit + debit), 0)::numeric(14,2) AS amount, min(txn_date) AS oldest FROM bank_statement_lines WHERE account_id = $1::uuid AND status IN ('NEW','REVIEW')`, [a.id]);
+      raised.push(await raiseException({
+        kind: 'BANK_UNMATCHED', severity: Number(a.waiting) >= 50 ? 'HIGH' : 'MEDIUM',
+        title: `${a.waiting} bank line(s) on ${a.ledger_name} waiting for a person`,
+        detail: `${a.ledger_name} (${a.company_name ?? 'firm not set'}): ${a.waiting} statement line(s) worth ₹${Number(w.amount).toLocaleString('en-IN')} could not be tallied automatically (oldest ${w.oldest}). Bank & Cash Book → Staff Action → link each to its party, bill or trip.`,
+        subject_type: 'bank_account', subject_id: a.id, company: a.company_name ?? null,
+        evidence: { ledger: a.ledger_name, waiting: a.waiting, amount: w.amount, oldest: w.oldest, bank_closing: a.bank_closing, book_balance: a.book_balance },
+        amount_at_risk: Number(w.amount) || null, dedupe_key: `BANK_UNMATCHED:${a.id}`, detected_by: 'scheduler',
+      }, exec));
+    }
+    if (Number(a.book_not_in_bank) > 0) {
+      raised.push(await raiseException({
+        kind: 'BANK_BOOK_NOT_IN_BANK', severity: 'MEDIUM',
+        title: `${a.book_not_in_bank} book entr${Number(a.book_not_in_bank) === 1 ? 'y' : 'ies'} on ${a.ledger_name} with no bank line`,
+        detail: `The ERP book shows money moving on ${a.ledger_name} that the bank statement does not (assumed receipts, schedule-posted EMIs, historical wallet loads). Flagged only — a person decides whether to reverse. Book ₹${Number(a.book_balance).toLocaleString('en-IN')} vs bank ₹${Number(a.bank_closing ?? 0).toLocaleString('en-IN')}.`,
+        subject_type: 'bank_account', subject_id: a.id, company: a.company_name ?? null,
+        evidence: { ledger: a.ledger_name, count: a.book_not_in_bank, book_balance: a.book_balance, bank_closing: a.bank_closing },
+        amount_at_risk: null, dedupe_key: `BANK_BOOK_NOT_IN_BANK:${a.id}`, detected_by: 'scheduler',
+      }, exec));
+    }
+  }
+  return { raised: raised.length };
+}

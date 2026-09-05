@@ -55,7 +55,10 @@
     "migrate:selftest163": "node server/db/migrations/163_customer_bills.selftest.mjs",
     "mail:reauth": "node scripts/mail-reauth.mjs",
     "bills:raise": "node scripts/raise-customer-bills.mjs",
-    "advices:post": "node scripts/post-advice-settlements.mjs"
+    "advices:post": "node scripts/post-advice-settlements.mjs",
+    "migrate:selftest167": "node server/db/migrations/167_bank_reconciliation.selftest.mjs",
+    "bank:import": "node scripts/bank-import.mjs",
+    "bank:parse": "python tools/bank/parse_sbi_statement.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

@@ -76,6 +76,7 @@ import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
 import { registerVehicleSettlementRoutes } from './modules/vehicleSettlement.routes.js';
 import { registerVehicleBillRoutes } from './modules/vehicleBills.routes.js';
 import { registerCustomerBillRoutes } from './modules/customerBills.routes.js';
+import { registerBankReconRoutes } from './modules/bankRecon.routes.js';
 import { registerCommissionTermsRoutes } from './modules/commissionTerms.routes.js';
 import { registerUnmappedVehicleRoutes } from './modules/unmappedVehicles.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
@@ -293,6 +294,7 @@ await app.register(registerVehicleBillRoutes,      { prefix: '/api/v1/vehicle-bi
 // The CUSTOMER 15-day bill (migration 163): branch-wise, IOCL-format core,
 // trip-wise reconciliation of what the customer paid, mapping desk, GST/TDS.
 await app.register(registerCustomerBillRoutes,     { prefix: '/api/v1/customer-bills' });
+await app.register(registerBankReconRoutes,        { prefix: '/api/v1/bank-recon' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.
