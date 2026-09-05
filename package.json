@@ -49,7 +49,8 @@
     "migrate:selftest157": "node server/db/migrations/157_fuel_settlement_sync.selftest.mjs",
     "migrate:selftest158": "node server/db/migrations/158_vehicle_fortnight_settlement.selftest.mjs",
     "migrate:selftest159": "node server/db/migrations/159_vehicle_class_and_commission.selftest.mjs",
-    "migrate:selftest160": "node server/db/migrations/160_vehicle_owner_bills.selftest.mjs"
+    "migrate:selftest160": "node server/db/migrations/160_vehicle_owner_bills.selftest.mjs",
+    "migrate:selftest161": "node server/db/migrations/161_vehicle_ownership_rule.selftest.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",

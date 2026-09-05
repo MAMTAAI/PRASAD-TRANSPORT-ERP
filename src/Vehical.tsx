@@ -176,6 +176,20 @@ export default function Vehical() {
 
   const [fetchError, setFetchError] = useState('');
 
+  // ⚖️ THE RULE CHECK (owner, 5-Sep-2026; migration 161) — every lorry whose
+  // master disagrees with itself or with its trips. Read from the server's
+  // v_vehicle_rule_audit; nothing is auto-corrected, each row opens the form.
+  const [audit, setAudit] = useState<any>({ count: 0, rows: [], by_finding: {} });
+  const [showAudit, setShowAudit] = useState(false);
+  const AUDIT_LABEL: any = {
+    OWN_OWNER_MISMATCH: 'Own par malik alag', ATTACHED_TO_SELF: 'Khud se attached', ATTACHED_NO_RATE: 'Rate nahi',
+    NO_COMPANY: 'Company nahi', TRIPS_OTHER_COMPANY: 'Doosri company me trip', NO_MASTER: 'Master me nahi',
+  };
+  const loadAudit = async () => {
+    try { setAudit(await fetchJson(`${MASTERS}/vehicles/rule-audit`)); } catch { /* older API: no panel */ }
+  };
+  useEffect(() => { loadAudit(); }, [vehicles.length]);
+
   // 🧱 OLD-DATA FALLBACK: purani vehicles me naye fields nahi hote — defaults
   // bhar kar normalize karte hain taaki HAR historical vehicle render ho,
   // search/filters kaam karein, aur FASTag mapping stable rahe.
@@ -267,11 +281,19 @@ export default function Vehical() {
 
   const handleSave = async () => {
     if (!formData.vehicle_no) return alert('⚠️ Vehicle number is required.');
-    if (formData.own_attach === 'Attached' && !formData.owner_name) {
-      return alert('⚠️ Owner name is required for an attached vehicle.');
+    if (!formData.company_name) return alert('⚠️ Operating company chuniye — kis firm ki books me chalti hai.');
+    const stripMs = (s: any) => String(s ?? '').replace(/^m\/?s\.?\s*/i, '');
+    if (formData.own_attach === 'Attached') {
+      if (!formData.owner_name) return alert('⚠️ Attached gaadi ka malik (owner) likhiye — 15-din ka bill usi ke naam banta hai.');
+      if (sameName(stripMs(formData.owner_name), stripMs(formData.company_name))) {
+        return alert('⚠️ Malik aur operating company ek hi hain — yeh OWN gaadi hai. Own chuniye.');
+      }
     }
     try {
-      const body = vehicleToApi(formData, companies);
+      // OWN: the owner IS the company. Sent explicitly so the row can never
+      // carry a person's name against an own lorry (the DB refuses it too).
+      const body = vehicleToApi(
+        formData.own_attach === 'Attached' ? formData : { ...formData, owner_name: formData.company_name }, companies);
       if (editingId) {
         await fetchJson(`${MASTERS}/vehicles/${editingId}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -403,11 +425,46 @@ export default function Vehical() {
         <div style={{ flex: 1, minWidth: '200px' }}>
           <select className="modern-input" value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} style={{ color: filterOwner ? '#a78bfa' : 'white', fontWeight: filterOwner ? 'bold' : 'normal' }}>
             <option value="">👤 All Owners (Own + Attached)</option>
-            <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only Own Assets (Prasad)</option>
+            <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only OWN (company ki apni gaadi)</option>
             {uniqueOwners.map((owner: any, i) => <option key={i} value={owner}>🤝 {owner}</option>)}
           </select>
         </div>
       </div>
+
+      {/* ⚖️ RULE CHECK — what the master still has to decide */}
+      {audit.count > 0 && (
+        <div className="glass-card" style={{ padding: '14px 18px', marginBottom: '16px', border: '1px solid rgba(255,178,36,0.45)', background: 'rgba(255,178,36,0.06)' }}>
+          <div onClick={() => setShowAudit((v) => !v)} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', cursor: 'pointer', flexWrap: 'wrap' }}>
+            <b style={{ color: '#ffb224', fontSize: '14px' }}>⚖️ Own / Attached rule check — {audit.count} baat aapko tay karni hai</b>
+            <span style={{ color: '#c4d1ea', fontSize: '12px' }}>
+              {Object.entries(audit.by_finding).map(([k, n]: any) => `${AUDIT_LABEL[k] ?? k} ${n}`).join(' · ')} {showAudit ? '▲' : '▼'}
+            </span>
+          </div>
+          <div style={{ fontSize: '11.5px', color: '#9aadd4', marginTop: '4px', lineHeight: 1.5 }}>
+            Rule: <b style={{ color: '#22d3ee' }}>Operating Company</b> = kis firm ki books · <b style={{ color: '#2fe39b' }}>OWN</b> = company ki apni (malik = company) ·{' '}
+            <b style={{ color: '#ffb224' }}>ATTACHED</b> = kisi aur ki (malik zaroori, 15-din bill me commission/TDS). System kuch apne aap nahi badalta — har line kholiye aur tay kijiye.
+          </div>
+          {showAudit && (
+            <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', overflowY: 'auto' }}>
+              {audit.rows.map((r: any, i: number) => {
+                const v = vehicles.find((x: any) => x.id === r.vehicle_id);
+                return (
+                  <div key={i} style={{ display: 'grid', gridTemplateColumns: '130px 150px 1fr auto', gap: '10px', alignItems: 'center', padding: '7px 10px', background: 'rgba(10,16,36,0.55)', borderRadius: '8px', fontSize: '12px' }}>
+                    <b style={{ color: '#fff', fontFamily: 'monospace' }}>{r.vehicle_no}</b>
+                    <span style={{ color: r.severity === 'HIGH' ? '#ff6b81' : '#ffb224', fontWeight: 'bold' }}>{AUDIT_LABEL[r.finding] ?? r.finding}</span>
+                    <span style={{ color: '#c4d1ea' }}>{r.detail}{Number(r.trips) ? <span style={{ color: '#5d7196' }}> · {r.trips} trip</span> : null}</span>
+                    {v ? (
+                      <button onClick={() => handleEdit(v)} style={{ background: 'rgba(34,211,238,0.12)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.5)', borderRadius: '8px', padding: '5px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>Kholein →</button>
+                    ) : (
+                      <button onClick={() => { resetForm(); setFormData((f: any) => ({ ...f, vehicle_no: r.vehicle_no })); setShowForm(true); }} style={{ background: 'rgba(47,227,155,0.12)', color: '#2fe39b', border: '1px solid rgba(47,227,155,0.5)', borderRadius: '8px', padding: '5px 10px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}>+ Master me jodein</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 🚨 FETCH ERROR BANNER — khali list ka reason ab hamesha dikhta hai */}
       {fetchError && (
@@ -436,8 +493,8 @@ export default function Vehical() {
               <div style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '15px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <span className="gradient-text" style={{ fontSize: '24px', fontWeight: '900' }}>{v.vehicle_no || v.Vehicle_No || v.vehical_no}</span>
-                  <p style={{ margin: '5px 0 0 0', color: v.own_attach === 'Own' ? '#2fe39b' : '#ffb224', fontSize: '13px', fontWeight: 'bold' }}>
-                    {v.own_attach} Asset {(v.owner_name || v.asset_owner_name) ? `• ${v.owner_name || v.asset_owner_name}` : ''}
+                  <p style={{ margin: '5px 0 0 0', color: v.own_attach === 'Attached' ? '#ffb224' : '#2fe39b', fontSize: '13px', fontWeight: 'bold' }}>
+                    {v.own_attach === 'Attached' ? '🤝 ATTACHED' : '⭐ OWN'} {(v.owner_name || v.asset_owner_name) ? `· malik ${v.owner_name || v.asset_owner_name}` : ''}
                   </p>
                 </div>
                 <span style={{ fontSize: '10px', background: 'rgba(255, 178, 36,0.1)', color: '#ffb224', padding: '4px 8px', borderRadius: '12px', border: '1px solid #ffb224' }}>
@@ -500,24 +557,57 @@ export default function Vehical() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div><label style={{color: '#22d3ee'}}>Vehicle Registration No. *</label><input className="modern-input" name="vehicle_no" style={{borderColor: '#22d3ee', fontWeight: 'bold', fontSize: '16px', textTransform: 'uppercase'}} value={formData.vehicle_no} onChange={handleInputChange} placeholder="e.g. AS 26C 5106" /></div>
                     
-                    <div><label>Asset Type</label>
-                      <select className="modern-input" name="own_attach" value={formData.own_attach} onChange={handleInputChange}>
-                        <option value="Own">Own Asset (Fixed Asset)</option>
-                        <option value="Attached">Attached Fleet (Sundry Creditor)</option>
+                    {/* THE RULE (owner, 5-Sep-2026; migration 161): Operating
+                        Company = whose books. OWN = that company owns the
+                        lorry, so the owner IS the company. ATTACHED = someone
+                        else owns it — owner required, never the company; the
+                        15-day bill pays him with commission and TDS, and his
+                        khata is linked automatically. The server refuses a
+                        contradictory save (OWNERSHIP_RULE). */}
+                    <div><label>Operating Company (kis firm ki books) *</label>
+                      <select className="modern-input" name="company_name" value={formData.company_name} onChange={handleInputChange} style={{ borderColor: '#22d3ee' }}>
+                        <option value="">-- Select Company --</option>
+                        {companies.map(c => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
+                      </select>
+                    </div>
+
+                    <div><label>Own / Attached *</label>
+                      <select className="modern-input" name="own_attach" value={formData.own_attach} onChange={handleInputChange}
+                        style={{ borderColor: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b', fontWeight: 'bold' }}>
+                        <option value="Own">⭐ OWN — company ki apni gaadi (malik = company)</option>
+                        <option value="Attached">🤝 ATTACHED — kisi aur ki gaadi (15-din bill, commission + TDS)</option>
                       </select>
                     </div>
 
                     {formData.own_attach === 'Attached' ? (
-                      <div><label style={{ color: '#ffb224', fontWeight: 'bold' }}>Asset Owner Name (For Ledger) *</label><input className="modern-input" name="owner_name" style={{border: '1px solid #ffb224', background: 'rgba(255, 178, 36,0.05)'}} value={formData.owner_name} onChange={handleInputChange} placeholder="e.g. SANDEEP KUMAR PRASAD" /></div>
+                      <div>
+                        <label style={{ color: '#ffb224', fontWeight: 'bold' }}>Malik (owner) — jiske naam 15-din ka bill banega *</label>
+                        <input className="modern-input" name="owner_name" list="vehicle-owner-names" style={{border: '1px solid #ffb224', background: 'rgba(255, 178, 36,0.05)'}} value={formData.owner_name} onChange={handleInputChange} placeholder="e.g. SANDEEP KUMAR PRASAD" />
+                        <datalist id="vehicle-owner-names">{uniqueOwners.map((o: any, i) => <option key={i} value={o} />)}</datalist>
+                        <div style={{ fontSize: '11px', color: '#9aadd4', marginTop: '4px' }}>
+                          Khata <b style={{ color: '#ffb224' }}>Vehicle Owner: {String(formData.owner_name || '…').trim().replace(/\s+/g, ' ').toUpperCase()}</b> apne aap banega/judega.
+                          {' '}Commission rate: <b>Accounts &amp; Admin → Commission &amp; Rate Master</b> (1 Apr 2026 se).
+                        </div>
+                      </div>
                     ) : (
-                      <div><label style={{ color: '#22d3ee', fontWeight: 'bold' }}>Vehicle Value (₹) - For Asset Ledger</label><input type="number" className="modern-input" name="vehicle_value" style={{ border: '1px solid #22d3ee' }} value={formData.vehicle_value} onChange={handleInputChange} /></div>
+                      <>
+                        <div><label style={{ color: '#2fe39b', fontWeight: 'bold' }}>Malik (owner)</label>
+                          <input className="modern-input" value={formData.company_name || '(pehle company chuniye)'} disabled style={{ border: '1px solid rgba(47,227,155,0.4)', color: '#2fe39b', opacity: 0.9 }} />
+                          <div style={{ fontSize: '11px', color: '#9aadd4', marginTop: '4px' }}>Own gaadi ka malik company hi hoti hai — freight aur kharch company ke, P&amp;L statement banta hai.</div>
+                        </div>
+                        <div><label style={{ color: '#22d3ee', fontWeight: 'bold' }}>Vehicle Value (₹) - For Asset Ledger</label><input type="number" className="modern-input" name="vehicle_value" style={{ border: '1px solid #22d3ee' }} value={formData.vehicle_value} onChange={handleInputChange} /></div>
+                      </>
                     )}
 
-                    <div><label>Operating Company</label>
-                      <select className="modern-input" name="company_name" value={formData.company_name} onChange={handleInputChange}>
-                        <option value="">-- Select Company --</option>
-                        {companies.map(c => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
-                      </select>
+                    <div style={{ fontSize: '12px', padding: '8px 10px', borderRadius: '8px', border: '1px dashed #27395f', color: '#c4d1ea', background: 'rgba(10,16,36,0.5)', lineHeight: 1.5 }}>
+                      ⚖️ Rule: books <b style={{ color: '#22d3ee' }}>{formData.company_name || '—'}</b> · malik{' '}
+                      <b style={{ color: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b' }}>
+                        {formData.own_attach === 'Attached' ? (formData.owner_name || '—') : (formData.company_name || '—')}
+                      </b>{' → '}
+                      <b style={{ color: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b' }}>{formData.own_attach === 'Attached' ? 'ATTACHED' : 'OWN'}</b>
+                      {formData.own_attach === 'Attached' && formData.owner_name && sameName(formData.owner_name.replace(/^m\/?s\.?\s*/i, ''), String(formData.company_name).replace(/^m\/?s\.?\s*/i, '')) && (
+                        <div style={{ color: '#ff6b81', marginTop: '4px' }}>⚠️ Malik aur company ek hi hain — yeh OWN gaadi hai.</div>
+                      )}
                     </div>
 
                     <div><label>Operating Branch</label>

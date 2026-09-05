@@ -151,8 +151,10 @@ export async function registerTollImportRoutes(app) {
         const wallet = WALLETS[r.company_hint];
         if (!wallet) { park('NO_WALLET_FOR_COMPANY'); continue; }
 
-        const attached = vehicle.ownership !== 'OWNED';
-        if (attached && !vehicle.owner_ledger) { park('ATTACHED_WITHOUT_OWNER_LEDGER'); continue; }
+        // Informational only since 5-Sep-2026 (migration 161): the toll is
+        // the company's expense on every lorry and the 15-day bill recovers it
+        // from an attached owner. See the debit below.
+        const attached = vehicle.ownership === 'ATTACHED';
 
         const rec = {
           ext_txn_id: r.ext_txn_id, vehicle: vehicle.vehicle_no, vehicle_id: vehicle.id,
@@ -164,10 +166,11 @@ export async function registerTollImportRoutes(app) {
         if (!commit) { posted.push(rec); continue; }
 
         try {
-          // ── the dual-accounting decision ───────────────────────────────────
-          const debit = attached
-            ? { ledger: vehicle.owner_ledger, group: OWNER_GROUP }
-            : { ledger: TOLL_EXPENSE, group: TOLL_GROUP };
+          // ── ONE rule for toll (owner, 5-Sep-2026; migration 161) ──────────
+          // Company expense on every lorry; recovered from an attached owner on
+          // the 15-day bill (Vehicle Expense Recovery, migration 160). Debiting
+          // his khata here as well would charge the same crossing twice.
+          const debit = { ledger: TOLL_EXPENSE, group: TOLL_GROUP };
 
           const ref = `TOLL-${r.ext_txn_id ?? `${vehicle.vehicle_no_norm}-${r.txn_datetime}-${r.amount}`}`;
           const voucher = await postVoucher({

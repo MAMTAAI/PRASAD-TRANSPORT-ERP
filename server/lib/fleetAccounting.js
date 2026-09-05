@@ -30,6 +30,17 @@ const PNL_EXPENSE_SQL = `
   SELECT group_head FROM account_groups
    WHERE statement = 'PROFIT_AND_LOSS' AND account_type = 'EXPENSE'`;
 
+// Trip running-cost groups: booked by the company for EVERY lorry and, on an
+// attached one, recovered on the owner's 15-day bill (migration 160). See
+// assertAttachedCostIsolation and migration 161's header.
+export const RECOVERED_ON_VEHICLE_BILL = new Set([
+  'Direct Expenses - Fuel & HSD',
+  'Direct Expenses - Toll & FASTag',
+  'Direct Expenses - Driver & Trip',
+  'Direct Expenses - Vehicle Operations',
+  'Current Assets - Driver Advances',
+]);
+
 export class FleetAccountingError extends Error {
   constructor(message, code) {
     super(message);
@@ -204,6 +215,15 @@ export async function assertAttachedCostIsolation(q, vehicleId, lines) {
   for (const l of lines) {
     if (l.dr_cr !== 'DR') continue;
     const group = groupOf.get(l.ledger) ?? l.group;
+    // THE RULE (owner, 5-Sep-2026, migration 161): a trip's RUNNING cost on an
+    // attached lorry — diesel, toll, pump cash, the driver's advance, the
+    // typed trip expenses — is booked by the company and taken back on the
+    // owner's 15-day bill (Vehicle Expense Recovery, migration 160). Those
+    // groups are therefore CORRECT in company P&L for an attached lorry, and
+    // refusing them here would stop every fuel slip and toll crossing of the
+    // attached fleet. What stays refused is the lorry's own cost — repairs,
+    // tyres, papers — which belongs to the owner's khata directly.
+    if (group && RECOVERED_ON_VEHICLE_BILL.has(group)) continue;
     if (group && banned.has(group)) {
       throw new FleetAccountingError(
         `${v.vehicle_no} is an attached vehicle: its costs belong to the owner's khata, `

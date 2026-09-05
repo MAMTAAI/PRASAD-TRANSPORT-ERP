@@ -49,6 +49,12 @@ function money(v) {
 
 const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// The owner's khata, named exactly as the vehicle master names it (migration
+// 161 vehicle_owner_ledger_name): upper case, one space — so the bill's credit
+// and the master's link are ONE ledger however the name was typed.
+const ownerLedgerName = (owner) =>
+  'Vehicle Owner: ' + String(owner ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+
 // ── the journal, said once ──────────────────────────────────────────────────
 export function journalFor(b) {
   const lines = [];
@@ -66,8 +72,8 @@ export function journalFor(b) {
     push('Commission Income - Attached Vehicles', 'CR', comm, 'Direct Income');
     push('TDS Payable (194C)', 'CR', tds, 'Duties & Taxes');
     push('Vehicle Expense Recovery', 'CR', rec, 'Direct Expenses - Vehicle Operations');
-    if (payable >= 0) push(`Vehicle Owner: ${b.owner_name}`, 'CR', payable, 'Sundry Creditors (Vehicle Owners)');
-    else push(`Vehicle Owner: ${b.owner_name}`, 'DR', -payable, 'Sundry Creditors (Vehicle Owners)');
+    if (payable >= 0) push(ownerLedgerName(b.owner_name), 'CR', payable, 'Sundry Creditors (Vehicle Owners)');
+    else push(ownerLedgerName(b.owner_name), 'DR', -payable, 'Sundry Creditors (Vehicle Owners)');
     return { agency: true, lines, freight, commission: comm, tds, recovered: rec, payable };
   }
   // OWN fleet, or a lorry in no master: the freight and the diesel post through

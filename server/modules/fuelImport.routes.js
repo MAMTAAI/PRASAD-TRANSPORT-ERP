@@ -195,9 +195,9 @@ export function registerFuelImportRoutes(app) {
           const pumpL = pumpLedger(r.pump, pumpNames);
           const cashRef = `FUELCASH-${vehicle.vehicle_no_norm}-${r.date}-${Math.round(Number(r.cash))}`;
           if (pumpL) {
-            const cd = vehicle.is_company_owned
-              ? { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' }
-              : { ledger: vehicle.owner_ledger, group: OWNER_GROUP };
+            // Pump cash is the driver's advance on every lorry; on an attached
+            // one the 15-day bill takes it back from the owner (migration 160).
+            const cd = { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' };
             if (cd.ledger) {
               await postVoucher({
                 type: 'JOURNAL', source_type: 'FUEL_PUMP_CASH', ref_no: cashRef,
@@ -250,11 +250,13 @@ export function registerFuelImportRoutes(app) {
       if (!commit) { posted.push(rec); continue; }
 
       try {
-        // ── the dual-accounting decision ────────────────────────────────────
-        const debit = vehicle.is_company_owned
-          ? { ledger: FUEL_EXPENSE, group: FUEL_GROUP }
-          : { ledger: vehicle.owner_ledger, group: OWNER_GROUP };
-        if (!vehicle.is_company_owned && !vehicle.owner_ledger) { push('ATTACHED_WITHOUT_OWNER_LEDGER'); continue; }
+        // ── ONE rule for diesel (owner, 5-Sep-2026; migration 161) ───────────
+        // Diesel is the COMPANY's expense on every lorry. On an attached lorry
+        // it is recovered from the owner on the 15-day bill (Vehicle Expense
+        // Recovery, migration 160) — never debited to his khata per slip, or
+        // the same litres would be charged to him twice. `mode` stays on the
+        // record so the preview still says which fleet the lorry is in.
+        const debit = { ledger: FUEL_EXPENSE, group: FUEL_GROUP };
 
         const ref = `FUEL-${vehicle.vehicle_no_norm}-${r.date}-${Math.round(Number(r.amount))}`;
         const voucher = await postVoucher({
@@ -294,9 +296,9 @@ export function registerFuelImportRoutes(app) {
         // guard refusing the pair.
         if (rec.cash > 0) {
           const cashRef = `FUELCASH-${vehicle.vehicle_no_norm}-${r.date}-${Math.round(rec.cash)}`;
-          const cashDebit = vehicle.is_company_owned
-            ? { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' }
-            : { ledger: vehicle.owner_ledger, group: OWNER_GROUP };
+          // The driver's advance on every lorry; the bill recovers it from an
+          // attached owner (migration 160).
+          const cashDebit = { ledger: 'Driver Advance (Pump Cash)', group: 'Current Assets - Driver Advances' };
           await postVoucher({
             type: 'JOURNAL', source_type: 'FUEL_PUMP_CASH', ref_no: cashRef,
             entry_date: r.date,

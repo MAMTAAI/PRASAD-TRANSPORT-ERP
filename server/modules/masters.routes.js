@@ -95,6 +95,8 @@ export async function registerMastersRoutes(app) {
       const { rows } = await query(
         `SELECT v.*, v.status::text AS status, v.vehicle_type::text AS vehicle_type,
                 v.ownership::text AS ownership,
+                -- the rule's three facts, resolved (migration 161)
+                co.company_name, ol.ledger_name AS owner_ledger,
                 LEAST(v.insurance_expiry, v.fitness_expiry, v.permit_expiry,
                       v.puc_expiry, v.tax_expiry, v.national_permit_expiry) AS next_expiry,
                 COALESCE(t.trips, 0)::int          AS trip_count,
@@ -115,6 +117,8 @@ export async function registerMastersRoutes(app) {
                FROM vehicle_assignments va JOIN drivers d ON d.id = va.driver_id
               WHERE va.vehicle_id = v.id AND va.released_at IS NULL
               ORDER BY va.assigned_at DESC LIMIT 1) a ON true
+           LEFT JOIN companies co ON co.id = v.company_id
+           LEFT JOIN ledgers ol ON ol.id = v.vehicle_owner_ledger_id
           WHERE ($1::text IS NULL OR v.vehicle_no ILIKE '%'||$1||'%'
                  OR v.owner_name ILIKE '%'||$1||'%' OR v.make_model ILIKE '%'||$1||'%')
             AND ($2::text IS NULL OR v.status::text = $2::text)
@@ -128,6 +132,40 @@ export async function registerMastersRoutes(app) {
     }
   );
 
+  // ═══ THE OWN / ATTACHED RULE CHECK (owner, 5-Sep-2026; migration 161) ════
+  //
+  // Every lorry whose master disagrees with itself or with its trips: OWN with
+  // a person as owner, ATTACHED to its own company, attached without a rate,
+  // no company, trips in another firm's books, trips with no master. Read
+  // only — each row is a decision for the desk, taken on the vehicle form.
+  app.get('/vehicles/rule-audit', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows } = await query(`
+      SELECT * FROM v_vehicle_rule_audit
+       ORDER BY CASE severity WHEN 'HIGH' THEN 0 ELSE 1 END, freight DESC NULLS LAST, vehicle_no, finding`);
+    const by = {};
+    for (const r of rows) by[r.finding] = (by[r.finding] ?? 0) + 1;
+    return {
+      count: rows.length,
+      by_finding: by,
+      rows,
+      rule: {
+        operating_company: 'whose BOOKS the lorry runs in',
+        own: 'the operating company owns it — owner IS the company; freight and running cost are the company\'s',
+        attached: 'someone else owns it — owner required and not the company; company books the running cost, keeps commission, withholds TDS, pays the owner on the 15-day bill; khata auto-linked',
+        derived: 'is_company_owned follows ownership by trigger; nobody writes it',
+      },
+    };
+  });
+
+  // The two refusals migration 161 raises, said in the desk's words.
+  const ownershipErr = (reply, err) => {
+    if (err.code === 'P0413' || err.code === 'P0414') {
+      return reply.code(400).send({ error: 'OWNERSHIP_RULE', detail: err.message });
+    }
+    return pgErr(reply, err);
+  };
+
   app.post('/vehicles', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
     const b = req.body ?? {};
@@ -139,7 +177,7 @@ export async function registerMastersRoutes(app) {
         cols.map((c) => enc(c, b[c])));
       reply.code(201);
       return { created: true, vehicle: rows[0] };
-    } catch (err) { return pgErr(reply, err); }
+    } catch (err) { return ownershipErr(reply, err); }
   });
 
   app.patch('/vehicles/:id', async (req, reply) => {
@@ -151,7 +189,7 @@ export async function registerMastersRoutes(app) {
       const { rows } = await query(u.sql, u.args);
       if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
       return { updated: true, vehicle: rows[0] };
-    } catch (err) { return pgErr(reply, err); }
+    } catch (err) { return ownershipErr(reply, err); }
   });
 
   // A vehicle that has run trips is never deleted — the trips reference it. It

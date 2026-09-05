@@ -693,6 +693,21 @@ export async function registerOpsRoutes(app) {
       // is refused rather than defaulted — a trip in the wrong entity is a rupee
       // in the wrong set of books. A trip with no company named at all (a manual
       // entry) is still allowed through with company_id NULL, exactly as before.
+      // THE LORRY DECIDES THE BOOKS (owner, 5-Sep-2026; migration 161). A trip
+      // that names no company takes the vehicle master's operating company,
+      // so an entry from a screen that did not send one cannot land in the
+      // wrong firm's books. A company that IS named still wins — a lorry can
+      // run a trip for another family firm — and the rule audit lists it.
+      if (!String(b.operating_company ?? '').trim() && (b.vehicle_id || b.vehicle_no)) {
+        const { rows: [vc] } = await query(
+          `SELECT c.company_name
+             FROM vehicles v JOIN companies c ON c.id = v.company_id
+            WHERE ($1::uuid IS NOT NULL AND v.id = $1::uuid)
+               OR ($1::uuid IS NULL AND v.vehicle_no_norm = reg_key($2))
+            LIMIT 1`, [b.vehicle_id ?? null, b.vehicle_no ?? '']);
+        if (vc) b.operating_company = vc.company_name;
+      }
+
       const coText = String(b.operating_company ?? '').trim();
       let companyRow = null;
       if (coText) {

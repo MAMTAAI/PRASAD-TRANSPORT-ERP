@@ -643,7 +643,10 @@ export default function TripManagment() {
       }
 
       // Operating company (and branch) follow the vehicle.
-      const opCo = selectedVeh ? (selectedVeh.company_name || selectedVeh.owner_name || selectedVeh.operating_company || '') : '';
+      // THE LORRY DECIDES THE BOOKS (owner, 5-Sep-2026): the vehicle master's
+      // operating company, never its owner — the owner of an attached lorry is
+      // a person, and a person is not a set of books.
+      const opCo = selectedVeh ? (selectedVeh.company_name || selectedVeh.operating_company || '') : '';
 
       setFormData({...formData, vehicle_no: vNo, driver_name: dName, driver_mobil_no: dMob, operating_company: opCo});
 
