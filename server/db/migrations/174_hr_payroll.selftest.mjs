@@ -45,9 +45,10 @@ try {
   await db.query(`INSERT INTO account_groups (group_head, account_type, statement, normal_side, sort_order, is_system) VALUES ('Current Assets - Driver Advances','ASSET','BALANCE_SHEET','DR',150,true), ('Direct Expenses - Driver & Trip','EXPENSE','PROFIT_AND_LOSS','DR',420,true), ('Shortage & Penalty','EXPENSE','PROFIT_AND_LOSS','DR',430,true), ('Cash-in-Hand','ASSET','BALANCE_SHEET','DR',101,true) ON CONFLICT DO NOTHING`);
   await db.query(`INSERT INTO drivers (name, mobile, license_no) VALUES ('JONAB ALI', '9000000001', 'AS0120200001234'), ('SANJIV RAY YADAV', '9000000002', 'AS0120200005678'), ('OHED ALI', '9000000003', 'AS0120200009999')`);
   await db.query(readFileSync(path.join(here, '174_hr_payroll.sql'), 'utf8'));
-  check('160 → 174 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '174_hr_payroll.sql'), 'utf8'));
-  check('174 is re-runnable', true, true);
+  await db.query(readFileSync(path.join(here, '175_month_end_and_attached_routing.sql'), 'utf8'));
+  check('160 → 175 apply on the production schema', true, true);
+  await db.query(readFileSync(path.join(here, '175_month_end_and_attached_routing.sql'), 'utf8'));
+  check('175 is re-runnable', true, true);
 
   console.log('\nTRIPS AND THE KHATA (fixtures)');
   const { rows: [pt] } = await db.query(`SELECT id FROM companies WHERE company_name = 'M/S PRASAD TRANSPORT'`);
@@ -114,11 +115,26 @@ try {
   check('posted lines join the disbursal queue with the right payable ledgers', (await db.query(`SELECT payable_ledger, amount::text AS amt FROM v_payables_for_disbursal WHERE source = 'MONTHLY' ORDER BY 1`)).rows, [{ payable_ledger: 'Remuneration Payable: SANDEEP KUMAR PRASAD', amt: '50000.00' }, { payable_ledger: 'Salary Payable: MAMTA DEVI', amt: '13000.00' }]);
   check('a posted run is not rebuilt', (await one(`SELECT payroll_run_build($1, '2026-08', 'STAFF', 'test') = $2 AS same`, [pt.id, runS])).same, true);
 
+  console.log('\nATTACHED LORRY ROUTING + MONTH-END (175)');
+  check('the trip on AS 26C 9801 belongs to an attached owner', await one(`SELECT ownership, owner_name, owner_ledger FROM trip_owner($1)`, [await tripId('PT00901')]), { ownership: 'ATTACHED', owner_name: 'SANDEEP KUMAR PRASAD', owner_ledger: 'Vehicle Owner: SANDEEP KUMAR PRASAD' });
+  check('settlements carry the owner', await one(`SELECT vehicle_ownership AS o, owner_name AS n FROM driver_trip_settlements WHERE trip_code = 'PT00901'`), { o: 'ATTACHED', n: 'SANDEEP KUMAR PRASAD' });
+  const cand = (await db.query(`SELECT trip_code, amount::text AS amt, source_ledger FROM driver_txn_routing_candidates(50) ORDER BY trip_code`)).rows;
+  check('routing candidates: the pump-cash advance knows its ledger, the office-cash one has no voucher', cand, [{ trip_code: 'PT00901', amt: '5000.00', source_ledger: 'Driver Advance (Pump Cash)' }, { trip_code: 'PT00902', amt: '1500.00', source_ledger: null }]);
+  const gate0 = (await one(`SELECT month_end_gate($1, '2026-08') AS g`, [pt.id])).g;
+  check('the gate names the driver without a model before August can close', gate0.map((g) => g.kind), ['NO_PAY_MODEL']);
+  const me = (await one(`SELECT month_end_prepare($1, '2026-08', 'test') AS id`, [pt.id])).id;
+  check('prepare stores a BLOCKED run with the gate and both payroll runs', await one(`SELECT status, jsonb_array_length(gate) AS blockers, driver_run_id IS NOT NULL AS d, staff_run_id IS NOT NULL AS s, slips FROM month_end_runs WHERE id = $1`, [me]), { status: 'BLOCKED', blockers: 1, d: true, s: true, slips: 5 });
+  check('a trip-basis slip lists the trips of the month with their proposed earning', await one(`SELECT kind, trips, earned::text AS e, jsonb_array_length(lines) AS n, status FROM payroll_slips WHERE period = '2026-08' AND person_name = 'JONAB ALI'`), { kind: 'TRIP', trips: 1, e: '6000.00', n: 1, status: 'DRAFT' });
+  await db.query(`UPDATE drivers SET pay_model = 'TRIP', trip_rate_mode = 'PER_TRIP', trip_rate = 800, pay_company_id = $2 WHERE id = $1`, [ohed.id, pt.id]);
+  await db.query(`SELECT month_end_prepare($1, '2026-08', 'test')`, [pt.id]);
+  check('…once configured the gate is clear and the month is READY', await one(`SELECT status, jsonb_array_length(gate) AS blockers FROM month_end_runs WHERE id = $1`, [me]), { status: 'DRAFT', blockers: 0 });
+  check('the owner bill helper answers 0 while nothing is routed', (await one(`SELECT owner_bill_routed_advances(gen_random_uuid())::text AS a`)).a, '0.00');
+
   console.log('\nOVERVIEW + AUDIT');
   const ov = await one(`SELECT drivers_trip, drivers_monthly, drivers_unconfigured, trip_blocked, trip_drafts, ready_count, ready_for_disbursal::text AS ready, staff_active, partners_active FROM v_payroll_overview WHERE company_id = $1`, [pt.id]);
-  check('the overview reads it all', ov, { drivers_trip: 1, drivers_monthly: 1, drivers_unconfigured: 1, trip_blocked: 1, trip_drafts: 1, ready_count: 3, ready: '65500.00', staff_active: 1, partners_active: 1 });
+  check('the overview reads it all', ov, { drivers_trip: 2, drivers_monthly: 1, drivers_unconfigured: 0, trip_blocked: 0, trip_drafts: 2, ready_count: 3, ready: '65500.00', staff_active: 1, partners_active: 1 });
   const audit = (await one(`SELECT payroll_deep_audit('test') AS a`)).a;
-  check('the deep audit reports models, open settlements and khata-vs-ledger differences', [audit.drivers.total, audit.drivers.unconfigured, audit.open.blocked, Array.isArray(audit.khata_vs_ledger), audit.khata_vs_ledger.find((k) => k.driver === 'JONAB ALI')?.khata], [3, 1, 1, true, 26500]);
+  check('the deep audit reports models, open settlements and khata-vs-ledger differences', [audit.drivers.total, audit.drivers.unconfigured, audit.open.blocked, Array.isArray(audit.khata_vs_ledger), audit.khata_vs_ledger.find((k) => k.driver === 'JONAB ALI')?.khata], [3, 0, 0, true, 26500]);
 } catch (e) {
   console.log(`  FAIL  the test threw: ${e.message}`); failures += 1;
 } finally {

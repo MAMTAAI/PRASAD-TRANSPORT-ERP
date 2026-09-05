@@ -23,6 +23,11 @@
 import { query, withTransaction } from '../db/pool.js';
 import { postVoucher } from '../agents/tara.js';
 import { requireAuth, requireAdminRole } from './auth.routes.js';
+import { prepareMonth, renderSlips, slipText } from '../lib/monthEnd.js';
+import { notifyWhatsApp } from '../lib/notify.js';
+
+/** A stand-in reply for calling a route's core from another route (month-end). */
+const mkReply = () => { const r = { statusCode: 200, body: null, code(c) { r.statusCode = c; return r; }, send(b) { r.body = b; return r; } }; return r; };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -90,8 +95,11 @@ export async function registerPayrollRoutes(app) {
   app.get('/drivers/:id/desk', staff, async (req, reply) => {
     const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'driver id');
     const { rows: [d] } = await query(`SELECT d.id, d.name, d.mobile, d.pay_model, d.trip_rate_mode, d.trip_rate, d.monthly_salary, d.shortage_recovery_pct, d.pay_company_id, d.pay_notes, d.pay_configured_by, d.pay_configured_at,
-                                              driver_khata_balance(d.id, d.name)::numeric(14,2) AS khata_balance, c.company_name AS pay_company
-                                         FROM drivers d LEFT JOIN companies c ON c.id = d.pay_company_id WHERE d.id = $1::uuid`, [id]);
+                                              driver_khata_balance(d.id, d.name)::numeric(14,2) AS khata_balance, c.company_name AS pay_company,
+                                              cv.vehicle_no AS current_vehicle, cv.ownership::text AS vehicle_ownership, cv.owner_name
+                                         FROM drivers d LEFT JOIN companies c ON c.id = d.pay_company_id
+                                         LEFT JOIN LATERAL (SELECT v.vehicle_no, v.ownership, v.owner_name FROM vehicle_assignments va JOIN vehicles v ON v.id = va.vehicle_id WHERE va.driver_id = d.id AND va.released_at IS NULL ORDER BY va.assigned_at DESC LIMIT 1) cv ON true
+                                         WHERE d.id = $1::uuid`, [id]);
     if (!d) return reply.code(404).send({ error: 'NOT_FOUND' });
     const { rows: settlements } = await query(`SELECT * FROM driver_trip_settlements WHERE driver_id = $1::uuid OR (driver_id IS NULL AND norm_person_name(driver_name) = norm_person_name($2)) ORDER BY completed_at DESC NULLS LAST, created_at DESC LIMIT 200`, [id, d.name]);
     const { rows: lines } = await query(`SELECT l.*, r.period, r.run_no, r.status AS run_status FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.person_kind = 'DRIVER' AND l.person_id = $1::uuid ORDER BY r.period DESC`, [id]);
@@ -127,17 +135,38 @@ export async function registerPayrollRoutes(app) {
     return { ok: true };
   });
 
-  // Approve & Post — the liability exists from this moment.
-  app.post('/trip-settlements/:id/post', admin, async (req, reply) => {
+  // Approve & Post — the liability exists from this moment. The core takes a
+  // (req, reply) pair so the month-end batch can call it without HTTP.
+  const tripPostCore = async (req, reply) => {
     const s = await loadSettlement(req.params.id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
     if (s.status !== 'DRAFT') return reply.code(409).send({ error: 'NOT_DRAFT', detail: s.status === 'BLOCKED' ? `blocked: ${s.block_reason}` : `already ${s.status}` });
     if (!s.company_id) return reply.code(422).send({ error: 'NO_FIRM', detail: 'the settlement names no paying firm — set it on the driver (Configure) or the trip' });
     if (Number(s.earning) <= 0) return reply.code(422).send({ error: 'NOTHING_EARNED' });
-    const lines = [{ ledger: WAGES_LEDGER, dr_cr: 'DR', amount: r2(s.earning), group: WAGES_GROUP }];
-    if (Number(s.applied_shortage) > 0) lines.push({ ledger: SHORTAGE_LEDGER, dr_cr: 'CR', amount: r2(s.applied_shortage), group: SHORTAGE_GROUP });
-    if (Number(s.applied_challans) > 0) lines.push({ ledger: SHORTAGE_LEDGER, dr_cr: 'CR', amount: r2(s.applied_challans), group: SHORTAGE_GROUP });
-    if (Number(s.applied_advances) > 0) lines.push({ ledger: `Driver Advance: ${s.driver_name}`, dr_cr: 'CR', amount: r2(s.applied_advances), group: ADVANCE_GROUP });
-    if (Number(s.net_payable) > 0) lines.push({ ledger: `Driver Payable: ${s.driver_name}`, dr_cr: 'CR', amount: r2(s.net_payable), group: PAYABLE_GROUP });
+    const attached = s.vehicle_ownership === 'ATTACHED' && s.owner_ledger;
+    const lines = [];
+    if (attached) {
+      // The company is the owner's agent: what it pays the driver is the
+      // owner's cost. The advance was debited to the owner when it went out
+      // (routing, 175); what the driver is docked stays with the owner too.
+      // So the liability to the driver is the only thing to book, against
+      // the owner's ledger — no wages expense, no korki legs.
+      if (Number(s.net_payable) > 0) {
+        lines.push({ ledger: s.owner_ledger, dr_cr: 'DR', amount: r2(s.net_payable), group: 'Sundry Creditors (Vehicle Owners)' });
+        lines.push({ ledger: `Driver Payable: ${s.driver_name}`, dr_cr: 'CR', amount: r2(s.net_payable), group: PAYABLE_GROUP });
+      }
+    } else {
+      lines.push({ ledger: WAGES_LEDGER, dr_cr: 'DR', amount: r2(s.earning), group: WAGES_GROUP });
+      if (Number(s.applied_shortage) > 0) lines.push({ ledger: SHORTAGE_LEDGER, dr_cr: 'CR', amount: r2(s.applied_shortage), group: SHORTAGE_GROUP });
+      if (Number(s.applied_challans) > 0) lines.push({ ledger: SHORTAGE_LEDGER, dr_cr: 'CR', amount: r2(s.applied_challans), group: SHORTAGE_GROUP });
+      if (Number(s.applied_advances) > 0) lines.push({ ledger: `Driver Advance: ${s.driver_name}`, dr_cr: 'CR', amount: r2(s.applied_advances), group: ADVANCE_GROUP });
+      if (Number(s.net_payable) > 0) lines.push({ ledger: `Driver Payable: ${s.driver_name}`, dr_cr: 'CR', amount: r2(s.net_payable), group: PAYABLE_GROUP });
+    }
+    if (!lines.length) {
+      // nothing to book (attached lorry, korki swallowed the whole earning): the settlement is complete as it stands
+      await query(`UPDATE driver_trip_settlements SET status = 'PAID', posted_at = now(), posted_by = $2, paid_on = current_date, paid_by = $2, paid_via = 'nil — fully adjusted', updated_at = now() WHERE id = $1::uuid`, [s.id, actor(req)]);
+      await query(`INSERT INTO driver_transactions (driver_id, driver_name, trip_id, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::uuid, current_date, 'SALARY_CREDIT', $4, 'Trip settlement', $5)`, [s.driver_id, s.driver_name, s.trip_id, r2(s.earning), `[${s.settlement_no}] ${s.trip_code} trip pay (${s.basis}) — fully adjusted against korki`]);
+      return { settlement: await loadSettlement(s.id), voucher: null };
+    }
     let voucher;
     try {
       voucher = await postVoucher({ type: 'JOURNAL', company_id: s.company_id, lines, source_type: 'DRIVER_TRIP_PAY', ref_no: s.settlement_no,
@@ -155,7 +184,8 @@ export async function registerPayrollRoutes(app) {
         [s.driver_id, s.driver_name, s.trip_id, r2(s.applied_shortage), `[${s.settlement_no}] shortage recovered from trip pay`]);
     });
     return { settlement: await loadSettlement(s.id), voucher: voucher ?? null };
-  });
+  };
+  app.post('/trip-settlements/:id/post', admin, tripPostCore);
 
   const payOne = async (req, reply, { source, ref_id, account, paid_on }) => {
     if (!UUID_RE.test(ref_id ?? '')) return bad(reply, 'BAD_ID', 'ref_id');
@@ -244,7 +274,7 @@ export async function registerPayrollRoutes(app) {
   });
 
   // Approve & Post the run: one journal per person, liability per person.
-  app.post('/runs/:id/post', admin, async (req, reply) => {
+  const runPostCore = async (req, reply) => {
     const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
     const { run, lines } = await runOf(id); if (!run) return reply.code(404).send({ error: 'NOT_FOUND' });
     if (run.status !== 'DRAFT') return reply.code(409).send({ error: 'NOT_DRAFT', detail: `run is ${run.status}` });
@@ -275,7 +305,8 @@ export async function registerPayrollRoutes(app) {
     }
     if (posted.length) await query(`UPDATE payroll_runs SET status = 'POSTED', posted_at = now(), posted_by = $2, updated_at = now() WHERE id = $1::uuid`, [id, actor(req)]);
     return { ...(await runOf(id)), posted, failed };
-  });
+  };
+  app.post('/runs/:id/post', admin, runPostCore);
   app.post('/runs/:id/pay', admin, async (req, reply) => {
     const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
     const b = req.body ?? {}; if (!b.account) return bad(reply, 'BAD_ACCOUNT', 'account');
@@ -350,5 +381,248 @@ export async function registerPayrollRoutes(app) {
     const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
     const { rows } = await query(`SELECT * FROM staff_transactions WHERE staff_id = $1::uuid ORDER BY txn_date DESC, created_at DESC LIMIT 300`, [id]);
     return { rows };
+  });
+
+  // ── attached-lorry routing (175): driver cash → the owner's ledger ──────
+  // Dr Vehicle Owner: NAME / Cr the head the cash sits on (the driver's own
+  // advance head, or the pooled pump-cash head). A khata entry with no cash
+  // voucher behind it is flagged NEEDS_VOUCHER, never routed on a guess.
+  const routeAttached = async (by, limit = 500) => {
+    const { rows } = await query(`SELECT * FROM driver_txn_routing_candidates($1)`, [limit]);
+    let routed = 0, needs = 0, failed = 0;
+    for (const c of rows) {
+      if (!c.source_ledger) {
+        await query(`INSERT INTO driver_payment_routing (txn_id, trip_id, vehicle_no, driver_name, owner_name, owner_ledger, source_ledger, amount, status, note) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NULL, $7, 'NEEDS_VOUCHER', 'no cash / bank voucher found for this khata entry')
+          ON CONFLICT (txn_id) DO UPDATE SET status = 'NEEDS_VOUCHER', note = EXCLUDED.note, updated_at = now()`, [c.txn_id, c.trip_id, c.vehicle_no, c.driver_name, c.owner_name, c.owner_ledger, c.amount]);
+        needs += 1; continue;
+      }
+      let v = null;
+      try {
+        v = await postVoucher({ type: 'JOURNAL', company_id: c.company_id, source_type: 'DRIVER_ROUTING', ref_no: `DRVRT-${c.txn_id}`, entry_date: String(c.txn_date).slice(0, 10) === 'Inva' ? undefined : new Date(c.txn_date).toISOString().slice(0, 10),
+          lines: [{ ledger: c.owner_ledger, dr_cr: 'DR', amount: r2(c.amount), group: 'Sundry Creditors (Vehicle Owners)' }, { ledger: c.source_ledger, dr_cr: 'CR', amount: r2(c.amount), group: ADVANCE_GROUP }],
+          narration: `${c.txn_type} ₹${r2(c.amount)} to ${c.driver_name} on ${c.trip_code} (${c.vehicle_no}, attached) charged to owner ${c.owner_name}`, created_by: by });
+      } catch (e) {
+        if (e.code !== 'DUPLICATE_REF') {
+          await query(`INSERT INTO driver_payment_routing (txn_id, trip_id, vehicle_no, driver_name, owner_name, owner_ledger, source_ledger, amount, status, note) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, 'FAILED', $9)
+            ON CONFLICT (txn_id) DO UPDATE SET status = 'FAILED', note = EXCLUDED.note, updated_at = now()`, [c.txn_id, c.trip_id, c.vehicle_no, c.driver_name, c.owner_name, c.owner_ledger, c.source_ledger, c.amount, e.message.slice(0, 300)]);
+          failed += 1; continue;
+        }
+      }
+      await query(`INSERT INTO driver_payment_routing (txn_id, trip_id, vehicle_no, driver_name, owner_name, owner_ledger, source_ledger, amount, status, voucher_id, routed_at) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, 'ROUTED', $9::uuid, now())
+        ON CONFLICT (txn_id) DO UPDATE SET status = 'ROUTED', source_ledger = EXCLUDED.source_ledger, voucher_id = coalesce(EXCLUDED.voucher_id, driver_payment_routing.voucher_id), routed_at = now(), note = NULL, updated_at = now()`, [c.txn_id, c.trip_id, c.vehicle_no, c.driver_name, c.owner_name, c.owner_ledger, c.source_ledger, c.amount, v?.voucher_id ?? null]);
+      routed += 1;
+    }
+    return { candidates: rows.length, routed, needs_voucher: needs, failed };
+  };
+  app.post('/routing/run', admin, async (req) => routeAttached(actor(req)));
+  app.get('/routing', staff, async (req) => {
+    const status = ['ROUTED', 'NEEDS_VOUCHER', 'FAILED', 'NOT_APPLICABLE'].includes(req.query.status) ? req.query.status : null;
+    const { rows } = await query(`SELECT r.*, t.trip_code, dt.txn_type, dt.txn_date, dt.mode, dt.remarks FROM driver_payment_routing r LEFT JOIN trips t ON t.id = r.trip_id LEFT JOIN driver_transactions dt ON dt.id = r.txn_id WHERE ($1::text IS NULL OR r.status = $1) ORDER BY r.updated_at DESC LIMIT 500`, [status]);
+    const { rows: pend } = await query(`SELECT count(*)::int AS n, coalesce(sum(amount), 0)::numeric(14,2) AS amount FROM driver_txn_routing_candidates(5000)`);
+    return { rows, pending: pend[0] };
+  });
+
+  // ── month-end (175) ───────────────────────────────────────────────────
+  const monthEndOf = async (firm, period) => {
+    const { rows: [run] } = await query(`SELECT m.*, c.company_name FROM month_end_runs m JOIN companies c ON c.id = m.company_id WHERE m.company_id = $1::uuid AND m.period = $2`, [firm, period]);
+    const { rows: slips } = await query(`SELECT id, person_kind, person_id, person_name, kind, opening, earned, korki, advances, paid, closing, trips, file_key, generated_at, status, note, mobile, approved_by, approved_at, posted_at, wa_sent_at FROM payroll_slips WHERE company_id = $1::uuid AND period = $2 ORDER BY status, kind, person_name`, [firm, period]);
+    const { rows: [gate] } = await query(`SELECT month_end_gate($1::uuid, $2) AS g`, [firm, period]);
+    return { run: run ?? null, gate: gate.g, slips };
+  };
+  app.get('/month-end', staff, async (req, reply) => {
+    const { firm, period } = req.query; if (!UUID_RE.test(firm ?? '')) return bad(reply, 'BAD_FIRM', 'firm'); if (!PERIOD_RE.test(period ?? '')) return bad(reply, 'BAD_PERIOD', 'period must be YYYY-MM');
+    return monthEndOf(firm, period);
+  });
+  app.get('/month-end/history', staff, async (req) => {
+    const firm = UUID_RE.test(req.query.firm ?? '') ? req.query.firm : null;
+    const { rows } = await query(`SELECT m.*, c.company_name FROM month_end_runs m JOIN companies c ON c.id = m.company_id WHERE ($1::uuid IS NULL OR m.company_id = $1::uuid) ORDER BY m.period DESC, c.company_name`, [firm]);
+    return { rows };
+  });
+
+  // Run the month in DRAFT mode (owner, 5-Sep evening): settle every trip,
+  // build both runs, route attached-lorry cash, write the slips and their
+  // PDFs into the Approval Queue. NOTHING is posted here — a manager edits,
+  // prints, sends, then presses Approve & Post per person (or for all). The
+  // gate blocks the drafting unless an admin overrides with a reason, which
+  // is recorded and raised on the Exception Desk.
+  const runMonthEnd = async (req, firm, period, force, reason) => {
+    const by = actor(req);
+    let { run } = await monthEndOf(firm, period);
+    if (run?.status === 'CLOSED') return { ...(await monthEndOf(firm, period)), already_closed: true };
+    const { run: prepared, pdfs } = await prepareMonth(firm, period, by);
+    const routing = await routeAttached(by, 2000).catch((e) => ({ error: e.message }));
+    const { gate } = await monthEndOf(firm, period);
+    if (gate.length && !force) {
+      await query(`UPDATE month_end_runs SET status = 'BLOCKED', gate = $2::jsonb, updated_at = now() WHERE id = $1::uuid`, [prepared.id, JSON.stringify(gate)]);
+      return { blocked: true, gate, run: (await monthEndOf(firm, period)).run, routing };
+    }
+    if (gate.length && force) {
+      await query(`INSERT INTO exceptions (kind, severity, status, title, detail, subject_type, subject_id, company, dedupe_key, detected_by, evidence, detected_at, last_seen_at)
+        VALUES ('PAYROLL_MONTH_END_BLOCKED', 'HIGH', 'OPEN', $1, $2, 'month_end', $3, (SELECT company_name FROM companies WHERE id = $4::uuid), $5, $6, $7::jsonb, now(), now()) ON CONFLICT DO NOTHING`,
+        [`${period} drafted by ${by} with ${gate.length} blocker(s) overridden`, `Reason given: ${reason}. Blockers: ${gate.map((g) => g.title).join(' | ')}`, prepared.id, firm, `PAYROLL_MONTH_END_BLOCKED:${firm}:${period}`, by, JSON.stringify(gate)]).catch(() => {});
+    }
+    const summary = { routing, pdfs, forced: !!(gate.length && force), drafted_by: by };
+    await query(`UPDATE month_end_runs SET status = 'DRAFT', forced = $3, force_reason = $4, routed = $5, summary = coalesce(summary, '{}'::jsonb) || $6::jsonb, updated_at = now() WHERE id = $1::uuid AND period = $2`,
+      [prepared.id, period, !!(gate.length && force), reason ?? null, routing?.routed ?? 0, JSON.stringify(summary)]);
+    return { drafted: true, summary, ...(await monthEndOf(firm, period)) };
+  };
+  app.post('/month-end/run', admin, async (req, reply) => {
+    const b = req.body ?? {};
+    if (!UUID_RE.test(b.firm ?? '')) return bad(reply, 'BAD_FIRM', 'firm'); if (!PERIOD_RE.test(b.period ?? '')) return bad(reply, 'BAD_PERIOD', 'period must be YYYY-MM');
+    if (b.force && !(b.reason && String(b.reason).trim().length >= 8)) return bad(reply, 'REASON_REQUIRED', 'overriding the gate needs a reason (8+ characters), recorded on the run');
+    const out = await runMonthEnd(req, b.firm, b.period, !!b.force, b.reason ?? null);
+    if (out.blocked) return reply.code(409).send({ error: 'GATE_OPEN', detail: `${out.gate.length} blocker(s) must be cleared on the Exception Desk before ${b.period} can close`, ...out });
+    return out;
+  });
+  // April → today, every firm, month by month (idempotent: a CLOSED month is skipped)
+  app.post('/month-end/backfill', admin, async (req, reply) => {
+    const b = req.body ?? {};
+    const from = PERIOD_RE.test(b.from ?? '') ? b.from : '2026-04'; const to = PERIOD_RE.test(b.to ?? '') ? b.to : new Date(Date.now() - 86400000 * 5).toISOString().slice(0, 7);
+    if (b.force && !(b.reason && String(b.reason).trim().length >= 8)) return bad(reply, 'REASON_REQUIRED', 'overriding the gate needs a reason');
+    const { rows: firms } = await query(`SELECT id, company_name FROM companies WHERE status::text = 'ACTIVE' AND ($1::uuid IS NULL OR id = $1::uuid) ORDER BY company_name`, [UUID_RE.test(b.firm ?? '') ? b.firm : null]);
+    const periods = []; for (let p = from; p <= to; ) { periods.push(p); const [y, m] = p.split('-').map(Number); p = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}`; }
+    const results = [];
+    for (const f of firms) for (const period of periods) {
+      const out = await runMonthEnd(req, f.id, period, !!b.force, b.reason ?? null).catch((e) => ({ error: e.message }));
+      results.push({ firm: f.company_name, period, drafted: !!out.drafted, already_closed: !!out.already_closed, blocked: !!out.blocked, blockers: out.gate?.length ?? 0, routed: out.summary?.routing?.routed ?? 0, slips: out.slips?.length ?? 0, error: out.error ?? null });
+    }
+    return { from, to, results };
+  });
+  app.get('/slips', staff, async (req, reply) => {
+    const { firm, period } = req.query; if (!UUID_RE.test(firm ?? '')) return bad(reply, 'BAD_FIRM', 'firm');
+    const { rows } = await query(`SELECT s.*, c.company_name FROM payroll_slips s JOIN companies c ON c.id = s.company_id WHERE s.company_id = $1::uuid AND ($2::text IS NULL OR s.period = $2) ORDER BY s.period DESC, s.kind, s.person_name`, [firm, PERIOD_RE.test(period ?? '') ? period : null]);
+    return { rows };
+  });
+  app.post('/slips/render', admin, async (req, reply) => {
+    const b = req.body ?? {}; if (!UUID_RE.test(b.firm ?? '') || !PERIOD_RE.test(b.period ?? '')) return bad(reply, 'BAD_ARGS', 'firm, period');
+    await query(`SELECT month_end_prepare($1::uuid, $2, $3)`, [b.firm, b.period, actor(req)]);
+    return renderSlips(b.firm, b.period);
+  });
+
+  // ── the Manager Approval Queue (175, owner's evening directive) ──────────
+  // One row per person per month (payroll_slips). The 1st-of-month agent and
+  // "Run Monthly Settlement" fill it in DRAFT; a manager edits (manual korki,
+  // missed advances, a wrong name), saves, prints, sends on WhatsApp, and
+  // Approve & Post locks the slip and posts that person's settlements.
+  const slipOf = async (id) => (await query(`SELECT s.*, c.company_name FROM payroll_slips s JOIN companies c ON c.id = s.company_id WHERE s.id = $1::uuid`, [id])).rows[0];
+  const refreshSlip = async (s, by) => { await query(`SELECT month_end_prepare($1::uuid, $2, $3)`, [s.company_id, s.period, by]); return slipOf(s.id); };
+  app.get('/approval-queue', staff, async (req, reply) => {
+    const { firm, period } = req.query; if (!UUID_RE.test(firm ?? '')) return bad(reply, 'BAD_FIRM', 'firm'); if (!PERIOD_RE.test(period ?? '')) return bad(reply, 'BAD_PERIOD', 'period must be YYYY-MM');
+    const { rows } = await query(`SELECT s.*,
+        (SELECT count(*)::int FROM driver_trip_settlements x WHERE x.driver_id = s.person_id AND x.company_id = s.company_id AND to_char(x.completed_at, 'YYYY-MM') = s.period AND x.status = 'DRAFT') AS drafts,
+        (SELECT count(*)::int FROM driver_trip_settlements x WHERE x.driver_id = s.person_id AND x.company_id = s.company_id AND to_char(x.completed_at, 'YYYY-MM') = s.period AND x.status = 'BLOCKED') AS blocked,
+        (SELECT coalesce(sum(net_payable), 0)::numeric(14,2) FROM driver_trip_settlements x WHERE x.driver_id = s.person_id AND x.company_id = s.company_id AND to_char(x.completed_at, 'YYYY-MM') = s.period AND x.status IN ('DRAFT','POSTED','PAID')) AS net_month,
+        (SELECT l.status FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.person_id = s.person_id AND r.company_id = s.company_id AND r.period = s.period LIMIT 1) AS line_status,
+        (SELECT l.net_payable FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.person_id = s.person_id AND r.company_id = s.company_id AND r.period = s.period LIMIT 1) AS line_net
+      FROM payroll_slips s WHERE s.company_id = $1::uuid AND s.period = $2 ORDER BY s.status, s.kind, s.person_name`, [firm, period]);
+    const { rows: [run] } = await query(`SELECT * FROM month_end_runs WHERE company_id = $1::uuid AND period = $2`, [firm, period]);
+    return { rows, run: run ?? null, totals: { drafts: rows.filter((r) => r.status === 'DRAFT').length, approved: rows.filter((r) => r.status !== 'DRAFT').length, net: r2(rows.reduce((a, r) => a + Number(r.kind === 'TRIP' ? r.net_month : r.line_net ?? 0), 0)) } };
+  });
+  app.get('/slips/:id', staff, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const s = await slipOf(id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const { rows: settlements } = await query(`SELECT * FROM driver_trip_settlements WHERE driver_id = $1::uuid AND company_id = $2::uuid AND to_char(completed_at, 'YYYY-MM') = $3 AND status <> 'CANCELLED' ORDER BY completed_at`, [s.person_id, s.company_id, s.period]);
+    const { rows: [line] } = await query(`SELECT l.*, r.run_no FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.person_id = $1::uuid AND r.company_id = $2::uuid AND r.period = $3 LIMIT 1`, [s.person_id, s.company_id, s.period]);
+    const { rows: txns } = await query(`SELECT id, txn_date, txn_type, amount, mode, remarks, trip_id FROM driver_transactions WHERE driver_id = $1::uuid AND txn_date BETWEEN to_date($2 || '-01', 'YYYY-MM-DD') AND (to_date($2 || '-01', 'YYYY-MM-DD') + interval '1 month' - interval '1 day')::date ORDER BY txn_date`, [s.person_id, s.period]);
+    return { slip: s, settlements, line: line ?? null, transactions: s.person_kind === 'DRIVER' ? txns : [], text: slipText(s, s.company_name) };
+  });
+  // EDIT / SAVE — the slip's note; a trip's manual korki; a missed advance; the driver's name
+  app.patch('/slips/:id', admin, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const s = await slipOf(id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (s.status === 'POSTED') return reply.code(409).send({ error: 'LOCKED', detail: 'this slip is posted — reopen is not allowed; post a correction next month' });
+    const b = req.body ?? {};
+    await query(`UPDATE payroll_slips SET note = coalesce($2, note), mobile = coalesce($3, mobile), edited_by = $4, edited_at = now() WHERE id = $1::uuid`, [id, b.note ?? null, b.mobile ? String(b.mobile).replace(/\D/g, '').slice(-10) : null, actor(req)]);
+    if (b.person_name && s.person_kind === 'DRIVER' && String(b.person_name).trim() && String(b.person_name).trim().toUpperCase() !== s.person_name) {
+      await query(`UPDATE drivers SET name = $2, updated_at = now() WHERE id = $1::uuid`, [s.person_id, String(b.person_name).trim().toUpperCase()]);
+      await query(`UPDATE driver_trip_settlements SET driver_name = $2 WHERE driver_id = $1::uuid AND status IN ('DRAFT','BLOCKED')`, [s.person_id, String(b.person_name).trim().toUpperCase()]);
+    }
+    return { slip: await refreshSlip(s, actor(req)) };
+  });
+  app.patch('/trip-settlements/:id', admin, async (req, reply) => {
+    const s = await loadSettlement(req.params.id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (!['DRAFT', 'BLOCKED'].includes(s.status)) return reply.code(409).send({ error: 'NOT_OPEN', detail: `settlement is ${s.status}` });
+    const b = req.body ?? {}; const mk = b.manual_korki === undefined ? Number(s.manual_korki) : Number(b.manual_korki);
+    if (!(mk >= 0)) return bad(reply, 'BAD_AMOUNT', 'manual korki must be ≥ 0');
+    await query(`UPDATE driver_trip_settlements SET manual_korki = $2, manual_note = coalesce($3, manual_note), note = coalesce($4, note), edited_by = $5, edited_at = now(), updated_at = now() WHERE id = $1::uuid`, [s.id, r2(mk), b.manual_note ?? null, b.note ?? null, actor(req)]);
+    await query(`SELECT driver_trip_settle($1::uuid, $2)`, [s.trip_id, actor(req)]);
+    return { settlement: await loadSettlement(s.id) };
+  });
+  // a missed advance: recorded in the khata (dated), optionally paid out now from a ledger; every open settlement of the driver recomputes
+  app.post('/drivers/:id/advance', admin, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const b = req.body ?? {}; const amount = r2(num(b.amount) ?? 0); if (!(amount > 0)) return bad(reply, 'BAD_AMOUNT', 'amount > 0');
+    const { rows: [d] } = await query(`SELECT id, name FROM drivers WHERE id = $1::uuid`, [id]); if (!d) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const day = DATE_RE.test(b.txn_date ?? '') ? b.txn_date : new Date().toISOString().slice(0, 10);
+    const trip = UUID_RE.test(b.trip_id ?? '') ? b.trip_id : null;
+    let v = null;
+    if (b.account) {
+      if (!(await accountOk(b.account))) return bad(reply, 'BAD_ACCOUNT', 'account must be a cash or bank ledger');
+      const { rows: [co] } = await query(`SELECT coalesce((SELECT company_id FROM trips WHERE id = $2::uuid), (SELECT pay_company_id FROM drivers WHERE id = $1::uuid)) AS company_id`, [id, trip]);
+      try { v = await postVoucher({ type: 'PAYMENT', company_id: co?.company_id ?? null, account: b.account, party_ledger: `Driver Advance: ${d.name}`, party_group: ADVANCE_GROUP, amount, entry_date: day, source_type: 'DRIVER_ADVANCE', ref_no: `DRVADV-${id.slice(0, 8)}-${Date.now()}`, narration: `Advance to ${d.name}${b.remarks ? ' — ' + b.remarks : ''}`, created_by: actor(req) }); }
+      catch (e) { return reply.code(422).send({ error: e.code === 'OVERDRAFT' ? 'OVERDRAFT' : 'PAY_FAILED', detail: e.message }); }
+    }
+    const { rows: [t] } = await query(`INSERT INTO driver_transactions (driver_id, driver_name, trip_id, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::uuid, $4::date, 'ADVANCE_GIVEN', $5, $6, $7) RETURNING *`,
+      [id, d.name, trip, day, amount, b.account ?? (b.mode ?? 'Office Cash'), `[${actor(req)}] ${b.remarks ?? 'missed advance added at month-end'}${v ? '' : ' (khata only — no voucher)'}`]);
+    const { rows: [rs] } = await query(`SELECT driver_resettle_open($1::uuid) AS n`, [id]);
+    return { transaction: t, voucher: v, resettled: rs.n };
+  });
+  // PRINT
+  app.post('/slips/:id/render', admin, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const s = await slipOf(id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    if (s.status !== 'POSTED') await query(`SELECT month_end_prepare($1::uuid, $2, $3)`, [s.company_id, s.period, actor(req)]);
+    const r = await renderSlips(s.company_id, s.period, id);
+    return { ...r, slip: await slipOf(id) };
+  });
+  // WHATSAPP
+  app.post('/slips/:id/whatsapp', admin, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const s = await slipOf(id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
+    const mobile = String(req.body?.mobile ?? s.mobile ?? '').replace(/\D/g, '').slice(-10);
+    if (mobile.length < 10) return bad(reply, 'NO_MOBILE', 'no registered mobile for this person — add it on the slip or the master');
+    const text = slipText(s, s.company_name) + (s.file_key ? `\n\nPDF: ${process.env.PUBLIC_APP_URL ? `${process.env.PUBLIC_APP_URL.replace(/\/$/, '')}/api/v1/files/${s.file_key}` : '(ask the office for the PDF)'}` : '');
+    const ok = await notifyWhatsApp(mobile, text).catch(() => false);
+    await query(`UPDATE payroll_slips SET wa_sent_at = CASE WHEN $2 THEN now() ELSE wa_sent_at END, wa_result = $3, mobile = coalesce(mobile, $4) WHERE id = $1::uuid`, [id, !!ok, ok ? `sent to ${mobile}` : `failed to ${mobile} — WhatsApp engine did not accept it`, mobile]);
+    if (!ok) return reply.code(502).send({ error: 'WA_FAILED', detail: 'the WhatsApp engine did not accept the message — is the number linked and the engine paired?' });
+    return { sent: true, mobile };
+  });
+  // APPROVE & POST — locks the slip, posts the person's settlements / run line
+  const approveSlipCore = async (req, id) => {
+    const s = await slipOf(id); if (!s) return { error: 'NOT_FOUND', status: 404 };
+    if (s.status === 'POSTED') return { slip: s, already: true };
+    const by = actor(req); const results = [];
+    if (s.kind === 'TRIP') {
+      const { rows: drafts } = await query(`SELECT id FROM driver_trip_settlements WHERE driver_id = $1::uuid AND company_id = $2::uuid AND to_char(completed_at, 'YYYY-MM') = $3 AND status = 'DRAFT'`, [s.person_id, s.company_id, s.period]);
+      for (const d of drafts) { const rep = mkReply(); try { const out = await tripPostCore({ params: { id: d.id }, user: req.user }, rep); results.push({ id: d.id, ok: rep.statusCode === 200 && !!out?.settlement, detail: rep.body?.detail ?? null }); } catch (e) { results.push({ id: d.id, ok: false, detail: e.message }); } }
+    } else {
+      const { rows: [l] } = await query(`SELECT l.id, l.run_id, l.status, r.status AS run_status FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.person_id = $1::uuid AND r.company_id = $2::uuid AND r.period = $3 LIMIT 1`, [s.person_id, s.company_id, s.period]);
+      if (l && l.status === 'DRAFT') {
+        // post just this line: skip the others, post the run, un-skip
+        await query(`UPDATE payroll_lines SET status = 'SKIPPED', note = coalesce(note, '') || ' [held: not yet approved]' WHERE run_id = $1::uuid AND id <> $2::uuid AND status = 'DRAFT'`, [l.run_id, l.id]);
+        const rep = mkReply(); try { const out = await runPostCore({ params: { id: l.run_id }, user: req.user }, rep); results.push({ id: l.id, ok: rep.statusCode === 200 && (out?.posted ?? []).length > 0, detail: rep.body?.detail ?? (out?.failed?.[0]?.detail ?? null) }); } catch (e) { results.push({ id: l.id, ok: false, detail: e.message }); }
+        await query(`UPDATE payroll_lines SET status = 'DRAFT', note = replace(coalesce(note, ''), ' [held: not yet approved]', '') WHERE run_id = $1::uuid AND status = 'SKIPPED' AND note LIKE '%[held: not yet approved]%'`, [l.run_id]);
+        await query(`UPDATE payroll_runs SET status = CASE WHEN EXISTS (SELECT 1 FROM payroll_lines x WHERE x.run_id = $1::uuid AND x.status = 'DRAFT') THEN 'DRAFT' ELSE status END, updated_at = now() WHERE id = $1::uuid`, [l.run_id]);
+      } else if (l) results.push({ id: l.id, ok: true, detail: `already ${l.status}` });
+    }
+    const allOk = results.every((r) => r.ok);
+    await query(`UPDATE payroll_slips SET status = CASE WHEN $2 THEN 'POSTED' ELSE 'BLOCKED' END, approved_by = $3, approved_at = now(), posted_at = CASE WHEN $2 THEN now() ELSE posted_at END WHERE id = $1::uuid`, [id, allOk, by]);
+    await query(`SELECT month_end_prepare($1::uuid, $2, $3)`, [s.company_id, s.period, by]).catch(() => {});
+    await renderSlips(s.company_id, s.period, id).catch(() => {});
+    // the month closes itself when every slip is posted
+    await query(`UPDATE month_end_runs m SET status = 'CLOSED', closed_at = now(), closed_by = $3, updated_at = now() WHERE m.company_id = $1::uuid AND m.period = $2 AND m.status <> 'CLOSED' AND NOT EXISTS (SELECT 1 FROM payroll_slips p WHERE p.company_id = m.company_id AND p.period = m.period AND p.status <> 'POSTED')`, [s.company_id, s.period, by]);
+    return { slip: await slipOf(id), results, ok: allOk };
+  };
+  app.post('/slips/:id/approve', admin, async (req, reply) => {
+    const { id } = req.params; if (!UUID_RE.test(id)) return bad(reply, 'BAD_ID', 'id');
+    const out = await approveSlipCore(req, id); if (out.error) return reply.code(out.status ?? 400).send({ error: out.error });
+    return out;
+  });
+  app.post('/month-end/approve-all', admin, async (req, reply) => {
+    const b = req.body ?? {}; if (!UUID_RE.test(b.firm ?? '') || !PERIOD_RE.test(b.period ?? '')) return bad(reply, 'BAD_ARGS', 'firm, period');
+    const { rows } = await query(`SELECT id, person_name FROM payroll_slips WHERE company_id = $1::uuid AND period = $2 AND status = 'DRAFT' ORDER BY person_name`, [b.firm, b.period]);
+    const results = [];
+    for (const s of rows) { const out = await approveSlipCore(req, s.id); results.push({ person: s.person_name, ok: !!out.ok, detail: out.results?.find((r) => !r.ok)?.detail ?? null }); }
+    return { approved: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok), results };
   });
 }

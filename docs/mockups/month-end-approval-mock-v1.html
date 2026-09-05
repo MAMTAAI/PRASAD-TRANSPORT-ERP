@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Month-End Settlement & Approval Queue — mock v1</title>
+<style>
+  :root { --bg:#0a1024; --panel:#121c38; --line:#27395f; --ink:#eef2fd; --ink2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196; --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa; --gold:#fcd34d; }
+  * { box-sizing: border-box; } body { margin:0; background: radial-gradient(circle at top right, #121c38, #0a1024); color: var(--ink); font: 13px/1.45 Inter, system-ui, sans-serif; padding: 20px 24px 60px; }
+  h1 { font-size: 24px; margin: 0; } h2 { font-size: 15px; margin: 22px 0 8px; color: var(--ink2); }
+  .eyebrow { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 10px 0; }
+  .btn { font-weight:700; font-size:12px; border-radius:8px; padding:7px 13px; border:1px solid var(--line); color: var(--mut); white-space:nowrap; }
+  .btn.ai { color:#c4b5fd; border-color: rgba(167,139,250,.5); background: rgba(167,139,250,.14); } .btn.cyan { color: var(--cyan); border-color: rgba(34,211,238,.5); background: rgba(34,211,238,.12); } .btn.solid { color:#0a1024; background: var(--good); border-color: var(--good); } .btn.good { color: var(--good); border-color: rgba(47,227,155,.55); background: rgba(47,227,155,.10); } .btn.warn { color: var(--warn); border-color: rgba(255,178,36,.5); background: rgba(255,178,36,.12); }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+  .wrap { overflow-x:auto; border:1px solid var(--line); border-radius:12px; background: rgba(10,16,36,.45); }
+  table { border-collapse: collapse; width:100%; font-size:12px; } th { padding:9px 10px; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:.08em; color: var(--dim); border-bottom:1px solid var(--line); white-space:nowrap; background: rgba(10,16,36,.6); }
+  td { padding:8px 10px; border-bottom:1px solid #1b2a4e; color: var(--ink2); white-space:nowrap; vertical-align:top; } td.r, th.r { text-align:right; font-variant-numeric: tabular-nums; }
+  .pill { font-size:10px; font-weight:800; letter-spacing:.05em; border-radius:999px; padding:2px 9px; border:1px solid; white-space:nowrap; }
+  .p-warn { color: var(--warn); } .p-dim { color: var(--dim); } .p-good { color: var(--good); } .p-crit { color: var(--crit); } .p-cyan { color: var(--cyan); }
+  .sub { font-size:10px; color: var(--dim); } .note { color: var(--mut); font-size: 12px; line-height:1.55; } .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .banner { border:1px dashed var(--gold); color: var(--gold); border-radius: 10px; padding: 8px 12px; font-size: 12px; margin-bottom: 14px; }
+  .gate { border:1px solid rgba(255,107,129,.4); border-radius:10px; padding:8px 10px; font-size:12px; margin-top:6px; }
+  .sel { background:#0a1024; border:1px solid var(--line); border-radius:8px; color: var(--ink); padding:6px 10px; font-size:12px; }
+  @media (max-width: 760px) { body { padding: 12px; } }
+</style>
+</head>
+<body>
+<div class="banner">MOCK v1 · 5/6-Sep-2026 · Month-end in draft mode: the agent drafts every firm on the 1st at 00:01 IST into the Manager Approval Queue; a manager edits, saves, prints, sends on WhatsApp, then Approve & Post. Attached-lorry driver cash is charged to the owner. Production figures where known.</div>
+
+<div class="eyebrow">Accounts &amp; Admin · Staff &amp; Partner Payroll · ✅ Approval queue</div>
+<h1>📅 Month-end settlement</h1>
+<div class="card" style="border-color: rgba(255,107,129,.5)">
+  <div class="row" style="justify-content:space-between"><div class="row" style="margin:0"><b>📅 Month-end settlement</b> <input type="month" class="sel" value="2026-08"> <span class="pill p-crit">BLOCKED</span></div>
+  <div class="row" style="margin:0"><span class="btn cyan">🔀 Route attached-lorry cash (84)</span><span class="btn solid">▶ Run Monthly Settlement (draft)</span><span class="btn warn">override with reason</span><span class="btn ai">⏮ Backfill Apr 2026 → last month</span></div></div>
+  <div class="eyebrow p-crit" style="margin-top:10px">Exception Desk · 4 blockers before Aug 2026 can close</div>
+  <div class="gate"><span class="pill p-crit">BLOCKS CLOSING</span> <b>₹4,39,000 of pump-cash advances sit on the pooled ledger with no driver attached</b><div class="note">Fix: attribute each pump-cash slip to its driver, or route the attached-lorry ones to their owners; the rest is an Exception Desk decision</div></div>
+  <div class="gate"><span class="pill p-crit">BLOCKS CLOSING</span> <b>28 driver payments on attached lorries (₹66,500) have no cash voucher behind them</b><div class="note">Fix: post the cash / bank voucher for each (Cash &amp; Bank Book), then route again</div></div>
+  <div class="gate"><span class="pill p-crit">BLOCKS CLOSING</span> <b>5 advances (₹8,500) name a driver who is not on the master</b><div class="note">Fix: register the driver or correct the name on the entry</div></div>
+  <div class="gate"><span class="pill p-crit">BLOCKS CLOSING</span> <b>45 drivers drove this month and have no compensation model: SANJIV RAY YADAV, JIYARUL HOQUE, OHED ALI, …</b><div class="note">Fix: Driver Master → Configure → Compensation Model</div></div>
+</div>
+
+<h2>✅ Manager Approval Queue · Aug 2026 · M/S PRASAD TRANSPORT</h2>
+<div class="card"><div class="row" style="justify-content:space-between; margin:0"><span>57 slips · 57 awaiting approval · month net ₹6,84,200 · drafted 01 Sep 2026 00:04 by agent</span><span class="btn solid">✅ Approve &amp; Post all drafts</span></div></div>
+<div class="wrap" style="margin-top:10px"><table>
+  <thead><tr><th>Person</th><th>Slip</th><th class="r">Earned</th><th class="r">Korki</th><th class="r">Advances</th><th class="r">Net</th><th>Status</th><th>Actions</th></tr></thead>
+  <tbody>
+    <tr><td><b>JONAB ALI</b><div class="sub">DRIVER · 9000000001 · 📲 sent 02 Sep</div></td><td>Trip basis · 4 trips</td><td class="r p-good">₹28,800.00</td><td class="r">₹2,200.00</td><td class="r">₹11,500.00</td><td class="r"><b>₹15,100.00</b></td><td><span class="pill p-warn">DRAFT · AWAITING APPROVAL</span></td><td><span class="btn cyan">✎ Edit</span> <span class="btn">🖨 Print</span> <span class="btn good">📲 WhatsApp</span> <span class="btn solid">✅ Approve &amp; Post</span></td></tr>
+    <tr><td colspan="8" style="padding:0"><div class="card" style="margin:6px 10px 10px; border-color: var(--cyan)">
+      <div class="row"><label class="sub">Name (fix a spelling error on the master) <input class="sel" value="JONAB ALI"></label><label class="sub">WhatsApp mobile <input class="sel" value="9000000001"></label><label class="sub">Note on the slip <input class="sel" value="Diwali advance recovered in two parts" style="width:280px"></label></div>
+      <div class="eyebrow">Trips of the month · adjust korki per trip</div>
+      <div class="wrap" style="margin-top:6px"><table><thead><tr><th>Trip</th><th>Basis</th><th class="r">Earning</th><th class="r">Adv · short · challan</th><th class="r">Manual korki</th><th>Why</th><th class="r">Net</th><th>Status</th></tr></thead>
+      <tbody><tr><td class="mono">PT00702<div class="sub">AS 26C 9801 · ⚠ attached → owner SANDEEP KUMAR PRASAD</div></td><td>% of trip freight 6</td><td class="r p-good">₹7,200.00</td><td class="r">₹5,000.00</td><td class="r"><input class="sel" value="200" style="width:80px;text-align:right"></td><td><input class="sel" value="tyre puncture cash" style="width:150px"> <span class="btn cyan">save</span></td><td class="r"><b>₹2,000.00</b></td><td><span class="pill p-warn">READY TO POST</span></td></tr></tbody></table></div>
+      <div class="eyebrow" style="margin-top:8px">Add a missed advance</div>
+      <div class="row"><input class="sel" placeholder="₹ amount" style="width:100px"><input type="date" class="sel" value="2026-08-28"><select class="sel"><option>— against no particular trip —</option><option>PT00702</option></select><input class="sel" placeholder="remarks" style="width:180px"><select class="sel"><option>— pay from —</option><option>SBI (8490) · ₹43,59,178</option></select><span class="btn warn">＋ add advance</span></div>
+      <div class="row" style="justify-content:flex-end"><span class="btn">close</span><span class="btn cyan">💾 Save draft</span></div></div></td></tr>
+    <tr><td><b>SANJIV RAY YADAV</b><div class="sub">DRIVER · no mobile</div></td><td>Fixed salary</td><td class="r p-good">₹15,000.00</td><td class="r">₹4,000.00</td><td class="r">₹4,000.00</td><td class="r"><b>₹11,000.00</b></td><td><span class="pill p-warn">DRAFT · AWAITING APPROVAL</span></td><td><span class="btn cyan">✎ Edit</span> <span class="btn">🖨 Print</span> <span class="btn good">📲 WhatsApp</span> <span class="btn solid">✅ Approve &amp; Post</span></td></tr>
+    <tr style="opacity:.75"><td><b>MAMTA DEVI</b><div class="sub">STAFF · 📲 sent 01 Sep</div></td><td>Salary / remuneration</td><td class="r p-good">₹18,000.00</td><td class="r">₹3,000.00</td><td class="r">₹3,000.00</td><td class="r"><b>₹15,000.00</b></td><td><span class="pill p-good">POSTED · LOCKED</span><div class="sub">01 Sep 2026 · owner</div></td><td><span class="btn">🖨 Print</span> <span class="btn good">📲 WhatsApp</span></td></tr>
+  </tbody></table></div>
+<div class="note" style="margin-top:8px">Approve &amp; Post on a trip-basis driver posts each DRAFT trip settlement (Dr Driver Wages / Cr korki heads / Cr Driver Payable — or, on an attached lorry, Dr Vehicle Owner: NAME / Cr Driver Payable) and locks the slip; on a salaried person it posts the run line. The month shows CLOSED once every slip is posted. Cash leaves only from the "Ready for disbursal" strip.</div>
+
+<h2>Attached-lorry routing (what the owner sees)</h2>
+<div class="card note">Every advance, bhatta or trip payment to a driver on an ATTACHED lorry is charged to the owner the day it is paid: <span class="mono">Dr Vehicle Owner: SANDEEP KUMAR PRASAD / Cr Driver Advance (Pump Cash)</span>. The 15-day Lorry Hire Statement keeps its "advances paid to your driver" column, and its journal no longer recovers those amounts a second time. A khata entry with no cash voucher behind it is not routed — it sits on the Exception Desk as <b>NEEDS_VOUCHER</b> until the voucher is posted.</div>
+</body>
+</html>

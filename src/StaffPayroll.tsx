@@ -10,13 +10,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useIsMobile } from './hooks/useIsMobile';
 import { API, apiJson, n2, inr, inr2, dmy, C, btn, chip, th, td, tdR, inp, sel, panel, wrap, Pill, SSTAT, RSTAT, fail, ask, PayDialog, AccountPicker } from './payroll/payrollShared';
+import MonthEndPanel from './payroll/MonthEndPanel';
+import ApprovalQueue from './payroll/ApprovalQueue';
 
 const KIND = { STAFF: ['STAFF', C.cyan], PARTNER: ['PARTNER', C.gold], DRIVER: ['DRIVER', C.ai] };
 const monthNow = () => { const d = new Date(); d.setMonth(d.getMonth() - (d.getDate() < 5 ? 1 : 0)); return d.toISOString().slice(0, 7); };
 
 export default function StaffPayroll() {
   const { isPhone } = useIsMobile();
-  const [ov, setOv] = useState(null); const [firm, setFirm] = useState(''); const [tab, setTab] = useState('RUNS'); const [err, setErr] = useState('');
+  const [ov, setOv] = useState(null); const [firm, setFirm] = useState(''); const [tab, setTab] = useState('QUEUE'); const [err, setErr] = useState('');
   const load = useCallback(async () => { try { const o = await apiJson(`${API}/overview`); setOv(o); setFirm((f) => f || o.firms?.[0]?.company_id || ''); } catch (e) { setErr(e.message); } }, []);
   useEffect(() => { load(); }, [load]);
   const firms = ov?.firms ?? []; const F = firms.find((f) => f.company_id === firm);
@@ -38,9 +40,10 @@ export default function StaffPayroll() {
           <div key={l} style={panel}><div style={{ fontSize: '10.5px', letterSpacing: '.12em', textTransform: 'uppercase', color: C.dim }}>{l}</div><div style={{ fontSize: '22px', fontWeight: 900, color: c }}>{v}</div></div>))}
       </div>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
-        {[['RUNS', '📅 Monthly runs'], ['PEOPLE', '👥 Staff & partners'], ['DISBURSAL', '💸 Ready for disbursal']].map((t) => <span key={t[0]} onClick={() => setTab(t[0])} style={chip(tab === t[0])}>{t[1]}</span>)}
+        {[['QUEUE', '✅ Approval queue'], ['RUNS', '📅 Monthly runs'], ['PEOPLE', '👥 Staff & partners'], ['DISBURSAL', '💸 Ready for disbursal']].map((t) => <span key={t[0]} onClick={() => setTab(t[0])} style={chip(tab === t[0])}>{t[1]}</span>)}
       </div>
-      {tab === 'RUNS' && <Runs firm={firm} isPhone={isPhone} onChanged={load} />}
+      {tab === 'QUEUE' && <div style={{ display: 'grid', gap: '12px' }}><MonthEndPanel firm={firm} firms={firms} onChanged={load} compact /><ApprovalQueue firm={firm} firms={firms} onChanged={load} /></div>}
+      {tab === 'RUNS' && <div style={{ display: 'grid', gap: '12px' }}><Runs firm={firm} isPhone={isPhone} onChanged={load} /></div>}
       {tab === 'PEOPLE' && <People firm={firm} firms={firms} isPhone={isPhone} onChanged={load} />}
       {tab === 'DISBURSAL' && <Disbursal firm={firm} onChanged={load} />}
     </div>

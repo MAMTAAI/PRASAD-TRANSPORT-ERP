@@ -56,6 +56,13 @@ const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFract
 const ownerLedgerName = (owner) =>
   'Vehicle Owner: ' + String(owner ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
 
+/** The bill plus what the owner's ledger already carries for its lorries (175). */
+const withRouted = async (b) => {
+  if (!b?.id) return b;
+  try { const { rows: [r] } = await query('SELECT owner_bill_routed_advances($1::uuid) AS a', [b.id]); return { ...b, routed_advances: Number(r?.a ?? 0) }; }
+  catch { return { ...b, routed_advances: 0 }; }
+};
+
 // ── the journal, said once ──────────────────────────────────────────────────
 export function journalFor(b) {
   const lines = [];
@@ -84,7 +91,12 @@ export function journalFor(b) {
     const freight = r2(num(b.freight) + num(b.adj_income));
     const comm = r2(num(b.commission));
     const tds = r2(num(b.tds));
-    const rec = r2(num(b.recovered) + num(b.adj_expense));
+    // Driver cash on an attached lorry that was routed to the owner's ledger
+    // when it was paid (migration 175) is already a debit on that ledger; the
+    // statement still SHOWS it under "advances paid to your driver", but the
+    // journal must not recover it a second time.
+    const routed = r2(num(b.routed_advances));
+    const rec = r2(Math.max(0, num(b.recovered) + num(b.adj_expense) - routed));
     const payable = r2(freight - comm - tds - rec);
     push('Attached Vehicle Freight Control', 'DR', freight, 'Current Liabilities');
     push('Commission Income - Attached Vehicles', 'CR', comm, 'Direct Income');
@@ -336,7 +348,7 @@ export async function registerVehicleBillRoutes(app) {
         loads: Array.isArray(bill.lines) ? bill.lines : [],
         vendor: vendor ?? null,
         running: running[0],
-        journal: journalFor(bill),
+        journal: journalFor(await withRouted(bill)),
         posted_lines: bill.posted_lines ?? [],
       };
     }
@@ -362,7 +374,7 @@ export async function registerVehicleBillRoutes(app) {
                                         || num(v.live_billed) !== num(v.billed_amount)),
       })),
       entries,
-      journal: journalFor(bill),
+      journal: journalFor(await withRouted(bill)),
       posted_lines: bill.posted_lines ?? [],
     };
   });
@@ -541,7 +553,7 @@ export async function registerVehicleBillRoutes(app) {
       return reply.code(409).send({ error: 'NO_COMPANY', detail: 'No firm (company) recorded on this partner\'s loads — set the company in the Bazaar desk settlement.' });
     }
 
-    const journal = journalFor(bill);
+    const journal = journalFor(await withRouted(bill));
     const previously = Array.isArray(bill.posted_lines) ? bill.posted_lines : [];
     const n = num(bill.post_count);
     const lines = n > 0 ? deltaLines(previously, journal.lines) : journal.lines;

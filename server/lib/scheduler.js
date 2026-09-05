@@ -21,6 +21,7 @@ import cron from 'node-cron';
 import { query, isDegraded } from '../db/pool.js';
 import { runNightlyFuelSync } from './nightlyFuelSync.js';
 import { runVehicleBillAgent, istToday } from './vehicleBillAgent.js';
+import { prepareMonth } from './monthEnd.js';
 import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
@@ -314,6 +315,31 @@ async function rebuildGst() {
   }
 }
 
+// Month-end agent (175): on the 1st of every month, from 00:01 IST, draft
+// last month for every active firm — settlements, runs, slips, PDFs — into
+// the Approval Queue. It posts nothing; a manager approves. If the box was
+// down on the 1st it catches up on the next tick of any later day.
+async function monthEndAgent() {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const now = new Date(Date.now() + 5.5 * 3600 * 1000);   // IST
+  const day = now.getUTCDate(); const hh = now.getUTCHours(); const mm = now.getUTCMinutes();
+  if (day === 1 && hh === 0 && mm < 1) return { skipped: 'before 00:01' };
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const period = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, '0')}`;
+  if (state.lastMonthEndPeriod === period) return { skipped: 'done for ' + period };
+  try {
+    const { rows: firms } = await query(`SELECT c.id, c.company_name FROM companies c WHERE c.status::text = 'ACTIVE'
+      AND NOT EXISTS (SELECT 1 FROM month_end_runs m WHERE m.company_id = c.id AND m.period = $1 AND m.prepared_at IS NOT NULL)`, [period]);
+    const done = [];
+    for (const f of firms) { try { const r = await prepareMonth(f.id, period, 'agent'); done.push({ firm: f.company_name, status: r.run?.status, slips: r.run?.slips, pdfs: r.pdfs?.rendered }); } catch (e) { done.push({ firm: f.company_name, error: e.message }); } }
+    if (!firms.length || done.every((d) => !d.error)) state.lastMonthEndPeriod = period;
+    return { period, prepared: done };
+  } catch (err) {
+    if (/month_end_prepare|payroll_slips/.test(err.message)) return { skipped: 'migration 175 not applied' };
+    throw err;
+  }
+}
+
 // Payroll (174): once a day settle every open completed trip under its
 // driver's model and refresh the khata-vs-ledger audit; from the 1st, build
 // last month's runs for every firm (a posted run is never rebuilt).
@@ -335,7 +361,7 @@ export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst], ['payroll', runPayroll]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['customer_bills', refreshCustomerBills], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills], ['advices', collectAdvices], ['bank', retallyBank], ['tds', rebuildTds], ['gst', rebuildGst], ['payroll', runPayroll], ['month_end', monthEndAgent]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);

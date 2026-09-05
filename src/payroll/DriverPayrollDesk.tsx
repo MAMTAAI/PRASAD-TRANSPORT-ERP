@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 import React, { useState, useEffect, useCallback } from 'react';
 import { API, apiJson, n2, inr, inr2, dmy, C, btn, chip, th, td, tdR, sel, panel, wrap, Pill, SSTAT, MODEL, BASIS, fail, ask, PayDialog, PayConfigForm } from './payrollShared';
+import MonthEndPanel from './MonthEndPanel';
 
 export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect, children }) {
   const [ov, setOv] = useState(null);
@@ -35,6 +36,7 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
 
   return (
     <div style={{ display: 'grid', gap: '12px' }}>
+      <MonthEndPanel firm={firmRows[0]?.company_id} firms={firmRows} onChanged={refresh} compact />
       {/* firm-wide strip */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
         {[['Drivers on trip basis', tot('drivers_trip'), C.cyan], ['On monthly salary', tot('drivers_monthly'), C.ai], ['No model yet', tot('drivers_unconfigured'), tot('drivers_unconfigured') ? C.crit : C.good], ['Blocked settlements', tot('trip_blocked'), tot('trip_blocked') ? C.crit : C.good], ['Ready to post', inr(tot('trip_draft_net')), C.warn], ['Ready for disbursal', inr(tot('ready_for_disbursal')), C.good]].map(([l, v, c]) => (
@@ -54,6 +56,7 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
               <div style={{ fontSize: '10.5px', letterSpacing: '.12em', textTransform: 'uppercase', color: C.dim }}>Compensation model</div>
               <div style={{ fontSize: '18px', fontWeight: 800, color: C.ink, margin: '2px 0 6px' }}>{d.name}</div>
               <div style={{ fontSize: '12.5px', color: d.pay_model ? C.good : C.crit, marginBottom: '8px' }}>{d.pay_model ? MODEL[d.pay_model] : 'Not configured — trips stay BLOCKED'}{d.pay_model === 'TRIP' ? ` · ${BASIS[d.trip_rate_mode]}${d.trip_rate ? ` ${n2(d.trip_rate)}` : ''}` : d.pay_model === 'MONTHLY' ? ` · ${inr(d.monthly_salary)}/month` : ''}{d.pay_company ? ` · pays from ${d.pay_company}` : ''}</div>
+              {d.current_vehicle && d.vehicle_ownership === 'ATTACHED' && <div style={{ fontSize: '11.5px', color: C.warn, marginBottom: '8px', padding: '6px 8px', border: '1px solid rgba(255,178,36,.45)', borderRadius: '8px' }}>⚠ Attached vehicle {d.current_vehicle}: payments to this driver will be debited to owner <b>{d.owner_name}</b> (recovered on the 15-day Lorry Hire Statement).</div>}
               <PayConfigForm driver={d} firms={firmRows} compact onSaved={refresh} />
             </div>
             <div style={panel}>
@@ -78,7 +81,7 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
                 <tbody>
                   {S.length === 0 && <tr><td style={td} colSpan={8}>No completed trips settled for this driver yet.</td></tr>}
                   {S.map((s) => (<tr key={s.id}>
-                    <td style={{ ...td, fontFamily: 'monospace', color: C.ink }}>{s.trip_code}<div style={{ fontSize: '10px', color: C.dim, fontFamily: 'inherit' }}>{s.settlement_no} · {s.vehicle_no ?? ''}</div></td>
+                    <td style={{ ...td, fontFamily: 'monospace', color: C.ink }}>{s.trip_code}<div style={{ fontSize: '10px', color: C.dim, fontFamily: 'inherit' }}>{s.settlement_no} · {s.vehicle_no ?? ''}</div>{s.vehicle_ownership === 'ATTACHED' && <div style={{ fontSize: '10px', color: C.warn, fontFamily: 'inherit', whiteSpace: 'normal', maxWidth: '200px' }}>⚠ Attached vehicle: debited to owner {s.owner_name}</div>}</td>
                     <td style={td}>{dmy(s.completed_at)}</td>
                     <td style={td}>{s.basis ? `${BASIS[s.basis] ?? s.basis}${s.rate ? ` ${n2(s.rate)}` : ''}` : '—'}{s.freight ? <div style={{ fontSize: '10px', color: C.dim }}>freight {inr(s.freight)}{s.rtkm ? ` · ${n2(s.rtkm)} km` : ''}</div> : null}</td>
                     <td style={{ ...tdR, color: C.good }}>{inr2(s.earning)}</td>
@@ -109,7 +112,7 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
           </div>
         </div>
       )}
-      {pay && <PayDialog firm={pay.company_id} title={`${pay.trip_code} · ${pay.driver_name}`} amount={pay.net_payable} onClose={() => setPay(null)} onPay={async (account, day) => { await apiJson(`${API}/trip-settlements/${pay.id}/pay`, { method: 'POST', body: JSON.stringify({ account, paid_on: day }) }); await refresh(); }} />}
+      {pay && <PayDialog firm={pay.company_id} title={`${pay.trip_code} · ${pay.driver_name}${pay.vehicle_ownership === 'ATTACHED' ? ` · ⚠ Attached vehicle: payment will be debited to owner ${pay.owner_name}` : ''}`} amount={pay.net_payable} onClose={() => setPay(null)} onPay={async (account, day) => { await apiJson(`${API}/trip-settlements/${pay.id}/pay`, { method: 'POST', body: JSON.stringify({ account, paid_on: day }) }); await refresh(); }} />}
     </div>
   );
 }
