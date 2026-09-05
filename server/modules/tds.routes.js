@@ -117,12 +117,14 @@ export async function registerTdsRoutes(app) {
     return { fy, rows, months };
   });
 
-  app.get('/deductees', staff, async () => {
-    const { rows } = await query(`SELECT d.*, tds_rate_for(d.pan, d.entity_type, d.declaration_194c6) AS rate_pct,
+  app.get('/deductees', staff, async (req) => {
+    const all = String(req.query?.all ?? '') === '1';
+    const { rows } = await query(`SELECT d.*, CASE WHEN d.is_tds_applicable THEN tds_rate_for(d.pan, d.entity_type, d.declaration_194c6) ELSE 0 END AS rate_pct,
                                          (SELECT count(*)::int FROM tds_liabilities l WHERE l.deductee_id = d.id) AS liabilities,
                                          (SELECT COALESCE(sum(base_amount), 0)::numeric(14,2) FROM tds_liabilities l WHERE l.deductee_id = d.id AND fy_of(l.period_month) = fy_of(current_date)) AS paid_fy
-                                    FROM tds_deductees d ORDER BY d.deductee_kind, d.name`);
-    return { rows };
+                                    FROM tds_deductees d WHERE ($1::boolean OR d.is_tds_applicable) ORDER BY d.is_tds_applicable DESC, d.deductee_kind, d.name`, [all]);
+    const { rows: [x] } = await query(`SELECT count(*) FILTER (WHERE NOT is_tds_applicable)::int AS exempt FROM tds_deductees`);
+    return { rows, exempt: x.exempt };
   });
   const saveDeductee = async (b, who, id = null) => {
     const pan = String(b.pan ?? '').toUpperCase().trim() || null;
@@ -132,8 +134,10 @@ export async function registerTdsRoutes(app) {
     if (decl && !pan) throw Object.assign(new Error('A 194C(6) declaration needs the PAN'), { code: 'DECL_NEEDS_PAN' });
     if (decl && Number(b.carriages) > 10) throw Object.assign(new Error('194C(6) applies only to a transporter with 10 or fewer goods carriages'), { code: 'DECL_TOO_MANY' });
     if (id) {
-      const { rows } = await query(`UPDATE tds_deductees SET pan = $2, entity_type = $3, declaration_194c6 = $4, declaration_fy = $5, carriages = COALESCE($6, carriages), address = COALESCE($7, address), notes = COALESCE($8, notes), updated_by = $9, updated_at = now() WHERE id = $1::uuid RETURNING *`,
-        [id, pan, entity, decl, decl ? (b.declaration_fy ?? null) : null, b.carriages ?? null, b.address ?? null, b.notes ?? null, who]);
+      const { rows } = await query(`UPDATE tds_deductees SET pan = $2, entity_type = $3, declaration_194c6 = $4, declaration_fy = $5, carriages = COALESCE($6, carriages), address = COALESCE($7, address), notes = COALESCE($8, notes),
+                                          is_tds_applicable = COALESCE($10, is_tds_applicable), exemption_reason = CASE WHEN $10 IS FALSE THEN COALESCE($11, exemption_reason, 'Marked not applicable on the desk') WHEN $10 IS TRUE THEN NULL ELSE exemption_reason END,
+                                          updated_by = $9, updated_at = now() WHERE id = $1::uuid RETURNING *`,
+        [id, pan, entity, decl, decl ? (b.declaration_fy ?? null) : null, b.carriages ?? null, b.address ?? null, b.notes ?? null, who, typeof b.is_tds_applicable === 'boolean' ? b.is_tds_applicable : null, b.exemption_reason ?? null]);
       return rows[0];
     }
     const kind = ['OWNER', 'PARTNER', 'VENDOR', 'OTHER'].includes(b.deductee_kind) ? b.deductee_kind : 'OTHER';

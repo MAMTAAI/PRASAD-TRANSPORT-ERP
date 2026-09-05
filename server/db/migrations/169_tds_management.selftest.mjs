@@ -33,15 +33,16 @@ try {
   await db.query(`INSERT INTO account_groups (group_head, account_type, statement, normal_side, sort_order, is_system) VALUES ('Bank Accounts','ASSET','BALANCE_SHEET','DR',100,true), ('Loans & Advances (Asset)','ASSET','BALANCE_SHEET','DR',140,true), ('Indirect Expenses','EXPENSE','PROFIT_AND_LOSS','DR',400,true), ('Other Income','INCOME','PROFIT_AND_LOSS','CR',500,true), ('Sundry Debtors (Customers)','ASSET','BALANCE_SHEET','DR',130,true) ON CONFLICT DO NOTHING`);
   await db.query(`INSERT INTO ledgers (ledger_name, group_head, company, dr_cr, branch, status) VALUES ('SBI (8490)','Bank Accounts','M/S PRASAD TRANSPORT','DR','ALL','ACTIVE'), ('SBI (8548)','Bank Accounts','M/S JAISWAL ENTERPRISE','DR','ALL','ACTIVE'), ('SBI (1934)','Bank Accounts','M/S GAUTAM PRASAD','DR','ALL','ACTIVE')`);
   await db.query(`INSERT INTO customers (customer_name, customer_code) VALUES ('INDIAN OIL CORPORATION LTD', '11024699'), ('BHARAT PETROLEUM CORPORATION LTD', 'VC226709')`);
+  await db.query(`INSERT INTO vendors (vendor_name, vendor_kind, vendor_type) VALUES ('ALAM FUEL STATION', 'SERVICE', 'Fuel Pump'), ('HALDIA RETREADING CO', 'SERVICE', 'Spare Parts'), ('RAMU BODY WORKS', 'SERVICE', 'Body builder')`).catch((e) => console.log('  (vendors fixture: ' + e.message.slice(0, 80) + ')'));
   await db.query(`INSERT INTO vehicles (vehicle_no, ownership, owner_name, company_id) SELECT v.n, 'ATTACHED', v.o, c.id FROM (VALUES ('AS 26C 9801','SANDEEP KUMAR PRASAD'), ('AS 26C 9802','GAUTAM PRASAD'), ('AS 26C 9803','PRASAD TRANSPORT')) v(n,o), companies c WHERE c.company_name='M/S PRASAD TRANSPORT'`).catch(async (e) => { console.log('  (vehicles fixture needs more columns: ' + e.message.slice(0, 80) + ')'); });
 
   console.log('\nPRODUCTION SCHEMA (through 159) + 160–169');
-  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql', '166_fortnight_by_unloading.sql', '167_bank_reconciliation.sql', '168_reattach_open_drafts.sql', '169_tds_management.sql']) {
+  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql', '166_fortnight_by_unloading.sql', '167_bank_reconciliation.sql', '168_reattach_open_drafts.sql', '169_tds_management.sql', '170_tds_fuel_exempt_and_own_vehicle.sql']) {
     await db.query(readFileSync(path.join(here, f), 'utf8'));
   }
   check('160 → 169 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '169_tds_management.sql'), 'utf8'));
-  check('169 is re-runnable', true, true);
+  await db.query(readFileSync(path.join(here, '170_tds_fuel_exempt_and_own_vehicle.sql'), 'utf8'));
+  check('170 is re-runnable', true, true);
 
   console.log('\nTHE RULES');
   check('1% for an individual with PAN', (await one(`SELECT tds_rate_for('ABCDE1234F','INDIVIDUAL',false) AS r`)).r, '1');
@@ -59,6 +60,10 @@ try {
   const ded = (await db.query(`SELECT name, deductee_kind, pan, entity_type FROM tds_deductees ORDER BY name`)).rows;
   check('attached owners seeded, the firm itself excluded', ded.filter((d) => d.deductee_kind === 'OWNER').map((d) => d.name), ['GAUTAM PRASAD', 'SANDEEP KUMAR PRASAD']);
   check("Gautam's PAN taken from his firm", ded.find((d) => d.name === 'GAUTAM PRASAD')?.pan, 'BQFPP5877G');
+  check('a fuel pump is not a deductee (170)', (await one(`SELECT is_tds_applicable AS a FROM tds_deductees WHERE name='ALAM FUEL STATION'`)).a, false);
+  check('a tyre shop is not a deductee (170)', (await one(`SELECT is_tds_applicable AS a FROM tds_deductees WHERE name='HALDIA RETREADING CO'`)).a, false);
+  check('a body builder is (works contract)', (await one(`SELECT is_tds_applicable AS a FROM tds_deductees WHERE name='RAMU BODY WORKS'`)).a, true);
+  check('the firm’s own lorry became OWN (170)', (await one(`SELECT ownership::text AS o FROM vehicles WHERE vehicle_no='AS 26C 9803'`)).o, 'OWNED');
   check('TDS Payable (194C) ledger exists under Duties & Taxes', (await one(`SELECT group_head FROM ledgers WHERE ledger_name='TDS Payable (194C)'`)).group_head, 'Duties & Taxes');
 
   console.log('\nLIABILITIES FROM THE BILLS');

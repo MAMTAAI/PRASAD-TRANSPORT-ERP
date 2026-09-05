@@ -207,15 +207,16 @@ function Payable({ fy, firms }) {
 
 // ══ DEDUCTEES ═══════════════════════════════════════════════════════════════
 function Deductees({ onChanged }) {
-  const [d, setD] = useState(null); const [edit, setEdit] = useState(null);
-  const load = useCallback(() => apiJson(`${API}/deductees`).then(setD).catch((e) => setD({ error: e.message })), []);
+  const [d, setD] = useState(null); const [edit, setEdit] = useState(null); const [showAll, setShowAll] = useState(false);
+  const load = useCallback(() => apiJson(`${API}/deductees${showAll ? '?all=1' : ''}`).then(setD).catch((e) => setD({ error: e.message })), [showAll]);
   useEffect(() => { load(); }, [load]);
   const save = async () => { try { await apiJson(`${API}/deductees/${edit.id}`, { method: 'PATCH', body: JSON.stringify(edit) }); setEdit(null); await load(); onChanged?.(); } catch (e) { alert(`❌ ${e.message}`); } };
+  const toggle = async (r) => { const on = !r.is_tds_applicable; if (!window.confirm(on ? `Mark ${r.name} as a TDS deductee (Section 194C applies to what we pay them)?` : `Mark ${r.name} as NOT a deductee (we buy goods from them — fuel, spares — so 194C does not apply)?`)) return; try { await apiJson(`${API}/deductees/${r.id}`, { method: 'PATCH', body: JSON.stringify({ pan: r.pan ?? '', entity_type: r.entity_type, declaration_194c6: r.declaration_194c6, carriages: r.carriages, is_tds_applicable: on, exemption_reason: on ? null : 'Marked not applicable on the desk (goods supplier)' }) }); await load(); onChanged?.(); } catch (e) { alert(`❌ ${e.message}`); } };
   if (!d) return <p style={{ color: C.mut }}>Loading…</p>;
   const rows = d.rows ?? [];
   return (
     <div>
-      <div style={{ color: C.mut, fontSize: '12.5px', marginBottom: '8px' }}>Everyone we pay under a contract: attached owners (from the vehicle master), fleet partners and vendors. PAN and entity type decide the rate; a 194C(6) declaration (transporter with 10 or fewer goods carriages, PAN furnished) makes it nil.</div>
+      <div style={{ color: C.mut, fontSize: '12.5px', marginBottom: '8px' }}>Everyone we pay under a contract: attached owners (from the vehicle master), fleet partners and service contractors. PAN and entity type decide the rate; a 194C(6) declaration (transporter with 10 or fewer goods carriages, PAN furnished) makes it nil. <b style={{ color: C.ink2 }}>Fuel pumps, tyre and spares suppliers are goods — Section 194C does not apply and they are kept off this desk</b> ({d.exempt ?? 0} exempt). <span onClick={() => setShowAll((v) => !v)} style={{ ...chip(showAll), marginLeft: '6px' }}>{showAll ? 'Hide exempt' : 'Show exempt'}</span></div>
       <div style={{ overflowX: 'auto', border: `1px solid ${C.line}`, borderRadius: '10px' }}>
         <table style={{ width: '100%', minWidth: '1000px', borderCollapse: 'collapse', fontSize: '12.5px' }}>
           <thead><tr><th style={th}>Deductee</th><th style={th}>Kind</th><th style={th}>PAN</th><th style={th}>Entity</th><th style={th}>194C(6)</th><th style={th}>Carriages</th><th style={{ ...th, textAlign: 'right' }}>Rate</th><th style={{ ...th, textAlign: 'right' }}>Base this FY</th><th style={{ ...th, textAlign: 'right' }}>Lines</th><th style={th}></th></tr></thead>
@@ -229,12 +230,12 @@ function Deductees({ onChanged }) {
               <td style={tdR}>—</td><td style={tdR}>{inr(r.paid_fy)}</td><td style={tdR}>{r.liabilities}</td>
               <td style={td}><button onClick={save} style={{ ...btn('solid'), padding: '3px 9px' }}>Save</button> <button onClick={() => setEdit(null)} style={{ ...btn('plain'), padding: '3px 9px' }}>✕</button></td>
             </tr>) : (
-            <tr key={r.id}>
-              <td style={{ ...td, color: C.ink }}>{r.name}</td><td style={td}>{r.deductee_kind}</td>
-              <td style={td}>{r.pan ? r.pan : <span style={{ color: C.crit }}>missing</span>}</td><td style={td}>{r.entity_type ?? <span style={{ color: C.dim }}>—</span>}</td>
+            <tr key={r.id} style={{ opacity: r.is_tds_applicable ? 1 : 0.6 }}>
+              <td style={{ ...td, color: C.ink }}>{r.name}{!r.is_tds_applicable && <div style={{ fontSize: '10.5px', color: C.dim, whiteSpace: 'normal', maxWidth: '260px' }}>Not a deductee — {r.exemption_reason}</div>}</td><td style={td}>{r.deductee_kind}</td>
+              <td style={td}>{!r.is_tds_applicable ? <span style={{ color: C.dim }}>n/a</span> : r.pan ? r.pan : <span style={{ color: C.crit }}>missing</span>}</td><td style={td}>{r.entity_type ?? <span style={{ color: C.dim }}>—</span>}</td>
               <td style={td}>{r.declaration_194c6 ? <span style={{ color: C.good }}>✓ nil</span> : <span style={{ color: C.dim }}>no</span>}</td><td style={td}>{r.carriages ?? '—'}</td>
-              <td style={{ ...tdR, color: n2(r.rate_pct) === 20 ? C.crit : n2(r.rate_pct) === 0 ? C.good : C.ink }}>{n2(r.rate_pct)}%</td><td style={tdR}>{inr(r.paid_fy)}</td><td style={tdR}>{r.liabilities}</td>
-              <td style={td}><button onClick={() => setEdit({ id: r.id, pan: r.pan ?? '', entity_type: r.entity_type, declaration_194c6: r.declaration_194c6, carriages: r.carriages })} style={{ ...btn('cyan'), padding: '3px 9px' }}>✏️ Edit</button></td>
+              <td style={{ ...tdR, color: !r.is_tds_applicable ? C.dim : n2(r.rate_pct) === 20 ? C.crit : n2(r.rate_pct) === 0 ? C.good : C.ink }}>{!r.is_tds_applicable ? 'exempt' : `${n2(r.rate_pct)}%`}</td><td style={tdR}>{inr(r.paid_fy)}</td><td style={tdR}>{r.liabilities}</td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>{r.is_tds_applicable && <button onClick={() => setEdit({ id: r.id, pan: r.pan ?? '', entity_type: r.entity_type, declaration_194c6: r.declaration_194c6, carriages: r.carriages })} style={{ ...btn('cyan'), padding: '3px 9px' }}>✏️ Edit</button>} <button onClick={() => toggle(r)} style={{ ...btn('plain'), padding: '3px 9px' }}>{r.is_tds_applicable ? 'Not a deductee' : 'Make deductee'}</button></td>
             </tr>))}</tbody>
         </table>
       </div>
