@@ -245,6 +245,71 @@ export default function TripManagment() {
   const [pnlErr, setPnlErr] = useState('');
   const [pnlLines, setPnlLines] = useState(false);
 
+  // ── TRIP KA KHARCH, AT TRIP START (owner, 5-Sep-2026) ─────────────────────
+  // "jo trip start hogi us time ke andar trip ka exp us trip id ke andar
+  // jaye." Fixed allowance, fooding, advance, doc and other expense are keyed
+  // here, every row carrying this trip's id (trip_expense_entries, migration
+  // 160). They become the left-hand columns of the owner's 15-day bill. HSD
+  // and toll stay automatic (pump slip, FASTag); the advance goes to the
+  // driver's khata through /driver-txn as it always did.
+  const [kharchTrip, setKharchTrip] = useState<any>(null);
+  const [kharchEntries, setKharchEntries] = useState<any[]>([]);
+  const [kharchBusy, setKharchBusy] = useState(false);
+  const emptyKharch = { fixed: '', fooding: '', advance: '', advanceMode: 'Office Cash', doc: '', other: '', otherLabel: '' };
+  const [kharch, setKharch] = useState<any>(emptyKharch);
+  const KHARCH_LABEL: any = { FOODING_ALLOWANCE: 'Trip Fooding Alw.', FIXED_ALLOWANCE: 'Trip Fixed Alw.', DOC_EXPENSE: 'Doc Exp', OTHER_EXPENSE: 'Other Exp' };
+
+  const loadKharch = async (tripId: string) => {
+    try { const j = await fetchJson(`${OPS}/trips/${tripId}/expense-entries`); setKharchEntries(j.entries ?? []); }
+    catch { setKharchEntries([]); }
+  };
+  const openKharch = (t: any) => { setKharchTrip(t); setKharch(emptyKharch); loadKharch(t.id); };
+
+  const saveKharch = async () => {
+    if (!kharchTrip || kharchBusy) return;
+    const n = (v: any) => { const x = parseFloat(v); return Number.isFinite(x) && x > 0 ? round2(x) : 0; };
+    const entries: any[] = [];
+    if (n(kharch.fixed)) entries.push({ kind: 'FIXED_ALLOWANCE', amount: n(kharch.fixed) });
+    if (n(kharch.fooding)) entries.push({ kind: 'FOODING_ALLOWANCE', amount: n(kharch.fooding) });
+    if (n(kharch.doc)) entries.push({ kind: 'DOC_EXPENSE', amount: n(kharch.doc) });
+    if (n(kharch.other)) {
+      if (!kharch.otherLabel.trim()) return alert('⚠️ Other expense ka naam likhiye — bina naam ka kharch audit me nahi chalta.');
+      entries.push({ kind: 'OTHER_EXPENSE', amount: n(kharch.other), label: kharch.otherLabel.trim() });
+    }
+    const adv = n(kharch.advance);
+    if (!entries.length && !adv) return alert('⚠️ Koi rakam nahi likhi.');
+    setKharchBusy(true);
+    try {
+      if (entries.length) {
+        await fetchJson(`${OPS}/trips/${kharchTrip.id}/expense-entries`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries }),
+        });
+      }
+      if (adv) {
+        await fetchJson(`${OPS}/trips/${kharchTrip.id}/driver-txn`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txn_type: 'ADVANCE_GIVEN', amount: adv, mode: kharch.advanceMode,
+                                 remarks: `Trip: ${kharchTrip.trip_code || ''} - trip advance` }),
+        });
+      }
+      alert(`✅ Trip ${kharchTrip.trip_code || ''} ke neeche darj: ${entries.length} kharch${adv ? ` + advance ₹${adv}` : ''}. 15-din ke bill me isi trip par dikhega.`);
+      setKharch(emptyKharch);
+      await loadKharch(kharchTrip.id);
+      fetchData();
+    } catch (e: any) {
+      const hint: any = { TRIP_VEHICLE_MISMATCH: 'Yeh kharch is trip ki lorry ka nahi hai.', NO_DRIVER: 'Is trip par driver nahi hai — advance nahi de sakte.', LABEL_REQUIRED: 'Other expense ka naam likhiye.' };
+      alert(`❌ ${hint[e?.code] ?? 'Save nahi hua.'}\n\n${e?.message ?? ''}`);
+    }
+    setKharchBusy(false);
+  };
+  const removeKharch = async (entryId: string) => {
+    if (!kharchTrip || !window.confirm('Yeh entry hataayein?')) return;
+    try {
+      await fetchJson(`${OPS}/trips/${kharchTrip.id}/expense-entries/${entryId}`, { method: 'DELETE' });
+      await loadKharch(kharchTrip.id);
+    } catch (e: any) { alert(`❌ ${e?.code === 'LOCKED' ? 'Is trip ka 15-din bill lock hai — pehle bill par Modify kijiye.' : (e?.message ?? 'nahi hata')}`); }
+  };
+
   const openPnl = async (t: any) => {
     setPnlTrip(t); setPnl(null); setPnlErr(''); setPnlLines(false);
     try {
@@ -633,7 +698,9 @@ export default function TripManagment() {
         const out = await fetchJson(`${OPS}/trips`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
         });
-        alert(`✅ New trip started.\n\nLR / Trip code: ${out.trip.trip_code}`);
+        alert(`✅ New trip started.\n\nLR / Trip code: ${out.trip.trip_code}\n\nAb is trip ka kharch darj kijiye — fixed, fooding, advance, doc.`);
+        // Trip start = kharch entry, on the same trip id, right now.
+        if (out.trip?.id) openKharch(out.trip);
       }
       setFormData({ trip_id: '', vehicle_no: '', driver_name: '', driver_mobil_no: '', loading_point: '', consignee_name: '', customer_name: '', challan_no: '', start_date: new Date().toISOString().split('T')[0], gross_freight: '', rtkm: '', fixed_hsd: '', fixed_cash: '', toll_amt: '', operating_company: '', trip_status: 'IN_TRANSIT', billing_status: 'PENDING' });
       setActiveTab('ACTIVE');
@@ -1430,6 +1497,64 @@ export default function TripManagment() {
         })()}
       </BottomSheet>
 
+      {/* ── TRIP KA KHARCH — trip start par, isi trip id ke neeche ───────── */}
+      <BottomSheet open={!!kharchTrip} onClose={() => setKharchTrip(null)}
+        title={`🧾 Trip ka kharch — ${kharchTrip?.vehicle_no || kharchTrip?.Vehical_No || ''} · ${kharchTrip?.trip_code || ''}`} accent="#ffb224" maxWidth={620}>
+        {kharchTrip && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '12.5px', color: '#9aadd4', lineHeight: 1.5 }}>
+              Har rakam <b style={{ color: '#dde5f4' }}>trip {kharchTrip.trip_code || ''}</b> ke neeche darj hogi aur 15-din ke vehicle bill me isi trip ki line par
+              dikhegi. HSD pump slip se aur Toll FASTag se apne aap aata hai.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              {[['fixed', 'Trip Fixed Allowance', 'per trip · lane ka fixed'], ['fooding', 'Trip Fooding Allowance', 'din × rate'],
+                ['doc', 'Doc Exp', 'permit / challan / weighbridge']].map((f) => (
+                <div key={f[0]}>
+                  <label style={{ fontSize: '10.5px', color: '#ffb224', fontWeight: 'bold', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{f[1]}</label>
+                  <input type="number" min="0" style={styles.input} placeholder="₹" value={kharch[f[0]]} onChange={(e) => setKharch({ ...kharch, [f[0]]: e.target.value })} />
+                  <div style={{ fontSize: '10.5px', color: '#5d7196', marginTop: '3px' }}>{f[2]}</div>
+                </div>
+              ))}
+              <div>
+                <label style={{ fontSize: '10.5px', color: '#a78bfa', fontWeight: 'bold', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Trip Advance</label>
+                <input type="number" min="0" style={{ ...styles.input, borderColor: '#8b5cf6' }} placeholder="₹" value={kharch.advance} onChange={(e) => setKharch({ ...kharch, advance: e.target.value })} />
+                <select style={{ ...styles.input, marginTop: '5px', padding: '8px' }} value={kharch.advanceMode} onChange={(e) => setKharch({ ...kharch, advanceMode: e.target.value })}>
+                  <option value="Office Cash">🏢 Office Cash</option><option value="Bank Transfer">🏦 Bank / UPI</option>
+                </select>
+                <div style={{ fontSize: '10.5px', color: '#5d7196', marginTop: '3px' }}>driver ke khaate me bhi jaata hai</div>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={{ fontSize: '10.5px', color: '#ffb224', fontWeight: 'bold', display: 'block', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Other Exp</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input type="number" min="0" style={{ ...styles.input, width: '140px' }} placeholder="₹" value={kharch.other} onChange={(e) => setKharch({ ...kharch, other: e.target.value })} />
+                  <input type="text" style={styles.input} placeholder="kis cheez ka? (zaroori)" value={kharch.otherLabel} onChange={(e) => setKharch({ ...kharch, otherLabel: e.target.value })} />
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => setKharchTrip(null)} style={{ flex: 1, background: '#27395f', color: 'white', padding: '12px', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Band karein</button>
+              <button onClick={saveKharch} disabled={kharchBusy} style={{ flex: 2, background: kharchBusy ? '#5d7196' : '#ffb224', color: '#1f1300', padding: '14px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', minHeight: '48px' }}>
+                {kharchBusy ? '⌛ Save ho raha hai…' : `💾 Kharch save · trip ${kharchTrip.trip_code || ''}`}
+              </button>
+            </div>
+            <div>
+              <div style={{ fontSize: '11px', color: '#9aadd4', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Is trip par darj ({kharchEntries.length})</div>
+              {kharchEntries.length === 0 ? (
+                <div style={{ color: '#5d7196', fontSize: '12px' }}>Abhi kuch darj nahi.</div>
+              ) : kharchEntries.map((e: any) => (
+                <div key={e.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid rgba(39,57,95,0.5)', fontSize: '12px' }}>
+                  <span style={{ color: '#ffb224', fontWeight: 'bold', minWidth: '130px' }}>{KHARCH_LABEL[e.kind] ?? e.kind}</span>
+                  <span style={{ color: '#9aadd4', flex: 1 }}>{e.label || ''}{e.source === 'BILL_DESK' ? ' · bill desk se' : ''} · {e.entered_by || ''}</span>
+                  <span style={{ color: '#5d7196' }}>{e.dated ? String(e.dated).slice(0, 10) : ''}</span>
+                  <b style={{ color: '#dde5f4', minWidth: '70px', textAlign: 'right' }}>₹{Number(e.amount || 0).toLocaleString('en-IN')}</b>
+                  <span onClick={() => removeKharch(e.id)} style={{ color: '#ff6b81', cursor: 'pointer', padding: '0 4px' }} title="Hataayein">×</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
       <BottomSheet open={!!(showPaymentModal && activeTrip)} onClose={() => setShowPaymentModal(false)} title={`💸 Pay to Driver (${activeTrip?.driver_name || activeTrip?.Driver_Name || ''})`} accent="#8b5cf6" maxWidth={480}>
         {activeTrip && (<>
             <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(255, 178, 36, 0.1)', padding: '12px', borderRadius: '8px', border: '1px solid #ffb224', marginBottom: '15px' }}>
@@ -1751,6 +1876,7 @@ export default function TripManagment() {
                   <button onClick={() => openFuelModal(t)} style={{ flex: 1, minHeight: '48px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>⛽ Fuel</button>
                   <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>✅ Unload</button>
                   <button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>📍 Track</button>
+                  <button onClick={() => openKharch(t)} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#ffb224', border: '1px solid #ffb224', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>🧾 Kharch</button>
                   <button onClick={() => openPnl(t)} style={{ flex: 1, minHeight: '48px', background: '#18244a', color: '#2fe39b', border: '1px solid #2fe39b', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>💰 P&amp;L</button>
                 </div>
               </div>
@@ -1805,6 +1931,7 @@ export default function TripManagment() {
                     <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
                     <button onClick={() => openFuelModal(t)} style={{...styles.btn, background: '#f59e0b', marginRight: '5px'}}>⛽ Fuel</button>
                     <button onClick={() => { setActiveTrip(t); setUnloadData({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: String(t.loaded_qty || t.Loaded_Qty || t.driver_loaded_qty || ''), unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: t.consignee_name || t.Consignee_Name || '', remarks: '' }); setShowUnloadModal(true); }} style={{...styles.btn, background: '#10b981', marginTop:'5px'}}>✅ Unload</button>
+                    <button onClick={() => openKharch(t)} style={{...styles.btn, background: '#18244a', color: '#ffb224', border: '1px solid #ffb224', marginTop:'5px', marginLeft:'5px'}}>🧾 Kharch</button>
                     <button onClick={() => openPnl(t)} style={{...styles.btn, background: '#18244a', color: '#2fe39b', border: '1px solid #2fe39b', marginTop:'5px', marginLeft:'5px'}}>💰 P&amp;L</button>
                   </td>
                 </tr>

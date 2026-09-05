@@ -6,6 +6,7 @@ import { withAggregateLock, LOCK_NS } from './kamala.js';
 import { assertAttachedCostIsolation } from '../lib/fleetAccounting.js';
 import { enrichTrips } from '../lib/tripEnrich.js';
 import { stmSet } from '../memory/okf.js';
+import { runVehicleBillAgent } from '../lib/vehicleBillAgent.js';
 
 const LIVE_TTL_MS = 15 * 60 * 1000;
 
@@ -40,7 +41,11 @@ export default defineAgent({
     'Sole authority over money. Every rupee that enters the ERP is posted by Tara as a ' +
     'balanced double-entry voucher, and no other agent may write to a ledger table. ' +
     'Tara also owns freight settlement, P&L verification, and the zero-divergence rule: ' +
-    'total debits must equal total credits at every instant, with no tolerance.',
+    'total debits must equal total credits at every instant, with no tolerance. ' +
+    'Since 5-Sep-2026 Tara is the 15-DAY VEHICLE BILL expert: at 03:00 on the 1st and the 16th ' +
+    'she drafts every vehicle owner\'s bill for the fortnight that just closed — every lorry of ' +
+    'theirs, the seven expense columns, commission and TDS — and puts it in front of the desk. ' +
+    'She drafts; a person approves; the posting to the owner\'s khata follows that signature.',
 
   subscribes: [
     'trip.settlement.authorised',
@@ -57,9 +62,13 @@ export default defineAgent({
     // freight invoice BHUVANESHWARI parsed and found on no trip. Tara posts
     // it into the trip ledger — the bill book — with its invoice number.
     'invoice.parsed',
+    // THE 15-DAY VEHICLE BILL CYCLE (owner, 5-Sep-2026): raised by the
+    // scheduler at 03:00 on the 1st and the 16th. Tara builds the drafts.
+    'vehicle.bill.cycle.requested',
   ],
   emits: [
     'ledger.posted',
+    'vehicle.bill.drafted',
     'ledger.imbalance.detected',
     'trip.settled',
     'invoice.generation.requested',
@@ -68,7 +77,9 @@ export default defineAgent({
   ],
 
   owns: {
-    tables: ['ledgers', 'ledger_entries', 'journal', 'invoices', 'payments', 'trip_settlements'],
+    tables: ['ledgers', 'ledger_entries', 'journal', 'invoices', 'payments', 'trip_settlements',
+             // the 15-day vehicle bills (migrations 158–160): Tara drafts them
+             'vehicle_fortnight_settlements', 'vehicle_owner_bills'],
     modules: ['LedgerMgmt.tsx', 'CashBankBook.tsx', 'FinancialReports.tsx',
               'MasterTripSettlement.tsx', 'MonthlyBilling.tsx', 'BillManagement.tsx',
               'LoanEmiMgmt.tsx'],
@@ -81,6 +92,8 @@ export default defineAgent({
     'let any other agent write to ledgers/ledger_entries/journal',
     'settle a trip that KALI has not marked COMPLETED',
     'round a rupee amount in JavaScript floats — NUMERIC arithmetic stays in SQL',
+    'approve, lock or post a 15-day vehicle bill on her own — she drafts, a person signs, and only then does the owner khata move',
+    'invent a commission rate: a lorry with no term on file settles to NULL and the bill says "rate nahi", never 0',
   ],
 
   guards: [
@@ -94,6 +107,10 @@ export default defineAgent({
       description: 'A trip must be COMPLETED and shortage-resolved before settlement posts.' },
     { name: 'halt_on_imbalance',
       description: 'A detected imbalance raises agent.halt.requested immediately — the swarm stops rather than compounding a broken book.' },
+    { name: 'vehicle_bill_drafts_only',
+      description: 'On the 1st and the 16th every vehicle owner\'s 15-day bill is built as an AI_DRAFT for the fortnight that closed; a reviewed, approved or locked bill is never touched (vehicle_fortnight_build refuses in SQL).' },
+    { name: 'vehicle_bill_needs_rate',
+      description: 'An attached/market lorry without a commission term keeps commission NULL; its owner bill carries needs_rate > 0 and the database refuses approval (P0410 / P0412).' },
   ],
 
   // Ledger tables land in migration 003.
@@ -101,6 +118,33 @@ export default defineAgent({
 
   async handle(event, ctx) {
     switch (event.event_type) {
+      // ── THE 15-DAY VEHICLE BILL (owner, 5-Sep-2026) ───────────────────────
+      // The scheduler raises this at 03:00 on the 1st and the 16th (after the
+      // 02:00 fuel sync, so the last days' diesel is in). Tara builds every
+      // owner's bill for the fortnight that just closed and reports what the
+      // desk now has to approve. She never approves it herself.
+      case 'vehicle.bill.cycle.requested': {
+        const p = event.payload ?? {};
+        const r = await runVehicleBillAgent({
+          periodFrom: p.period_from ?? undefined, force: !!p.force, agent: 'AGENT_02',
+        });
+        if (!r.ran) return skipped(`vehicle bills: ${r.reason ?? 'not run'}`);
+        if (r.error) return failed(`vehicle bills: ${r.error}`);
+        await ctx.emit('vehicle.bill.drafted', {
+          aggregate: 'vehicle_bills',
+          payload: {
+            period_from: r.period_from, bills: r.bills ?? 0, owner_bills: r.owner_bills ?? 0,
+            lorry_drafts: r.drafts ?? 0, without_rate: r.without_rate ?? 0,
+            freight: r.freight ?? 0, payable: r.payable ?? 0,
+            created: r.created ?? 0, refreshed: r.refreshed ?? 0, skipped: r.skipped ?? 0,
+          },
+          correlationId: event.correlation_id,
+        });
+        return ok(`vehicle bills ${r.period_from}: ${r.bills ?? 0} bill(s) ready for the desk `
+          + `(${r.created ?? 0} new lorry drafts, ${r.refreshed ?? 0} refreshed, `
+          + `${r.without_rate ?? 0} lorries without a rate)`);
+      }
+
       case 'trip.settlement.authorised': {
         const tripId = event.aggregate_id;
         if (!tripId) return failed('settlement authorisation carried no trip id');

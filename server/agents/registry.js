@@ -85,6 +85,9 @@ function validateRoster() {
     // The IOCL mail cycles are raised by the graph engine's time-gated nodes
     // (KALI: AC4 loading, BHUVANESHWARI: AC5 billing), not by an agent.
     'loading.mail.sweep.requested', 'invoice.mail.sweep.requested',
+    // The 15-day vehicle bill cycle: raised by the scheduler at 03:00 on the
+    // 1st and the 16th (and by the Draft button), handled by TARA.
+    'vehicle.bill.cycle.requested',
   ]);
 
   // A subscription with no producer is a genuine defect: the agent will wait

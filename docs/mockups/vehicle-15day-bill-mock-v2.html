@@ -1,0 +1,465 @@
+<title>Vehicle 15-Day Bill v2</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Prasad ERP dark deck — same tokens the live screens use (theme-2026-indigo-deck). Single theme on purpose. */
+  :root{
+    --ground:#0a1024; --panel:#121c38; --raised:#18244a; --line:#27395f; --line-soft:#1b2a4e;
+    --ink:#eef2fd; --ink-2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196;
+    --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa;
+    --cyan-soft:rgba(34,211,238,.12); --good-soft:rgba(47,227,155,.10); --crit-soft:rgba(255,107,129,.09);
+    --warn-soft:rgba(255,178,36,.12); --ai-soft:rgba(167,139,250,.14);
+    --ui:'Archivo','Segoe UI',system-ui,-apple-system,Roboto,sans-serif;
+    --num:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--ui);font-size:14px;line-height:1.45}
+  a{color:var(--cyan)}
+  .wrap{max-width:1460px;margin:0 auto;padding:22px 22px 60px}
+  h1,h2,h3,h4{margin:0;text-wrap:balance}
+  .num{font-family:var(--num);font-variant-numeric:tabular-nums}
+  .r{text-align:right}
+  .mono{font-family:var(--num)}
+
+  /* masthead */
+  .mast{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px}
+  .mast h1{font-size:26px;font-weight:800;letter-spacing:-.01em}
+  .mast p{margin:6px 0 0;color:var(--mut);max-width:70ch}
+  .tag{display:inline-block;background:var(--warn);color:#1f1300;font-weight:800;font-size:12px;letter-spacing:.06em;padding:6px 12px;border-radius:999px;text-transform:uppercase}
+  .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:700}
+
+  /* what changed */
+  .delta{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:30px}
+  .delta div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .delta b{display:block;color:var(--cyan);font-size:13px;margin-bottom:6px}
+  .delta p{margin:0;color:var(--ink-2);font-size:13px}
+
+  /* screens */
+  .screen{margin:0 0 40px}
+  .screen-h{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+  .screen-h h2{font-size:18px;font-weight:700}
+  .screen-h span{color:var(--dim);font-size:12.5px}
+  .frame{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+
+  /* app chrome inside a frame */
+  .apphead{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px}
+  .apphead h3{font-size:20px;font-weight:800}
+  .apphead .sub{color:var(--mut);font-size:12.5px;margin-top:3px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{font:inherit;font-weight:700;font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;white-space:nowrap}
+  .btn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .btn.cyan{background:var(--cyan-soft);border-color:rgba(34,211,238,.5);color:var(--cyan)}
+  .btn.good{background:var(--good-soft);border-color:rgba(47,227,155,.55);color:var(--good)}
+  .btn.solid{background:var(--good);border-color:var(--good);color:#0a1024}
+  .btn.warn{background:var(--warn-soft);border-color:rgba(255,178,36,.5);color:var(--warn)}
+  .btn.ai{background:var(--ai-soft);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .btn.ghost{opacity:.55;cursor:not-allowed}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--mut);background:transparent}
+  .chip.on{background:var(--cyan-soft);border-color:var(--cyan);color:var(--cyan)}
+
+  /* status pills */
+  .st{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:2px 9px;border:1px solid currentColor;white-space:nowrap}
+  .st.draft{color:var(--ai)} .st.review{color:var(--warn)} .st.approved{color:var(--good)} .st.rate{color:var(--crit)}
+  .flag{display:inline-block;font-size:10px;font-weight:700;color:var(--warn);margin-left:6px}
+
+  /* owner cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:0 0 16px}
+  .card{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:11px 13px;min-width:0}
+  .card .who{font-size:12px;color:var(--ink-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .amt{font-size:21px;font-weight:800;margin-top:2px;color:var(--warn)}
+  .card .amt.ok{color:var(--good)} .card .amt.dim{color:var(--dim)}
+  .card small{display:block;color:var(--dim);font-size:10.5px;margin-top:3px}
+
+  /* tables */
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:rgba(10,16,36,.5)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:top;white-space:nowrap}
+  tr.click{cursor:pointer} tr.click:hover td{background:rgba(34,211,238,.05)}
+  tr.sel td{background:var(--cyan-soft)}
+  td .sub{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+  .ink{color:var(--ink)} .good{color:var(--good)} .crit{color:var(--crit)} .warn{color:var(--warn)} .cyan{color:var(--cyan)} .dim{color:var(--dim)} .ai{color:var(--ai)}
+  .list th.r,.list td.r{text-align:right}
+
+  /* the bill itself */
+  .billhead{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:14px 0}
+  .billhead div{background:var(--panel);padding:11px 14px}
+  .billhead .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+  .billhead .v{font-size:17px;font-weight:700;margin-top:3px}
+  .bill{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  .bill table{min-width:1560px}
+  .bill th,.bill td{padding:7px 8px}
+  .bill th{position:sticky;top:0}
+  .bill th.k,.bill td.k{background:rgba(255,107,129,.06)}
+  .bill th.i,.bill td.i{background:rgba(47,227,155,.06)}
+  .bill th.k{color:#ff8f9f} .bill th.i{color:#5eead4}
+  .bill .fold{border-left:2px solid var(--line);}
+  .bill th.r,.bill td.r{text-align:right}
+  .bill tr.side th{font-size:11px;letter-spacing:.12em;text-align:center;padding:8px}
+  .bill tr.veh td{background:var(--raised);color:var(--ink);font-weight:700;border-top:1px solid var(--line)}
+  .bill tr.veh .own{font-weight:500;color:var(--mut);font-size:11px;margin-left:8px}
+  .bill tr.sub td{background:rgba(24,36,74,.55);font-weight:700;color:var(--ink);border-bottom:1px solid var(--line)}
+  .bill tr.terms td{background:rgba(24,36,74,.35);font-size:11.5px;color:var(--mut);border-bottom:2px solid var(--line);padding:6px 8px}
+  .bill tr.terms b{color:var(--ink)}
+  .bill tr.more td{color:var(--dim);font-size:12px;background:rgba(10,16,36,.3)}
+  .bill tr.more td .num{color:var(--ink-2)}
+  .bill tr.grand td{background:var(--raised);color:var(--ink);font-weight:800;font-size:13px;border-top:2px solid var(--line)}
+  .edit{display:inline-block;min-width:78px;text-align:right;border:1px dashed rgba(34,211,238,.55);border-radius:5px;padding:1px 6px;color:var(--ink);background:rgba(10,16,36,.7)}
+  .zero{color:#3d548a}
+  .note{color:var(--dim);font-size:11.5px;margin:10px 0 0;line-height:1.6;max-width:110ch}
+
+  /* settlement foot + ledger */
+  .foot{display:grid;grid-template-columns:1.1fr 1fr;gap:14px;margin-top:14px}
+  @media (max-width:900px){.foot{grid-template-columns:1fr}}
+  .box{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .box h4{font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:8px;letter-spacing:.04em}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px}
+  .kv:last-child{border-bottom:0}
+  .kv.tot{border-top:2px solid var(--line);border-bottom:0;margin-top:4px;padding-top:10px;font-weight:800;font-size:15px}
+  .kv .lab{color:var(--ink-2)} .kv .lab small{color:var(--dim);font-size:11px;margin-left:6px}
+  .jl{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;align-items:baseline}
+  .jl:last-child{border-bottom:0}
+  .jl .drcr{font-family:var(--num);font-weight:700;font-size:11px;color:var(--dim)}
+  .jl .led{color:var(--ink-2)} .jl .led small{display:block;color:var(--dim);font-size:10.5px}
+
+  /* after approve strip */
+  .after{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;padding:10px 14px;border:1px solid rgba(47,227,155,.35);background:var(--good-soft);border-radius:10px;font-size:12.5px;color:var(--ink-2)}
+  .after b{color:var(--good)}
+
+  /* trip-start panel */
+  .grid2{display:grid;grid-template-columns:1.15fr 1fr;gap:16px}
+  @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+  .form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .f{background:var(--raised);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .f label{display:block;font-size:10.5px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+  .f .in{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:15px;font-weight:600}
+  .f .in span:last-child{font-size:10.5px;color:var(--dim);font-weight:500}
+  .f.auto{border-style:dashed;opacity:.85}
+  .f.wide{grid-column:1 / -1}
+  .flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  .flow li{display:grid;grid-template-columns:22px 1fr;gap:10px;font-size:13px;color:var(--ink-2)}
+  .flow li i{font-style:normal;color:var(--cyan);font-family:var(--num);font-weight:600}
+  .flow li b{color:var(--ink)}
+
+  /* decisions */
+  .dec{border:1px solid rgba(255,178,36,.45);background:var(--warn-soft);border-radius:12px;padding:16px 18px}
+  .dec h2{font-size:16px;color:var(--warn);margin-bottom:8px}
+  .dec ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+  .dec li{color:var(--ink-2);font-size:13.5px}
+  .dec li b{color:var(--ink)}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:14px}
+  .fact{background:rgba(10,16,36,.55);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  .fact .n{font-size:20px;font-weight:800;color:var(--ink)} .fact .n.crit{color:var(--crit)}
+  .fact small{color:var(--dim);font-size:11px;display:block;margin-top:2px;white-space:normal}
+
+  @media print{
+    body{background:#fff;color:#111}
+    .frame,.box,.card{box-shadow:none}
+  }
+</style>
+
+<div class="wrap">
+  <div class="mast">
+    <div>
+      <div class="eyebrow">Prasad ERP · Operations · Vehicle 15-Day Settlement</div>
+      <h1>Vehicle 15-Day Bill — design v2</h1>
+      <p>Fuel Memo &amp; Billing wale <b>Settled 15-Day Bills</b> jaisa hi rasta: bill ki list → click → poora bill khulta hai →
+        Edit / Save / Print / WhatsApp / Email / Approve. Bill ka format IOCL transportation bill jaisa — gaadi ke neeche uske trip,
+        <i>Subtotal for Vehicle</i>, neeche <i>Total of All Bills</i>. Kharch <b>baayein</b>, bill details aur commission/TDS <b>daayein</b>.</p>
+    </div>
+    <div style="text-align:right">
+      <span class="tag">Mock · YES chahiye</span>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">5 Sep 2026 · asli aankde: Jun 2026 · 16–30 · production</div>
+    </div>
+  </div>
+
+  <div class="delta">
+    <div><b>1 · Bill = ek malik × 15 din</b><p>Jaise IOCL ek transporter ko ek bill deta hai aur usme har gaadi ka block hota hai — waise hi har vehicle-owner ko ek bill, usme uski saari lorry. Approve → owner ke khaate me post.</p></div>
+    <div><b>2 · Kharch ke 7 column, trip-wise</b><p>HSD · Toll Tax · Trip Fooding Allowance · Trip Fixed Allowance · Trip Advance · Doc Exp · Other Exp — har rupaya us trip ID ke neeche, trip start par hi darj.</p></div>
+    <div><b>3 · Daayein bill details + Commission + TDS</b><p>Trip / IOCL bill no, Ship-to, Qty KL, RTKM, Rate, Freight, Shortage, Net. Gaadi ke subtotal ke saath commission aur TDS; foot me owner ko kitna dena hai.</p></div>
+  </div>
+
+  <!-- ═══════════════ SCREEN 1 · BILL LIST ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 1 · Bill list</h2><span>Operations → Vehicle 15-Day Settlement. Fuel Mgmt ke "Settled 15-Day Bills" wala hi dhaancha.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div>
+          <h3>🧾 Vehicle 15-Day Bills</h3>
+          <div class="sub">Kisi bhi bill par click karein — poora bill IOCL format me khulega. Status filter aur cycle filter upar.</div>
+        </div>
+        <div class="toolbar">
+          <div class="chips"><span class="chip on">Jun 2026 · 16–30</span><span class="chip">Jun 2026 · 1–15</span><span class="chip">May 2026 · 16–31</span><span class="chip">… Apr 2026 · 1–15</span></div>
+          <div class="chips"><span class="chip">Sab</span><span class="chip on">Draft 4</span><span class="chip">Review 1</span><span class="chip">Approved 0</span></div>
+          <button class="btn ai">🤖 Draft banayein</button>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card"><div class="who">SANDEEP KUMAR PRASAD</div><div class="amt">₹5,16,651</div><small>Jun H2 payable · 11 lorry · 0 pakhwade paid <span class="warn">· namuna</span></small></div>
+        <div class="card"><div class="who">GAUTAM PRASAD</div><div class="amt dim">rate nahi</div><small>3 lorry · ₹5,05,556 freight · commission rate darj nahi</small></div>
+        <div class="card"><div class="who">SANTOSH PRASAD</div><div class="amt dim">rate nahi</div><small>1 attached lorry · ₹99,218 freight</small></div>
+        <div class="card"><div class="who">PRASAD TRANSPORT (attached 1)</div><div class="amt dim">rate nahi</div><small>1 lorry · ₹1,09,611 freight</small></div>
+        <div class="card"><div class="who">M/S PRASAD TRANSPORT · apni gaadiyan</div><div class="amt ok">P&amp;L</div><small>OWN fleet · payable nahi hota · sirf munafa/ghata</small></div>
+      </div>
+
+      <div class="tbl list">
+        <table>
+          <thead><tr>
+            <th>Bill No</th><th>Malik (owner)</th><th>Cycle</th><th class="r">Lorry</th><th class="r">Trip</th>
+            <th class="r">Freight</th><th class="r">Kul kharch</th><th class="r">Commission</th><th class="r">TDS</th><th class="r">Payable</th><th>Status</th>
+          </tr></thead>
+          <tbody>
+            <tr class="click sel">
+              <td class="mono cyan">VB-SKP-JUN-H2-2026</td>
+              <td class="ink">SANDEEP KUMAR PRASAD<span class="sub">ATTACHED · M/S PRASAD TRANSPORT ki books</span></td>
+              <td>Jun 2026 · 16–30</td><td class="r num">11</td><td class="r num">30</td>
+              <td class="r num ink">₹11,51,802.82</td><td class="r num crit">₹5,09,605.00</td><td class="r num">₹1,15,180.28</td><td class="r num">₹10,366.23</td>
+              <td class="r num good" style="font-weight:700">₹5,16,651.31</td>
+              <td><span class="st review">📝 REVIEW</span></td>
+            </tr>
+            <tr class="click">
+              <td class="mono cyan">VB-GP-JUN-H2-2026</td>
+              <td class="ink">GAUTAM PRASAD<span class="sub">ATTACHED · 3 lorry</span></td>
+              <td>Jun 2026 · 16–30</td><td class="r num">3</td><td class="r num">9</td>
+              <td class="r num ink">₹5,05,555.51</td><td class="r num crit">₹1,75,533.99</td><td class="r num dim">—</td><td class="r num dim">—</td>
+              <td class="r num dim">—</td>
+              <td><span class="st draft">🤖 AI DRAFT</span><span class="st rate" style="margin-left:5px">RATE?</span></td>
+            </tr>
+            <tr class="click">
+              <td class="mono cyan">VB-PT-JUN-H2-2026</td>
+              <td class="ink">PRASAD TRANSPORT<span class="sub">ATTACHED · 1 lorry</span></td>
+              <td>Jun 2026 · 16–30</td><td class="r num">1</td><td class="r num">1</td>
+              <td class="r num ink">₹1,09,610.89</td><td class="r num crit">₹55,829.00</td><td class="r num dim">—</td><td class="r num dim">—</td>
+              <td class="r num dim">—</td>
+              <td><span class="st draft">🤖 AI DRAFT</span><span class="st rate" style="margin-left:5px">RATE?</span></td>
+            </tr>
+            <tr class="click">
+              <td class="mono cyan">VB-SP-JUN-H2-2026</td>
+              <td class="ink">SANTOSH PRASAD<span class="sub">ATTACHED · 1 lorry</span></td>
+              <td>Jun 2026 · 16–30</td><td class="r num">1</td><td class="r num">1</td>
+              <td class="r num ink">₹99,217.76</td><td class="r num crit">₹50,104.00</td><td class="r num dim">—</td><td class="r num dim">—</td>
+              <td class="r num dim">—</td>
+              <td><span class="st draft">🤖 AI DRAFT</span><span class="st rate" style="margin-left:5px">RATE?</span></td>
+            </tr>
+            <tr class="click">
+              <td class="mono cyan">VB-OWN-JUN-H2-2026</td>
+              <td class="ink">M/S PRASAD TRANSPORT · apni gaadiyan<span class="sub">OWN · 31 lorry · payable nahi, sirf P&amp;L</span></td>
+              <td>Jun 2026 · 16–30</td><td class="r num">31</td><td class="r num">86</td>
+              <td class="r num ink">₹22,42,202.49</td><td class="r num crit">₹11,19,629.09</td><td class="r num dim">—</td><td class="r num dim">—</td>
+              <td class="r num good">munafa ₹11,22,573</td>
+              <td><span class="st draft">🤖 AI DRAFT</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Sirf ghate wali · sirf bina rate wali · owner ke naam se khoj — filter pump wali screen jaise. Har bill no owner ke initials + cycle se banta hai (jaise pump ka <span class="mono">AFS-JUL-H2-2026</span>). Aaj production me sab 388 settlement AI draft hain — status upar sirf dikhane ke liye.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ SCREEN 2 · THE BILL ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 2 · Ek bill khula hua</h2><span>Click par yahi khulta hai — IOCL transportation bill ka format, kharch baayein, bill daayein.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div>
+          <div class="eyebrow">15-Day Vehicle Bill · Audit &amp; Approval</div>
+          <h3>SANDEEP KUMAR PRASAD</h3>
+          <div class="sub"><span class="mono cyan">VB-SKP-JUN-H2-2026</span> · Jun 2026 · 16–30 · 2026-06-16 → 2026-06-30 · 11 lorry · 30 trip · books: M/S PRASAD TRANSPORT</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn cyan">✏️ Edit</button>
+          <button class="btn solid">💾 Save</button>
+          <button class="btn">🖨️ Print / PDF</button>
+          <button class="btn good">🟢 WhatsApp</button>
+          <button class="btn">✉️ Email bill</button>
+          <button class="btn good" title="Sirf admin · post + lock">✅ Approve &amp; Post</button>
+          <button class="btn">✕ Band karein</button>
+        </div>
+      </div>
+
+      <div class="billhead">
+        <div><div class="k">Freight (30 trip)</div><div class="v num">₹11,51,802.82</div></div>
+        <div><div class="k">Kul kharch</div><div class="v num crit">₹5,09,605.00</div></div>
+        <div><div class="k">Commission 10% <span class="warn">namuna</span></div><div class="v num">₹1,15,180.28</div></div>
+        <div><div class="k">TDS 194C 1%</div><div class="v num">₹10,366.23</div></div>
+        <div><div class="k">Owner ko dena</div><div class="v num good">₹5,16,651.31</div></div>
+        <div><div class="k">Status</div><div class="v warn">📝 REVIEW</div></div>
+      </div>
+
+      <div class="bill">
+        <table>
+          <thead>
+            <tr class="side">
+              <th rowspan="2" style="text-align:left">Trip / Bill No<br><span class="dim" style="letter-spacing:0;font-weight:500">tareekh · driver</span></th>
+              <th class="k" colspan="8">◀ KHARCH (EXPENSE) — trip ID ke neeche</th>
+              <th class="i fold" colspan="7">BILL DETAILS (IOCL format) ▶</th>
+            </tr>
+            <tr>
+              <th class="k r">HSD</th><th class="k r">Toll Tax</th><th class="k r">Trip Fooding Alw.</th><th class="k r">Trip Fixed Alw.</th><th class="k r">Trip Advance</th><th class="k r">Doc Exp</th><th class="k r">Other Exp</th><th class="k r">Kul kharch</th>
+              <th class="i fold">Ship-to-party</th><th class="i r">Qty (KL)</th><th class="i r">RTKM</th><th class="i r">Rate</th><th class="i r">Freight</th><th class="i r">Shortage</th><th class="i r">Net freight</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- ── AS 26C 5105 ── -->
+            <tr class="veh"><td colspan="16">🚛 AS 26C 5105 <span class="own">ATTACHED · 2 trip · driver HABIBOR RAHMAN</span></td></tr>
+            <tr>
+              <td><span class="mono cyan">11024699AS26049</span><span class="sub">PT00414 · 07 Jun → 16 Jun</span></td>
+              <td class="k r num">52,824.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num">15,000.00</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">67,824.00</td>
+              <td class="i fold">LPG BP SARPARA (7B02)<span class="sub">LPG Bulk · challan 193589692</span></td><td class="i r num">17.560</td><td class="i r num">1,938.0</td><td class="i r num dim">3.247*</td><td class="i r num ink">1,10,507.79</td><td class="i r num zero">0</td><td class="i r num good">1,10,507.79</td>
+            </tr>
+            <tr>
+              <td><span class="mono cyan">11024699AS26062</span><span class="sub">PT00486 · 17 Jun → 25 Jun</span></td>
+              <td class="k r num">42,228.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num">5,000.00</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">47,228.00</td>
+              <td class="i fold">LPG BP SARPARA (7B02)<span class="sub">LPG Bulk · challan 193615364</span></td><td class="i r num">17.660</td><td class="i r num">1,503.0</td><td class="i r num dim">3.364*</td><td class="i r num ink">89,286.48</td><td class="i r num zero">0</td><td class="i r num good">89,286.48</td>
+            </tr>
+            <tr class="sub">
+              <td>Subtotal for Vehicle: AS 26C 5105</td>
+              <td class="k r num">95,052.00</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num">20,000.00</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num crit">1,15,052.00</td>
+              <td class="i fold dim">2 trip</td><td class="i r num">35.220</td><td class="i r num">3,441.0</td><td class="i r"></td><td class="i r num">1,99,794.27</td><td class="i r num zero">0</td><td class="i r num good">1,99,794.27</td>
+            </tr>
+            <tr class="terms"><td colspan="9">&nbsp;</td><td colspan="7" class="fold r">Commission 10% <b class="num">₹19,979.43</b> &nbsp;·&nbsp; TDS 1% <b class="num">₹1,798.15</b> &nbsp;·&nbsp; kharch wapas <b class="num">₹1,15,052.00</b> &nbsp;·&nbsp; owner ko <b class="num good">₹62,964.69</b></td></tr>
+
+            <!-- ── AS 26C 5106 ── -->
+            <tr class="veh"><td colspan="16">🚛 AS 26C 5106 <span class="own">ATTACHED · 2 trip · driver SHUKUR ALI</span></td></tr>
+            <tr>
+              <td><span class="mono warn">PT00493</span><span class="sub">IOCL bill no baaki · 19 Jun → 24 Jun</span></td>
+              <td class="k r num">29,160.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">29,160.00</td>
+              <td class="i fold">LPG BP NORTH GUWAHATI<span class="sub">LPG Bulk · challan 193611165</span></td><td class="i r num">17.570</td><td class="i r num">1,453.0</td><td class="i r num dim">3.247*</td><td class="i r num ink">82,899.51</td><td class="i r num zero">0</td><td class="i r num good">82,899.51</td>
+            </tr>
+            <tr>
+              <td><span class="mono cyan">11024699AS26078</span><span class="sub">PT00545 · 27 Jun → 28 Jun</span></td>
+              <td class="k r num">22,114.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num">5,000.00</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">27,114.00</td>
+              <td class="i fold"><span class="dim">ship-to darj nahi</span><span class="sub">LPG Bulk · challan 193630360</span></td><td class="i r num">17.710</td><td class="i r num">1,900.0</td><td class="i r num dim">3.364*</td><td class="i r num ink">1,13,190.02</td><td class="i r num zero">0</td><td class="i r num good">1,13,190.02</td>
+            </tr>
+            <tr class="sub">
+              <td>Subtotal for Vehicle: AS 26C 5106</td>
+              <td class="k r num">51,274.00</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num">5,000.00</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num crit">56,274.00</td>
+              <td class="i fold dim">2 trip</td><td class="i r num">35.280</td><td class="i r num">3,353.0</td><td class="i r"></td><td class="i r num">1,96,089.53</td><td class="i r num zero">0</td><td class="i r num good">1,96,089.53</td>
+            </tr>
+            <tr class="terms"><td colspan="9">&nbsp;</td><td colspan="7" class="fold r">Commission 10% <b class="num">₹19,608.95</b> &nbsp;·&nbsp; TDS 1% <b class="num">₹1,764.81</b> &nbsp;·&nbsp; kharch wapas <b class="num">₹56,274.00</b> &nbsp;·&nbsp; owner ko <b class="num good">₹1,18,441.77</b></td></tr>
+
+            <!-- ── AS 26C 9815 ── -->
+            <tr class="veh"><td colspan="16">🚛 AS 26C 9815 <span class="own">ATTACHED · 2 trip · driver RAJESH KUMAR · ATF</span></td></tr>
+            <tr>
+              <td><span class="mono cyan">11024699AS26058</span><span class="sub">PT00472 · 16 Jun → 22 Jun</span></td>
+              <td class="k r num">24,300.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">24,300.00</td>
+              <td class="i fold">ZC7A01 – Agartala AFS 7A01<span class="sub">ATF · challan 193611155</span></td><td class="i r num">40.000</td><td class="i r num">618.3</td><td class="i r num dim">2.896*</td><td class="i r num ink">71,619.05</td><td class="i r num zero">0</td><td class="i r num good">71,619.05</td>
+            </tr>
+            <tr>
+              <td><span class="mono cyan">11024699AS26073</span><span class="sub">PT00559 · 29 Jun → 30 Jun</span></td>
+              <td class="k r num">24,300.00</td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num zero">0</td><td class="k r"><span class="edit num">0</span></td><td class="k r"><span class="edit num">0</span></td><td class="k r num ink">24,300.00</td>
+              <td class="i fold"><span class="dim">ship-to darj nahi</span><span class="sub">ATF · challan 193640693</span></td><td class="i r num">40.000</td><td class="i r num">618.3</td><td class="i r num dim">2.896*</td><td class="i r num ink">71,619.05</td><td class="i r num zero">0</td><td class="i r num good">71,619.05</td>
+            </tr>
+            <tr class="sub">
+              <td>Subtotal for Vehicle: AS 26C 9815</td>
+              <td class="k r num">48,600.00</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num crit">48,600.00</td>
+              <td class="i fold dim">2 trip</td><td class="i r num">80.000</td><td class="i r num">1,236.6</td><td class="i r"></td><td class="i r num">1,43,238.10</td><td class="i r num zero">0</td><td class="i r num good">1,43,238.10</td>
+            </tr>
+            <tr class="terms"><td colspan="9">&nbsp;</td><td colspan="7" class="fold r">Commission 10% <b class="num">₹14,323.81</b> &nbsp;·&nbsp; TDS 1% <b class="num">₹1,289.14</b> &nbsp;·&nbsp; kharch wapas <b class="num">₹48,600.00</b> &nbsp;·&nbsp; owner ko <b class="num good">₹79,025.15</b></td></tr>
+
+            <!-- ── the other 8, collapsed ── -->
+            <tr class="more"><td>▸ AS 26C 9814 · 2 trip</td><td class="k r num">48,600.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">48,600.00</td><td class="i fold">ATF · Agartala</td><td class="i r num">80.000</td><td class="i r num">1,236.6</td><td class="i r"></td><td class="i r num">1,42,580.16</td><td class="i r zero">0</td><td class="i r num">1,42,580.16</td></tr>
+            <tr class="more"><td>▸ AS 26C 5104 · 1 trip</td><td class="k r num">21,109.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">5,000.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">26,109.00</td><td class="i fold">LPG Bulk</td><td class="i r num">17.660</td><td class="i r num">1,900.0</td><td class="i r"></td><td class="i r num">1,12,870.46</td><td class="i r zero">0</td><td class="i r num">1,12,870.46</td></tr>
+            <tr class="more"><td>▸ AS 26AC 0403 · 13 trip</td><td class="k r num">62,208.35</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">62,208.35</td><td class="i fold">packed LPG · local</td><td class="i r num">156.000</td><td class="i r num">1,524.2</td><td class="i r"></td><td class="i r num">1,09,934.02</td><td class="i r zero">0</td><td class="i r num">1,09,934.02</td></tr>
+            <tr class="more"><td>▸ AS 26C 9810 · 1 trip</td><td class="k r num">45,018.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">5,000.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">50,018.00</td><td class="i fold">ATF</td><td class="i r num">40.000</td><td class="i r num">877.0</td><td class="i r"></td><td class="i r num">97,497.66</td><td class="i r zero">0</td><td class="i r num">97,497.66</td></tr>
+            <tr class="more"><td>▸ AS 26C 9816 · 3 trip</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num ai">−2,579.55</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num ai">−2,579.55</td><td class="i fold">ATF <span class="flag">HSD slip trip se juda nahi</span></td><td class="i r num">80.000</td><td class="i r num">763.6</td><td class="i r"></td><td class="i r num">72,876.36</td><td class="i r zero">0</td><td class="i r num">72,876.36</td></tr>
+            <tr class="more"><td>▸ AS 26C 9813 · 1 trip</td><td class="k r num">30,512.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">3,000.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">33,512.00</td><td class="i fold">ATF</td><td class="i r num">40.000</td><td class="i r num">557.0</td><td class="i r"></td><td class="i r num">61,944.92</td><td class="i r zero">0</td><td class="i r num">61,944.92</td></tr>
+            <tr class="more"><td>▸ AS 26C 0407 · 1 trip</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="i fold">LPG <span class="flag">koi kharch darj nahi</span></td><td class="i r num">23.000</td><td class="i r num">234.3</td><td class="i r"></td><td class="i r num">14,977.34</td><td class="i r zero">0</td><td class="i r num">14,977.34</td></tr>
+            <tr class="more"><td>▸ AS 26C 9811 · 2 trip</td><td class="k r num">61,811.20</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">10,000.00</td><td class="k r zero">0</td><td class="k r zero">0</td><td class="k r num">71,811.20</td><td class="i fold">ATF <span class="flag" style="color:var(--crit)">freight ₹0 — billing baaki</span></td><td class="i r num">80.000</td><td class="i r num">952.0</td><td class="i r"></td><td class="i r num crit">0.00</td><td class="i r zero">0</td><td class="i r num crit">0.00</td></tr>
+
+            <!-- ── Total of All Bills ── -->
+            <tr class="grand">
+              <td>Total of All Bills · 11 lorry · 30 trip</td>
+              <td class="k r num">4,64,184.55</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num">45,420.45</td><td class="k r num zero">0</td><td class="k r num zero">0</td><td class="k r num crit">5,09,605.00</td>
+              <td class="i fold"></td><td class="i r num">667.160</td><td class="i r num">17,246.0</td><td class="i r"></td><td class="i r num">11,51,802.82</td><td class="i r num zero">0</td><td class="i r num good">11,51,802.82</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Dashed box = Edit dabane par likh sakte hain (fooding / fixed / doc / other — jab tak trip start par darj nahi hue). HSD pump slip se, Toll FASTag se, Trip Advance driver khata se aata hai — yahan se nahi badalte. * Rate = freight ÷ (KL × RTKM), kyunki 1,014 me se sirf 71 trip par rate darj hai. Shortage column IOCL ki shortage penalty dikhata hai; is pakhwade kisi trip par nahi thi.</p>
+
+      <div class="foot">
+        <div class="box">
+          <h4>HISAAB — owner ko kitna dena hai</h4>
+          <div class="kv"><span class="lab">Freight <small>30 trip · billed amount</small></span><span class="num ink">₹11,51,802.82</span></div>
+          <div class="kv"><span class="lab">− Commission <small>10% of freight · <span class="warn">namuna, rate master me darj karna hai</span></small></span><span class="num">₹1,15,180.28</span></div>
+          <div class="kv"><span class="lab">− TDS 194C <small>1% of (freight − commission) · individual</small></span><span class="num">₹10,366.23</span></div>
+          <div class="kv"><span class="lab">− Kharch wapas <small>HSD 4,64,184.55 + advance 45,420.45</small></span><span class="num crit">₹5,09,605.00</span></div>
+          <div class="kv"><span class="lab">± Manual adjustment <small>detention, bonus — reviewer jodta hai</small></span><span class="num dim">₹0.00</span></div>
+          <div class="kv tot"><span class="lab">Owner ko dena</span><span class="num good">₹5,16,651.31</span></div>
+        </div>
+        <div class="box">
+          <h4>APPROVE PAR YEH POST HOGA — M/S PRASAD TRANSPORT ki books</h4>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Attached Vehicle Freight Control<small>freight jo humne IOCL se vasoola, owner ka paisa</small></span><span class="num ink">11,51,802.82</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">Commission Income – Attached Vehicles<small>sirf yahi hamare munafe me jaata hai</small></span><span class="num">1,15,180.28</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">TDS Payable (1% 194C)</span><span class="num">10,366.23</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">Vehicle Expense Recovery<small>diesel/advance jo pehle hamare kharch me gaya tha, wapas</small></span><span class="num">5,09,605.00</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led"><b class="good">Vehicle Owner: SANDEEP KUMAR PRASAD</b><small>Sundry Creditors (Vehicle Owners) · yahi owner ka khata hai</small></span><span class="num good">5,16,651.31</span></div>
+          <div class="note" style="margin-top:8px">Voucher ref <span class="mono">VEHBILL_SKP_2026-06-16</span> — ek hi baar post ho sakta hai. Payment dene par Dr Vehicle Owner / Cr Bank, owner ke khaate me balance ghat-ta hai.</div>
+        </div>
+      </div>
+
+      <div class="after">
+        <b>Approve ke baad:</b> status <span class="st approved">✅ APPROVED 🔒</span> · saare 11 lorry settlement lock · buttons sirf
+        <span class="btn warn" style="padding:3px 9px">🔓 Modify (admin, reason zaroori)</span> <span class="btn" style="padding:3px 9px">🖨️ Print</span> <span class="btn good" style="padding:3px 9px">🟢 WhatsApp</span> <span class="btn" style="padding:3px 9px">✉️ Email</span>
+        · Modify par purana voucher waisa hi rehta hai, antar ka naya voucher banta hai (pump bill jaisa).
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ SCREEN 3 · TRIP START ═══════════════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 3 · Trip start par kharch — system fix</h2><span>Trip Management → Naya trip / Trip shuru. Yahi se 7 column bharte hain, har rupaya us trip ID ke saath.</span></div>
+    <div class="frame">
+      <div class="grid2">
+        <div>
+          <div class="apphead" style="margin-bottom:10px">
+            <div><h3 style="font-size:17px">🚛 AS 26C 5105 · PT00414 · trip shuru</h3><div class="sub">driver HABIBOR RAHMAN · IOCL Guwahati → LPG BP Sarpara · 07 Jun 2026</div></div>
+            <span class="st review">TRIP KA KHARCH</span>
+          </div>
+          <div class="form">
+            <div class="f"><label>Trip Fixed Allowance</label><div class="in"><span class="num">₹ 2,500</span><span>per trip · lane ka fixed</span></div></div>
+            <div class="f"><label>Trip Fooding Allowance</label><div class="in"><span class="num">₹ 1,800</span><span>9 din × ₹200</span></div></div>
+            <div class="f"><label>Trip Advance</label><div class="in"><span class="num">₹ 15,000</span><span>cash · driver khata me bhi</span></div></div>
+            <div class="f"><label>Doc Exp</label><div class="in"><span class="num">₹ 0</span><span>permit / challan / weighbridge</span></div></div>
+            <div class="f wide"><label>Other Exp</label><div class="in"><span class="num">₹ 0</span><span>kis cheez ka — likhna zaroori</span></div></div>
+            <div class="f auto"><label>HSD · auto</label><div class="in"><span class="num">₹ 52,824</span><span>pump slip / pump bill se</span></div></div>
+            <div class="f auto"><label>Toll Tax · auto</label><div class="in"><span class="num">₹ 0</span><span>FASTag se · trip window se judta hai</span></div></div>
+          </div>
+          <div class="toolbar" style="margin-top:12px"><button class="btn solid">💾 Kharch save · trip PT00414</button><button class="btn">Baad me jodein → Trip → Kharch tab</button></div>
+        </div>
+        <div>
+          <h4 class="eyebrow" style="margin-bottom:10px">Rasta — trip se bill tak</h4>
+          <ul class="flow">
+            <li><i>1</i><span><b>Trip shuru</b> — upar wala panel. Fixed / fooding / advance / doc / other, sab <b>trip_id</b> ke saath save. Bina trip ke koi kharch nahi.</span></li>
+            <li><i>2</i><span><b>Raste me</b> — pump slip (HSD) aur FASTag (toll) apne register me aate hain, trip window se jud jaate hain. Galat lorry ka trip chuna → system mana karta hai (P0405).</span></li>
+            <li><i>3</i><span><b>Unloading</b> — shortage KL aur uski penalty trip par likhi jaati hai, bill ke Shortage column me dikhti hai.</span></li>
+            <li><i>4</i><span><b>1 aur 16 tareekh 03:00</b> — machine har owner ka 15-din ka bill draft banati hai (trip ke 7 column + freight).</span></li>
+            <li><i>5</i><span><b>Desk</b> — Edit / Save; jo trip par darj nahi hua wo dashed box me likh sakte hain, wo bhi trip ke neeche hi jaata hai.</span></li>
+            <li><i>6</i><span><b>Admin Approve</b> — voucher post, owner ke khaate me credit, bill lock, Print / WhatsApp / Email.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ DECISIONS ═══════════════ -->
+  <section class="dec">
+    <h2>YES se pehle 4 baatein — inhi par build alag hoga</h2>
+    <ol>
+      <li><b>Bill ek malik ka hai, ek lorry ka nahi.</b> Sandeep ji ki 11 lorry ek bill me, IOCL ki tarah. Agar aap lorry-wise alag bill chahte hain to bolein — list me 11 row aayengi, foot ka hisaab lorry-wise.</li>
+      <li><b>Trip Advance kharch ke side me hai.</b> Attached lorry par advance humne owner ki taraf se diya, isliye bill me wapas kaata. Apni (OWN) gaadi par advance driver ke khaate me rehta hai, P&amp;L me nahi.</li>
+      <li><b>Commission aur TDS ka rate.</b> 16 attached lorry me se kisi par rate darj nahi hai (master me 0 term). Upar 10% + 1% sirf dikhane ke liye. Ek baar batayein — sab par ek rate ya lorry-wise — main Commission Master me 1 Apr 2026 se bhar dunga.</li>
+      <li><b>Toll Tax column abhi chhota dikhega.</b> Apr se 3,883 FASTag crossing me sirf 493 trip se jude hain (₹2.40 L of ₹19.46 L). Build me ek "toll ko trip se jodo" kaam saath rakhna hoga, warna bill me toll 12% hi aayega.</li>
+    </ol>
+    <div class="facts">
+      <div class="fact"><div class="n">388</div><small>settlement Apr–Sep 2026, sab AI draft, 0 approved · isi data par bill banenge</small></div>
+      <div class="fact"><div class="n">₹2.91 cr</div><small>freight Apr H1 → Jul H2 (billed amount, paisa-to-paisa)</small></div>
+      <div class="fact"><div class="n crit">₹0</div><small>Aug H1, Aug H2, Sep H1 ka freight — billing baaki, 52 lorry-pakhwade</small></div>
+      <div class="fact"><div class="n crit">143</div><small>HSD slip (₹23.4 L) kisi trip se jude nahi — bill me nahi aayenge jab tak jode na jaayen</small></div>
+      <div class="fact"><div class="n">0</div><small>fooding / fixed / doc / other ki entry aaj — column naya hai, trip start panel se bharega</small></div>
+    </div>
+  </section>
+</div>

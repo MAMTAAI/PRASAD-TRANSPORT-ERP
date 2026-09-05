@@ -74,6 +74,7 @@ import { registerExceptionRoutes } from './modules/exceptions.routes.js';
 import { registerFortnightBillingRoutes } from './modules/fortnightBilling.routes.js';
 import { registerPumpBillingRoutes } from './modules/pumpBilling.routes.js';
 import { registerVehicleSettlementRoutes } from './modules/vehicleSettlement.routes.js';
+import { registerVehicleBillRoutes } from './modules/vehicleBills.routes.js';
 import { registerCommissionTermsRoutes } from './modules/commissionTerms.routes.js';
 import { registerUnmappedVehicleRoutes } from './modules/unmappedVehicles.routes.js';
 import { startIoclSyncCron, stopIoclSyncCron } from './lib/ioclSyncCron.js';
@@ -285,6 +286,9 @@ await app.register(registerPumpBillingRoutes, { prefix: '/api/v1/fuel' });
 await app.register(registerVehicleSettlementRoutes, { prefix: '/api/v1/vehicle-settlement' });
 await app.register(registerCommissionTermsRoutes,  { prefix: '/api/v1/vehicle-settlement' });
 await app.register(registerUnmappedVehicleRoutes,  { prefix: '/api/v1/vehicle-settlement' });
+// The 15-day VEHICLE BILL per owner (migration 160): list, open, edit, approve
+// → owner khata, lock, WhatsApp / e-mail. TARA drafts them on the 1st & 16th.
+await app.register(registerVehicleBillRoutes,      { prefix: '/api/v1/vehicle-bills' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).
 await app.register(registerOpsRoutes,      { prefix: '/api/v1/ops' });
 // Fleet & party masters: vehicles, drivers, customers, vendors, lanes, rates.

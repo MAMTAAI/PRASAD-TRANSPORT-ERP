@@ -323,6 +323,126 @@ export async function registerOpsRoutes(app) {
     }
   );
 
+  // ── TRIP EXPENSE ENTRIES (owner, 5-Sep-2026) ──────────────────────────────
+  //
+  // "jo trip start hogi us time ke andar trip ka exp us trip id ke andar jaye."
+  // Fooding, fixed allowance, document and other expense are keyed HERE, with
+  // the trip's id on the row itself (trip_expense_entries, migration 160), so
+  // the 15-day bill's columns fill from the trip and never from a guess. HSD
+  // stays on the fuel slip, toll on FASTag, the advance on /driver-txn — the
+  // same trip id on all of them. The vehicle guard (P0405) applies here too.
+  const ENTRY_KINDS = ['FOODING_ALLOWANCE', 'FIXED_ALLOWANCE', 'DOC_EXPENSE', 'OTHER_EXPENSE'];
+  const entrySchema = {
+    type: 'object', additionalProperties: false, required: ['kind', 'amount'],
+    properties: {
+      kind: { type: 'string', enum: ENTRY_KINDS },
+      amount: { type: 'number', minimum: 0 },
+      label: { type: ['string', 'null'], maxLength: 160 },
+      dated: { type: ['string', 'null'], format: 'date' },
+    },
+  };
+
+  app.get(
+    '/trips/:id/expense-entries',
+    { schema: { params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows } = await query(
+        `SELECT id, trip_id, vehicle_no, kind, amount, label, dated, source, entered_by, created_at
+           FROM trip_expense_entries WHERE trip_id = $1::uuid ORDER BY created_at`, [req.params.id]);
+      const totals = {};
+      for (const k of ENTRY_KINDS) totals[k] = rows.filter((r) => r.kind === k).reduce((n, r) => n + Number(r.amount || 0), 0);
+      return { entries: rows, totals };
+    }
+  );
+
+  app.post(
+    '/trips/:id/expense-entries',
+    {
+      schema: {
+        params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
+        body: {
+          type: 'object', additionalProperties: false, required: ['entries'],
+          properties: { entries: { type: 'array', minItems: 1, maxItems: 20, items: entrySchema } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const { rows: [trip] } = await query(
+        'SELECT id, trip_code, vehicle_no, driver_name, status FROM trips WHERE id = $1::uuid', [req.params.id]);
+      if (!trip) return reply.code(404).send({ error: 'NOT_FOUND' });
+      const who = req.user?.name ?? req.user?.sub ?? 'desk';
+      const clean = req.body.entries
+        .map((e) => ({ ...e, amount: Math.round((Number(e.amount) + Number.EPSILON) * 100) / 100,
+                       label: (e.label ?? '').trim().slice(0, 160) || null }))
+        .filter((e) => e.amount > 0);
+      if (!clean.length) return reply.code(400).send({ error: 'NOTHING_TO_SAVE', detail: 'har rakam 0 se zyada honi chahiye' });
+      const bad = clean.find((e) => e.kind === 'OTHER_EXPENSE' && !e.label);
+      if (bad) return reply.code(400).send({ error: 'LABEL_REQUIRED', detail: 'Other expense ka naam likhna zaroori hai' });
+
+      try {
+        const out = await withTransaction(async (t) => {
+          const made = [];
+          for (const e of clean) {
+            const { rows } = await t.query(`
+              INSERT INTO trip_expense_entries
+                (trip_id, vehicle_no, driver_name, kind, amount, label, dated, source, entered_by)
+              VALUES ($1::uuid, $2, $3, $4, $5, $6, COALESCE($7::date, current_date), 'TRIP_START', $8)
+              RETURNING *`,
+              [trip.id, trip.vehicle_no, trip.driver_name, e.kind, e.amount, e.label, e.dated ?? null, who]);
+            made.push(rows[0]);
+          }
+          return made;
+        });
+        // A lorry settlement already drafted for this fortnight follows the
+        // register at once, so the bill never lags the trip.
+        await query(`
+          SELECT vehicle_settlement_refresh(s.id)
+            FROM vehicle_fortnight_settlements s
+            JOIN trips t ON reg_key(t.vehicle_no) = s.vehicle_key
+           WHERE t.id = $1::uuid AND s.locked_at IS NULL
+             AND s.period_from = fortnight_from(COALESCE(t.unloading_date, t.loading_date))`,
+          [trip.id]).catch(() => {});
+        reply.code(201);
+        return { created: out.length, entries: out, trip_code: trip.trip_code };
+      } catch (e) {
+        if (e.code === 'P0405') return reply.code(409).send({ error: 'TRIP_VEHICLE_MISMATCH', detail: e.message });
+        if (e.code === '23514') return reply.code(400).send({ error: 'LABEL_REQUIRED', detail: 'Other expense ka naam likhna zaroori hai' });
+        throw e;
+      }
+    }
+  );
+
+  app.delete(
+    '/trips/:id/expense-entries/:entryId',
+    { schema: { params: { type: 'object', required: ['id', 'entryId'],
+      properties: { id: { type: 'string', format: 'uuid' }, entryId: { type: 'string', format: 'uuid' } } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      // A trip inside a locked bill is closed — the row is part of a signed
+      // statement and comes out only through Modify on the bill.
+      const { rows: locked } = await query(`
+        SELECT 1 FROM vehicle_fortnight_settlements s
+          JOIN trips t ON reg_key(t.vehicle_no) = s.vehicle_key
+         WHERE t.id = $1::uuid AND s.locked_at IS NOT NULL
+           AND s.period_from = fortnight_from(COALESCE(t.unloading_date, t.loading_date))`, [req.params.id]);
+      if (locked.length) return reply.code(409).send({ error: 'LOCKED', detail: 'Is trip ka 15-din bill lock hai — pehle bill par Modify kijiye.' });
+      const { rows } = await query(
+        'DELETE FROM trip_expense_entries WHERE id = $1::uuid AND trip_id = $2::uuid RETURNING id',
+        [req.params.entryId, req.params.id]);
+      if (!rows.length) return reply.code(404).send({ error: 'NOT_FOUND' });
+      await query(`
+        SELECT vehicle_settlement_refresh(s.id)
+          FROM vehicle_fortnight_settlements s
+          JOIN trips t ON reg_key(t.vehicle_no) = s.vehicle_key
+         WHERE t.id = $1::uuid AND s.locked_at IS NULL
+           AND s.period_from = fortnight_from(COALESCE(t.unloading_date, t.loading_date))`,
+        [req.params.id]).catch(() => {});
+      return { deleted: true };
+    }
+  );
+
   // ── THE AUDIT, ACROSS THE WHOLE REGISTER ──────────────────────────────────
   //
   // "koi trip ka expense dusray trip may na jaye" — this is the report that

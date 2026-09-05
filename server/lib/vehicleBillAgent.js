@@ -50,7 +50,7 @@ export function closingFortnight(onDate) {
  * @param {string} [o.periodFrom]  which fortnight; defaults to the one that just closed
  * @param {boolean}[o.force]       run even on a day that is not a boundary
  */
-export async function runVehicleBillAgent({ periodFrom, force = false, log = console } = {}) {
+export async function runVehicleBillAgent({ periodFrom, force = false, log = console, agent = 'AGENT_02' } = {}) {
   const today = istToday();
   const day = Number(today.slice(8, 10));
   const boundary = day === 1 || day === 16;
@@ -71,9 +71,10 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
   }
 
   try {
-    await startStep(run.run_id, 'build', { agent_code: 'AGENT_00' });
+    // TARA (AGENT_02) is the bill expert since 5-Sep-2026: the step is hers.
+    await startStep(run.run_id, 'build', { agent_code: agent });
     const { rows: [built] } = await query(
-      'SELECT * FROM vehicle_fortnight_build($1::date, $2)', [from, 'agent']);
+      'SELECT * FROM vehicle_fortnight_build($1::date, $2)', [from, 'agent:TARA']);
 
     // What the desk now has to do. Reported rather than acted on: a lorry with
     // no commission rate is a decision, and the agent does not take it.
@@ -90,7 +91,17 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
         FROM vehicle_fortnight_settlements
        WHERE period_from = $1::date AND status = 'AI_DRAFT'`, [from]);
 
-    const counts = { ...built, ...state, period_from: from };
+    // The owner bills the lorries were grouped into (migration 160) — what the
+    // desk actually opens on the 1st and the 16th.
+    const { rows: [bills] } = await query(`
+      SELECT count(*)::int AS bills,
+             count(*) FILTER (WHERE status = 'AI_DRAFT')::int AS bills_draft,
+             count(*) FILTER (WHERE class_key IN ('ATTACHED','MARKET'))::int AS owner_bills,
+             COALESCE(sum(needs_rate), 0)::int AS bills_without_rate,
+             COALESCE(sum(payable), 0)::numeric(14,2) AS payable
+        FROM vehicle_owner_bills WHERE period_from = $1::date`, [from]);
+
+    const counts = { ...built, ...state, ...bills, period_from: from };
     await finishRun(run.run_id, 'OK', { counts });
     log.info?.({ job: JOB, ...counts }, '[agent] vehicle fortnight bills ready for the desk');
     return { ran: true, period_from: from, ...counts };

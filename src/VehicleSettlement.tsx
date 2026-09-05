@@ -27,11 +27,13 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import GlobalPagination, { usePagination } from './components/GlobalPagination';
 import { sendWhatsApp } from './lib/waSend';
 import { API_BASE } from './lib/apiBase';
-import BillReport from './settlement/BillReport';
+import OwnerBills from './settlement/OwnerBills';
 import OwnerStatement from './settlement/OwnerStatement';
 import CommissionTerms from './settlement/CommissionTerms';
 
 const API = `${API_BASE}/api/v1/vehicle-settlement`;
+// The per-owner 15-day bills (migration 160, design v2 approved 5-Sep-2026).
+const BILLS_API = `${API_BASE}/api/v1/vehicle-bills`;
 
 // Plain fetch on purpose: src/lib/authFetch.ts patches window.fetch and puts
 // the bearer on every request. Reading the token here would mean guessing at
@@ -148,17 +150,19 @@ export default function VehicleSettlement() {
                     flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: '18px' }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 'clamp(21px, 4vw, 27px)', color: '#fff' }}>
-            🚛 Vehicle 15-Day Settlement
+            🧾 Vehicle 15-Day Bill
           </h2>
-          <p style={{ color: '#9aadd4', fontSize: '12.5px', margin: '5px 0 0', maxWidth: '70ch', lineHeight: 1.55 }}>
-            Har lorry ka 15-din ka hisaab — kamai, kharch aur bacha hua paisa. Machine draft
-            banati hai, staff sudhaarta hai, admin approve karke lock karta hai.
+          <p style={{ color: '#9aadd4', fontSize: '12.5px', margin: '5px 0 0', maxWidth: '76ch', lineHeight: 1.55 }}>
+            Har malik ka 15-din ka bill, IOCL format me — kharch baayein (HSD · Toll · Fooding · Fixed ·
+            Advance · Doc · Anya), bill details, commission aur TDS daayein. TARA har 1 aur 16 tareekh ko
+            draft banati hai, staff sudhaarta hai, admin approve karta hai — tab owner ke khaate me post
+            hota hai aur bill lock.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', border: '1px solid #27395f', borderRadius: '9px',
                         overflow: 'hidden' }}>
-            {[['BILL', '📄 Bill Report'], ['OWNER', '👥 Owner Statement'],
+            {[['BILL', '🧾 Bills'], ['OWNER', '👥 Owner Statement'],
               ['TERMS', '💼 Commission'], ['LIST', '📋 Kaam ki list']].map((v) => (
               <button key={v[0]} onClick={() => setView(v[0])}
                 style={{ background: view === v[0] ? 'rgba(34,211,238,0.14)' : 'transparent',
@@ -233,10 +237,11 @@ export default function VehicleSettlement() {
         maintenance ka abhi koi data nahi hai, isliye wo ₹0 dikhta hai — chhupaya nahi gaya.
       </div>
 
-      {view === 'BILL' && cycle && (
-        <BillReport api={API} apiJson={apiJson} Badge={Badge}
-                    periodFrom={String(cycle.period_from).slice(0, 10)}
-                    onOpen={(id) => id && setOpenId(id)} />
+      {view === 'BILL' && (
+        <OwnerBills api={BILLS_API} apiJson={apiJson}
+                    periodFrom={cycle ? String(cycle.period_from).slice(0, 10) : null}
+                    onNeedRate={() => setView('TERMS')}
+                    onChanged={() => { loadCycles(); loadRows(); }} />
       )}
 
       {/* Attached and market lorries, grouped by whose they are. An owner with

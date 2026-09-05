@@ -20,7 +20,8 @@
 import cron from 'node-cron';
 import { query, isDegraded } from '../db/pool.js';
 import { runNightlyFuelSync } from './nightlyFuelSync.js';
-import { runVehicleBillAgent } from './vehicleBillAgent.js';
+import { runVehicleBillAgent, istToday } from './vehicleBillAgent.js';
+import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
   detectCompanyMasterGaps, detectEntityMismatch,
@@ -182,11 +183,45 @@ async function runNightlyFuel({ force = false } = {}) {
   return runNightlyFuelSync({ trigger: force ? 'SCHEDULE' : 'CATCHUP', log: state.log ?? console });
 }
 
+// ── 5. TARA's 15-day vehicle bills — the 1st and the 16th, 03:00 IST ──────
+//
+// The scheduler does not build the bills. It RAISES the event and TARA
+// (AGENT_02, the bill expert since 5-Sep-2026) builds them through the
+// durable agent path — agent_events → dispatch → agent_runs — so the run is
+// hers on the dashboard and in the audit trail. The cron fires it at 03:00;
+// the quarter-hourly tick catches up after a restart, once per day per
+// process, and the day-claim in agent_execution_logs stops a second build.
+// If the bus itself is down the fortnight is not missed: the job runs
+// directly, and says so.
+export async function requestVehicleBills({ force = false, trigger = 'SCHEDULE' } = {}) {
+  if (isDegraded()) return { skipped: 'db unavailable' };
+  const today = istToday();
+  const day = Number(today.slice(8, 10));
+  const istHour = Number(new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(11, 13));
+  if (!force && !((day === 1 || day === 16) && istHour >= 3)) {
+    return { skipped: 'not a bill day (1st/16th, after 03:00 IST)' };
+  }
+  if (!force && state.lastVehicleBillAsk === today) return { skipped: 'already asked today' };
+  state.lastVehicleBillAsk = today;
+  try {
+    await busEmit('vehicle.bill.cycle.requested', {
+      aggregate: 'vehicle_bills',
+      payload: { trigger, today, force },
+      emittedBy: 'AGENT_00',
+    });
+    busDrain().catch(() => {});
+    return { asked: 'TARA (AGENT_02)', today, trigger };
+  } catch (err) {
+    const r = await runVehicleBillAgent({ force, log: state.log ?? console });
+    return { fallback: `bus: ${err.message}`, ...r };
+  }
+}
+
 export function startScheduler(log = console) {
   if (state.timer) return state.timer;
   state.log = log;
   const tick = async () => {
-    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel]]) {
+    for (const [name, fn] of [['compliance', runComplianceCheck], ['cycle', runCycleSweep], ['exceptions', runExceptionScan], ['nightly_fuel', runNightlyFuel], ['vehicle_bills', requestVehicleBills]]) {
       try {
         const r = await fn();
         if (!r.skipped) log.info?.({ job: name, ...r }, `[scheduler] ${name} ran`);
@@ -230,8 +265,8 @@ export function startScheduler(log = console) {
   try {
     state.vehicleBillCron = cron.schedule('0 3 1,16 * *', async () => {
       try {
-        const r = await runVehicleBillAgent({ log });
-        log.info?.({ job: 'vehicle_bills', ...r }, '[scheduler] 15-day vehicle bills');
+        const r = await requestVehicleBills({ force: true, trigger: 'CRON' });
+        log.info?.({ job: 'vehicle_bills', ...r }, '[scheduler] 15-day vehicle bills → TARA');
       } catch (err) {
         log.warn?.({ job: 'vehicle_bills', err: err.message }, '[scheduler] vehicle bills failed');
       }
@@ -261,7 +296,8 @@ export function schedulerState() {
     next_cycle_code: cycleCodeFor(),
     nightly_fuel_cron: state.fuelCron ? '02:00 Asia/Kolkata' : null,
     nightly_fuel_cron_error: state.fuelCronError,
-    vehicle_bill_cron: state.vehicleBillCron ? '03:00 on the 1st & 16th, Asia/Kolkata' : null,
+    vehicle_bill_cron: state.vehicleBillCron ? '03:00 on the 1st & 16th, Asia/Kolkata → TARA (AGENT_02)' : null,
+    vehicle_bill_last_ask: state.lastVehicleBillAsk ?? null,
     vehicle_bill_cron_error: state.vehicleBillCronError,
   };
 }
