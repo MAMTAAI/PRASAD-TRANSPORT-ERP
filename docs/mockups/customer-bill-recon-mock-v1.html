@@ -1,0 +1,366 @@
+<title>Customer 15-Day Bill & Reconciliation</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#0a1024; --panel:#121c38; --raised:#18244a; --line:#27395f; --line-soft:#1b2a4e;
+    --ink:#eef2fd; --ink-2:#c4d1ea; --mut:#9aadd4; --dim:#5d7196;
+    --cyan:#22d3ee; --good:#2fe39b; --crit:#ff6b81; --warn:#ffb224; --ai:#a78bfa; --cust:#38bdf8; --mkt:#f472b6;
+    --ui:'Archivo','Segoe UI',system-ui,-apple-system,Roboto,sans-serif;
+    --num:'IBM Plex Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box} html{color-scheme:dark}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--ui);font-size:14px;line-height:1.45}
+  .wrap{max-width:1480px;margin:0 auto;padding:22px 22px 60px}
+  h1,h2,h3,h4{margin:0;text-wrap:balance}
+  .num{font-family:var(--num);font-variant-numeric:tabular-nums} .mono{font-family:var(--num)} .r{text-align:right}
+  .mast{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:22px}
+  .mast h1{font-size:26px;font-weight:800;letter-spacing:-.01em} .mast p{margin:6px 0 0;color:var(--mut);max-width:78ch}
+  .tag{display:inline-block;background:var(--warn);color:#1f1300;font-weight:800;font-size:12px;letter-spacing:.06em;padding:6px 12px;border-radius:999px;text-transform:uppercase}
+  .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:700}
+  .delta{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:30px}
+  .delta div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .delta b{display:block;color:var(--cust);font-size:13px;margin-bottom:6px} .delta p{margin:0;color:var(--ink-2);font-size:13px}
+  .screen{margin:0 0 40px} .screen-h{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+  .screen-h h2{font-size:18px;font-weight:700} .screen-h span{color:var(--dim);font-size:12.5px}
+  .frame{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+  .apphead{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-bottom:14px}
+  .apphead h3{font-size:20px;font-weight:800} .apphead .sub{color:var(--mut);font-size:12.5px;margin-top:3px}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{font:inherit;font-weight:700;font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid var(--line);background:transparent;color:var(--mut);cursor:pointer;white-space:nowrap}
+  .btn.cyan{background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.5);color:var(--cyan)}
+  .btn.good{background:rgba(47,227,155,.10);border-color:rgba(47,227,155,.55);color:var(--good)}
+  .btn.solid{background:var(--good);border-color:var(--good);color:#0a1024}
+  .btn.warn{background:rgba(255,178,36,.12);border-color:rgba(255,178,36,.5);color:var(--warn)}
+  .btn.ai{background:rgba(167,139,250,.14);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .btn.cust{background:rgba(56,189,248,.12);border-color:rgba(56,189,248,.5);color:var(--cust)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;border:1px solid var(--line);color:var(--mut)}
+  .chip.on{background:rgba(34,211,238,.12);border-color:var(--cyan);color:var(--cyan)}
+  .st{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:2px 9px;border:1px solid currentColor;white-space:nowrap}
+  .st.draft{color:var(--ai)} .st.review{color:var(--warn)} .st.raised{color:var(--cyan)} .st.part{color:var(--warn)} .st.paid{color:var(--good)} .st.disp{color:var(--crit)}
+  .flag{display:inline-block;font-size:10px;font-weight:800;border-radius:6px;padding:2px 7px;white-space:nowrap}
+  .f-paid{background:rgba(47,227,155,.15);color:var(--good)} .f-short{background:rgba(255,178,36,.15);color:var(--warn)} .f-miss{background:rgba(255,107,129,.15);color:var(--crit)}
+  .f-pend{background:rgba(93,113,150,.2);color:var(--mut)} .f-unm{background:rgba(167,139,250,.15);color:#c4b5fd} .f-ded{background:rgba(56,189,248,.15);color:var(--cust)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:0 0 16px}
+  .card{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:11px 13px;min-width:0}
+  .card .who{font-size:12px;color:var(--ink-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card .amt{font-size:21px;font-weight:800;margin-top:2px;color:var(--warn)} .card .amt.ok{color:var(--good)} .card .amt.dim{color:var(--dim)} .card .amt.crit{color:var(--crit)}
+  .card small{display:block;color:var(--dim);font-size:10.5px;margin-top:3px}
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:rgba(10,16,36,.5)}
+  td{padding:9px 10px;border-bottom:1px solid var(--line-soft);color:var(--ink-2);vertical-align:top;white-space:nowrap}
+  tr.sel td{background:rgba(56,189,248,.07)}
+  td .sub{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+  .ink{color:var(--ink)} .good{color:var(--good)} .crit{color:var(--crit)} .warn{color:var(--warn)} .cyan{color:var(--cyan)} .dim{color:var(--dim)} .ai{color:var(--ai)} .cust{color:var(--cust)}
+  .list th.r,.list td.r{text-align:right}
+  .billhead{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:14px 0}
+  .billhead div{background:var(--panel);padding:11px 14px} .billhead .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)} .billhead .v{font-size:17px;font-weight:700;margin-top:3px}
+  .bill{overflow-x:auto;border:1px solid var(--line);border-radius:10px} .bill table{min-width:1560px} .bill th,.bill td{padding:7px 8px}
+  .bill th.i,.bill td.i{background:rgba(47,227,155,.06)} .bill th.d,.bill td.d{background:rgba(255,107,129,.06)} .bill th.i{color:#5eead4} .bill th.d{color:#ff8f9f}
+  .bill .fold{border-left:2px solid var(--line)} .bill th.r,.bill td.r{text-align:right}
+  .bill tr.side th{font-size:11px;letter-spacing:.12em;text-align:center;padding:8px}
+  .bill tr.veh td{background:var(--raised);color:var(--ink);font-weight:700;border-top:1px solid var(--line)} .bill tr.veh .own{font-weight:500;color:var(--mut);font-size:11px;margin-left:8px}
+  .bill tr.sub td{background:rgba(24,36,74,.55);font-weight:700;color:var(--ink);border-bottom:2px solid var(--line)}
+  .bill tr.more td{color:var(--dim);font-size:12px;background:rgba(10,16,36,.3)} .bill tr.more td .num{color:var(--ink-2)}
+  .bill tr.grand td{background:var(--raised);color:var(--ink);font-weight:800;font-size:13px;border-top:2px solid var(--line)}
+  .zero{color:#3d548a}
+  .note{color:var(--dim);font-size:11.5px;margin:10px 0 0;line-height:1.6;max-width:112ch}
+  .foot{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:14px} @media (max-width:1000px){.foot{grid-template-columns:1fr}}
+  .box{background:var(--raised);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .box h4{font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:8px;letter-spacing:.04em}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:13px} .kv:last-child{border-bottom:0}
+  .kv.tot{border-top:2px solid var(--line);border-bottom:0;margin-top:4px;padding-top:10px;font-weight:800;font-size:15px}
+  .kv .lab{color:var(--ink-2)} .kv .lab small{color:var(--dim);font-size:11px;margin-left:6px}
+  .jl{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;align-items:baseline} .jl:last-child{border-bottom:0}
+  .jl .drcr{font-family:var(--num);font-weight:700;font-size:11px;color:var(--dim)} .jl .led{color:var(--ink-2)} .jl .led small{display:block;color:var(--dim);font-size:10.5px}
+  .fmt{display:flex;flex-direction:column;gap:8px} .fmt div{border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12px;color:var(--ink-2)} .fmt div b{color:var(--ink);display:block;font-size:12.5px} .fmt div.on{border-color:var(--cust);background:rgba(56,189,248,.07)}
+  .audit{border:1px solid rgba(255,107,129,.45);background:rgba(255,107,129,.06);border-radius:12px;padding:16px 18px;margin-bottom:22px}
+  .audit h2{font-size:16px;color:var(--crit);margin-bottom:8px} .audit ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px} .audit li{color:var(--ink-2);font-size:13.5px} .audit li b{color:var(--ink)}
+  .dec{border:1px solid rgba(255,178,36,.45);background:rgba(255,178,36,.06);border-radius:12px;padding:16px 18px}
+  .dec h2{font-size:16px;color:var(--warn);margin-bottom:8px} .dec ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px} .dec li{color:var(--ink-2);font-size:13.5px} .dec li b{color:var(--ink)}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:14px}
+  .fact{background:rgba(10,16,36,.55);border:1px solid var(--line);border-radius:9px;padding:10px 12px} .fact .n{font-size:20px;font-weight:800;color:var(--ink)} .fact .n.crit{color:var(--crit)} .fact small{color:var(--dim);font-size:11px;display:block;margin-top:2px;white-space:normal}
+  .flow{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px} .flow li{display:grid;grid-template-columns:22px 1fr;gap:10px;font-size:13px;color:var(--ink-2)} .flow li i{font-style:normal;color:var(--cust);font-family:var(--num);font-weight:600} .flow li b{color:var(--ink)}
+  .recon th.r,.recon td.r{text-align:right}
+  .tree{font-size:12.5px;color:var(--ink-2);line-height:1.7} .tree .p{color:var(--ink);font-weight:700} .tree .b{padding-left:18px} .tree .b::before{content:'└ ';color:var(--dim)} .tree .v{padding-left:18px;color:var(--dim)} .tree .v::before{content:'≈ ';color:var(--warn)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px} @media (max-width:900px){.grid2{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+  <div class="mast">
+    <div>
+      <div class="eyebrow">Prasad ERP · Accounts &amp; Admin · Bill Management → naya roop</div>
+      <h1>Customer 15-Day Bill &amp; Reconciliation — design v1</h1>
+      <p>Vehicle 15-Day Bill wala hi dhaancha, ab customer (revenue) ki taraf: <b>ek bill = ek customer (parent) × ek firm ki books × ek pakhwada</b>, andar uski har
+        branch / ship-to ka block, IOCL format me. Print customer ke prakaar se badalta hai (Oil Company · Contract · Market). Payment aane par <b>trip-wise milaan</b> —
+        Paid / Short-paid / Missing freight / Pending / Unmatched / Kataauti — aur TARA har 1 aur 16 tareekh draft banati hai.</p>
+    </div>
+    <div style="text-align:right">
+      <span class="tag">Mock · YES chahiye</span>
+      <div class="dim" style="font-size:11.5px;margin-top:8px">5 Sep 2026 · asli aankde: IOCL · Jun 2026 · 16–30 · Prasad books · production</div>
+    </div>
+  </div>
+
+  <div class="audit">
+    <h2>Deep audit — Company Billing &amp; Reconciliation aaj (production, 5 Sep 08:45)</h2>
+    <ol>
+      <li><b>Bill aur paisa alag-alag rehte hain.</b> 417 bill, sab PENDING_PAYMENT (₹2.96 cr) — ek bhi bill kabhi "paid" nahi hua. Jabki ₹1.795 cr 593 trip par vasool ho chuka hai (IOCL payment-advice pipeline seedha trip aur ledger me likhta hai, bill ko chhoota nahi). Screen ka "Outstanding ₹2.96 cr" galat hai.</li>
+      <li><b>Ek bill = ek ship-to.</b> Isliye 417 chhote bill (INV-IND-7B03-0001…, INV-IND-8946, INV-BHA-0001, INV-AAD-0002). IOCL akela 133 jagah unload karta hai; 67 IOCL trip par location khaali.</li>
+      <li><b>Customer ka naam free text hai.</b> 4 customer ke 11 spelling (HPCL / hpcl / HINDUATAN PETROLEUM…; IOCL / Indian oil corporation / indian oil corporation ltd). <b>100 trip par customer hi nahi</b> ("Unknown Customer", 52 August ke baad ke) — ₹45 L billable bina malik ke.</li>
+      <li><b>Customer master patla hai.</b> 4 row; customer ka prakaar nahi; billing_cycle sab par "30_days" (oil company 15-din, Aadhar mahine ka); parent → branch nahi — <code>locations</code> jsonb me 6 entry vs 133 asli. <code>customer_billing_entity</code> sirf itna kehta hai kis firm ki books (HPCL/BPCL → Jaiswal, Aadhar → Prasad).</li>
+      <li><b>Rate:</b> 121 trip unpriced; rate 1,014 me se 71 par darj; IOCL rate master (POL per-KL-km slab, LPG flat per lane) alag, RTKM master alag.</li>
+      <li><b>Trip-wise reconciliation IOCL ke liye hai — par is screen ke bahar.</b> 90 IOCL bill → 1,157 line → 763 group: 594 matched, 72 unmatched location, 91 no-trip, 6 ambiguous. 33 payment advice (Apr–Aug, ₹1.75 cr, sab tie). <b>Kataauti asli hai:</b> FUEL_CCMS_RECOVERY −₹62.6 L (IOCL card ka diesel = freight ka 31%), TOLL −₹24 k, MISC −₹65 k, TDS −₹4.05 L; upar se OTHER income ₹29 L, rental ₹23 k. Yeh "missing freight" nahi, kharch hai — milaan ko yahi kehna chahiye.</li>
+      <li><b>Contract customer alag screen par.</b> Aadhar Green mahine ka, ₹1,500/KL + detention annexure (plant_reported_at sab trip par NULL → detention 0), "Auto Billing (Monthly)"; 65 trip, trips me billed ₹0.</li>
+      <li><b>Market customer</b> (Load Bazaar): income POD par BZINC, Market Debtors — aaj 0 load.</li>
+      <li><b>15-din ka chakra aadha hai:</b> billing_cycles rows hain, scheduler cycle band karta hai, par koi bill draft nahi banta; purane cycle OPEN pade hain.</li>
+    </ol>
+  </div>
+
+  <div class="delta">
+    <div><b>1 · Bill = customer (parent) × firm ki books × pakhwada</b><p>CB-IOCL-JUN-H2-2026. Andar har branch / ship-to ka block, "Subtotal for Branch", neeche "Total of All Branches" — IOCL ka standard format, sab customer ke liye backend me yahi.</p></div>
+    <div><b>2 · Print = customer ke prakaar se</b><p>Oil Company → unke transportation bill ka aaina (line-by-line milaan ke liye). Contract → Tax Invoice RCM + detention annexure (Aadhar wala). Market → LR-wise freight bill. Ek data, teen print.</p></div>
+    <div><b>3 · Payment = trip-wise milaan, 6 jhande</b><p>✅ Paid · ⚠️ Short-paid · ❌ Missing freight · 🕒 Pending · ❓ Unmatched (unki line, hamara trip nahi) · 🧾 Kataauti (TDS/CCMS diesel/toll — kharch, freight ka nuksaan nahi).</p></div>
+  </div>
+
+  <!-- ═══════ SCREEN 1 ═══════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 1 · Customer bills — list</h2><span>Accounts &amp; Admin → Bill Management. Vehicle bills jaisa: cards, chips, ek row = ek customer ka ek pakhwada.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div><h3>🧾 Customer 15-Day Bills</h3><div class="sub">Har customer ka ek bill, branch-wise, IOCL format. TARA har 1 aur 16 tareekh draft banati hai (contract customer 1 tareekh ko mahine ka); desk sudhaarta hai, admin raise karta hai; advice aane par milaan.</div></div>
+        <div class="toolbar">
+          <div class="chips"><span class="chip on">Jun 2026 · 16–30</span><span class="chip">Sab cycles</span></div>
+          <div class="chips"><span class="chip on">Sab</span><span class="chip">Draft</span><span class="chip">Review</span><span class="chip">Raised</span><span class="chip">Part-paid</span><span class="chip">Paid</span><span class="chip">Dispute</span></div>
+          <div class="chips"><span class="chip on">Sab customer</span><span class="chip">🛢 Oil Company</span><span class="chip">📜 Contract</span><span class="chip">🛒 Market</span></div>
+          <button class="btn ai">🤖 Draft banayein</button>
+        </div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="who">INDIAN OIL CORPORATION LTD</div><div class="amt">₹3,75,392</div><small>Jun H2 baaki · 4 trip pending advice · 1 missing · 133 branch</small></div>
+        <div class="card"><div class="who">BHARAT PETROLEUM · Jaiswal books</div><div class="amt crit">₹40,36,703</div><small>116 trip billed, ₹0 vasool darj · 50 unbilled <span class="warn">· namuna status</span></small></div>
+        <div class="card"><div class="who">HINDUSTAN PETROLEUM · Jaiswal books</div><div class="amt crit">rate baaki</div><small>57 trip, 4 spelling → 1 customer · 47 unbilled</small></div>
+        <div class="card"><div class="who">AADHAR GREEN · contract · monthly</div><div class="amt ok">₹8,40,000</div><small>Jun 2026 · 560 KL × ₹1,500 · GST 5% RCM · detention 0</small></div>
+        <div class="card"><div class="who">(customer darj nahi)</div><div class="amt crit">100 trip</div><small>₹45 L billable bina customer ke — mapping desk (Screen 4)</small></div>
+      </div>
+      <div class="tbl list">
+        <table>
+          <thead><tr><th>Bill No</th><th>Customer · books</th><th>Cycle</th><th class="r">Branch</th><th class="r">Trip</th><th class="r">Gross</th><th class="r">Shortage</th><th class="r">TDS</th><th class="r">Net receivable</th><th class="r">Vasool</th><th>Milaan</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr class="sel"><td class="mono cust">CB-IOCL-JUN-H2-2026</td><td class="ink">INDIAN OIL CORPORATION LTD<span class="sub">🛢 Oil Company · M/S PRASAD TRANSPORT ki books · vendor code 27050901-PT</span></td><td>Jun 2026 · 16–30</td><td class="r num">8*</td><td class="r num">35</td><td class="r num ink">₹32,51,803.23</td><td class="r num">₹1,515.00</td><td class="r num">₹65,005.77</td><td class="r num ink">₹31,85,282.46</td><td class="r num good">₹28,76,410.76</td><td><span class="flag f-paid">30 ✅</span> <span class="flag f-pend">3 🕒</span> <span class="flag f-miss">1 ❌</span> <span class="flag f-short">1 ⚠️</span></td><td><span class="st part">PART-PAID</span></td></tr>
+            <tr><td class="mono cust">CB-BPCL-JUN-H2-2026</td><td class="ink">BHARAT PETROLEUM CORPORATION LTD<span class="sub">🛢 Oil Company · M/S JAISWAL ENTERPRISE ki books · vendor 0000226709 <span class="warn">namuna</span></span></td><td>Jun 2026 · 16–30</td><td class="r num">3</td><td class="r num">14</td><td class="r num ink">₹5,12,400.00</td><td class="r num zero">0</td><td class="r num">₹10,248.00</td><td class="r num ink">₹5,02,152.00</td><td class="r num dim">₹0</td><td><span class="flag f-pend">14 🕒</span></td><td><span class="st raised">RAISED</span></td></tr>
+            <tr><td class="mono cust">CB-AGI-JUN-2026</td><td class="ink">AADHAR GREEN INDUSTRIES LLP<span class="sub">📜 Contract · monthly · M/S PRASAD TRANSPORT · Tax Invoice RCM PT/26-27/0014</span></td><td>Jun 2026 · 1–30</td><td class="r num">1</td><td class="r num">28</td><td class="r num ink">₹8,40,000.00</td><td class="r num zero">0</td><td class="r num zero">0</td><td class="r num ink">₹8,82,000.00</td><td class="r num good">₹8,82,000.00</td><td><span class="flag f-paid">28 ✅</span></td><td><span class="st paid">PAID</span></td></tr>
+            <tr><td class="mono cust">CB-HPCL-JUN-H2-2026</td><td class="ink">HINDUSTAN PETROLEUM CORPORATION LTD<span class="sub">🛢 Oil Company · M/S JAISWAL ENTERPRISE · 4 spelling ek me</span></td><td>Jun 2026 · 16–30</td><td class="r num">5</td><td class="r num">9</td><td class="r num crit">rate baaki</td><td class="r num dim">—</td><td class="r num dim">—</td><td class="r num dim">—</td><td class="r num dim">—</td><td><span class="flag f-unm">9 unpriced</span></td><td><span class="st draft">🤖 AI DRAFT</span></td></tr>
+            <tr><td class="mono dim">—</td><td class="dim">Market customers (Load Bazaar)<span class="sub">🛒 income POD par (BZINC) · Market Debtors</span></td><td>Jun 2026 · 16–30</td><td class="r num dim">0</td><td class="r num dim">0</td><td class="r num dim">—</td><td></td><td></td><td class="r num dim">—</td><td></td><td class="dim">koi load nahi</td><td><span class="st draft">—</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">* IOCL Jun H2 me aur branch hain; namune me 8 dikhaye. Bill no = customer code + pakhwada (contract customer: mahina). Status: AI DRAFT → REVIEW → RAISED (revenue post) → PART-PAID / PAID (advice se) / DISPUTE (short-paid ya missing jo aap maanne ko taiyaar nahi). Purane 417 bill waise hi rehte hain — naye cycle se yeh roop.</p>
+    </div>
+  </section>
+
+  <!-- ═══════ SCREEN 2 ═══════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 2 · Ek customer bill khula hua — IOCL format, branch ke neeche trip</h2><span>Freight side baayein (green), kataauti daayein (red) — vehicle bill ka ulta, kyunki yeh aay hai.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div>
+          <div class="eyebrow">15-Day Customer Bill · Review, Raise &amp; Reconcile</div>
+          <h3>INDIAN OIL CORPORATION LTD</h3>
+          <div class="sub"><span class="mono cust">CB-IOCL-JUN-H2-2026</span> · Jun 2026 · 16–30 · 2026-06-16 → 2026-06-30 · 8 branch · 35 trip · books M/S PRASAD TRANSPORT · GSTIN 18AAACI1681G1ZM · vendor code 27050901</div>
+        </div>
+        <div class="toolbar">
+          <button class="btn cyan">✏️ Edit</button><button class="btn solid">💾 Save</button><button class="btn">🖨️ Print / PDF ▾ <span class="dim">(Oil Co · Contract · Market)</span></button><button class="btn good">🟢 WhatsApp</button><button class="btn">✉️ Email bill</button><button class="btn good">✅ Approve &amp; Raise</button><button class="btn cust">🔁 Milaan (advice)</button><button class="btn">✕ Band karein</button>
+        </div>
+      </div>
+      <div class="billhead">
+        <div><div class="k">Gross freight (35 trip)</div><div class="v num">₹32,51,803.23</div></div>
+        <div><div class="k">Shortage penalty</div><div class="v num">₹1,515.00</div></div>
+        <div><div class="k">TDS 194C 2%</div><div class="v num">₹65,005.77</div></div>
+        <div><div class="k">Net receivable</div><div class="v num ink">₹31,85,282.46</div></div>
+        <div><div class="k">Vasool (advice se)</div><div class="v num good">₹28,76,410.76</div></div>
+        <div><div class="k">Baaki</div><div class="v num warn">₹3,75,392.47</div></div>
+        <div><div class="k">Status</div><div class="v warn">PART-PAID</div></div>
+      </div>
+      <div class="bill">
+        <table>
+          <thead>
+            <tr class="side">
+              <th rowspan="2" style="text-align:left">Invoice / AC5 No<br><span class="dim" style="letter-spacing:0;font-weight:500">trip · load → unload</span></th>
+              <th class="i" colspan="7">◀ FREIGHT (IOCL format — hamari aay)</th>
+              <th class="d fold" colspan="4">KATAAUTI &amp; NET ▶</th>
+              <th rowspan="2" style="text-align:left">Milaan</th>
+            </tr>
+            <tr>
+              <th class="i">Vehicle</th><th class="i">Material</th><th class="i r">Qty (KL)</th><th class="i r">Short (KL)</th><th class="i r">RTKM</th><th class="i r">Rate</th><th class="i r">Gross</th>
+              <th class="d fold r">Penalty</th><th class="d r">TDS 2%</th><th class="d r">Net</th><th class="d r">Vasool</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="veh"><td colspan="13">📍 ZC7A01 – Agartala AFS 7A01 <span class="own">branch · ATF · 8 trip · 320 KL</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26045</span><span class="sub">PT00433 · 10 Jun → 16 Jun</span></td><td class="i">AS 26C 9814</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.869*</td><td class="i r num ink">70,961.11</td><td class="d fold r num zero">0</td><td class="d r num">1,448.18</td><td class="d r num ink">69,512.93</td><td class="d r num good">70,961.12</td><td><span class="flag f-paid">✅ Paid</span> <span class="dim">AS8327025063</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26055</span><span class="sub">PT00439 · 11 Jun → 17 Jun</span></td><td class="i">AS 26C 9802</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.869*</td><td class="i r num ink">70,961.11</td><td class="d fold r num zero">0</td><td class="d r num">1,448.19</td><td class="d r num ink">69,512.92</td><td class="d r num good">70,961.11</td><td><span class="flag f-paid">✅ Paid</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26055</span><span class="sub">PT00454 · 13 Jun → 20 Jun</span></td><td class="i">AS 26C 9804</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.869*</td><td class="i r num ink">70,961.11</td><td class="d fold r num zero">0</td><td class="d r num">1,448.19</td><td class="d r num ink">69,512.92</td><td class="d r num good">70,961.11</td><td><span class="flag f-paid">✅ Paid</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26055</span><span class="sub">PT00463 · 15 Jun → 22 Jun</span></td><td class="i">AS 26C 9801</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.869*</td><td class="i r num ink">70,961.11</td><td class="d fold r num zero">0</td><td class="d r num">1,448.18</td><td class="d r num ink">69,512.93</td><td class="d r num good">70,961.12</td><td><span class="flag f-paid">✅ Paid</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26058</span><span class="sub">PT00472 · 16 Jun → 22 Jun</span></td><td class="i">AS 26C 9815</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.896*</td><td class="i r num ink">71,619.05</td><td class="d fold r num zero">0</td><td class="d r num">1,461.62</td><td class="d r num ink">70,157.43</td><td class="d r num good">71,619.04</td><td><span class="flag f-paid">✅ Paid</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26058</span><span class="sub">PT00482 · 17 Jun → 27 Jun</span></td><td class="i">AS 26C 9806</td><td class="i">ATF</td><td class="i r num">40.000</td><td class="i r num zero">0</td><td class="i r num">618.3</td><td class="i r num dim">2.896*</td><td class="i r num ink">71,619.05</td><td class="d fold r num zero">0</td><td class="d r num">1,461.61</td><td class="d r num ink">70,157.44</td><td class="d r num good">71,619.05</td><td><span class="flag f-paid">✅ Paid</span></td></tr>
+            <tr class="more"><td>▸ +2 trip (PT00559, PT00560) · 29–30 Jun</td><td class="i"></td><td class="i">ATF</td><td class="i r num">80.000</td><td class="i r zero">0</td><td class="i r num">1,236.6</td><td class="i r"></td><td class="i r num">1,43,238.10</td><td class="d fold r zero">0</td><td class="d r num">2,864.76</td><td class="d r num">1,40,373.34</td><td class="d r num">1,43,238.09</td><td><span class="flag f-paid">✅ 2</span></td></tr>
+            <tr class="sub"><td>Subtotal for Branch: ZC7A01 – Agartala AFS 7A01</td><td class="i dim">8 trip</td><td class="i"></td><td class="i r num">320.000</td><td class="i r num zero">0</td><td class="i r num">4,946.4</td><td class="i r"></td><td class="i r num">5,70,320.64</td><td class="d fold r num zero">0</td><td class="d r num">11,406.41</td><td class="d r num">5,58,914.23</td><td class="d r num good">5,70,320.64</td><td><span class="flag f-paid">✅ 8/8</span></td></tr>
+
+            <tr class="veh"><td colspan="13">📍 LPG BP NORTH GUWAHATI (7B03) <span class="own">branch · LPG Bulk · 10 trip · 175.84 KL</span></td></tr>
+            <tr class="more"><td>▸ 9 trip · advice AS8327025063 me</td><td class="i"></td><td class="i">LPG</td><td class="i r num">158.28</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">9,15,383.24</td><td class="d fold r zero">0</td><td class="d r num">18,307.66</td><td class="d r num">8,97,075.58</td><td class="d r num">9,15,383.24</td><td><span class="flag f-paid">✅ 9</span></td></tr>
+            <tr><td><span class="mono cust">11024699AS26071</span><span class="sub">PT00538 · 25 Jun → 28 Jun</span></td><td class="i">AS 26C 5106</td><td class="i">LPG</td><td class="i r num">17.560</td><td class="i r num zero">0</td><td class="i r num">1,453.0</td><td class="i r num dim">3.247*</td><td class="i r num ink">82,899.50</td><td class="d fold r num zero">0</td><td class="d r num">1,657.99</td><td class="d r num ink">81,241.51</td><td class="d r num crit">0.00</td><td><span class="flag f-miss">❌ Missing freight</span> <span class="dim">unke bill me nahi</span></td></tr>
+            <tr class="sub"><td>Subtotal for Branch: LPG BP NORTH GUWAHATI (7B03)</td><td class="i dim">10 trip</td><td class="i"></td><td class="i r num">175.840</td><td class="i r num zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">9,98,282.74</td><td class="d fold r num zero">0</td><td class="d r num">19,965.65</td><td class="d r num">9,78,317.09</td><td class="d r num good">9,15,383.24</td><td><span class="flag f-paid">✅ 9</span> <span class="flag f-miss">❌ 1</span></td></tr>
+
+            <tr class="more"><td>▸ IMPHAL DEPOT · 5 trip</td><td class="i"></td><td class="i">HSD/MS</td><td class="i r num">118.000</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">4,96,422.74</td><td class="d fold r zero">0</td><td class="d r num">9,928.45</td><td class="d r num">4,86,494.29</td><td class="d r num">4,96,422.74</td><td><span class="flag f-paid">✅ 5</span></td></tr>
+            <tr class="more"><td>▸ (branch darj nahi) · 4 trip <span class="warn">→ Screen 4 me jodo</span></td><td class="i"></td><td class="i"></td><td class="i r num">115.110</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">3,57,962.70</td><td class="d fold r zero">0</td><td class="d r num">7,159.25</td><td class="d r num">3,50,803.45</td><td class="d r num">3,57,962.70</td><td><span class="flag f-paid">✅ 4</span></td></tr>
+            <tr class="more"><td>▸ ZC7A04 – Chabua AFS · 3 trip</td><td class="i"></td><td class="i">ATF</td><td class="i r num">120.000</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">2,92,492.98</td><td class="d fold r zero">0</td><td class="d r num">5,849.86</td><td class="d r num">2,86,643.12</td><td class="d r num dim">0.00</td><td><span class="flag f-pend">🕒 3 pending advice</span></td></tr>
+            <tr class="more"><td>▸ LPG BP SARPARA (7B02) · 2 trip</td><td class="i"></td><td class="i">LPG</td><td class="i r num">35.220</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">1,99,794.27</td><td class="d fold r zero">0</td><td class="d r num">3,995.89</td><td class="d r num">1,95,798.38</td><td class="d r num">1,99,794.27</td><td><span class="flag f-paid">✅ 2</span></td></tr>
+            <tr class="more"><td>▸ ZC7A09 – MOHANBARI AFS 7A09 · 2 trip</td><td class="i"></td><td class="i">ATF</td><td class="i r num">80.000</td><td class="i r zero">0</td><td class="i r"></td><td class="i r"></td><td class="i r num">1,86,390.60</td><td class="d fold r zero">0</td><td class="d r num">3,727.81</td><td class="d r num">1,82,662.79</td><td class="d r num">1,86,390.61</td><td><span class="flag f-paid">✅ 2</span></td></tr>
+            <tr class="more"><td>▸ NISIKA ROAD LINE · 1 trip</td><td class="i"></td><td class="i">LPG</td><td class="i r num">17.940</td><td class="i r num warn">0.012</td><td class="i r"></td><td class="i r"></td><td class="i r num">1,50,136.56</td><td class="d fold r num warn">1,515.00</td><td class="d r num">2,972.43</td><td class="d r num">1,45,649.13</td><td class="d r num">1,50,136.56</td><td><span class="flag f-short">⚠️ Short-paid · penalty</span></td></tr>
+
+            <tr class="grand"><td>Total of All Branches · 8 branch · 35 trip</td><td class="i"></td><td class="i"></td><td class="i r num">982.110</td><td class="i r num warn">0.012</td><td class="i r"></td><td class="i r"></td><td class="i r num">32,51,803.23</td><td class="d fold r num">1,515.00</td><td class="d r num">65,005.77</td><td class="d r num">31,85,282.46</td><td class="d r num good">28,76,410.76</td><td><span class="flag f-paid">30</span> <span class="flag f-pend">3</span> <span class="flag f-miss">1</span> <span class="flag f-short">1</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">* Rate = gross ÷ (KL × RTKM) jahan trip par rate darj nahi (1,014 me se 71 par hai). Invoice no = IOCL ka AC5 number (unke bill se milaan ki kunji: challan ↔ invoice, memory me proven). GST 5% RCM sirf memo — IOCL bharta hai. Yeh core data <b>sab customer ke liye ek jaisa</b> rehta hai; sirf print alag hota hai (neeche).</p>
+
+      <div class="foot">
+        <div class="box">
+          <h4>HISAAB — customer se kitna lena hai</h4>
+          <div class="kv"><span class="lab">Gross freight <small>35 trip · qty × RTKM × rate</small></span><span class="num ink">₹32,51,803.23</span></div>
+          <div class="kv"><span class="lab">− Shortage penalty <small>IOCL ka kataauti, unloading par</small></span><span class="num">₹1,515.00</span></div>
+          <div class="kv"><span class="lab">− TDS 194C 2% <small>TDS Receivable — humara asset</small></span><span class="num">₹65,005.77</span></div>
+          <div class="kv"><span class="lab">GST 5% RCM <small>memo only, IOCL discharge karta hai</small></span><span class="num dim">(₹1,62,590)</span></div>
+          <div class="kv tot"><span class="lab">Net receivable</span><span class="num ink">₹31,85,282.46</span></div>
+          <div class="kv"><span class="lab">− Vasool (advice) <small>AS8327025063, AS8327026577…</small></span><span class="num good">₹28,76,410.76</span></div>
+          <div class="kv" style="font-weight:800"><span class="lab">Baaki</span><span class="num warn">₹3,75,392.47</span></div>
+        </div>
+        <div class="box">
+          <h4>PRINT / PDF — customer ke prakaar se, ek hi data</h4>
+          <div class="fmt">
+            <div class="on"><b>🛢 Oil Company (IOCL / BPCL / HPCL)</b>Unke transportation bill ka aaina: Bill No · Invoice · Vehicle · Ship-to · Material · Qty · Shortage · RTD · Rate · Gross · Penalty · TDS · Net; "Subtotal for Vehicle" bhi (unka), "Subtotal for Branch" (hamara) — line-by-line milaan ke liye. Vendor code, GSTIN, RCM note.</div>
+            <div><b>📜 Contract (Aadhar Green)</b>Tax Invoice (Transportation Bill RCM): numbered CN lines, HSN 996791, ₹1,500/KL, CGST 2.5% + SGST 2.5%, tax in words, MSME + bank; + Detention Annexure (plant reporting + free days) — <b>MonthlyBilling.tsx ka format, wahi</b>.</div>
+            <div><b>🛒 Market (bazaar customer)</b>LR-wise freight bill: load ID · route · truck · weight · freight · GST as applicable · POD date; Market Debtors.</div>
+          </div>
+        </div>
+        <div class="box">
+          <h4>APPROVE &amp; RAISE PAR (cycle ka revenue) · MILAAN PAR (receipt)</h4>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Debtors: INDIAN OIL CORPORATION LTD<small>Sundry Debtors (Customers) · Prasad books</small></span><span class="num ink">32,51,803.23</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">Freight Income<small>ref CBILL_CB-IOCL-JUN-H2-2026, ek baar</small></span><span class="num">32,51,803.23</span></div>
+          <div class="note" style="margin:8px 0">Advice aane par (Screen 3 → "Post receipt"), TARA:</div>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">HDFC Bank<small>remitted</small></span><span class="num ink">…</span></div>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">TDS Receivable 194C</span><span class="num">…</span></div>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Direct Expenses – Fuel &amp; HSD <small>CCMS diesel recovery — kharch, nuksaan nahi</small></span><span class="num">…</span></div>
+          <div class="jl"><span class="drcr">Dr</span><span class="led">Shortage &amp; Penalty</span><span class="num">…</span></div>
+          <div class="jl"><span class="drcr">Cr</span><span class="led">Debtors: INDIAN OIL CORPORATION LTD</span><span class="num">…</span></div>
+          <div class="note" style="margin-top:8px">Yahi migration 015 aaj bhi karta hai — bill sirf usse jud jaata hai, dobara post nahi.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SCREEN 3 ═══════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 3 · Milaan (reconciliation) — trip-wise, unke document ke saath</h2><span>"🔁 Milaan" dabane par. Baayein hamara trip, daayein unka bill line aur payment advice, beech me jhanda.</span></div>
+    <div class="frame">
+      <div class="apphead">
+        <div><h3>🔁 CB-IOCL-JUN-H2-2026 · milaan</h3><div class="sub">IOCL transportation bill 0011024699 (16–30.06.2026) + advice AS8327025063 (7 Aug, ₹8,74,173.87, 34 line) + AS8327026577 · challan ↔ invoice join</div></div>
+        <div class="toolbar"><button class="btn cust">📥 Advice / bill PDF padho</button><button class="btn warn">⚠️ Dispute uthao</button><button class="btn good">✅ Post receipt (TARA)</button><button class="btn">🖨️ Milaan sheet</button></div>
+      </div>
+      <div class="billhead">
+        <div><div class="k">Billed (net)</div><div class="v num">₹31,85,282.46</div></div>
+        <div><div class="k">✅ Paid</div><div class="v num good">30 trip · ₹28,76,410.76</div></div>
+        <div><div class="k">⚠️ Short-paid</div><div class="v num warn">1 · ₹1,515.00</div></div>
+        <div><div class="k">❌ Missing freight</div><div class="v num crit">1 · ₹82,899.50</div></div>
+        <div><div class="k">🕒 Pending</div><div class="v num">3 · ₹2,92,492.98</div></div>
+        <div><div class="k">❓ Unmatched (unki line)</div><div class="v num ai">2 · ₹1,41,922.22</div></div>
+        <div><div class="k">🧾 Kataauti (kharch)</div><div class="v num cust">CCMS ₹3,12,480 · toll ₹1,860</div></div>
+      </div>
+      <div class="tbl recon">
+        <table>
+          <thead><tr><th>Hamara trip</th><th>Branch</th><th class="r">Hamara net</th><th>Unka bill line (AC5)</th><th class="r">Unka gross</th><th>Advice · tareekh</th><th class="r">Paid</th><th class="r">Kataauti</th><th class="r">Antar</th><th>Jhanda</th><th>Karya</th></tr></thead>
+          <tbody>
+            <tr><td><span class="mono cust">PT00433</span><span class="sub">AS 26C 9814 · 16 Jun</span></td><td>Agartala AFS</td><td class="r num">69,512.93</td><td class="mono">11024699AS26045</td><td class="r num">70,961.11</td><td>AS8327025063 · 7 Aug</td><td class="r num good">70,961.12</td><td class="r num">TDS 1,448.18</td><td class="r num good">+0.01</td><td><span class="flag f-paid">✅ Paid</span></td><td class="dim">—</td></tr>
+            <tr><td><span class="mono cust">PT00538</span><span class="sub">AS 26C 5106 · 28 Jun</span></td><td>North Guwahati</td><td class="r num">81,241.51</td><td class="dim">unke bill me nahi</td><td class="r num dim">—</td><td class="dim">—</td><td class="r num crit">0.00</td><td class="r num dim">—</td><td class="r num crit">−81,241.51</td><td><span class="flag f-miss">❌ Missing freight</span></td><td><button class="btn warn" style="padding:3px 9px">Dispute</button></td></tr>
+            <tr><td><span class="mono cust">PT00552</span><span class="sub">AS 26C 9803 · 30 Jun</span></td><td>Chabua AFS</td><td class="r num">95,547.71</td><td class="mono">11024699AS26079</td><td class="r num">97,497.66</td><td class="dim">abhi koi advice nahi</td><td class="r num dim">0.00</td><td class="r num dim">—</td><td class="r num dim">—</td><td><span class="flag f-pend">🕒 Pending</span></td><td class="dim">agle advice ka intezaar</td></tr>
+            <tr><td><span class="mono cust">PT00541</span><span class="sub">AS 26C 0407 · 27 Jun</span></td><td>Nisika Road Line</td><td class="r num">1,47,164.13</td><td class="mono">11024699AS26074</td><td class="r num">1,50,136.56</td><td>AS8327025063 · 7 Aug</td><td class="r num">1,45,649.13</td><td class="r num warn">penalty 1,515 · TDS 2,972</td><td class="r num warn">−1,515.00</td><td><span class="flag f-short">⚠️ Short-paid</span></td><td><button class="btn" style="padding:3px 9px">Maan lo</button> <button class="btn warn" style="padding:3px 9px">Dispute</button></td></tr>
+            <tr><td class="dim">— koi trip nahi —</td><td>Bidangshree SS</td><td class="r num dim">—</td><td class="mono">11024699AS26083</td><td class="r num">72,144.10</td><td>AS8327025063</td><td class="r num">72,144.10</td><td class="r num dim">—</td><td class="r num ai">+72,144.10</td><td><span class="flag f-unm">❓ Unmatched</span></td><td><button class="btn cust" style="padding:3px 9px">Trip jodo / banao</button></td></tr>
+            <tr><td class="dim">— advice line —</td><td>—</td><td class="r num dim">—</td><td class="dim">FUEL CCMS RECOVERY</td><td class="r num dim">—</td><td>AS8327025063</td><td class="r num crit">−3,12,480.00</td><td class="r num">diesel, IOCL card</td><td class="r num dim">—</td><td><span class="flag f-ded">🧾 Kataauti (kharch)</span></td><td class="dim">Fuel &amp; HSD me post</td></tr>
+            <tr><td class="dim">— advice line —</td><td>—</td><td class="r num dim">—</td><td class="dim">TOLL EXPENSE-SBIN</td><td class="r num dim">—</td><td>AS8327025063</td><td class="r num crit">−1,860.00</td><td class="r num">FASTag, hamari taraf se</td><td class="r num dim">—</td><td><span class="flag f-ded">🧾 Kataauti (kharch)</span></td><td class="dim">Toll &amp; FASTag me post</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Jhande ka niyam: <b>Paid</b> = unka gross − TDS = paid (±₹1). <b>Short-paid</b> = penalty/shortage kaat kar diya (maan lo → Shortage &amp; Penalty; ya dispute). <b>Missing freight</b> = hamara trip unke bill/advice me hai hi nahi — yahi asli nuksaan hai, dispute ke saath IOCL ko list jaati hai. <b>Pending</b> = delivered, abhi koi advice nahi (umar dikhti hai). <b>Unmatched</b> = unki line, hamara trip nahi (aaj 91 no-trip + 72 location) — trip jodo. <b>Kataauti</b> = CCMS diesel / toll / misc — kharch ke khaate me, freight se ghataya nahi jaata. Aaj yeh sab tools/iocl_recon ka pipeline pehle se nikalta hai; naya sirf yeh ki bill par dikhega aur bill ka status isse badlega.</p>
+    </div>
+  </section>
+
+  <!-- ═══════ SCREEN 4 ═══════ -->
+  <section class="screen">
+    <div class="screen-h"><h2>Screen 4 · Customer master — prakaar, cycle, format, parent → branch, naam ke roop</h2><span>Bina iske bill nahi ban sakta: aaj master me 4 row, na prakaar, na branch.</span></div>
+    <div class="frame grid2">
+      <div>
+        <div class="apphead" style="margin-bottom:8px"><div><h3 style="font-size:17px">🛢 INDIAN OIL CORPORATION LTD</h3><div class="sub">code IOCL · GSTIN 18AAACI1681G1ZM · vendor code (unka humare liye) 27050901</div></div><span class="st raised">OIL COMPANY</span></div>
+        <div class="billhead" style="margin:8px 0">
+          <div><div class="k">Prakaar</div><div class="v cust">Oil Company</div></div>
+          <div><div class="k">Cycle</div><div class="v">15 din (H1/H2)</div></div>
+          <div><div class="k">Print</div><div class="v">IOCL aaina</div></div>
+          <div><div class="k">Books</div><div class="v">M/S PRASAD TRANSPORT</div></div>
+          <div><div class="k">TDS unka</div><div class="v">2% · 194C</div></div>
+          <div><div class="k">GST</div><div class="v">5% RCM (memo)</div></div>
+        </div>
+        <div class="tree">
+          <div class="p">INDIAN OIL CORPORATION LTD <span class="dim" style="font-weight:500">· parent · 133 branch trip se seekhi, 6 confirm</span></div>
+          <div class="b">ZC7A01 – Agartala AFS 7A01 <span class="good">✓</span> · ATF · 8 trip is pakhwade</div>
+          <div class="b">LPG BP NORTH GUWAHATI (7B03) <span class="good">✓</span> · LPG</div>
+          <div class="b">IMPHAL DEPOT <span class="good">✓</span></div>
+          <div class="b">ZC7A04 – Chabua AFS <span class="warn">confirm?</span> · trip se seekha</div>
+          <div class="b">347559 NENGSKIM FUEL STATION <span class="warn">confirm?</span> · retail outlet (KSK)</div>
+          <div class="b">… +128 <span class="dim">(retail outlets, AFS, depots) — ek click confirm, ya parent ke neeche "Retail Outlets" group</span></div>
+          <div class="v">"IOCL" (3 trip) · "Indian oil corporation" (1) · "indian oil corporation ltd" (1) → <b class="ink">ek hi customer</b> · naam ke roop yahan darj</div>
+        </div>
+      </div>
+      <div>
+        <div class="apphead" style="margin-bottom:8px"><div><h3 style="font-size:17px">Mapping desk — jo aap tay karein</h3><div class="sub">Surface hota hai, system apne aap nahi badalta (ghar ka niyam)</div></div></div>
+        <div class="tbl"><table>
+          <thead><tr><th>Baat</th><th class="r">Ginti</th><th>Karya</th></tr></thead>
+          <tbody>
+            <tr><td class="ink">Trip par customer nahi ("Unknown Customer")<span class="sub">52 August ke baad ke · ₹45 L billable</span></td><td class="r num crit">100</td><td><button class="btn cust" style="padding:3px 9px">Customer chuno</button></td></tr>
+            <tr><td class="ink">Naam ke roop → ek customer<span class="sub">HPCL / hpcl / HINDUATAN PETROLEUM… · IOCL ke 3</span></td><td class="r num warn">11 → 4</td><td><button class="btn" style="padding:3px 9px">Jodo</button></td></tr>
+            <tr><td class="ink">Branch trip se seekhi, master me nahi<span class="sub">IOCL 127 · BPCL 8 · HPCL 11</span></td><td class="r num warn">146</td><td><button class="btn" style="padding:3px 9px">Confirm</button></td></tr>
+            <tr><td class="ink">IOCL trip par branch khaali<span class="sub">unke bill ka ship-to code hai → wahi bhar do</span></td><td class="r num warn">67</td><td><button class="btn" style="padding:3px 9px">Bill se bharo</button></td></tr>
+            <tr><td class="ink">Unpriced trip (rate nahi)<span class="sub">rate master lane/slab se · HPCL sab</span></td><td class="r num crit">121</td><td><button class="btn" style="padding:3px 9px">Rate lagao</button></td></tr>
+            <tr><td class="ink">Customer ka prakaar / cycle tay nahi<span class="sub">sab par "30_days" likha hai</span></td><td class="r num warn">4</td><td><button class="btn" style="padding:3px 9px">Set karo</button></td></tr>
+          </tbody>
+        </table></div>
+        <h4 class="eyebrow" style="margin:14px 0 8px">Chakra — vehicle bill jaisa</h4>
+        <ul class="flow">
+          <li><i>1</i><span><b>Trip complete</b> (AC5 / loading entry) — customer, branch, qty, RTKM, rate trip par. Bina customer/branch ke trip mapping desk me.</span></li>
+          <li><i>2</i><span><b>1 aur 16 tareekh 03:00</b> — TARA har customer ka CB- bill draft (contract customer: 1 ko mahine ka), branch-wise, IOCL format.</span></li>
+          <li><i>3</i><span><b>Desk</b> Edit/Save → <b>Admin Approve &amp; Raise</b>: Dr Debtors / Cr Freight Income, bill lock, print apne format me, WhatsApp/Email.</span></li>
+          <li><i>4</i><span><b>Unka bill / advice aaya</b> — pipeline padhta hai, trip-wise milaan, jhande, bill PART-PAID/PAID; "Post receipt" se bank + TDS + kataauti ke khaate.</span></li>
+          <li><i>5</i><span><b>Dispute</b> — missing/short list IOCL ko, agle advice tak khula.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="dec">
+    <h2>YES se pehle 5 baatein — inhi par build alag hoga</h2>
+    <ol>
+      <li><b>Bill = customer (parent) × firm ki books × pakhwada</b>, branch andar. 417 purane per-location bill waise hi rehte hain; naya roop naye cycle se (ya chahein to Apr se dobara draft — purane cancel karke).</li>
+      <li><b>Oil company ke liye "hamara bill" unke bill ka milaan-copy hai</b> — unka document hi invoice hai; hamara CB- number andar ka. Revenue cycle ke end par Approve &amp; Raise se post (Dr Debtors / Cr Freight Income); vasool advice se. Contract customer ke liye hamara Tax Invoice hi invoice hai.</li>
+      <li><b>Kataauti kharch hai, nuksaan nahi.</b> CCMS diesel (₹62.6 L, freight ka 31%), toll, misc — Fuel &amp; HSD / Toll ke khaate me (jaise 015 karta hai). Sirf "Missing freight" aur "Short-paid" dispute ke laayak.</li>
+      <li><b>100 bina-customer trip aur 11 naam ke roop</b> — mapping desk par staff tay kare; system anuman nahi lagata.</li>
+      <li><b>Contract (Aadhar) mahine ka bill 1 tareekh ko, detention 0 jab tak plant reporting stamp nahi.</b> Market customer ka bill POD par load-wise (Load Bazaar) — is screen me sirf dikhega.</li>
+    </ol>
+    <div class="facts">
+      <div class="fact"><div class="n crit">417 / 0</div><small>bill pending / paid — jabki ₹1.795 cr vasool trip par darj</small></div>
+      <div class="fact"><div class="n">133</div><small>IOCL branch (ship-to) trip se · master me 6</small></div>
+      <div class="fact"><div class="n crit">100</div><small>trip bina customer ke · 11 naam ke roop 4 customer ke</small></div>
+      <div class="fact"><div class="n">594 / 763</div><small>IOCL line matched · 91 no-trip · 72 location · 6 ambiguous</small></div>
+      <div class="fact"><div class="n">33</div><small>payment advice Apr–Aug, ₹1.75 cr, sab tie · CCMS diesel −₹62.6 L</small></div>
+      <div class="fact"><div class="n">121</div><small>unpriced trip · rate 1,014 me se 71 par</small></div>
+    </div>
+  </section>
+</div>
