@@ -1,0 +1,323 @@
+<title>Bank Reconciliation Portal</title>
+<style>
+  :root{color-scheme:dark}
+  body{margin:0;background:#0a1024;color:#eef2fd;font:13px/1.45 Inter,"Segoe UI",system-ui,sans-serif}
+  a{color:#22d3ee}
+  .wrap{max-width:1560px;margin:0 auto;padding:22px 24px 60px}
+  h1{font-size:24px;margin:0 0 4px;color:#fff}
+  h2{font-size:16px;margin:26px 0 10px;color:#fff;letter-spacing:.02em}
+  h3{font-size:13px;margin:0 0 8px;color:#9aadd4;text-transform:uppercase;letter-spacing:.08em}
+  p.lead{color:#9aadd4;max-width:100ch;margin:0 0 14px}
+  .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .card{background:#121c38;border:1px solid #27395f;border-radius:12px;padding:14px 16px;min-width:0}
+  .card.acc .eyebrow{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#5d7196}
+  .card.acc .big{font-size:17px;font-weight:800;margin:2px 0 8px}
+  .dim{color:#5d7196;font-weight:500}
+  .row3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .row3 .k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#5d7196}
+  .row3 b{display:block;font-size:14px;font-variant-numeric:tabular-nums}
+  .row3 small{color:#5d7196;font-size:10.5px}
+  .bar{display:flex;height:6px;border-radius:4px;overflow:hidden;background:#1b2a4e;margin-top:10px}
+  .bar span{display:block;height:100%}
+  .legend{font-size:11px;color:#9aadd4;margin-top:6px}
+  .legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin:0 4px 0 8px}
+  .legend i:first-child{margin-left:0}
+  .good{color:#2fe39b}.crit{color:#ff6b81}.warn{color:#ffb224}.ai{color:#a78bfa}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 12px}
+  .tab{padding:8px 14px;border:1px solid #27395f;border-radius:999px;color:#9aadd4;font-weight:700;font-size:12px}
+  .tab.on{border-color:#22d3ee;color:#22d3ee;background:rgba(34,211,238,.12)}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:#27395f;border:1px solid #27395f;border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .kpi{background:#121c38;padding:11px 14px}
+  .kpi .k{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#5d7196}
+  .kpi .v{font-size:18px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{padding:9px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#5d7196;border-bottom:1px solid #27395f;background:rgba(10,16,36,.5);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid #1b2a4e;color:#c4d1ea;vertical-align:top;white-space:nowrap}
+  td.wrap{white-space:normal;min-width:240px}
+  td.r{text-align:right;font-variant-numeric:tabular-nums}
+  tr.sel td{background:rgba(56,189,248,.08)}
+  small{font-size:10.5px;color:#9aadd4}
+  .mono{font-family:ui-monospace,Consolas,monospace;color:#38bdf8}
+  .chip{display:inline-block;font-size:10px;font-weight:800;border:1px solid;border-radius:6px;padding:1px 7px;white-space:nowrap}
+  .pill{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;border:1px solid;border-radius:999px;padding:2px 9px;white-space:nowrap}
+  .scroll{overflow-x:auto;border:1px solid #27395f;border-radius:10px}
+  .b{font:inherit;font-weight:700;font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid #27395f;background:transparent;color:#9aadd4;white-space:nowrap}
+  .b.ghost{padding:4px 9px;font-size:11px}
+  .b.good{background:rgba(47,227,155,.1);border-color:rgba(47,227,155,.55);color:#2fe39b}
+  .b.solid{background:#2fe39b;border-color:#2fe39b;color:#0a1024}
+  .b.cyan{background:rgba(34,211,238,.12);border-color:rgba(34,211,238,.5);color:#22d3ee}
+  .b.warn{background:rgba(255,178,36,.12);border-color:rgba(255,178,36,.5);color:#ffb224}
+  .b.ai{background:rgba(167,139,250,.14);border-color:rgba(167,139,250,.5);color:#c4b5fd}
+  .drop{border:2px dashed #27395f;border-radius:12px;padding:22px;text-align:center;color:#9aadd4;background:rgba(18,28,56,.5)}
+  .drop b{color:#eef2fd}
+  .two{display:grid;grid-template-columns:1.25fr .75fr;gap:14px}
+  @media(max-width:980px){.two{grid-template-columns:1fr}}
+  .drawer{background:#0d1530;border:1px solid #27395f;border-top:3px solid #38bdf8;border-radius:12px;padding:14px 16px}
+  .field{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid #1b2a4e;font-size:12.5px}
+  .field .k{color:#5d7196;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
+  .sel1{background:#0a1024;border:1px solid #27395f;border-radius:6px;color:#eef2fd;padding:5px 8px;font:inherit;font-size:12px;width:100%}
+  .opt{display:flex;gap:8px;flex-wrap:wrap}
+  .opt span{border:1px solid #27395f;border-radius:999px;padding:3px 10px;font-size:11px;color:#9aadd4}
+  .opt span.on{border-color:#38bdf8;color:#38bdf8;background:rgba(56,189,248,.12)}
+  .note{color:#5d7196;font-size:11px;line-height:1.6;margin-top:10px}
+  .findings{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px}
+  .f{background:#121c38;border:1px solid #27395f;border-left:3px solid #ff6b81;border-radius:10px;padding:11px 13px;font-size:12.5px}
+  .f b{display:block;color:#fff;margin-bottom:3px}
+  .f.ok{border-left-color:#2fe39b}
+  .f.w{border-left-color:#ffb224}
+  .flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+  .step{background:#121c38;border:1px solid #27395f;border-radius:10px;padding:10px 12px;font-size:12px}
+  .step b{display:block;color:#22d3ee;font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+  .approve{background:rgba(47,227,155,.06);border:1px solid rgba(47,227,155,.4);border-radius:12px;padding:14px 18px;margin-top:22px}
+</style>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;align-items:flex-start">
+    <div><div style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#5d7196">Prasad ERP · Accounts &amp; Admin · design mock v1 · 5-Sep-2026</div>
+      <h1>🏦 Bank &amp; Cash Reconciliation</h1>
+      <p class="lead">Every line on the bank statement is tallied by TARA against what the ERP expects — customer bills, IOCL payment advices, owner and partner bills, vendor bills, loan EMIs, FASTag and card loads, driver advances, inter-firm transfers. An exact match posts itself and clears the due. Anything ambiguous waits on the Staff Action desk, linked by a person to the right party, bill or trip, and the decision becomes a rule.</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="b good">📎 Upload statement (PDF / CSV / XLSX)</button><button class="b ai">🤖 Run auto-tally</button><button class="b cyan">＋ Create voucher</button><button class="b">⚙ Accounts</button><button class="b">⬇ CSV</button></div>
+  </div>
+
+  <h2>Accounts — statement vs ERP book (Apr → Aug 2026, real figures)</h2>
+  <div class="grid4"><div class="card acc">
+    <div class="eyebrow">M/S Prasad Transport</div>
+    <div class="big">SBI (8490) <span class="dim">· Current A/c · BRPL Complex</span></div>
+    <div class="row3"><div><span class="k">Statement</span><b>01 Apr → 31 Aug</b><small>594 lines</small></div>
+      <div><span class="k">Bank closing</span><b>₹22,620</b><small>per statement</small></div>
+      <div><span class="k">ERP book closing</span><b class="crit">₹34,11,680</b><small>486 entries</small></div></div>
+    <div class="bar"><span style="width:10%;background:#2fe39b"></span><span style="width:13%;background:#ffb224"></span><span style="width:76%;background:#ff6b81"></span></div>
+    <div class="legend"><i style="background:#2fe39b"></i>auto 60 <i style="background:#ffb224"></i>review 80 <i style="background:#ff6b81"></i>unmatched 454 <span class="dim">· already in book 103</span></div>
+  </div><div class="card acc">
+    <div class="eyebrow">M/S Prasad Transport</div>
+    <div class="big">SBI (5913) <span class="dim">· Current A/c · BRPL Complex</span></div>
+    <div class="row3"><div><span class="k">Statement</span><b>01 Apr → 24 Aug</b><small>190 lines</small></div>
+      <div><span class="k">Bank closing</span><b>₹2,041</b><small>per statement</small></div>
+      <div><span class="k">ERP book closing</span><b class="crit">not in ERP</b><small>0 entries</small></div></div>
+    <div class="bar"><span style="width:3%;background:#2fe39b"></span><span style="width:5%;background:#ffb224"></span><span style="width:93%;background:#ff6b81"></span></div>
+    <div class="legend"><i style="background:#2fe39b"></i>auto 5 <i style="background:#ffb224"></i>review 9 <i style="background:#ff6b81"></i>unmatched 176 <span class="dim">· already in book 0</span></div>
+  </div><div class="card acc">
+    <div class="eyebrow">M/S Jaiswal Enterprise</div>
+    <div class="big">SBI (8548) <span class="dim">· Current A/c · Bongaigaon</span></div>
+    <div class="row3"><div><span class="k">Statement</span><b>01 Apr → 31 Aug</b><small>1226 lines</small></div>
+      <div><span class="k">Bank closing</span><b>₹8,45,603</b><small>per statement</small></div>
+      <div><span class="k">ERP book closing</span><b class="crit">₹0</b><small>0 entries</small></div></div>
+    <div class="bar"><span style="width:2%;background:#2fe39b"></span><span style="width:6%;background:#ffb224"></span><span style="width:92%;background:#ff6b81"></span></div>
+    <div class="legend"><i style="background:#2fe39b"></i>auto 28 <i style="background:#ffb224"></i>review 74 <i style="background:#ff6b81"></i>unmatched 1124 <span class="dim">· already in book 0</span></div>
+  </div><div class="card acc">
+    <div class="eyebrow">M/S Gautam Prasad</div>
+    <div class="big">SBI (1934) <span class="dim">· Savings A/c · BRPL Complex</span></div>
+    <div class="row3"><div><span class="k">Statement</span><b>01 Apr → 31 Aug</b><small>997 lines</small></div>
+      <div><span class="k">Bank closing</span><b>₹91,940</b><small>per statement</small></div>
+      <div><span class="k">ERP book closing</span><b class="crit">₹0</b><small>0 entries</small></div></div>
+    <div class="bar"><span style="width:8%;background:#2fe39b"></span><span style="width:15%;background:#ffb224"></span><span style="width:77%;background:#ff6b81"></span></div>
+    <div class="legend"><i style="background:#2fe39b"></i>auto 75 <i style="background:#ffb224"></i>review 150 <i style="background:#ff6b81"></i>unmatched 772 <span class="dim">· already in book 0</span></div>
+  </div></div>
+
+  <div class="tabs"><span class="tab on">🏦 Bank &amp; Cash Book</span><span class="tab">📎 Statements &amp; auto-tally</span><span class="tab">⚠️ Staff Action (2839)</span><span class="tab">💵 Cash Book</span><span class="tab">📐 Rules</span></div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="k">Statement lines</div><div class="v">3,007</div></div>
+    <div class="kpi"><div class="k">Auto-tallied</div><div class="v good">168</div></div>
+    <div class="kpi"><div class="k">Already in book</div><div class="v">103</div></div>
+    <div class="kpi"><div class="k">Staff review</div><div class="v warn">313</div></div>
+    <div class="kpi"><div class="k">Unmatched</div><div class="v crit">2526</div></div>
+    <div class="kpi"><div class="k">ERP entries with no bank line</div><div class="v crit">379</div></div>
+  </div>
+
+  <h2>① Bank &amp; Cash Book — redesigned: the statement is the spine, the book hangs on it</h2>
+  <p class="lead">Filters: operating company · account · customer · vendor · owner · driver · trip · date. Each line shows the bank side, the ERP side, the category TARA gave it and the reconciliation state. SBI (8490), 14–26 June 2026 shown.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><span class="tab on">Prasad Transport</span><span class="tab">Jaiswal Enterprise</span><span class="tab">Gautam Prasad</span><span class="tab" style="margin-left:14px">SBI (8490)</span><span class="tab">SBI (5913)</span><span class="tab">Cash in Hand</span><span class="tab" style="margin-left:14px">Customer: all</span><span class="tab">Vendor: all</span><span class="tab">Trip: —</span></div>
+  <div class="scroll"><table><thead><tr><th>Date</th><th>Counterparty · narration · UTR</th><th style="text-align:right">Withdrawal</th><th style="text-align:right">Deposit</th><th style="text-align:right">Bank balance</th><th>ERP category · target</th><th>State</th></tr></thead><tbody><tr><td>14 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- UPI/DR/5603760482 06/Black Buck/IDFB/5554296 53 </small></td>
+    <td class="r"><span class="crit">₹2,000.00</span></td><td class="r"></td><td class="r mono">₹56.76</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>15 Jun</td><td class="wrap"><b>AMC</b><br><small>AMC Debit Card-- </small></td>
+    <td class="r"><span class="crit">₹37.88</span></td><td class="r"></td><td class="r mono">₹18.88</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>INDIAN OIL CORPORATION</b><br><small>BY TRANSFER- INB 7500TRPT-- · <span class="mono">CT0AFSSGC3</span></small></td>
+    <td class="r"></td><td class="r"><span class="good">₹25,18,779.02</span></td><td class="r mono">₹25,18,797.90</td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>IOCL advice 7500TRPT</small></td>
+    <td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">AUTO-POSTED</span><br><small class="dim">book: ADVICE_SETTLEMENT ADV-7500</small></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB- · <span class="mono">CT0AFSYJM7</span></small></td>
+    <td class="r"><span class="crit">₹80,000.00</span></td><td class="r"></td><td class="r mono">₹24,38,797.90</td>
+    <td><span class="chip" style="color:#38bdf8;border-color:#38bdf8">Inter-firm transfer</span><br><small>Inter-firm transfer (Prasad ↔ Jaiswal ↔ Gautam)</small></td>
+    <td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">AUTO-POSTED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- UPI/DR/0664168151 69/Bank Acc/SBIN/30029622 48/ </small></td>
+    <td class="r"><span class="crit">₹5,000.00</span></td><td class="r"></td><td class="r mono">₹24,33,797.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span><br><small class="dim">book: FASTAG_RECHARGE HIST-FTAG-</small></td></tr><tr><td>16 Jun</td><td class="wrap"><b>CASH</b><br><small>CASH CHEQUE- CASH WITHDRAWAL BY CHQ-294762 </small></td>
+    <td class="r"><span class="crit">₹1,50,000.00</span></td><td class="r"></td><td class="r mono">₹22,83,797.90</td>
+    <td><span class="chip" style="color:#ffb224;border-color:#ffb224">Cash movement</span><br><small>Cash in Hand</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026061631 815030-TATA M · <span class="mono">CR0BIUAPZ9</span></small></td>
+    <td class="r"><span class="crit">₹7,90,909.00</span></td><td class="r"></td><td class="r mono">₹14,92,888.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167882875- HEY KRISHNA  · <span class="mono">SERVICESTATION</span></small></td>
+    <td class="r"><span class="crit">₹1,50,000.00</span></td><td class="r"></td><td class="r mono">₹13,42,888.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026061631 821071-PAWAN  · <span class="mono">CR0BIUAWA2</span></small></td>
+    <td class="r"><span class="crit">₹4,00,000.00</span></td><td class="r"></td><td class="r mono">₹9,42,888.90</td>
+    <td><span class="chip" style="color:#ffb224;border-color:#ffb224">Vendor payment</span><br><small>Pump / garage (not in vendor master)</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167915482- Sree Krishna </small></td>
+    <td class="r"><span class="crit">₹1,34,498.00</span></td><td class="r"></td><td class="r mono">₹8,08,390.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167928917- AGARWAL TRAD </small></td>
+    <td class="r"><span class="crit">₹50,000.00</span></td><td class="r"></td><td class="r mono">₹7,58,390.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>SONA AUTO DIESELS</b><br><small>TO TRANSFER- INB Payment towards Invoice/Bill - · <span class="mono">CT0AFTCCV7</span></small></td>
+    <td class="r"><span class="crit">₹40,000.00</span></td><td class="r"></td><td class="r mono">₹7,18,390.90</td>
+    <td><span class="chip" style="color:#ffb224;border-color:#ffb224">Vendor payment</span><br><small>Pump / garage (not in vendor master)</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167943749- ASHOKA MOTOR </small></td>
+    <td class="r"><span class="crit">₹50,000.00</span></td><td class="r"></td><td class="r mono">₹6,68,390.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167951046- North East T </small></td>
+    <td class="r"><span class="crit">₹30,000.00</span></td><td class="r"></td><td class="r mono">₹6,38,390.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167953359- S P AUTOMOBI </small></td>
+    <td class="r"><span class="crit">₹50,000.00</span></td><td class="r"></td><td class="r mono">₹5,88,390.90</td>
+    <td><span class="chip" style="color:#ffb224;border-color:#ffb224">Vendor payment</span><br><small>Pump / garage (not in vendor master)</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td></tr><tr><td>16 Jun</td><td class="wrap"><b>TO</b><br><small>TO TRANSFER- INB NEFT UTR NO: SBIN226167961573- SUMAYA ENTER </small></td>
+    <td class="r"><span class="crit">₹70,000.00</span></td><td class="r"></td><td class="r mono">₹5,18,390.90</td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small></small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td></tr></tbody></table></div>
+  <div class="note">Running balance comes from the statement, not from the book — so the screen can never show ₹34,11,680 when the bank holds ₹22,620. Book entries without a bank line (assumed receipts, EMIs posted from the schedule, historical FASTag loads) are listed separately as "in book, not in bank".</div>
+
+  <h2>② Statements &amp; auto-tally — upload, parse, tally, post</h2>
+  <div class="two">
+    <div>
+      <div class="drop"><b>Drop the SBI statement here</b> — PDF (as the bank e-mails it), CSV or XLSX. Password-protected PDFs accepted (password kept only for that upload).<br><small>Account is read from the document (00000030178368490 → SBI (8490), Prasad). Lines already imported are skipped by their hash; a month re-uploaded is harmless.</small></div>
+      <div class="flow" style="margin-top:12px">
+        <div class="step"><b>1 · Parse</b>Txn date, value date, narration, ref/UTR, debit, credit, balance. Counterparty and channel (UPI / INB / NEFT / RTGS / cheque / cash) extracted from the narration.</div>
+        <div class="step"><b>2 · Tally (TARA)</b>UTR → IOCL advice · amount+date → book entry · payer name → customer bill · payee name → owner / vendor / driver · pattern → EMI, FASTag, card, charges · own firms → inter-firm.</div>
+        <div class="step"><b>3 · Post</b>Exact (UTR or unique amount+party) posts the voucher in the account's firm and clears the due. Everything else → Staff Action. Never posts twice (deterministic ref BANK-&lt;account&gt;-&lt;line hash&gt;).</div>
+        <div class="step"><b>4 · Learn</b>A staff decision on a counterparty becomes a rule (name → party, pattern → ledger). Next month the same line auto-tallies.</div>
+      </div>
+    </div>
+    <div class="card"><h3>Last import — what TARA did</h3>
+      <div class="field"><span class="k">Files</span><span>15 SBI PDFs (Prasad 8490 + 5913, Jaiswal 8548, Apr–Aug) + Gautam 1934 (savings, Apr–Sep)</span></div>
+      <div class="field"><span class="k">Lines</span><span>3,007 parsed · 0 duplicates</span></div>
+      <div class="field"><span class="k">IOCL by UTR</span><span class="good">33 advices matched to the rupee</span></div>
+      <div class="field"><span class="k">Inter-firm</span><span>127 transfers between Prasad ↔ Jaiswal ↔ Gautam recognised on both sides</span></div>
+      <div class="field"><span class="k">Loan EMIs</span><span class="warn">73 STGT POOLING debits — amounts not yet mapped to a loan</span></div>
+      <div class="field"><span class="k">Aadhar Green</span><span class="warn">5 receipts ₹36.7 L into SBI (5913) — account not in ERP, bills show unpaid</span></div>
+      <div class="field"><span class="k">UPI payments</span><span class="crit">2526 names with no party in the masters (drivers / pumps / owners)</span></div>
+      <div class="note">Posting rule: a receipt from IOCL is posted as the advice journal (bank + TDS + card wallet + toll against Debtors); a receipt from any other customer as RECEIPT against Debtors: &lt;customer&gt; and the open bill; a payment to an owner as PAYMENT against the approved 15-day bill; a driver UPI as advance on the trip; an EMI against the loan; a transfer between our firms as CONTRA.</div>
+    </div>
+  </div>
+
+  <h2>③ Staff Action — Bank Exceptions (2839 lines waiting, largest first)</h2>
+  <div class="two">
+    <div class="scroll"><table><thead><tr><th></th><th>Date · account</th><th>Counterparty · narration</th><th style="text-align:right">Amount</th><th>TARA's guess · why</th><th>State</th><th>Action</th></tr></thead><tbody><tr class="sel"><td><input type="checkbox" checked></td><td>11 May<br><small class="dim">SBI (8548)</small></td>
+    <td class="wrap"><b>BHARAT PETROLEUM CORPO</b><br><small>BY TRANSFER- CMP BHARAT PET 226709 PCVO2 0041187633202</small></td>
+    <td class="r"><span class="good">+₹10,74,524.96</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; bill not priced/raised</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox" checked></td><td>24 Jul<br><small class="dim">SBI (8490)</small></td>
+    <td class="wrap"><b>INB RTGS UTR NO: SBINR12</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026072436 510694- · <span class="mono">CR0BJFXEI8</span></small></td>
+    <td class="r"><span class="crit">−₹9,92,810.00</span></td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small>no rule, no name match</small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td>
+    <td><button class="b ghost">Choose party</button></td></tr><tr><td><input type="checkbox" checked></td><td>10 Jul<br><small class="dim">SBI (8548)</small></td>
+    <td class="wrap"><b>BHARAT PETROLEUM CORPO</b><br><small>BY TRANSFER- CMP BHARAT PET 226709 PCVO2 0041342141202</small></td>
+    <td class="r"><span class="good">+₹9,55,385.19</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; bill not priced/raised</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>24 Aug<br><small class="dim">SBI (8490)</small></td>
+    <td class="wrap"><b>INDIAN OIL CORPORATION</b><br><small>BY TRANSFER- INB AS8327031003- - · <span class="mono">CT0AIQEGQ8</span></small></td>
+    <td class="r"><span class="good">+₹9,34,906.00</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known, advice not fetched</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>10 Jun<br><small class="dim">SBI (8548)</small></td>
+    <td class="wrap"><b>BHARAT PETROLEUM CORPO</b><br><small>BY TRANSFER- CMP BHARAT PET 226709 PCVO2 0041265701202</small></td>
+    <td class="r"><span class="good">+₹8,99,543.88</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; bill not priced/raised</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>06 Aug<br><small class="dim">SBI (5913)</small></td>
+    <td class="wrap"><b>AADHAR GREEN INDUSTRIE</b><br><small>BY TRANSFER- INB- · <span class="mono">CT0AHXIFC1</span></small></td>
+    <td class="r"><span class="good">+₹8,28,100.00</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; which monthly bill?</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>08 May<br><small class="dim">SBI (5913)</small></td>
+    <td class="wrap"><b>AADHAR GREEN INDUSTRIE</b><br><small>BY TRANSFER- INB- · <span class="mono">CT0AEBMEB9</span></small></td>
+    <td class="r"><span class="good">+₹8,23,056.00</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; which monthly bill?</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>10 Aug<br><small class="dim">SBI (8548)</small></td>
+    <td class="wrap"><b>BHARAT PETROLEUM CORPO</b><br><small>BY TRANSFER- CMP BHARAT PET 226709 PCVO2 0041420428202</small></td>
+    <td class="r"><span class="good">+₹8,09,915.37</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; bill not priced/raised</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>08 Jul<br><small class="dim">SBI (5913)</small></td>
+    <td class="wrap"><b>AADHAR GREEN INDUSTRIE</b><br><small>BY TRANSFER- INB- · <span class="mono">CT0AGREEP3</span></small></td>
+    <td class="r"><span class="good">+₹8,05,900.00</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; which monthly bill?</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>04 Jun<br><small class="dim">SBI (5913)</small></td>
+    <td class="wrap"><b>AADHAR GREEN INDUSTRIE</b><br><small>BY TRANSFER- INB- · <span class="mono">CT0AFEIJJ5</span></small></td>
+    <td class="r"><span class="good">+₹7,98,700.00</span></td>
+    <td><span class="chip" style="color:#2fe39b;border-color:#2fe39b">Customer receipt</span><br><small>payer known; which monthly bill?</small></td>
+    <td><span class="pill" style="color:#ffb224;border-color:#ffb224">STAFF REVIEW</span></td>
+    <td><button class="b ghost">Receipt → customer bill</button></td></tr><tr><td><input type="checkbox"></td><td>09 Apr<br><small class="dim">SBI (8490)</small></td>
+    <td class="wrap"><b>INB RTGS UTR NO: SBINR12</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026040923 694751- · <span class="mono">CR0BHZIIH2</span></small></td>
+    <td class="r"><span class="crit">−₹7,90,909.00</span></td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small>no rule, no name match</small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td>
+    <td><button class="b ghost">Choose party</button></td></tr><tr><td><input type="checkbox"></td><td>16 Jun<br><small class="dim">SBI (8490)</small></td>
+    <td class="wrap"><b>INB RTGS UTR NO: SBINR12</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026061631 815030- · <span class="mono">CR0BIUAPZ9</span></small></td>
+    <td class="r"><span class="crit">−₹7,90,909.00</span></td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small>no rule, no name match</small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td>
+    <td><button class="b ghost">Choose party</button></td></tr><tr><td><input type="checkbox"></td><td>09 Jul<br><small class="dim">SBI (8490)</small></td>
+    <td class="wrap"><b>INB RTGS UTR NO: SBINR12</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026070934 662407- · <span class="mono">CR0BJBFIE6</span></small></td>
+    <td class="r"><span class="crit">−₹7,90,909.00</span></td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small>no rule, no name match</small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td>
+    <td><button class="b ghost">Choose party</button></td></tr><tr><td><input type="checkbox"></td><td>09 May<br><small class="dim">SBI (5913)</small></td>
+    <td class="wrap"><b>INB RTGS UTR NO: SBINR12</b><br><small>TO TRANSFER- INB RTGS UTR NO: SBINR12026050927 260774- · <span class="mono">CR0BIIOBB0</span></small></td>
+    <td class="r"><span class="crit">−₹7,90,909.00</span></td>
+    <td><span class="chip" style="color:#ff6b81;border-color:#ff6b81">Unclassified payment</span><br><small>no rule, no name match</small></td>
+    <td><span class="pill" style="color:#ff6b81;border-color:#ff6b81">UNMATCHED</span></td>
+    <td><button class="b ghost">Choose party</button></td></tr></tbody></table></div>
+    <div class="drawer">
+      <h3>Link this line</h3>
+      <div class="field"><span class="k">Bank line</span><span><b>11 May</b> · SBI (8548) · <span class="good">+₹10,74,524.96</span><br><small>BY TRANSFER- CMP BHARAT PET 226709 PCVO2 0041187633202722 6709 P-</small></span></div>
+      <div class="field"><span class="k">This is a</span><div class="opt"><span class="on">Customer receipt</span><span>Owner payment</span><span>Partner payment</span><span>Vendor payment</span><span>Driver advance</span><span>Loan EMI</span><span>Inter-firm</span><span>Cash</span><span>Charge</span><span>Other</span></div></div>
+      <div class="field"><span class="k">Party</span><select class="sel1"><option>BPCL bill</option><option>Search customer / owner / vendor / driver…</option></select></div>
+      <div class="field"><span class="k">Bill / trip</span><select class="sel1"><option>CB-IOCL-JUN-H2-2026-PT · balance ₹62,76,588 (110 trips pending)</option><option>CB-IOCL-JUL-H1-2026-PT · balance ₹31,88,875</option><option>— split across bills —</option></select></div>
+      <div class="field"><span class="k">Trip</span><select class="sel1"><option>— optional: tag a trip (driver advance, detention) —</option></select></div>
+      <div class="field"><span class="k">Post as</span><span>RECEIPT · Dr SBI (8490) ₹10,74,524.96 / Cr Debtors: INDIAN OIL CORPORATION LTD — books of M/S Prasad Transport</span></div>
+      <div class="field"><span class="k">Remember</span><span><input type="checkbox" checked> Next time this counterparty appears, tally it the same way automatically</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="b solid">✅ Link &amp; post</button><button class="b warn">Park (ask owner)</button><button class="b">Split…</button><button class="b ghost">Not ours / ignore</button></div>
+      <div class="note">Nothing here is guessed into the ledger. Until a person links it, the line stays on the bank side only, the due stays open, and the dashboard counts it. Bulk: select many lines of the same counterparty and link them in one go.</div>
+    </div>
+  </div>
+
+  <h2>④ Cash Book — the same discipline for cash</h2>
+  <div class="two">
+    <div class="card"><h3>Cash in Hand · per firm</h3>
+      <div class="field"><span class="k">ERP today</span><span>Cash in Hand (HQ): 2 entries, ₹0 — the cash book has never been kept in the ERP</span></div>
+      <div class="field"><span class="k">Design</span><span>Cash receipts and payments entered with party + trip; ATM / "SELF" / cash-deposit bank lines auto-post as CONTRA between bank and cash; the physical count entered at day-end reconciles the book and any difference is an exception.</span></div>
+      <div class="field"><span class="k">Trip-wise</span><span>Driver cash advance, fooding, doc expense and toll cash flow through trip_expense_entries (already live) and appear on the trip and on the 15-day bills.</span></div></div>
+    <div class="card"><h3>Dashboard tiles the desk will see</h3>
+      <div class="field"><span class="k">Bank exceptions</span><span>2839 lines · by account · by age</span></div>
+      <div class="field"><span class="k">In book, not in bank</span><span>379 ERP entries on SBI (8490) with no statement line — assumed receipts, schedule-posted EMIs, historical FASTag loads</span></div>
+      <div class="field"><span class="k">Customer money not booked</span><span>Aadhar ₹36.7 L (5913) · BPCL ₹7.0 L + HPCL ₹4.1 L (Jaiswal 8548) · IOCL into Jaiswal ₹1.2 cr — receipts the ERP never saw</span></div>
+      <div class="field"><span class="k">Unmapped names</span><span>UPI payees with no master record — one click to create the driver / vendor / owner</span></div></div>
+  </div>
+
+  <h2>⑤ Rules — what TARA applies, what staff teach it</h2>
+  <div class="scroll"><table><thead><tr><th>When the bank line says</th><th>Post</th><th>Confidence</th><th>Seen in Apr–Aug</th></tr></thead><tbody><tr><td class="wrap">UTR = IOCL payment advice bank_ref, amount = remitted</td><td class="wrap">RECEIPT · Dr SBI / Dr TDS / Dr card wallet / Cr Debtors: IOCL (advice journal)</td><td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">AUTO</span></td><td>33 hits</td></tr><tr><td class="wrap">Counterparty JAISWAL ENTERPRISE / MS PRASAD / GAUTAM PRASAD</td><td class="wrap">CONTRA · inter-firm ledger (Loans &amp; Advances)</td><td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">AUTO</span></td><td>127 hits</td></tr><tr><td class="wrap">Description STGT POOLING ACCOUNT R (SBI vehicle loan)</td><td class="wrap">PAYMENT · Loan EMI → loan_master by amount</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">REVIEW until a person maps the amount → loan</span></td><td>73 hits</td></tr><tr><td class="wrap">Payer AADHAR GREEN INDUSTRIES → SBI (5913)</td><td class="wrap">RECEIPT · Debtors: AADHAR GREEN → open monthly bill</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">REVIEW (which bill)</span></td><td>5 hits · ₹36.7 L</td></tr><tr><td class="wrap">UPI/DR name = driver master name (mobile matched)</td><td class="wrap">PAYMENT · Driver advance → open trip</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">REVIEW (which trip)</span></td><td>learned per name</td></tr><tr><td class="wrap">UPI/DR name = pump / garage vendor</td><td class="wrap">PAYMENT · vendor bill or on-account</td><td><span class="pill" style="color:#ffb224;border-color:#ffb224">REVIEW</span></td><td>learned per name</td></tr><tr><td class="wrap">Bank charges, SMS charges, GST on charges (&lt; ₹5,000)</td><td class="wrap">PAYMENT · Bank Charges</td><td><span class="pill" style="color:#2fe39b;border-color:#2fe39b">AUTO</span></td><td>pattern</td></tr></tbody></table></div>
+
+  <h2>Deep audit — what the ledger holds today (production, 5-Sep)</h2>
+  <div class="findings">
+    <div class="f"><b>Only one bank account is kept in the ERP</b>SBI (8490) has 486 entries and shows closing ₹34,11,680; the bank says ₹22,620 on 31-Aug. SBI (8548) Jaiswal and SBI (1934) Gautam exist as ledgers with 0 entries. SBI (5913) Prasad — where Aadhar Green pays — is not in the ERP at all.</div>
+    <div class="f"><b>379 of 482 ERP bank entries have no statement line</b>141 loan EMIs posted from the schedule (₹1.09 cr), 89 assumed IOCL receipts and their 82 reversals, 49 historical FASTag loads. The book was written from expectations, not from the bank.</div>
+    <div class="f ok"><b>What does tie: IOCL by UTR</b>Every IOCL credit carries the advice's UTR (CT0A…). 33 advices ↔ 33 statement credits to the rupee. This is the anchor the engine builds on.</div>
+    <div class="f w"><b>Customer money the ERP never saw</b>Aadhar Green paid ₹36.7 L (5 transfers into 5913, Apr–Aug) while all five bills show ₹0 received. Jaiswal's 8548 received IOCL ₹1.2 cr, BPCL ₹7.0 L, HPCL ₹4.1 L — no receipt anywhere.</div>
+    <div class="f w"><b>Inter-firm money moves constantly</b>127 transfers Prasad ↔ Jaiswal ↔ Gautam (₹43 L, ₹30 L, ₹33 L) with no inter-firm ledger; today they are invisible or land as somebody's receipt.</div>
+    <div class="f w"><b>Loan EMIs go out as daily "STGT POOLING" debits</b>73 small debits (₹295 … ₹6,861) per month across accounts; loan_master knows 29 loans by EMI amount, not by these instalment splits. A person maps once, then it is a rule.</div>
+    <div class="f"><b>1,400+ UPI payments with no party in the masters</b>Driver advances, pump payments, tyre shops, owner settlements — paid from all three accounts by UPI. Names on the statement (SHAHIDUL, RATI KAN, SUBRATA…) do not match the driver/vendor masters as typed. The Staff Action desk exists for exactly this; each mapping is remembered.</div>
+    <div class="f"><b>Cash book does not exist</b>Cash in Hand (HQ) has 2 entries. Cash advances and cash expenses are recorded on trips but never as cash movements.</div>
+    <div class="f w"><b>Gautam's statement is a different SBI layout</b>Savings-account export (7 columns, "-" placeholders, password PDF). Parser handles both layouts; the personal spends on it (Airtel, KFC…) are "not ours / ignore" candidates, not vendor payments.</div>
+  </div>
+
+  <div class="approve"><b style="color:#2fe39b;font-size:14px">Waiting for your YES.</b>
+    <div style="color:#c4d1ea;margin-top:6px;font-size:12.5px;line-height:1.7">Build on YES: migration (bank_accounts ↔ ledger ↔ firm; bank_statement_imports; bank_statement_lines with hash; bank_line_links = line ↔ voucher/bill/trip; bank_party_rules learned from staff), the SBI PDF/CSV/XLSX parser (both layouts, password), TARA's tally engine with the rules above, the new Bank &amp; Cash Book screen (statement-spine, filters by firm / account / customer / vendor / owner / driver / trip), the Staff Action desk, dashboard tiles and MAILBOX-style exceptions, and the first run over your Apr–Aug statements (auto-posts only what is exact; 2839 lines land on the desk).</div>
+    <div style="color:#9aadd4;margin-top:8px;font-size:12px">Decisions I need from you: (1) SBI (5913) — add it to Prasad Transport's books? (2) Inter-firm transfers — post as loans between the firms (Loans &amp; Advances) or as capital movements? (3) Gautam's savings account — treat personal spends as "not ours" by default? (4) Assumed EMI/FASTag entries already in the book with no bank line — reverse them on this engine's first run, or keep and flag?</div></div>
+</div>
