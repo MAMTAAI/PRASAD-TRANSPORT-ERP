@@ -25,7 +25,7 @@ import { runAdviceCollect } from './adviceCollectJob.js';
 import { emit as busEmit, drain as busDrain } from '../agents/bus.js';
 import {
   detectDuplicateBilling, detectBlankCustomer,
-  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon,
+  detectCompanyMasterGaps, detectEntityMismatch, detectCustomerRecon, detectMailboxDead,
 } from '../modules/exceptions.routes.js';
 
 const TICK_MS = 15 * 60 * 1000;          // quarter-hourly; the jobs gate themselves
@@ -149,6 +149,7 @@ async function runExceptionScan() {
     ['company_master_gaps', detectCompanyMasterGaps],
     ['entity_mismatch', detectEntityMismatch],
     ['customer_recon', detectCustomerRecon],
+    ['mailboxes', detectMailboxDead],
   ]) {
     try {
       const r = await fn();

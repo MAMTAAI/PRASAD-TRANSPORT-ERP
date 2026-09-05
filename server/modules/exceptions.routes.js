@@ -962,3 +962,37 @@ export async function registerExceptionRoutes(app, opts = {}) {
     return { ok: true, dismissed: true };
   });
 }
+
+// ── THE MAILBOX THAT STOPPED ANSWERING ───────────────────────────────────────
+// Owner, 5-Sep-2026: "IOCL ka bill aur payment advice email me aati hai —
+// dono email check karo." Both Gmail tokens had been revoked for weeks and
+// nothing said so on the dashboard; the books simply stopped moving. The sync
+// runner records which mailbox failed on its last run; this makes it a
+// HIGH exception per mailbox, deduped, until a person re-authorises it.
+export async function detectMailboxDead(exec = query) {
+  const { syncState } = await import('../lib/ioclSyncRunner.js');
+  const last = syncState().last_run;
+  const failed = Array.isArray(last?.mailboxes_failed) ? last.mailboxes_failed : [];
+  const raised = [];
+  for (const box of failed) {
+    const info = last?.mailboxes?.[box] ?? {};
+    const reason = String(info.reason ?? info.error ?? info.status ?? 'the mailbox did not answer').slice(0, 400);
+    const token = /jaiswal/i.test(box) ? 'jaiswal_token.json' : 'gmail_token.json';
+    raised.push(await raiseException({
+      kind: 'MAILBOX_REAUTH',
+      severity: 'HIGH',
+      title: `${box} mailbox band hai — IOCL ke bill aur payment advice nahi padhe ja rahe`,
+      detail: `Gmail token expire/revoke ho gaya (${reason}). Jab tak dobara authorise nahi hota, AC4/AC5 bills, payment advices aur customer milaan is mailbox ke liye ruke rahenge.`,
+      subject_type: 'mailbox', subject_id: box, company: box,
+      evidence: { mailbox: box, token, last_run_at: last?.at ?? null, trigger: last?.trigger ?? null, reason },
+      options: [
+        { key: 'REAUTH', label: `Office PC par chalayein: python tools/iocl_recon/gmail_setup.py --token ${token} --force (browser khulega), phir token AWS par copy` },
+        { key: 'PUBLISH_APP', label: 'Google Cloud → OAuth consent screen → Publish app, taaki token har 7 din expire na ho' },
+      ],
+      amount_at_risk: null,
+      dedupe_key: `MAILBOX_REAUTH:${box}`,
+      detected_by: 'scheduler',
+    }, exec));
+  }
+  return { raised: raised.length, mailboxes_failed: failed };
+}

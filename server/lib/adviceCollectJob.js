@@ -91,18 +91,26 @@ export async function runAdviceCollect({ trigger = 'SCHEDULE', force = false, by
   // ── 1. fetch — BHUVANESHWARI reads the mailbox ───────────────────────────
   {
     const done = await startStep(runId, 'fetch', { agent_code: 'BHUVANESHWARI' });
-    const token = path.join(TOOLS, 'gmail_token.json');
-    const args = [path.join(TOOLS, 'fetch_advices.py')];
-    const hasToken = fs.existsSync(token);
-    if (noFetch || !hasToken) args.push('--no-fetch');
+    // Both firms' mailboxes (fetch_advices.py MAILBOXES): Prasad's and
+    // Jaiswal's advices, each filed into its own folder and tagged with its
+    // firm. An advice for an old bill can arrive months late, so the window
+    // reaches back half a year; re-reading a settled month is free.
+    const tokens = ['gmail_token.json', 'jaiswal_token.json'].filter((t) => fs.existsSync(path.join(TOOLS, t)));
+    const since = new Date(Date.now() - 180 * 86400_000).toISOString().slice(0, 10);
+    const args = [path.join(TOOLS, 'fetch_advices.py'), '--mailbox', 'all', '--window-from', since];
+    if (noFetch || tokens.length === 0) args.push('--no-fetch');
     const r = await runChild(PYTHON, args);
-    const parsed = grab(r.stdout, /(\d+)\s+advice/i);
-    steps.fetch = await done(r.ok ? 'OK' : 'FAILED', {
-      counts: { parsed: parsed ?? 0 }, detail: { no_fetch: noFetch || !hasToken, token_present: hasToken, tail: tail(r.ok ? r.stdout : (r.stderr || r.stdout)) },
-      reason: !hasToken ? 'gmail_token.json missing beside the tools — parsing what is already on disk' : null,
+    const parsed = grab(r.stdout, /advices parsed\s*:\s*(\d+)/i);
+    const boxes = Object.fromEntries([...String(r.stdout).matchAll(/mailboxes:\s*([^\n]+)/g)].flatMap((m) => m[1].split(',').map((s) => s.trim().split('=')).filter((p) => p.length === 2)));
+    const dead = Object.entries(boxes).filter(([, v]) => v === 'skipped').map(([k]) => k);
+    steps.fetch = await done(r.ok && dead.length === 0 ? 'OK' : (r.ok ? 'DEGRADED' : 'FAILED'), {
+      counts: { parsed: parsed ?? 0, mailboxes_dead: dead.length }, detail: { no_fetch: noFetch || tokens.length === 0, tokens, mailboxes: boxes, tail: tail(r.ok ? r.stdout : (r.stderr || r.stdout)) },
+      reason: tokens.length === 0 ? 'no Gmail token beside the tools — parsing what is already on disk'
+            : dead.length ? `mailbox unavailable: ${dead.join(', ')} — re-authorise (gmail_setup.py --token <name> --force)` : null,
       error: r.ok ? null : `exit ${r.code}: ${tail(r.stderr || r.stdout, 3)}`,
     });
-    if (!r.ok) failed += 1;
+    counts.mailboxes_dead = dead;
+    if (!r.ok || dead.length) failed += 1;
   }
 
   // ── 2. load — the JSON into iocl_payment_advices ─────────────────────────

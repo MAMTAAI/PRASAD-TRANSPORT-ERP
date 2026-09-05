@@ -93,20 +93,46 @@ const inr = (v) => Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2,
 await initDb({ attempts: 1, quiet: true });
 // The IOCL card wallet is whatever the fleet-card module calls it for the firm
 // that runs IOCL's trucks (Prasad Transport). Never guess a ledger name twice.
-{
+// ── WHOSE BOOKS ──────────────────────────────────────────────────────────────
+// IOCL pays each firm into its own bank (SBI *8490 Prasad, *8548 Jaiswal,
+// *1934 Gautam) and each firm holds its own IOCL card. The advice carries the
+// firm (migration 165: the mailbox it came from, else the bank account); the
+// ledgers are looked up for THAT firm — never a Prasad name in Jaiswal's books.
+// The route guard (147) refuses a voucher naming no firm, so company_id is set.
+// A firm with no bank or card ledger on file is SKIPPED and reported; nothing
+// is posted to a guessed ledger.
+const FIRMS = new Map();
+async function firmFor(name, accountTail) {
+  const key = String(name || 'M/S PRASAD TRANSPORT').trim();
+  const tail = String(accountTail || '').replace(/[^0-9]/g, '').slice(-4) || null;
+  const cacheKey = `${key}|${tail}`;
+  if (FIRMS.has(cacheKey)) return FIRMS.get(cacheKey);
+  const { rows: [co] } = await query(`SELECT id, company_name FROM companies WHERE norm_company_name(company_name) = norm_company_name($1) LIMIT 1`, [key]);
+  const { rows: [bank] } = await query(`
+    SELECT ledger_name FROM ledgers
+     WHERE group_head = 'Bank Accounts' AND status = 'ACTIVE' AND btrim(company) = $1
+     ORDER BY ($2::text IS NOT NULL AND ledger_name LIKE '%(' || $2 || ')%') DESC, ledger_name
+     LIMIT 1`, [key, tail]);
   const { rows: [acct] } = await query(`
     SELECT wallet_ledger FROM fleet_card_accounts
-     WHERE provider = 'IOCL' AND active AND wallet_ledger IS NOT NULL
-     ORDER BY (operating_company ILIKE '%PRASAD%') DESC LIMIT 1`);
-  if (acct?.wallet_ledger) L.fuel = acct.wallet_ledger;
+     WHERE provider = 'IOCL' AND active AND wallet_ledger IS NOT NULL AND btrim(operating_company) = $1 LIMIT 1`, [key]);
+  let wallet = acct?.wallet_ledger ?? null;
+  if (!wallet) {
+    const { rows: [w] } = await query(`
+      SELECT ledger_name FROM ledgers
+       WHERE group_head = 'Prepaid Cards & Wallets (Asset)' AND status = 'ACTIVE'
+         AND btrim(company) = $1 AND ledger_name ILIKE '%IOCL%' ORDER BY ledger_name LIMIT 1`, [key]);
+    wallet = w?.ledger_name ?? null;
+  }
+  const f = { name: co?.company_name?.trim() ?? key, company_id: co?.id ?? null, bank: bank?.ledger_name ?? null, wallet };
+  FIRMS.set(cacheKey, f);
+  return f;
 }
-// Whose books: IOCL's vendor code and SBI (8490) are Prasad Transport's. The
-// ledger route guard (migration 147) refuses a voucher that names no firm and
-// cannot derive one — 'Debtors: …' and the bank name nothing, so say it.
-const { rows: [firm] } = await query(`SELECT id FROM companies WHERE company_name ILIKE '%PRASAD TRANSPORT%' ORDER BY company_name LIMIT 1`);
-const COMPANY_ID = firm?.id ?? null;
+const PRASAD = await firmFor('M/S PRASAD TRANSPORT', '8490');
+if (PRASAD.wallet) L.fuel = PRASAD.wallet;
+const COMPANY_ID = PRASAD.company_id;
 console.log(`\n${'='.repeat(76)}\n ADVICE-LEVEL SETTLEMENT   [${LIVE ? 'LIVE' : 'DRY RUN'}]\n${'='.repeat(76)}`);
-console.log(` party ledger: ${PARTY}   CCMS → ${L.fuel}`);
+console.log(` party ledger: ${PARTY}   Prasad: bank ${PRASAD.bank} · CCMS → ${PRASAD.wallet}`);
 
 const stats = { reversed: 0, reverseSkipped: 0, settled: 0, settleSkipped: 0, failed: 0,
                 bank: 0, fuel: 0, toll: 0, misc: 0, tds: 0 };
@@ -154,6 +180,7 @@ for (const o of originals) {
 // ── 2. Post the real settlement, one journal per advice ─────────────────────
 const { rows: advices } = await query(`
   SELECT a.advice_id::text AS advice_id, a.odn, a.advice_date, a.bank_ref, a.remitted,
+         a.operating_company, a.account_tail,
          COALESCE(SUM(l.gross) FILTER (WHERE l.kind='FREIGHT_BILL'),0)::numeric(14,2)  AS freight,
          COALESCE(-SUM(l.tds),0)::numeric(14,2)                                        AS tds,
          COALESCE(-SUM(l.net) FILTER (WHERE l.kind='FUEL_CCMS_RECOVERY'),0)::numeric(14,2) AS fuel,
@@ -164,17 +191,23 @@ const { rows: advices } = await query(`
          COALESCE(SUM(l.net) FILTER (WHERE l.kind='OTHER'),0)::numeric(14,2)           AS unclass
     FROM iocl_payment_advices a
     JOIN iocl_advice_lines l USING (advice_id)
-   GROUP BY a.advice_id, a.odn, a.advice_date, a.bank_ref, a.remitted
+   GROUP BY a.advice_id, a.odn, a.advice_date, a.bank_ref, a.remitted, a.operating_company, a.account_tail
    ORDER BY a.advice_date`);
 
 console.log(` SETTLING ${advices.length} advice(s)`);
 for (const a of advices) {
+  const firm = await firmFor(a.operating_company, a.account_tail);
+  if (!firm.company_id || !firm.bank || (money(a.fuel) > 0 && !firm.wallet)) {
+    stats.failed++;
+    console.log(`  x settle ${a.odn}: ${firm.name} — ${!firm.company_id ? 'firm not in companies' : !firm.bank ? 'no bank ledger for this firm' : 'no IOCL card wallet ledger for this firm'}; nothing posted`);
+    continue;
+  }
   const lines = [];
   const dr = (ledger, amount, group) => { if (money(amount) > 0) lines.push({ ledger, dr_cr: 'DR', amount: money(amount), group }); };
   const cr = (ledger, amount, group) => { if (money(amount) > 0) lines.push({ ledger, dr_cr: 'CR', amount: money(amount), group }); };
 
-  dr(BANK, a.remitted, G.bank);
-  dr(L.fuel, a.fuel, G.fuel);
+  dr(firm.bank, a.remitted, G.bank);
+  dr(firm.wallet ?? L.fuel, a.fuel, G.fuel);
   dr(L.toll, a.toll, G.toll);
   dr(L.misc, a.misc, G.misc);
   dr(L.tds, a.tds, G.tds);
@@ -194,10 +227,10 @@ for (const a of advices) {
   const r = await post(`settle ${a.odn}`, {
     type: 'JOURNAL',
     source_type: 'ADVICE_SETTLEMENT',
-    company_id: COMPANY_ID,
+    company_id: firm.company_id,
     ref_no: `ADV-${a.odn}`,
     entry_date: a.advice_date,
-    narration: `IOCL payment advice ${a.odn} (UTR ${a.bank_ref ?? '-'}) — remitted ${inr(a.remitted)}, fuel ${inr(a.fuel)}, toll ${inr(a.toll)}, TDS ${inr(a.tds)}`,
+    narration: `IOCL payment advice ${a.odn} (UTR ${a.bank_ref ?? '-'}) to ${firm.name} — remitted ${inr(a.remitted)} into ${firm.bank}, CCMS → ${firm.wallet ?? '-'} ${inr(a.fuel)}, toll ${inr(a.toll)}, TDS ${inr(a.tds)}`,
     created_by: 'post-advice-settlements',
     lines,
   });

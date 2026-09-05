@@ -22,6 +22,8 @@ import { postVoucher } from '../agents/tara.js';
 import { query, withTransaction } from '../db/pool.js';
 import { requireAuth, requireAdminRole } from './auth.routes.js';
 import { send as sendMail } from '../lib/mailChannel.js';
+import { raiseCustomerBill, RaiseError, revenueJournal, billById } from '../lib/customerBillRaise.js';
+export { revenueJournal };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -37,17 +39,6 @@ const DEBTOR = (name) => `Debtors: ${name}`;
 const DEBTOR_GROUP = 'Sundry Debtors (Customers)';
 const FREIGHT_INCOME = 'Freight Income';
 const FUEL_EXPENSE = 'Direct Expenses - Fuel & HSD';
-
-/** The revenue journal a RAISE posts: only what no legacy bill posted. */
-export function revenueJournal(b) {
-  const lines = [];
-  const base = r2(num(b.revenue_to_post) + num(b.adj_income) - num(b.adj_expense));
-  if (base > 0) {
-    lines.push({ ledger: DEBTOR(b.customer_name), dr_cr: 'DR', amount: base, group: DEBTOR_GROUP });
-    lines.push({ ledger: FREIGHT_INCOME, dr_cr: 'CR', amount: base, group: 'Freight Income' });
-  }
-  return { lines, amount: base, legacy: r2(num(b.revenue_posted_legacy)) };
-}
 
 /** The bill as text — for WhatsApp / e-mail. Branch-wise, IOCL shape. */
 function billText(b) {
@@ -81,7 +72,6 @@ export async function registerCustomerBillRoutes(app) {
   const staff = { preHandler: requireAuth };
   const admin = { preHandler: requireAdminRole };
   const actor = (req) => req.user?.name ?? req.user?.sub ?? 'desk';
-  const billById = async (id) => (await query('SELECT * FROM v_customer_bill WHERE id = $1::uuid', [id])).rows[0] ?? null;
 
   // ═══ THE LIST ═══════════════════════════════════════════════════════════
   app.get('/', staff, async (req) => {
@@ -460,60 +450,16 @@ export async function registerCustomerBillRoutes(app) {
   });
 
   // ═══ RAISE — revenue for what no legacy bill posted; then lock ═════════
+  // The same raise the owner's period script uses (lib/customerBillRaise.js).
   app.post('/:id/raise', admin, async (req, reply) => {
     const id = String(req.params.id ?? '');
     if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
-    let bill = await billById(id);
-    if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
-    if (bill.locked_at) return reply.code(409).send({ error: 'ALREADY_RAISED', bill });
-    await query('SELECT customer_bill_refresh($1::uuid)', [id]);
-    bill = await billById(id);
-    if (num(bill.unpriced_count) > 0) {
-      return reply.code(409).send({ error: 'UNPRICED', detail: `${bill.unpriced_count} trip ka rate/amount nahi — pehle price kijiye (Pending Billing me qty × rate), tab raise hoga.` });
-    }
-    if (!bill.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: 'Is bill ki firm (books) pata nahi — trips par operating company set kijiye.' });
-    const journal = revenueJournal(bill);
-    const who = actor(req);
-    let voucher = null;
-    if (journal.lines.length) {
-      try {
-        voucher = await postVoucher({
-          type: 'JOURNAL', source_type: 'CUSTOMER_BILL', company_id: bill.company_id,
-          ref_no: `CBILL_${bill.bill_no}`, entry_date: isoDate(bill.period_to),
-          narration: `Customer bill ${bill.bill_no} — ${bill.customer_name}, ${bill.cycle_label}: freight ${inr(journal.amount)}`
-                   + (journal.legacy > 0 ? ` (a further ${inr(journal.legacy)} was posted by earlier bills and is not repeated)` : ''),
-          lines: journal.lines,
-        });
-      } catch (e) {
-        if (e.code === 'DUPLICATE_REF') return reply.code(409).send({ error: 'ALREADY_POSTED', detail: e.message });
-        return reply.code(422).send({ error: e.code ?? 'POSTING_FAILED', detail: e.message });
-      }
-    }
     try {
-      await withTransaction(async (t) => {
-        await t.query(`UPDATE trips SET billing_status = 'BILLED', updated_at = now()
-                        WHERE customer_bill_id = $1::uuid AND linked_bill_id IS NULL`, [id]);
-        await t.query(`
-          UPDATE customer_bills
-             SET status = 'RAISED', raised_by = $2, raised_at = now(), locked_at = now(), locked_by = $2,
-                 voucher_id = COALESCE($3::uuid, voucher_id),
-                 voucher_ids = CASE WHEN $3::uuid IS NULL THEN voucher_ids ELSE voucher_ids || to_jsonb($3::text) END,
-                 post_count = CASE WHEN $3::uuid IS NULL THEN post_count ELSE post_count + 1 END,
-                 posted_lines = CASE WHEN $3::uuid IS NULL THEN posted_lines ELSE $4::jsonb END
-           WHERE id = $1::uuid`, [id, who, voucher?.voucher_id ?? null, JSON.stringify(journal.lines)]);
-      });
-      await query('SELECT customer_bill_refresh($1::uuid)', [id]);   // status follows the money already in
+      return await raiseCustomerBill(id, actor(req));
     } catch (e) {
-      if (e.code === 'P0416') return reply.code(409).send({ error: 'UNPRICED', detail: e.message });
+      if (e instanceof RaiseError) return reply.code(e.http).send({ error: e.code, detail: e.detail, bill: e.bill ?? undefined });
       throw e;
     }
-    const fresh = await billById(id);
-    return {
-      raised: true, bill: fresh, voucher_id: voucher?.voucher_id ?? null, posted: journal.lines,
-      note: voucher
-        ? `Revenue ${inr(journal.amount)} post hua (Dr Debtors / Cr Freight Income).${journal.legacy > 0 ? ` ${inr(journal.legacy)} pehle ke bill se already posted tha — dobara nahi.` : ''}`
-        : 'Poora revenue pehle ke bill se already posted tha — sirf lock hua. Milaan chalti rahegi.',
-    };
   });
 
   app.post('/:id/reopen', admin, async (req, reply) => {

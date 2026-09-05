@@ -29,6 +29,19 @@ from iocl_payment_parser import parse_advice, report  # noqa: E402
 REPO = Path(__file__).resolve().parents[2]
 ADVICE_DIR = REPO / "uploads" / "iocl_advices"
 
+# BOTH FIRMS GET PAID BY IOCL, EACH INTO ITS OWN MAILBOX AND BANK (owner,
+# 5-Sep-2026: "Jaiswal aur Prasad dono ka email theek se check karo"). Until
+# today this script opened only gmail_token.json, so every Jaiswal advice went
+# unread and every Jaiswal receipt on file was assumed from the bill. The
+# mailbox an advice arrives in names the firm whose books it settles; each
+# mailbox files into its own folder so two advices can never be confused.
+MAILBOXES = [
+    {"key": "prasad",  "token": "gmail_token.json",   "company": "M/S PRASAD TRANSPORT",
+     "dir": ADVICE_DIR},
+    {"key": "jaiswal", "token": "jaiswal_token.json", "company": "M/S JAISWAL ENTERPRISE",
+     "dir": REPO / "uploads" / "iocl_advices_jaiswal"},
+]
+
 # Payment advices come from the same sender as the bills but under their own
 # subject. Kept separate from the bill query so a broad match cannot drag
 # hundreds of AC5 invoices into the advice folder.
@@ -53,8 +66,10 @@ def main(argv=None) -> int:
     ap.add_argument("--json", type=Path, default=REPO / "reports" / "iocl_recon" / "advices.json")
     ap.add_argument("--gmail-credentials", type=Path,
                     default=Path(__file__).resolve().parent / "gmail_credentials.json")
-    ap.add_argument("--gmail-token", type=Path,
-                    default=Path(__file__).resolve().parent / "gmail_token.json")
+    ap.add_argument("--gmail-token", type=Path, default=None,
+                    help="one explicit token (legacy single-mailbox mode); default reads --mailbox")
+    ap.add_argument("--mailbox", choices=["all", "prasad", "jaiswal"], default="all",
+                    help="which firm's mailbox(es) to read; 'all' is the daily job")
     add_window_args(ap)
     args = ap.parse_args(argv)
     set_window(args.window_from, args.window_to)
@@ -64,40 +79,62 @@ def main(argv=None) -> int:
     print(f" IOCL PAYMENT ADVICES   window {billspec.WINDOW_FROM} .. {billspec.WINDOW_TO}")
     print("=" * 74)
 
-    args.advice_dir.mkdir(parents=True, exist_ok=True)
+    # Which folders to read, and whose books each one settles.
+    if args.gmail_token is not None:
+        boxes = [{"key": "explicit", "token": args.gmail_token.name, "company": None,
+                  "dir": args.advice_dir, "token_path": args.gmail_token}]
+    else:
+        boxes = [dict(b, token_path=Path(__file__).resolve().parent / b["token"])
+                 for b in MAILBOXES if args.mailbox in ("all", b["key"])]
+    tools_dir = Path(__file__).resolve().parent
 
-    if not args.no_fetch:
-        q = ADVICE_QUERY.format(
-            after=billspec.WINDOW_FROM.strftime("%Y/%m/%d"),
-            before=(billspec.WINDOW_TO + timedelta(days=1)).strftime("%Y/%m/%d"))
-        res = fetch_bills_from_gmail(args.advice_dir, creds_path=args.gmail_credentials,
-                                     token_path=args.gmail_token, query=q)
+    q = ADVICE_QUERY.format(
+        after=billspec.WINDOW_FROM.strftime("%Y/%m/%d"),
+        before=(billspec.WINDOW_TO + timedelta(days=1)).strftime("%Y/%m/%d"))
+    mailbox_status = {}
+    for box in boxes:
+        box["dir"].mkdir(parents=True, exist_ok=True)
+        if args.no_fetch:
+            continue
+        print(f"\n  [{box['key']}] {box['token']} -> {box['dir'].relative_to(REPO) if str(box['dir']).startswith(str(REPO)) else box['dir']}")
+        res = fetch_bills_from_gmail(box["dir"], creds_path=args.gmail_credentials,
+                                     token_path=box["token_path"], query=q)
+        mailbox_status[box["key"]] = res.get("status")
         if res["status"] == "skipped":
-            print(f"  fetch skipped: {res['reason']}")
+            # A dead token must be LOUD — it is the single most common reason the
+            # books stop moving (memory: gmail-token-expiry-breaks-loading-sync).
+            print(f"  MAILBOX UNAVAILABLE ({box['key']}): {res['reason']}")
         else:
             print(f"  {res.get('messages_matched', 0)} mails · "
                   f"{len(res['downloaded'])} new · {res['skipped_existing']} already held")
 
     if args.import_from is not None:
         src = args.import_from or [Path.home() / "Downloads", Path.home() / "Desktop"]
-        imp = import_local_bills(src, args.advice_dir)
-        print(f"  imported {len(imp['copied'])} from {', '.join(str(s) for s in src)}")
+        imp = import_local_bills(src, boxes[0]["dir"])
+        print(f"  imported {len(imp['copied'])} into {boxes[0]['key']} from {', '.join(str(s) for s in src)}")
 
-    pdfs = sorted(p for p in args.advice_dir.iterdir() if p.suffix.lower() == ".pdf")
-    if not pdfs:
-        print(f"\n  No advices in {args.advice_dir}.")
-        return 2
-
-    print(f"\n  parsing {len(pdfs)} PDF(s)…\n")
     advices, kept = [], []
-    for p in pdfs:
-        a = parse_advice(p)
-        # A Transportation Bill saved into this folder by mistake parses to zero
-        # voucher lines; skip it rather than report a broken advice.
-        if not a.lines:
+    for box in boxes:
+        pdfs = sorted(p for p in box["dir"].iterdir() if p.suffix.lower() == ".pdf")
+        if not pdfs:
+            print(f"\n  No advices in {box['dir']}.")
             continue
-        advices.append(a)
-        kept.append(p.name)
+        print(f"\n  parsing {len(pdfs)} PDF(s) from {box['key']}…\n")
+        for p in pdfs:
+            a = parse_advice(p)
+            # A Transportation Bill saved into this folder by mistake parses to zero
+            # voucher lines; skip it rather than report a broken advice.
+            if not a.lines:
+                continue
+            a.operating_company = box["company"]
+            advices.append(a)
+            kept.append(p.name)
+    if not advices:
+        print("\n  No advices parsed.")
+        return 2
+    if mailbox_status and all(v == "skipped" for v in mailbox_status.values()) and not args.no_fetch:
+        print("\n  EVERY MAILBOX WAS UNAVAILABLE — re-authorise: "
+              "python tools/iocl_recon/gmail_setup.py --token <name> --force")
         report(a)
 
     if not advices:
@@ -126,7 +163,10 @@ def main(argv=None) -> int:
         print(f"  NOT banked            : {held:>16,}   ({held / total_freight * 100:.1f}% of freight)")
 
     args.json.parent.mkdir(parents=True, exist_ok=True)
-    args.json.write_text(json.dumps([a.to_dict() for a in advices], indent=2), encoding="utf-8")
+    args.json.write_text(json.dumps([dict(a.to_dict(), operating_company=getattr(a, "operating_company", None))
+                                     for a in advices], indent=2), encoding="utf-8")
+    if mailbox_status:
+        print("  mailboxes: " + ", ".join(f"{k}={v}" for k, v in mailbox_status.items()))
     print(f"\n  JSON -> {args.json}")
     return 0
 

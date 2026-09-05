@@ -23,10 +23,12 @@ REPO = Path(__file__).resolve().parents[2]
 UPSERT_ADVICE = """
 INSERT INTO iocl_payment_advices
   (odn, bank_ref, advice_date, remitted, computed_net, ties, mode, bank_name,
-   account_tail, pdf_name, pdf_sha256, tool_version, warnings)
+   account_tail, pdf_name, pdf_sha256, tool_version, warnings, operating_company)
 VALUES (%(odn)s,%(bank_ref)s,%(advice_date)s,%(remitted)s,%(computed_net)s,%(ties)s,
         %(mode)s,%(bank_name)s,%(account_tail)s,%(pdf_name)s,%(pdf_sha256)s,
-        %(tool_version)s,%(warnings)s)
+        %(tool_version)s,%(warnings)s,
+        -- the mailbox names the firm; failing that, the bank account it was paid into
+        COALESCE(%(operating_company)s, advice_company_of(%(account_tail)s)))
 -- ODN is the advice's business key, not the file hash: the same advice reaches
 -- us as two files (saved by hand and fetched from Gmail) whose bytes differ.
 -- Conflicting on the hash therefore let a second copy through, and it collided
@@ -34,7 +36,8 @@ VALUES (%(odn)s,%(bank_ref)s,%(advice_date)s,%(remitted)s,%(computed_net)s,%(tie
 ON CONFLICT (odn) DO UPDATE SET
   remitted=EXCLUDED.remitted, computed_net=EXCLUDED.computed_net, ties=EXCLUDED.ties,
   warnings=EXCLUDED.warnings, advice_date=EXCLUDED.advice_date,
-  pdf_name=EXCLUDED.pdf_name, pdf_sha256=EXCLUDED.pdf_sha256
+  pdf_name=EXCLUDED.pdf_name, pdf_sha256=EXCLUDED.pdf_sha256,
+  operating_company=COALESCE(iocl_payment_advices.operating_company, EXCLUDED.operating_company)
 RETURNING advice_id::text AS advice_id
 """
 
@@ -90,6 +93,7 @@ def main(argv=None) -> int:
                     "bank_name": a["bank_name"], "account_tail": a["account_tail"],
                     "pdf_name": a["pdf_name"], "pdf_sha256": a["pdf_sha256"],
                     "tool_version": a["tool_version"], "warnings": json.dumps(a["warnings"]),
+                    "operating_company": a.get("operating_company"),
                 })
                 advice_id = cur.fetchone()["advice_id"]
                 n_adv += 1

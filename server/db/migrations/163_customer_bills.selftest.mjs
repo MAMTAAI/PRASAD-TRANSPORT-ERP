@@ -117,12 +117,13 @@ try {
   await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, bill_date, reverse_charge, s_no, invoice_no, line_date, vehicle_no_raw, vehicle_norm, ship_to_raw, gross_amt, penalty_amt, igst_amt, cgst_amt, sgst_amt, page_no, source_line)
                   VALUES ('L1', '11111111-1111-1111-1111-111111111111', 'G1', '0011024699', '2026-07-05', true, 1, '11024699AS26045', '2026-06-16', 'AS26C9814', 'AS26C9814', 'ZC7A01 - Agartala AFS', 70961.11, 0, 0, 0, 0, 1, 'x')`);
 
-  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql']) {
+  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql']) {
     await db.query(readFileSync(path.join(here, f), 'utf8'));
   }
   check('160 → 163 apply on the production schema', true, true);
   await db.query(readFileSync(path.join(here, '163_customer_bills.sql'), 'utf8'));
   await db.query(readFileSync(path.join(here, '164_customer_contract_rate.sql'), 'utf8'));
+  await db.query(readFileSync(path.join(here, '165_advice_truth.sql'), 'utf8'));
   check('163 is re-runnable', true, true);
 
   console.log('\nONE NAME, HOWEVER TYPED');
@@ -144,6 +145,18 @@ try {
   check('the retail outlet number is read', br.find((b) => /NENGSKIM/.test(b.branch_name)).branch_code, '347559');
   check('…all unconfirmed until a person says', br.every((b) => b.source === 'LEARNED'), true);
 
+  // 165: PAID is what the payment advice says. One advice names three bills; the
+  // short one is on file as a bill line so the shortfall can be spread.
+  const ADV = (await one(`INSERT INTO iocl_payment_advices (odn, bank_ref, advice_date, remitted, computed_net, ties, pdf_name, pdf_sha256, account_tail, operating_company)
+    VALUES ('AS8327025063','UTR1','2026-07-10',1,1,true,'adv1.pdf',repeat('b',64),'*******8490','M/S PRASAD TRANSPORT') RETURNING advice_id`)).advice_id;
+  await db.query(`INSERT INTO iocl_advice_lines (line_uid, advice_id, voucher_no, reference, bill_no, kind, gross, tds, net) VALUES
+    (repeat('1',40),$1,'V1','R1','11024699AS26045','FREIGHT_BILL',70961.11,-1448.18,69512.93),
+    (repeat('2',40),$1,'V1','R2','11024699AS26058','FREIGHT_BILL',71619.05,-1461.61,70157.44),
+    (repeat('3',40),$1,'V1','R3','11024699AS26074','FREIGHT_BILL',147621.56,-2972.43,144649.13)`, [ADV]);
+  await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, invoice_no, line_date, vehicle_no_raw, vehicle_norm, gross_amt, penalty_amt)
+    VALUES (repeat('4',40),'11111111-1111-1111-1111-111111111111',repeat('5',40),'11024699AS26074','INV74','2026-06-27','AS 26C 0407','AS26C0407',150136.56,1515)`);
+  check('the advice knows whose money it is (165)', (await one(`SELECT payment_state, paid_ratio::numeric(6,4)::text AS ratio, operating_company FROM v_iocl_bill_paid WHERE bill_no='11024699AS26074'`)), { payment_state: 'SHORT', ratio: '0.9933', operating_company: 'M/S PRASAD TRANSPORT' });
+
   console.log('\nEVERY TRIP, ONE FLAG');
   const flag = async (id) => (await one('SELECT flag FROM v_customer_trip_recon WHERE trip_id=$1', [id])).flag;
   check('received in full → PAID', await flag(T_PAID), 'PAID');
@@ -164,7 +177,7 @@ try {
   check('…gross summed', ioc.gross, '473113.88');
   check('…penalty', ioc.shortage_penalty, '1515.00');
   check('…TDS as IOCL actually deducted', ioc.tds, '5882.22');
-  check('…received as the pipeline recorded', ioc.received, '288229.30');
+  check('…received as the advices say, not as the match assumed (165)', ioc.received, '290201.72');
   check('…flags counted', [ioc.paid_count, ioc.short_count, ioc.pending_count, ioc.missing_count, ioc.unpriced_count], [2, 1, 1, 1, 1]);
   check('…missing rupees named', ioc.missing_amount, '82899.50');
   check('…legacy revenue not counted again', [ioc.revenue_posted_legacy, ioc.revenue_to_post], ['71619.05', '401494.83']);
@@ -199,10 +212,10 @@ try {
   check('a raised bill refuses a number change (P0415)',
     await err(() => db.query(`UPDATE customer_bills SET gross = 1 WHERE id=$1`, [ioc.id])), 'P0415');
   // money arrives on the pending trip → the raised bill follows
-  await db.query(`UPDATE trips SET received_amount = 97497.66 WHERE id=$1`, [T_PEND]);
+  await db.query(`INSERT INTO iocl_advice_lines (line_uid, advice_id, voucher_no, reference, bill_no, kind, gross, tds, net) VALUES (repeat('6',40),$1,'V2','R4','11024699AS26079','FREIGHT_BILL',97497.66,-1949.95,95547.71)`, [ADV]);
   await db.query(`SELECT customer_bill_refresh($1)`, [ioc.id]);
   const ioc2 = await one('SELECT * FROM v_customer_bill WHERE id=$1', [ioc.id]);
-  check('…received moves on the locked bill', ioc2.received, '385726.96');
+  check('…received moves on the locked bill when the advice lands', ioc2.received, '387699.38');
   check('…status follows the money', ioc2.status, 'PART_PAID');
   check('…gross stays what was signed', ioc2.gross, '544074.99');
   check('a rebuild steps around it', (await one(`SELECT skipped FROM customer_bills_build('2026-06-20'::date, 'test')`)).skipped, 1);
