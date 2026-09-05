@@ -40,7 +40,13 @@ export const JOB = 'customer_advice_collect';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
 const TOOLS = path.join(REPO, 'tools', 'iocl_recon');
+// The parsers need pdfplumber + the Gmail client, which on the box live only
+// in <repo>/.venv (PEP 668 refuses system pip). pm2 sets PYTHON_BIN to it; a
+// run started any other way (a shell, a one-off script) must not fall back to
+// the bare python3 and fail with "pdfplumber is not installed" — 5-Sep-2026.
+const VENV_PY = ['.venv/bin/python', '.venv/Scripts/python.exe'].map((p) => path.join(REPO, p)).find((p) => fs.existsSync(p));
 const PYTHON = process.env.PYTHON_BIN
+  || VENV_PY
   || ['python3', 'python'].find((bin) => {
     try { return spawnSync(bin, ['--version'], { stdio: 'ignore' }).status === 0; } catch { return false; }
   })
