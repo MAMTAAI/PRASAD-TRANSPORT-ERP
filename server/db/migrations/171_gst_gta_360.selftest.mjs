@@ -51,9 +51,10 @@ try {
   await db.query(`UPDATE customers SET gst_mode_locked = true WHERE customer_name = 'HALDIA STONE CRUSHER'`).catch(() => {});
   await db.query(readFileSync(path.join(here, '171_gst_gta_360.sql'), 'utf8'));
   await db.query(readFileSync(path.join(here, '172_gst_invoice_dates_and_itc_scope.sql'), 'utf8'));
-  check('160 → 172 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '172_gst_invoice_dates_and_itc_scope.sql'), 'utf8'));
-  check('172 is re-runnable', true, true);
+  await db.query(readFileSync(path.join(here, '173_gst_itc_expense_groups_only.sql'), 'utf8'));
+  check('160 → 173 apply on the production schema', true, true);
+  await db.query(readFileSync(path.join(here, '173_gst_itc_expense_groups_only.sql'), 'utf8'));
+  check('173 is re-runnable', true, true);
 
   console.log('\nTHE RULES');
   check('GSTIN check digit: the firm’s and IOCL’s pass', await one(`SELECT gstin_valid('18AAKFP2339R2ZG') AS a, gstin_valid('18AAACI1681G1ZO') AS b, gstin_valid('18ABUFA6737D1Z3') AS c`), { a: true, b: true, c: true });
@@ -117,16 +118,19 @@ try {
 
   console.log('\nINPUT TAX CREDIT');
   await db.query(`INSERT INTO account_groups (group_head, account_type, statement, normal_side, sort_order, is_system) VALUES ('Direct Expenses - Toll & FASTag','EXPENSE','PROFIT_AND_LOSS','DR',410,true), ('Direct Expenses (Vehicle Compliance & Docs)','EXPENSE','PROFIT_AND_LOSS','DR',411,true) ON CONFLICT DO NOTHING`);
-  await db.query(`INSERT INTO ledgers (ledger_name, group_head, company, dr_cr, branch, status) VALUES ('Direct Expenses - Toll & FASTag','Direct Expenses - Toll & FASTag','M/S PRASAD TRANSPORT','DR','ALL','ACTIVE'), ('Vehicle Insurance Expenses','Direct Expenses (Vehicle Compliance & Docs)','M/S PRASAD TRANSPORT','DR','ALL','ACTIVE')`);
+  await db.query(`INSERT INTO account_groups (group_head, account_type, statement, normal_side, sort_order, is_system) VALUES ('Sundry Creditors (Fuel Pumps)','LIABILITY','BALANCE_SHEET','CR',300,true) ON CONFLICT DO NOTHING`);
+  await db.query(`INSERT INTO ledgers (ledger_name, group_head, company, dr_cr, branch, status) VALUES ('Direct Expenses - Toll & FASTag','Direct Expenses - Toll & FASTag','M/S PRASAD TRANSPORT','DR','ALL','ACTIVE'), ('Vehicle Insurance Expenses','Direct Expenses (Vehicle Compliance & Docs)','M/S PRASAD TRANSPORT','DR','ALL','ACTIVE'), ('Creditors: ALAM FUEL STATION','Sundry Creditors (Fuel Pumps)','M/S PRASAD TRANSPORT','CR','ALL','ACTIVE')`);
   await db.query(`INSERT INTO ledger_entries (ledger_name, entry_date, particulars, dr_cr, amount, source_type, source_ref, company, company_id) VALUES
     ('Direct Expenses - Toll & FASTag', '2026-08-03', 'toll AS26C5109', 'DR', 1200, 'FASTAG', 'T1', 'M/S PRASAD TRANSPORT', $1),
     ('Direct Expenses - Toll & FASTag', '2026-08-09', 'toll AS26C5106', 'DR', 800, 'FASTAG', 'T2', 'M/S PRASAD TRANSPORT', $1),
-    ('Vehicle Insurance Expenses', '2026-08-15', 'ICICI Lombard AS26C5109', 'DR', 45000, 'VOUCHER', 'INS-1', 'M/S PRASAD TRANSPORT', $1)`, [pt.id]).catch((e) => console.log('  (ledger fixture: ' + e.message.slice(0, 120) + ')'));
+    ('Vehicle Insurance Expenses', '2026-08-15', 'ICICI Lombard AS26C5109', 'DR', 45000, 'VOUCHER', 'INS-1', 'M/S PRASAD TRANSPORT', $1),
+    ('Creditors: ALAM FUEL STATION', '2026-08-16', 'pump bill Aug H1', 'CR', 250000, 'VOUCHER', 'PB-1', 'M/S PRASAD TRANSPORT', $1)`, [pt.id]).catch((e) => console.log('  (ledger fixture: ' + e.message.slice(0, 120) + ')'));
   await db.query(`INSERT INTO tyres (serial_no, brand, size, purchase_date, purchase_cost, base_cost, gst_amount, gst_percent, vendor_name, invoice_no, status) VALUES ('TY-1', 'MRF', '10.00-20', '2026-08-10', 23600, 20000, 3600, 18, 'S P AUTOMOBILE', 'SPA/221', 'IN_STOCK')`).catch((e) => console.log('  (tyres fixture: ' + e.message.slice(0, 120) + ')'));
   await db.query(`INSERT INTO tyre_fitments (tyre_serial, tyre_id, vehicle_id, vehicle_no, fitment_date) SELECT 'TY-1', t.id, v.id, v.vehicle_no, '2026-08-12' FROM tyres t, vehicles v WHERE t.serial_no = 'TY-1' AND v.vehicle_no = 'AS 26C 9801'`).catch((e) => console.log('  (fitment fixture: ' + e.message.slice(0, 120) + ')'));
   await db.query(`SELECT gst_itc_capture()`);
   const itc = (await db.query(`SELECT source_kind, category, amount_total::text AS amt, gst_amount::text AS gst, gst_known, eligibility FROM gst_itc_register ORDER BY source_kind, category`)).rows;
   check('toll is one monthly exempt-inward row', itc.find((r) => r.category === 'TOLL'), { source_kind: 'LEDGER_MONTH', category: 'TOLL', amt: '2000.00', gst: '0.00', gst_known: false, eligibility: 'EXEMPT_SUPPLY' });
+  check('a pump creditor ledger never becomes a diesel purchase row (173)', itc.filter((r) => r.category === 'FUEL').length, 0);
   check('the tyre bill knows its GST but the firm is under RCM → blocked, kept', itc.find((r) => r.category === 'TYRES'), { source_kind: 'TYRE', category: 'TYRES', amt: '23600.00', gst: '3600.00', gst_known: true, eligibility: 'BLOCKED_SCHEME' });
   check('insurance from the ledger: GST unknown, blocked under RCM', itc.find((r) => r.category === 'INSURANCE')?.eligibility, 'BLOCKED_SCHEME');
   await db.query(`UPDATE companies SET gst_scheme = 'FCM_12' WHERE id = $1`, [pt.id]);
