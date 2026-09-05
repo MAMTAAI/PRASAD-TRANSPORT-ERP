@@ -50,9 +50,10 @@ try {
   await db.query(`INSERT INTO customers (customer_name, gst_mode, gst_pct) VALUES ('HALDIA STONE CRUSHER', 'FORWARD', 12)`);
   await db.query(`UPDATE customers SET gst_mode_locked = true WHERE customer_name = 'HALDIA STONE CRUSHER'`).catch(() => {});
   await db.query(readFileSync(path.join(here, '171_gst_gta_360.sql'), 'utf8'));
-  check('160 → 171 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '171_gst_gta_360.sql'), 'utf8'));
-  check('171 is re-runnable', true, true);
+  await db.query(readFileSync(path.join(here, '172_gst_invoice_dates_and_itc_scope.sql'), 'utf8'));
+  check('160 → 172 apply on the production schema', true, true);
+  await db.query(readFileSync(path.join(here, '172_gst_invoice_dates_and_itc_scope.sql'), 'utf8'));
+  check('172 is re-runnable', true, true);
 
   console.log('\nTHE RULES');
   check('GSTIN check digit: the firm’s and IOCL’s pass', await one(`SELECT gstin_valid('18AAKFP2339R2ZG') AS a, gstin_valid('18AAACI1681G1ZO') AS b, gstin_valid('18ABUFA6737D1Z3') AS c`), { a: true, b: true, c: true });
@@ -86,16 +87,18 @@ try {
   await db.query(`INSERT INTO customer_bills (bill_no, customer_id, customer_name, company_id, operating_company, books_key, cycle_kind, period_from, period_to, cycle, status, gross, tds, net_receivable, gst_mode, gst_pct, locked_at, raised_at, raised_by)
     VALUES ('CB-AGIL-AUG-2026-PT', $1, 'AADHAR GREEN INDUSTRIES LLP', $2, 'M/S PRASAD TRANSPORT', 'PT', 'MONTH', '2026-08-01', '2026-08-31', '2026-08', 'RAISED', 390000, 0, 390000, 'RCM', 5, now(), '2026-09-01', 'owner'),
            ('CB-AGIL-JUL-2026-PT', $1, 'AADHAR GREEN INDUSTRIES LLP', $2, 'M/S PRASAD TRANSPORT', 'PT', 'MONTH', '2026-07-01', '2026-07-31', '2026-07', 'RAISED', 200000, 0, 200000, 'RCM', 5, now(), '2026-08-01', 'owner'),
+           ('CB-AGIL-APR-2026-PT', $1, 'AADHAR GREEN INDUSTRIES LLP', $2, 'M/S PRASAD TRANSPORT', 'PT', 'MONTH', '2026-04-01', '2026-04-30', '2026-04', 'RAISED', 100000, 0, 100000, 'RCM', 5, now(), '2026-09-05', 'tara'),
            ('CB-HSC-AUG-2026-PT', $3, 'HALDIA STONE CRUSHER', $2, 'M/S PRASAD TRANSPORT', 'PT', 'MONTH', '2026-08-01', '2026-08-31', '2026-08', 'AI_DRAFT', 0, 0, 0, 'FORWARD', 12, NULL, NULL, NULL)`, [ag.id, pt.id, hs.id]);
   await db.query(`SELECT gst_bills_backfill()`);
   const inv = (await db.query(`SELECT bill_no, gst_invoice_no, gst_period, gst_treatment, supply_type, cgst::text AS cgst, sgst::text AS sgst, gst_amount::text AS gst, gst_payable_by, invoice_value::text AS val, net_receivable::text AS net, gst_doc_source FROM customer_bills ORDER BY bill_no`)).rows;
-  check('a raised bill with no AC5 doc is the invoice: PT/2627/00001, Jul first', inv.filter((b) => b.gst_invoice_no).map((b) => [b.bill_no, b.gst_invoice_no]), [['CB-AGIL-AUG-2026-PT', 'PT/2627/00002'], ['CB-AGIL-JUL-2026-PT', 'PT/2627/00001']]);
-  check('RCM: GST shown, recipient pays, net untouched', inv.find((b) => b.bill_no === 'CB-AGIL-AUG-2026-PT'), { bill_no: 'CB-AGIL-AUG-2026-PT', gst_invoice_no: 'PT/2627/00002', gst_period: '092026', gst_treatment: 'RCM', supply_type: 'INTRA', cgst: '9750.00', sgst: '9750.00', gst: '19500.00', gst_payable_by: 'RECIPIENT', val: '390000.00', net: '390000.00', gst_doc_source: 'BILL' });
+  check('serials run by invoice date: the April backlog bill first, then Jul, then Aug', inv.filter((b) => b.gst_invoice_no).map((b) => [b.bill_no, b.gst_invoice_no]), [['CB-AGIL-APR-2026-PT', 'PT/2627/00001'], ['CB-AGIL-AUG-2026-PT', 'PT/2627/00003'], ['CB-AGIL-JUL-2026-PT', 'PT/2627/00002']]);
+  check('a bill raised months late is dated in its own period (172)', await one(`SELECT invoice_date::text AS d, gst_period AS p FROM customer_bills WHERE bill_no = 'CB-AGIL-APR-2026-PT'`), { d: '2026-04-30', p: '042026' });
+  check('RCM: GST shown, recipient pays, net untouched', inv.find((b) => b.bill_no === 'CB-AGIL-AUG-2026-PT'), { bill_no: 'CB-AGIL-AUG-2026-PT', gst_invoice_no: 'PT/2627/00003', gst_period: '092026', gst_treatment: 'RCM', supply_type: 'INTRA', cgst: '9750.00', sgst: '9750.00', gst: '19500.00', gst_payable_by: 'RECIPIENT', val: '390000.00', net: '390000.00', gst_doc_source: 'BILL' });
   check('a draft gets no serial', inv.find((b) => b.bill_no === 'CB-HSC-AUG-2026-PT')?.gst_invoice_no ?? null, null);
   await db.query(`SELECT customer_bill_refresh(id) FROM customer_bills WHERE bill_no = 'CB-HSC-AUG-2026-PT'`);
   check('refresh runs on a FORWARD draft (supplier pays)', await one(`SELECT gst_treatment, gst_payable_by, gst_period FROM customer_bills WHERE bill_no = 'CB-HSC-AUG-2026-PT'`), { gst_treatment: 'FORWARD', gst_payable_by: 'SUPPLIER', gst_period: '082026' });
   await db.query(`UPDATE customer_bills SET gross = 50000, taxable_value = 50000, status = 'RAISED', locked_at = now(), raised_at = '2026-09-02', raised_by = 'owner' WHERE bill_no = 'CB-HSC-AUG-2026-PT'`);
-  check('raising it hands out the next serial', (await one(`SELECT gst_invoice_no AS n FROM customer_bills WHERE bill_no = 'CB-HSC-AUG-2026-PT'`)).n, 'PT/2627/00003');
+  check('raising it hands out the next serial', (await one(`SELECT gst_invoice_no AS n FROM customer_bills WHERE bill_no = 'CB-HSC-AUG-2026-PT'`)).n, 'PT/2627/00004');
 
   console.log('\nTHE OUTPUT REGISTER');
   await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, bill_date, reverse_charge, s_no, invoice_no, item_code, line_date, vehicle_no_raw, vehicle_norm, ship_to_raw, ship_to_code, ship_to_name, material, quantity_kl, shortage, gross_amt, penalty_amt, igst_amt, cgst_amt, sgst_amt, page_no, source_line, rtd, rate) VALUES
@@ -108,7 +111,7 @@ try {
   check('the IGST bill asks for the recipient’s state GSTIN', docs.find((d) => d.doc_no === 'MNP26000999')?.needs, 'inter-state: recipient state GSTIN + place of supply needed');
   await db.query(`INSERT INTO gst_doc_overrides (doc_kind, doc_no, recipient_gstin, place_of_supply, updated_by) VALUES ('AC5', 'MNP26000999', '14AAACI1681G1ZX', '14', 'test')`);
   check('…and is satisfied once a person supplies it', await one(`SELECT recipient_gstin AS g, place_of_supply AS p, needs FROM v_gst_output_docs WHERE doc_no = 'MNP26000999'`), { g: '14AAACI1681G1ZX', p: '14', needs: null });
-  check('our own bills appear as BILL documents, drafts marked', docs.filter((d) => d.doc_kind === 'BILL').map((d) => [d.doc_no, d.doc_status]), [['PT/2627/00001', 'ISSUED'], ['PT/2627/00002', 'ISSUED'], ['PT/2627/00003', 'ISSUED']]);
+  check('our own bills appear as BILL documents, drafts marked', docs.filter((d) => d.doc_kind === 'BILL').map((d) => [d.doc_no, d.doc_status]), [['PT/2627/00001', 'ISSUED'], ['PT/2627/00002', 'ISSUED'], ['PT/2627/00003', 'ISSUED'], ['PT/2627/00004', 'ISSUED']]);
   check('Aug 2026 for Prasad: 2 AC5 docs + the July bill raised on 1 Aug (invoice date rules the period)', await one(`SELECT docs, rcm_taxable::text AS t, rcm_tax::text AS x FROM v_gst_output_month WHERE company_id = $1 AND period = '082026'`, [pt.id]), { docs: 3, t: '400000.00', x: '20000.00' });
   check('the bill raised on 2 Sep is a September invoice', (await one(`SELECT gst_period AS p FROM customer_bills WHERE bill_no = 'CB-HSC-AUG-2026-PT'`)).p, '092026');
 
@@ -140,7 +143,7 @@ try {
   await db.query(`SELECT gst_filings_sync()`);
   check('GSTR-1 and GSTR-3B drafts for Prasad Aug 2026 with their due dates', (await db.query(`SELECT form, due_date::text AS due, status FROM gst_filings WHERE company_id = $1 AND period = '082026' ORDER BY form`, [pt.id])).rows, [{ form: 'GSTR1', due: '2026-09-11', status: 'DRAFT' }, { form: 'GSTR3B', due: '2026-09-20', status: 'DRAFT' }]);
   const ov = await one(`SELECT gstin, gstin_valid, gst_scheme, fy_docs, docs_needing_attention, customers_without_gstin FROM v_gst_overview WHERE company_id = $1`, [pt.id]);
-  check('the overview reads it all (3 own bills to customers without a GSTIN need attention)', ov, { gstin: '18AAKFP2339R2ZG', gstin_valid: true, gst_scheme: 'FCM_12', fy_docs: 5, docs_needing_attention: 3, customers_without_gstin: 2 });
+  check('the overview reads it all (4 own bills to customers without a GSTIN need attention)', ov, { gstin: '18AAKFP2339R2ZG', gstin_valid: true, gst_scheme: 'FCM_12', fy_docs: 6, docs_needing_attention: 4, customers_without_gstin: 2 });
   const audit = (await one(`SELECT gst_deep_audit('test') AS a`)).a;
   check('the deep audit reports firms, customers, documents and books mismatches', [Array.isArray(audit.firms), Array.isArray(audit.customers), typeof audit.documents, Array.isArray(audit.gstin_vs_books), Array.isArray(audit.invalid_vendor_gstins)], [true, true, 'object', true, true]);
   check('…and is remembered', Number((await one(`SELECT count(*)::int AS n FROM gst_audit_runs`)).n) >= 2, true);
