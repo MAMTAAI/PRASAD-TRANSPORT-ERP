@@ -273,7 +273,7 @@ export default function TripManagment() {
     if (n(kharch.fooding)) entries.push({ kind: 'FOODING_ALLOWANCE', amount: n(kharch.fooding) });
     if (n(kharch.doc)) entries.push({ kind: 'DOC_EXPENSE', amount: n(kharch.doc) });
     if (n(kharch.other)) {
-      if (!kharch.otherLabel.trim()) return alert('⚠️ Other expense ka naam likhiye — bina naam ka kharch audit me nahi chalta.');
+      if (!kharch.otherLabel.trim()) return alert('⚠️ Name the other expense — an unnamed expense does not pass audit.');
       entries.push({ kind: 'OTHER_EXPENSE', amount: n(kharch.other), label: kharch.otherLabel.trim() });
     }
     const adv = n(kharch.advance);
@@ -292,12 +292,12 @@ export default function TripManagment() {
                                  remarks: `Trip: ${kharchTrip.trip_code || ''} - trip advance` }),
         });
       }
-      alert(`✅ Trip ${kharchTrip.trip_code || ''} ke neeche darj: ${entries.length} kharch${adv ? ` + advance ₹${adv}` : ''}. 15-din ke bill me isi trip par dikhega.`);
+      alert(`✅ Recorded under trip ${kharchTrip.trip_code || ''}: ${entries.length} expense(s)${adv ? ` + advance ₹${adv}` : ''}. It appears on this trip in the 15-day bill.`);
       setKharch(emptyKharch);
       await loadKharch(kharchTrip.id);
       fetchData();
     } catch (e: any) {
-      const hint: any = { TRIP_VEHICLE_MISMATCH: 'Yeh kharch is trip ki lorry ka nahi hai.', NO_DRIVER: 'Is trip par driver nahi hai — advance nahi de sakte.', LABEL_REQUIRED: 'Other expense ka naam likhiye.' };
+      const hint: any = { TRIP_VEHICLE_MISMATCH: 'This expense does not belong to this trip\'s vehicle.', NO_DRIVER: 'No driver on this trip — an advance cannot be given.', LABEL_REQUIRED: 'Name the other expense.' };
       alert(`❌ ${hint[e?.code] ?? 'Save nahi hua.'}\n\n${e?.message ?? ''}`);
     }
     setKharchBusy(false);

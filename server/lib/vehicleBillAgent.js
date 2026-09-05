@@ -19,6 +19,7 @@
 // run that never happened is a missing row rather than an absence of evidence.
 import { query } from '../db/pool.js';
 import { startRun, startStep, finishRun } from './agentLog.js';
+import { autoRaiseCustomerBills } from './customerBillRaise.js';
 
 export const JOB = 'vehicle_fortnight_bills';
 
@@ -96,10 +97,14 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
     // (contract) customer, the month it falls in. Raised bills are touched only
     // for the money that arrived; a person raises, TARA never does.
     let customerBills = { created: 0, refreshed: 0, skipped: 0 };
+    let autoRaised = { candidates: 0, raised: 0, posted: 0, failed: 0, amount: 0 };
     try {
       await startStep(run.run_id, 'customer_bills', { agent_code: agent });
       const { rows: [cb] } = await query('SELECT * FROM customer_bills_build($1::date, $2)', [from, 'agent:TARA']);
       customerBills = cb ?? customerBills;
+      // 166: a draft with nothing left to decide is raised by TARA (revenue
+      // posted, locked); the desk's list is only the bills with a problem.
+      autoRaised = await autoRaiseCustomerBills({ by: 'agent:TARA', log });
     } catch (e) {
       // Before 163 lands, or on a fault — the lorry bills must still go out.
       log.warn?.({ job: JOB, err: e.message }, '[agent] customer bills build failed');
@@ -124,7 +129,8 @@ export async function runVehicleBillAgent({ periodFrom, force = false, log = con
 
     const counts = { ...built, ...state, ...bills, ...custState,
                      customer_created: customerBills.created, customer_refreshed: customerBills.refreshed,
-                     customer_skipped: customerBills.skipped, period_from: from };
+                     customer_skipped: customerBills.skipped, customer_autoraised: autoRaised.raised,
+                     customer_autoraise_posted: autoRaised.amount, period_from: from };
     await finishRun(run.run_id, 'OK', { counts });
     log.info?.({ job: JOB, ...counts }, '[agent] vehicle fortnight bills ready for the desk');
     return { ran: true, period_from: from, ...counts };

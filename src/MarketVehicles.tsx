@@ -417,14 +417,14 @@ export default function MarketVehicles() {
                     bill reads the rate from here; blank = "rate nahi", no approve. */}
                 <div><label style={{fontSize:'11px', color:'#f472b6', fontWeight:'bold'}}>TDS: Individual ya Firm? *</label>
                   <select className="glass-input" style={{borderColor:'#f472b6'}} value={vendorFormData.entity_type || ''} onChange={e => setVendorFormData({...vendorFormData, entity_type: e.target.value})}>
-                    <option value="">-- chuniye --</option>
+                    <option value="">-- choose --</option>
                     <option value="INDIVIDUAL">Individual / HUF — TDS 1%</option>
                     <option value="FIRM">Firm / Company — TDS 2%</option>
                   </select>
                 </div>
                 <div style={{gridColumn:'span 2', display:'flex', alignItems:'center', gap:'10px', paddingTop:'18px'}}>
                   <input type="checkbox" id="tds194c6" checked={!!vendorFormData.tds_declaration_194c} onChange={e => setVendorFormData({...vendorFormData, tds_declaration_194c: e.target.checked})} style={{width:'18px', height:'18px'}} />
-                  <label htmlFor="tds194c6" style={{fontSize:'12px', color:'#c4d1ea'}}>194C(6) declaration mili hai (≤10 gaadi, PAN ke saath) — <b style={{color:'#2fe39b'}}>TDS NIL</b>. Bina PAN 20% kat-ta hai.</label>
+                  <label htmlFor="tds194c6" style={{fontSize:'12px', color:'#c4d1ea'}}>194C(6) declaration received (≤10 vehicles, with PAN) — <b style={{color:'#2fe39b'}}>TDS NIL</b>. Bina PAN 20% kat-ta hai.</label>
                 </div>
               </div>
 

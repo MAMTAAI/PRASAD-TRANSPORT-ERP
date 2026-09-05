@@ -182,8 +182,8 @@ export default function Vehical() {
   const [audit, setAudit] = useState<any>({ count: 0, rows: [], by_finding: {} });
   const [showAudit, setShowAudit] = useState(false);
   const AUDIT_LABEL: any = {
-    OWN_OWNER_MISMATCH: 'Own par malik alag', ATTACHED_TO_SELF: 'Khud se attached', ATTACHED_NO_RATE: 'Rate nahi',
-    NO_COMPANY: 'Company nahi', TRIPS_OTHER_COMPANY: 'Doosri company me trip', NO_MASTER: 'Master me nahi',
+    OWN_OWNER_MISMATCH: 'Own with a different owner', ATTACHED_TO_SELF: 'Attached to itself', ATTACHED_NO_RATE: 'No rate',
+    NO_COMPANY: 'No company', TRIPS_OTHER_COMPANY: 'Trips in another company', NO_MASTER: 'Not in master',
   };
   const loadAudit = async () => {
     try { setAudit(await fetchJson(`${MASTERS}/vehicles/rule-audit`)); } catch { /* older API: no panel */ }
@@ -281,12 +281,12 @@ export default function Vehical() {
 
   const handleSave = async () => {
     if (!formData.vehicle_no) return alert('⚠️ Vehicle number is required.');
-    if (!formData.company_name) return alert('⚠️ Operating company chuniye — kis firm ki books me chalti hai.');
+    if (!formData.company_name) return alert('⚠️ Choose the operating company — which firm\'s books the vehicle runs in.');
     const stripMs = (s: any) => String(s ?? '').replace(/^m\/?s\.?\s*/i, '');
     if (formData.own_attach === 'Attached') {
-      if (!formData.owner_name) return alert('⚠️ Attached gaadi ka malik (owner) likhiye — 15-din ka bill usi ke naam banta hai.');
+      if (!formData.owner_name) return alert('⚠️ Enter the owner of the attached vehicle — its 15-day bill is raised in that name.');
       if (sameName(stripMs(formData.owner_name), stripMs(formData.company_name))) {
-        return alert('⚠️ Malik aur operating company ek hi hain — yeh OWN gaadi hai. Own chuniye.');
+        return alert('⚠️ Owner and operating company are the same — this is an OWN vehicle. Choose Own.');
       }
     }
     try {
@@ -425,7 +425,7 @@ export default function Vehical() {
         <div style={{ flex: 1, minWidth: '200px' }}>
           <select className="modern-input" value={filterOwner} onChange={(e) => setFilterOwner(e.target.value)} style={{ color: filterOwner ? '#a78bfa' : 'white', fontWeight: filterOwner ? 'bold' : 'normal' }}>
             <option value="">👤 All Owners (Own + Attached)</option>
-            <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only OWN (company ki apni gaadi)</option>
+            <option value="Own" style={{ color: '#2fe39b', fontWeight: 'bold' }}>⭐ Only OWN (company's own vehicles)</option>
             {uniqueOwners.map((owner: any, i) => <option key={i} value={owner}>🤝 {owner}</option>)}
           </select>
         </div>
@@ -441,8 +441,8 @@ export default function Vehical() {
             </span>
           </div>
           <div style={{ fontSize: '11.5px', color: '#9aadd4', marginTop: '4px', lineHeight: 1.5 }}>
-            Rule: <b style={{ color: '#22d3ee' }}>Operating Company</b> = kis firm ki books · <b style={{ color: '#2fe39b' }}>OWN</b> = company ki apni (malik = company) ·{' '}
-            <b style={{ color: '#ffb224' }}>ATTACHED</b> = kisi aur ki (malik zaroori, 15-din bill me commission/TDS). System kuch apne aap nahi badalta — har line kholiye aur tay kijiye.
+            Rule: <b style={{ color: '#22d3ee' }}>Operating Company</b> = which firm's books · <b style={{ color: '#2fe39b' }}>OWN</b> = the company's own (owner = company) ·{' '}
+            <b style={{ color: '#ffb224' }}>ATTACHED</b> = someone else's (owner required, commission/TDS on the 15-day bill). Nothing changes on its own — open each line and dey kijiye.
           </div>
           {showAudit && (
             <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', overflowY: 'auto' }}>
@@ -482,8 +482,8 @@ export default function Vehical() {
           {!fetchError && filteredVehicles.length === 0 && (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '50px', color: '#9aadd4', fontSize: '15px' }}>
               {vehicles.length === 0
-                ? '🚛 Database me abhi koi vehicle nahi mili. "+ Initialize Vehicle" se pehli vehicle add karein.'
-                : `🔍 ${vehicles.length} vehicles me se koi filter/search se match nahi hui — filters clear karke dekhein.`}
+                ? '🚛 No vehicle in the database yet. Add the first one with "+ Initialize Vehicle".'
+                : `🔍 None of the ${vehicles.length} vehicles match the filter/search — clear the filters.`}
             </div>
           )}
           {pgFilteredVehicles.slice.map((v) => {
@@ -494,7 +494,7 @@ export default function Vehical() {
                 <div>
                   <span className="gradient-text" style={{ fontSize: '24px', fontWeight: '900' }}>{v.vehicle_no || v.Vehicle_No || v.vehical_no}</span>
                   <p style={{ margin: '5px 0 0 0', color: v.own_attach === 'Attached' ? '#ffb224' : '#2fe39b', fontSize: '13px', fontWeight: 'bold' }}>
-                    {v.own_attach === 'Attached' ? '🤝 ATTACHED' : '⭐ OWN'} {(v.owner_name || v.asset_owner_name) ? `· malik ${v.owner_name || v.asset_owner_name}` : ''}
+                    {v.own_attach === 'Attached' ? '🤝 ATTACHED' : '⭐ OWN'} {(v.owner_name || v.asset_owner_name) ? `· owner ${v.owner_name || v.asset_owner_name}` : ''}
                   </p>
                 </div>
                 <span style={{ fontSize: '10px', background: 'rgba(255, 178, 36,0.1)', color: '#ffb224', padding: '4px 8px', borderRadius: '12px', border: '1px solid #ffb224' }}>
@@ -574,8 +574,8 @@ export default function Vehical() {
                     <div><label>Own / Attached *</label>
                       <select className="modern-input" name="own_attach" value={formData.own_attach} onChange={handleInputChange}
                         style={{ borderColor: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b', fontWeight: 'bold' }}>
-                        <option value="Own">⭐ OWN — company ki apni gaadi (malik = company)</option>
-                        <option value="Attached">🤝 ATTACHED — kisi aur ki gaadi (15-din bill, commission + TDS)</option>
+                        <option value="Own">⭐ OWN — the company's own vehicle (owner = company)</option>
+                        <option value="Attached">🤝 ATTACHED — someone else's vehicle (15-day bill, commission + TDS)</option>
                       </select>
                     </div>
 
@@ -592,21 +592,21 @@ export default function Vehical() {
                     ) : (
                       <>
                         <div><label style={{ color: '#2fe39b', fontWeight: 'bold' }}>Malik (owner)</label>
-                          <input className="modern-input" value={formData.company_name || '(pehle company chuniye)'} disabled style={{ border: '1px solid rgba(47,227,155,0.4)', color: '#2fe39b', opacity: 0.9 }} />
-                          <div style={{ fontSize: '11px', color: '#9aadd4', marginTop: '4px' }}>Own gaadi ka malik company hi hoti hai — freight aur kharch company ke, P&amp;L statement banta hai.</div>
+                          <input className="modern-input" value={formData.company_name || '(choose the company first)'} disabled style={{ border: '1px solid rgba(47,227,155,0.4)', color: '#2fe39b', opacity: 0.9 }} />
+                          <div style={{ fontSize: '11px', color: '#9aadd4', marginTop: '4px' }}>An own vehicle is owned by the company — freight and expenses are the company's, P&amp;L statement banta hai.</div>
                         </div>
                         <div><label style={{ color: '#22d3ee', fontWeight: 'bold' }}>Vehicle Value (₹) - For Asset Ledger</label><input type="number" className="modern-input" name="vehicle_value" style={{ border: '1px solid #22d3ee' }} value={formData.vehicle_value} onChange={handleInputChange} /></div>
                       </>
                     )}
 
                     <div style={{ fontSize: '12px', padding: '8px 10px', borderRadius: '8px', border: '1px dashed #27395f', color: '#c4d1ea', background: 'rgba(10,16,36,0.5)', lineHeight: 1.5 }}>
-                      ⚖️ Rule: books <b style={{ color: '#22d3ee' }}>{formData.company_name || '—'}</b> · malik{' '}
+                      ⚖️ Rule: books <b style={{ color: '#22d3ee' }}>{formData.company_name || '—'}</b> · owner{' '}
                       <b style={{ color: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b' }}>
                         {formData.own_attach === 'Attached' ? (formData.owner_name || '—') : (formData.company_name || '—')}
                       </b>{' → '}
                       <b style={{ color: formData.own_attach === 'Attached' ? '#ffb224' : '#2fe39b' }}>{formData.own_attach === 'Attached' ? 'ATTACHED' : 'OWN'}</b>
                       {formData.own_attach === 'Attached' && formData.owner_name && sameName(formData.owner_name.replace(/^m\/?s\.?\s*/i, ''), String(formData.company_name).replace(/^m\/?s\.?\s*/i, '')) && (
-                        <div style={{ color: '#ff6b81', marginTop: '4px' }}>⚠️ Malik aur company ek hi hain — yeh OWN gaadi hai.</div>
+                        <div style={{ color: '#ff6b81', marginTop: '4px' }}>⚠️ Owner and company are the same — this is an OWN vehicle.</div>
                       )}
                     </div>
 

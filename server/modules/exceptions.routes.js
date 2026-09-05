@@ -367,7 +367,7 @@ export async function detectCustomerRecon(exec = query) {
            b.short_count, b.short_amount, b.unpriced_count,
            b.their_unmatched, b.their_unmatched_amount, b.disputes
       FROM v_customer_bill b
-     WHERE b.status <> 'CANCELLED'
+     WHERE b.status IN ('RAISED', 'PART_PAID', 'PAID', 'DISPUTED')   -- after reconciliation is approved (owner, 5-Sep)
        AND (b.missing_count > 0 OR b.their_unmatched > 0 OR b.status = 'DISPUTED')`).catch(() => ({ rows: [] }));
   const raised = [];
   for (const b of rows) {
@@ -375,9 +375,9 @@ export async function detectCustomerRecon(exec = query) {
       raised.push(await raiseException({
         kind: 'MISSING_FREIGHT',
         severity: Number(b.missing_amount) >= 100000 ? 'HIGH' : 'MEDIUM',
-        title: `${b.missing_count} trip IOCL ke bill me nahi — ${b.customer_name}, ${b.cycle_label}`,
-        detail: `${b.customer_name} ne is pakhwade ke bill bheje hain par hamare ${b.missing_count} trip (${Number(b.missing_amount).toLocaleString('en-IN')} rupaye) kisi bill me nahi hain. `
-              + `Bill ${b.bill_no} kholiye → milaan → dispute uthaiye ya trip ka invoice number bhariye.`,
+        title: `${b.missing_count} trip(s) missing from the customer's bill — ${b.customer_name}, ${b.cycle_label}`,
+        detail: `${b.customer_name} has billed this fortnight, but ${b.missing_count} of our trips (₹${Number(b.missing_amount).toLocaleString('en-IN')}) appear on none of its bills. `
+              + `Open bill ${b.bill_no} → Reconciliation → raise a dispute or enter the trip's invoice number.`,
         subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
         amount_at_risk: Number(b.missing_amount) || null,
         dedupe_key: `MISSING_FREIGHT:${b.id}`,
@@ -388,9 +388,9 @@ export async function detectCustomerRecon(exec = query) {
       raised.push(await raiseException({
         kind: 'UNMATCHED_CUSTOMER_LINE',
         severity: 'MEDIUM',
-        title: `${b.their_unmatched} line IOCL ke bill me, hamara trip nahi — ${b.cycle_label}`,
-        detail: `IOCL ke transportation bill me ${b.their_unmatched} line (${Number(b.their_unmatched_amount).toLocaleString('en-IN')} rupaye) hain jinka hamare register me trip nahi mila. `
-              + `Ya trip register me nahi bana, ya lorry/tareekh alag likhi hai. Bill ${b.bill_no} → milaan → "Trip jodo".`,
+        title: `${b.their_unmatched} line(s) on the customer's bill with no trip of ours — ${b.cycle_label}`,
+        detail: `The customer's transportation bill carries ${b.their_unmatched} line(s) (₹${Number(b.their_unmatched_amount).toLocaleString('en-IN')}) that match no trip in our register. `
+              + `Either the trip was never entered, or the vehicle/date differs. Bill ${b.bill_no} → Reconciliation → "Link trip".`,
         subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
         amount_at_risk: Number(b.their_unmatched_amount) || null,
         dedupe_key: `UNMATCHED_CUSTOMER_LINE:${b.id}`,
@@ -402,9 +402,9 @@ export async function detectCustomerRecon(exec = query) {
       raised.push(await raiseException({
         kind: 'CUSTOMER_DISPUTE',
         severity: 'HIGH',
-        title: `Dispute khula — ${b.customer_name}, ${b.cycle_label} (${d.length} baat)`,
+        title: `Dispute open — ${b.customer_name}, ${b.cycle_label} (${d.length} item${d.length === 1 ? '' : 's'})`,
         detail: d.map((x) => `${x.trip_code || ''} ${x.kind}: ${Number(x.amount || 0).toLocaleString('en-IN')} — ${x.note || ''}`).join(' · ').slice(0, 900)
-              || 'Bill par dispute darj hai.',
+              || 'A dispute is recorded on this bill.',
         subject_type: 'customer_bill', subject_id: b.id, company: b.company_name ?? null,
         amount_at_risk: d.reduce((n, x) => n + (Number(x.amount) || 0), 0) || null,
         dedupe_key: `CUSTOMER_DISPUTE:${b.id}`,
@@ -981,13 +981,13 @@ export async function detectMailboxDead(exec = query) {
     raised.push(await raiseException({
       kind: 'MAILBOX_REAUTH',
       severity: 'HIGH',
-      title: `${box} mailbox band hai — IOCL ke bill aur payment advice nahi padhe ja rahe`,
-      detail: `Gmail token expire/revoke ho gaya (${reason}). Jab tak dobara authorise nahi hota, AC4/AC5 bills, payment advices aur customer milaan is mailbox ke liye ruke rahenge.`,
+      title: `${box} mailbox is not being read — IOCL bills and payment advices are not arriving`,
+      detail: `The Gmail token has expired or been revoked (${reason}). Until it is re-authorised, AC4/AC5 bills, payment advices and customer reconciliation stop for this mailbox.`,
       subject_type: 'mailbox', subject_id: box, company: box,
       evidence: { mailbox: box, token, last_run_at: last?.at ?? null, trigger: last?.trigger ?? null, reason },
       options: [
-        { key: 'REAUTH', label: `Office PC par chalayein: python tools/iocl_recon/gmail_setup.py --token ${token} --force (browser khulega), phir token AWS par copy` },
-        { key: 'PUBLISH_APP', label: 'Google Cloud → OAuth consent screen → Publish app, taaki token har 7 din expire na ho' },
+        { key: 'REAUTH', label: `On the office PC run: npm run mail:reauth (a browser opens per mailbox; the token is copied to AWS)` },
+        { key: 'PUBLISH_APP', label: 'Google Cloud → OAuth consent screen → Publish app, so the token stops expiring every 7 days' },
       ],
       amount_at_risk: null,
       dedupe_key: `MAILBOX_REAUTH:${box}`,

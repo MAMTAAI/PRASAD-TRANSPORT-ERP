@@ -117,14 +117,14 @@ try {
   await db.query(`INSERT INTO iocl_bill_lines (line_uid, run_id, group_uid, bill_no, bill_date, reverse_charge, s_no, invoice_no, line_date, vehicle_no_raw, vehicle_norm, ship_to_raw, gross_amt, penalty_amt, igst_amt, cgst_amt, sgst_amt, page_no, source_line)
                   VALUES ('L1', '11111111-1111-1111-1111-111111111111', 'G1', '0011024699', '2026-07-05', true, 1, '11024699AS26045', '2026-06-16', 'AS26C9814', 'AS26C9814', 'ZC7A01 - Agartala AFS', 70961.11, 0, 0, 0, 0, 1, 'x')`);
 
-  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql']) {
+  for (const f of ['160_vehicle_owner_bills.sql', '161_vehicle_ownership_rule.sql', '162_market_partner_bills.sql', '163_customer_bills.sql', '164_customer_contract_rate.sql', '165_advice_truth.sql', '166_fortnight_by_unloading.sql']) {
     await db.query(readFileSync(path.join(here, f), 'utf8'));
   }
   check('160 → 163 apply on the production schema', true, true);
-  await db.query(readFileSync(path.join(here, '163_customer_bills.sql'), 'utf8'));
-  await db.query(readFileSync(path.join(here, '164_customer_contract_rate.sql'), 'utf8'));
-  await db.query(readFileSync(path.join(here, '165_advice_truth.sql'), 'utf8'));
-  check('163 is re-runnable', true, true);
+  // Re-run the newest migration only: 166 adds a view column, so re-applying
+  // 165 on top of it would try to drop it (and never happens on a real box).
+  await db.query(readFileSync(path.join(here, '166_fortnight_by_unloading.sql'), 'utf8'));
+  check('166 is re-runnable', true, true);
 
   console.log('\nONE NAME, HOWEVER TYPED');
   const cof = async (n) => (await one('SELECT customer_of($1) c', [n])).c;
@@ -135,7 +135,7 @@ try {
   check('"hpcl" resolves', await cof('hpcl'), HPCL);
   check('a name nobody mapped is NULL, not a guess', await cof('SOME NEW COMPANY'), null);
   check('the master got its type from what it is', (await one('SELECT customer_type, bill_cycle FROM customers WHERE id=$1', [IOCL])), { customer_type: 'OIL_COMPANY', bill_cycle: 'FORTNIGHT' });
-  check('…the contract customer monthly', (await one('SELECT customer_type, bill_cycle, tds_pct_deducted FROM customers WHERE id=$1', [AGI])), { customer_type: 'CONTRACT', bill_cycle: 'MONTH', tds_pct_deducted: '0.000' });
+  check('…the contract customer, fortnightly like everyone (166)', (await one('SELECT customer_type, bill_cycle, tds_pct_deducted FROM customers WHERE id=$1', [AGI])), { customer_type: 'CONTRACT', bill_cycle: 'FORTNIGHT', tds_pct_deducted: '0.000' });
 
   console.log('\nBRANCHES, LEARNED FROM THE TRIPS');
   const br = (await db.query(`SELECT branch_code, branch_name, source FROM customer_branches WHERE customer_id=$1 ORDER BY branch_name`, [IOCL])).rows;
@@ -166,32 +166,41 @@ try {
   check('no amount → UNPRICED', await flag(T_UNPR), 'UNPRICED');
   check('a trip with no customer has no customer', (await one('SELECT customer_id FROM v_customer_trip_recon WHERE trip_code=$1', ['PT00700'])).customer_id, null);
 
+  console.log('\nTHE CYCLE IS THE UNLOADING FORTNIGHT (166)');
+  await db.query(`INSERT INTO trips (trip_code, vehicle_no, status, operating_company, customer_name, unloading_location, loading_date, unloading_date, loaded_qty, billed_amount, total_expense)
+    VALUES ('PT00620','AS 26C 9810','COMPLETED','M/S PRASAD TRANSPORT','INDIAN OIL CORPORATION LTD','ZC7A01 -Agartala AFS 7A01','2026-06-14','2026-06-17',40,50000,0),
+           ('PT00621','AS 26C 9811','COMPLETED','M/S PRASAD TRANSPORT','INDIAN OIL CORPORATION LTD','ZC7A01 -Agartala AFS 7A01','2026-06-28',NULL,40,50000,0)`);
+  check('loaded in H1, unloaded in H2 → the H2 cycle', (await one(`SELECT to_char(period_from,'YYYY-MM-DD') AS d FROM v_customer_trip_recon WHERE trip_code='PT00620'`)).d, '2026-06-16');
+  check('not unloaded → not billable yet', (await one(`SELECT count(*)::int AS n FROM v_customer_trip_recon WHERE trip_code='PT00621'`)).n, 0);
+  check('…and the mapping desk says so', (await one(`SELECT trips FROM v_customer_mapping_audit WHERE finding='NOT_UNLOADED'`)).trips, 1);
+  check('labels read in English', (await one(`SELECT detail FROM v_customer_mapping_audit WHERE finding='NO_CUSTOMER'`)).detail.includes('no customer'), true);
+
   console.log('\nBUILD — one bill per customer × books × cycle');
   const b1 = await one(`SELECT * FROM customer_bills_build('2026-06-20'::date, 'test')`);
   check('three bills for the fortnight/month containing 20 Jun', b1.created, 3);
   const bills = (await db.query(`SELECT * FROM v_customer_bill ORDER BY bill_no`)).rows;
-  check('bill numbers', bills.map((b) => b.bill_no), ['CB-AGIL-JUN-2026', 'CB-IOCL-JUN-H2-2026', 'CB-IOCL-JUN-H2-2026-PT']);
+  check('bill numbers', bills.map((b) => b.bill_no), ['CB-AGIL-JUN-H2-2026', 'CB-IOCL-JUN-H2-2026', 'CB-IOCL-JUN-H2-2026-PT']);
   const ioc = bills.find((b) => b.bill_no === 'CB-IOCL-JUN-H2-2026-PT');   // books sort JE < PT: Prasad carries the tail
-  check('IOCL Prasad: six trips', ioc.trips, 6);
+  check('IOCL Prasad: seven trips (one unloaded into this fortnight)', ioc.trips, 7);
   check('…in four branches', ioc.branches, 4);
-  check('…gross summed', ioc.gross, '473113.88');
+  check('…gross summed', ioc.gross, '523113.88');
   check('…penalty', ioc.shortage_penalty, '1515.00');
   check('…TDS as IOCL actually deducted', ioc.tds, '5882.22');
   check('…received as the advices say, not as the match assumed (165)', ioc.received, '290201.72');
-  check('…flags counted', [ioc.paid_count, ioc.short_count, ioc.pending_count, ioc.missing_count, ioc.unpriced_count], [2, 1, 1, 1, 1]);
-  check('…missing rupees named', ioc.missing_amount, '82899.50');
-  check('…legacy revenue not counted again', [ioc.revenue_posted_legacy, ioc.revenue_to_post], ['71619.05', '401494.83']);
-  check('…GST memo 5% RCM', ioc.gst_memo, '23655.69');
+  check('…flags counted', [ioc.paid_count, ioc.short_count, ioc.pending_count, ioc.missing_count, ioc.unpriced_count], [2, 1, 1, 2, 1]);
+  check('…missing rupees named', ioc.missing_amount, '132899.50');
+  check('…legacy revenue not counted again', [ioc.revenue_posted_legacy, ioc.revenue_to_post], ['71619.05', '451494.83']);
+  check('…GST memo 5% RCM', ioc.gst_memo, '26155.69');
   check('…branch blocks with the trips under them', ioc.lines.map((l) => l.branch_code ?? l.branch_name), ['ZC7A01', 'NISIKA ROAD LINE', '7B03', 'ZC7A04']   /* first trip date, then name */);
-  check('…each trip carries its flag', ioc.lines[0].trips.map((t) => t.flag), ['PAID', 'PAID', 'UNPRICED']);
+  check('…each trip carries its flag', ioc.lines[0].trips.map((t) => t.flag), ['PAID', 'MISSING', 'PAID', 'UNPRICED']);
   const gp = bills.find((b) => b.bill_no === 'CB-IOCL-JUN-H2-2026');
   check('IOCL in Jaiswal books is its own bill', [gp.trips, gp.gross], [1, '12000.00']);
-  const agi = bills.find((b) => b.bill_no === 'CB-AGIL-JUN-2026');
+  const agi = bills.find((b) => b.bill_no === 'CB-AGIL-JUN-H2-2026');
   check('a contract trip with no amount is priced by KL x rate (164)', await one("SELECT gross, rate, flag FROM v_customer_trip_recon WHERE trip_code='PT00602'"), { gross: '15000.00', rate: '1500.0000', flag: 'PENDING' });
   check('...and the oil company trip without an AC5 stays UNPRICED (no contract rate)', (await one("SELECT count(*)::int AS n FROM v_customer_trip_recon WHERE flag='UNPRICED' AND customer_code='11024699'")).n, 1);
-  check('the contract customer got the whole month', [agi.cycle_kind, agi.trips, agi.gross], ['MONTH', 3, '75000.00']);
+  check('the contract customer gets the fortnight its trips were unloaded in', [agi.cycle_kind, agi.trips, agi.gross], ['FORTNIGHT', 2, '45000.00']);
   check('…with no TDS', agi.tds, '0.00');
-  check('trips point at their bill', (await one('SELECT count(*)::int n FROM trips WHERE customer_bill_id=$1', [ioc.id])).n, 6);
+  check('trips point at their bill', (await one('SELECT count(*)::int n FROM trips WHERE customer_bill_id=$1', [ioc.id])).n, 7);
   check('the no-customer trip is on no bill', (await one(`SELECT customer_bill_id FROM trips WHERE trip_code='PT00700'`)).customer_bill_id, null);
   check('…and the mapping desk lists it', (await one(`SELECT trips FROM v_customer_mapping_audit WHERE finding='NO_CUSTOMER'`)).trips, 1);
   check('…and the unpriced', (await one(`SELECT trips FROM v_customer_mapping_audit WHERE finding='UNPRICED' AND subject LIKE 'INDIAN%'`)).trips, 1);
@@ -217,7 +226,7 @@ try {
   const ioc2 = await one('SELECT * FROM v_customer_bill WHERE id=$1', [ioc.id]);
   check('…received moves on the locked bill when the advice lands', ioc2.received, '387699.38');
   check('…status follows the money', ioc2.status, 'PART_PAID');
-  check('…gross stays what was signed', ioc2.gross, '544074.99');
+  check('…gross stays what was signed', ioc2.gross, '594074.99');
   check('a rebuild steps around it', (await one(`SELECT skipped FROM customer_bills_build('2026-06-20'::date, 'test')`)).skipped, 1);
   check('a reopen needs a reason',
     await err(() => db.query(`UPDATE customer_bills SET locked_at=NULL, status='STAFF_REVIEWED' WHERE id=$1`, [ioc.id])), 'P0415');

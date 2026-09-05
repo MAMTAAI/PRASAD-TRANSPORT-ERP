@@ -46,14 +46,14 @@ export function revenueJournal(b) {
  */
 export async function raiseCustomerBill(id, who = 'desk', { dryRun = false } = {}) {
   let bill = await billById(id);
-  if (!bill) throw new RaiseError('NOT_FOUND', 'Bill nahi mila', 404);
-  if (bill.locked_at) throw new RaiseError('ALREADY_RAISED', 'Yeh bill pehle se raised hai', 409, { bill });
+  if (!bill) throw new RaiseError('NOT_FOUND', 'Bill not found', 404);
+  if (bill.locked_at) throw new RaiseError('ALREADY_RAISED', 'This bill has already been raised', 409, { bill });
   await query('SELECT customer_bill_refresh($1::uuid)', [id]);
   bill = await billById(id);
   if (num(bill.unpriced_count) > 0) {
-    throw new RaiseError('UNPRICED', `${bill.unpriced_count} trip ka rate/amount nahi — pehle price kijiye (Pending Billing me qty × rate), tab raise hoga.`);
+    throw new RaiseError('UNPRICED', `${bill.unpriced_count} trip(s) have no rate or amount — price them first (Pending Billing: quantity × rate), then raise.`);
   }
-  if (!bill.company_id) throw new RaiseError('NO_COMPANY', 'Is bill ki firm (books) pata nahi — trips par operating company set kijiye.');
+  if (!bill.company_id) throw new RaiseError('NO_COMPANY', 'The firm (books) for this bill is not known — set the operating company on its trips.');
   const journal = revenueJournal(bill);
   let voucher = null;
   if (journal.lines.length) {
@@ -94,7 +94,29 @@ export async function raiseCustomerBill(id, who = 'desk', { dryRun = false } = {
   return {
     raised: true, bill: fresh, voucher_id: voucher?.voucher_id ?? null, posted: journal.lines, amount: journal.amount, legacy: journal.legacy,
     note: voucher
-      ? `Revenue ${inr(journal.amount)} post hua (Dr Debtors / Cr Freight Income).${journal.legacy > 0 ? ` ${inr(journal.legacy)} pehle ke bill se already posted tha — dobara nahi.` : ''}`
-      : 'Poora revenue pehle ke bill se already posted tha — sirf lock hua. Milaan chalti rahegi.',
+      ? `Revenue ${inr(journal.amount)} posted (Dr Debtors / Cr Freight Income).${journal.legacy > 0 ? ` ${inr(journal.legacy)} was already posted by earlier bills and is not repeated.` : ''}`
+      : 'All revenue was already posted by earlier bills — the bill is locked only. Reconciliation continues.',
   };
+}
+
+/**
+ * Raise every draft that has nothing left for a person to decide
+ * (v_customer_bills_autoraise, migration 166). The agent calls this after each
+ * build and after each advice run; the desk is left with the problem bills.
+ */
+export async function autoRaiseCustomerBills({ by = 'agent:TARA', log = null } = {}) {
+  const { rows } = await query('SELECT id, bill_no, customer_name, gross, revenue_to_post FROM v_customer_bills_autoraise ORDER BY bill_no')
+    .catch((e) => { if (/v_customer_bills_autoraise/.test(e.message)) return { rows: [] }; throw e; });
+  const out = { candidates: rows.length, raised: 0, posted: 0, failed: 0, amount: 0, bills: [] };
+  for (const b of rows) {
+    try {
+      const r = await raiseCustomerBill(b.id, by);
+      out.raised += 1; if (r.voucher_id) out.posted += 1; out.amount += Number(r.amount) || 0;
+      out.bills.push({ bill_no: b.bill_no, customer: b.customer_name, posted: Number(r.amount) || 0 });
+    } catch (e) {
+      out.failed += 1;
+      log?.warn?.({ bill: b.bill_no, err: e.message }, '[autoraise] refused');
+    }
+  }
+  return out;
 }

@@ -53,7 +53,8 @@ const PYTHON = process.env.PYTHON_BIN
   || 'python3';
 const STAGE_TIMEOUT_MS = Number(process.env.ADVICE_STAGE_TIMEOUT_MS || 10 * 60 * 1000);
 
-function runChild(bin, args, { timeoutMs = STAGE_TIMEOUT_MS } = {}) {
+export { PYTHON, TOOLS, REPO };
+export function runChild(bin, args, { timeoutMs = STAGE_TIMEOUT_MS } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -73,7 +74,7 @@ function runChild(bin, args, { timeoutMs = STAGE_TIMEOUT_MS } = {}) {
   });
 }
 
-const tail = (s, n = 6) => String(s ?? '').trim().split('\n').filter(Boolean).slice(-n).join('\n');
+export const tail = (s, n = 6) => String(s ?? '').trim().split('\n').filter(Boolean).slice(-n).join('\n');
 const grab = (s, re) => { const m = String(s ?? '').match(re); return m ? Number(m[1]) : null; };
 
 /**
@@ -111,6 +112,39 @@ export async function runAdviceCollect({ trigger = 'SCHEDULE', force = false, by
     });
     counts.mailboxes_dead = dead;
     if (!r.ok || dead.length) failed += 1;
+  }
+
+  // ── 1b. bills — the customer's transportation bills, matched to trips ────
+  // The AC4/AC5 sweep (KALI / BHUVANESHWARI) files each mailbox's PDFs under
+  // uploads/iocl_ac5/<Mailbox> and raises trips from them; it never wrote the
+  // bill lines and matches that the reconciliation reads (iocl_bill_runs /
+  // iocl_bill_lines / iocl_recon_matches) — on production those stopped on
+  // 16-Aug when the office PC stopped running iocl_bill_automation.py by
+  // hand. This runs it over every mailbox folder and the hand-uploaded
+  // folder, without Gmail and without posting any receipt: the document
+  // marks a trip BILLED, only the advice marks it PAID.
+  {
+    const done = await startStep(runId, 'bills', { agent_code: 'BHUVANESHWARI' });
+    const folders = [
+      ...['Prasad_Transport', 'Jaiswal_Enterprise'].map((m) => path.join(REPO, 'uploads', 'iocl_ac5', m)),
+      ...['prasad', 'jaiswal'].map((f) => path.join(REPO, 'uploads', 'iocl_bills_manual', f)),
+    ].filter((d) => fs.existsSync(d));
+    const since = new Date(Date.now() - 180 * 86400_000).toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+    const outs = []; let billsOk = true;
+    for (const d of folders) {
+      const r = await runChild(PYTHON, [path.join(TOOLS, 'iocl_bill_automation.py'), '--live', '--no-fetch', '--no-vouchers', '--settlement-basis', 'billed',
+        '--bill-dir', d, '--window-from', since, '--window-to', today], { timeoutMs: 20 * 60 * 1000 });
+      outs.push(`${path.basename(d)}: ${r.ok ? 'ok' : 'FAILED'} · ${tail(r.ok ? r.stdout : (r.stderr || r.stdout), 3).replace(/\n/g, ' | ')}`);
+      if (!r.ok) billsOk = false;
+    }
+    const { rows: [bl] } = await query(`SELECT count(*)::int AS runs, max(parsed_at)::date AS last_run FROM iocl_bill_runs`).catch(() => ({ rows: [{}] }));
+    counts.bill_runs = bl?.runs ?? null; counts.last_bill_run = bl?.last_run ?? null;
+    steps.bills = await done(folders.length === 0 ? 'SKIPPED' : billsOk ? 'OK' : 'FAILED', {
+      counts: { folders: folders.length, bill_runs: bl?.runs ?? 0 }, detail: { folders: folders.map((d) => path.relative(REPO, d)), tail: outs.join('\n') },
+      reason: folders.length === 0 ? 'no bill folders on disk yet' : null, error: billsOk ? null : 'a bill folder failed to parse — see the run log',
+    });
+    if (!billsOk) failed += 1;
   }
 
   // ── 2. load — the JSON into iocl_payment_advices ─────────────────────────
@@ -154,7 +188,11 @@ export async function runAdviceCollect({ trigger = 'SCHEDULE', force = false, by
                COALESCE(sum(pending_count), 0)::int AS pending, COALESCE(sum(balance), 0)::numeric(14,2) AS balance
           FROM customer_bills WHERE status NOT IN ('CANCELLED') AND period_from >= current_date - interval '180 days'`);
       counts.bills_refreshed = rows.length; counts.missing = f.missing; counts.short = f.short; counts.pending = f.pending; counts.balance = f.balance;
-      steps.refresh = await done('OK', { counts: { bills: rows.length, missing: f.missing, short: f.short, pending: f.pending } });
+      // 166: whatever is now clean is raised by TARA; the desk sees the rest.
+      const { autoRaiseCustomerBills } = await import('./customerBillRaise.js');
+      const ar = await autoRaiseCustomerBills({ by: 'agent:TARA', log });
+      counts.autoraised = ar.raised; counts.autoraise_amount = ar.amount;
+      steps.refresh = await done('OK', { counts: { bills: rows.length, missing: f.missing, short: f.short, pending: f.pending, autoraised: ar.raised } });
     } catch (err) {
       const pre163 = /customer_bill_refresh|customer_bills/.test(err.message);
       steps.refresh = await done(pre163 ? 'SKIPPED' : 'FAILED', { reason: pre163 ? 'migration 163 not applied' : null, error: pre163 ? null : err.message });

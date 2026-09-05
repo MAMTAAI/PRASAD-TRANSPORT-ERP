@@ -62,7 +62,7 @@ const STATUS = {
   STAFF_REVIEWED: { t: '📝 Staff Reviewed', c: '#ffb224', bg: 'rgba(255,178,36,0.15)',  b: 'rgba(255,178,36,0.5)' },
   APPROVED:       { t: '✅ Admin Approved', c: '#2fe39b', bg: 'rgba(47,227,155,0.15)',  b: 'rgba(47,227,155,0.5)' },
 };
-const NOT_BUILT = { t: '⚪ Nahi bana', c: '#5d7196', bg: 'rgba(93,113,150,0.12)', b: '#27395f' };
+const NOT_BUILT = { t: '⚪ Not built', c: '#5d7196', bg: 'rgba(93,113,150,0.12)', b: '#27395f' };
 const badgeOf = (s) => STATUS[s] ?? NOT_BUILT;
 
 function Badge({ status, small }) {
@@ -98,7 +98,7 @@ export default function VehicleSettlement() {
       setCycles(j.cycles ?? []);
       // The newest fortnight is the one being worked.
       setCycle((c) => c ?? (j.cycles?.[0] ?? null));
-    } catch (e) { setErr(e?.message ?? 'cycle list nahi aayi'); }
+    } catch (e) { setErr(e?.message ?? 'Could not load the cycle list'); }
   }, []);
 
   const loadRows = useCallback(async () => {
@@ -109,7 +109,7 @@ export default function VehicleSettlement() {
       if (statusFilter) qs.set('status', statusFilter);
       const j = await apiJson(`${API}/drafts?${qs}`);
       setRows(j.rows ?? []); setTotals(j.totals ?? {});
-    } catch (e) { setErr(e?.message ?? 'list nahi aayi'); setRows([]); }
+    } catch (e) { setErr(e?.message ?? 'Could not load the list'); setRows([]); }
     setLoading(false);
   }, [cycle, statusFilter]);
 
@@ -127,9 +127,9 @@ export default function VehicleSettlement() {
       });
       const NL = String.fromCharCode(10);
       alert(`🤖 ${j.created} naye draft bane, ${j.refreshed} refresh hue.` + NL
-        + (j.note ? j.note : 'Kisi ka kaam nahi chhua gaya.'));
+        + (j.note ? j.note : 'Nothing already reviewed was touched.'));
       await Promise.all([loadRows(), loadCycles()]);
-    } catch (e) { alert(`❌ ${e?.message ?? 'draft nahi bane'}`); }
+    } catch (e) { alert(`❌ ${e?.message ?? 'Drafts were not built'}`); }
     setBusy(false);
   };
 
@@ -153,9 +153,9 @@ export default function VehicleSettlement() {
             🧾 Vehicle 15-Day Bill
           </h2>
           <p style={{ color: '#9aadd4', fontSize: '12.5px', margin: '5px 0 0', maxWidth: '76ch', lineHeight: 1.55 }}>
-            Har malik ka 15-din ka bill, IOCL format me — kharch baayein (HSD · Toll · Fooding · Fixed ·
-            Advance · Doc · Anya), bill details, commission aur TDS daayein. TARA har 1 aur 16 tareekh ko
-            draft banati hai, staff sudhaarta hai, admin approve karta hai — tab owner ke khaate me post
+            Every owner's 15-day bill in the IOCL layout — expenses on the left (HSD · Toll · Fooding · Fixed ·
+            Advance · Doc · Other), bill details, commission and TDS on the right. TARA drafts on the 1st and 16th,
+            the desk corrects, an admin approves — only then does it post to the owner's ledger
             hota hai aur bill lock.
           </p>
         </div>
@@ -178,7 +178,7 @@ export default function VehicleSettlement() {
                      border: '1px solid rgba(167,139,250,0.5)', borderRadius: '9px',
                      padding: '10px 17px', fontSize: '13px', fontWeight: 700,
                      cursor: busy ? 'wait' : 'pointer' }}>
-            {busy ? '⏳ ban raha hai…' : '🤖 Draft banayein'}
+            {busy ? '⏳ Building…' : '🤖 Build drafts'}
           </button>
         </div>
       </div>
@@ -231,10 +231,10 @@ export default function VehicleSettlement() {
                     fontSize: '12px', color: '#9aadd4', lineHeight: 1.6 }}>
         <b style={{ color: '#22d3ee' }}>Aamdani kahan se aa rahi hai:</b>{' '}
         trip ka <b style={{ color: '#eef3ff' }}>billed amount</b> (₹2.91 crore, 765 trip).
-        Purana <code style={{ color: '#ffb224' }}>freight_amount</code> column sirf 21 trip par
-        bhara hai aur usme kilometre chhoot gaye hain — PT00689 me ₹60.07 likha hai jabki
-        trip ₹1,33,412 ka hai. Kharch <b style={{ color: '#eef3ff' }}>HSD + Toll</b> se aata hai;
-        maintenance ka abhi koi data nahi hai, isliye wo ₹0 dikhta hai — chhupaya nahi gaya.
+        Purana <code style={{ color: '#ffb224' }}>freight_amount</code> column is filled on only 21 trips
+        and the kilometres are missing from it — PT00689 reads ₹60.07 while
+        the trip is worth ₹1,33,412. Expenses come from <b style={{ color: '#eef3ff' }}>HSD + Toll</b>;
+        there is no maintenance data yet, so it shows ₹0 — nothing is hidden.
       </div>
 
       {view === 'BILL' && (
@@ -266,8 +266,8 @@ export default function VehicleSettlement() {
                     borderRadius: '12px', overflow: 'hidden', marginBottom: '18px' }}>
         {[
           ['⬅️ Kamai (Income)', totals.income, '#2fe39b', `${totals.trips ?? 0} trip`],
-          ['➡️ Kharch (Expense)', totals.expense, '#ff6b81', 'HSD + Toll + manual'],
-          [n2(totals.net) >= 0 ? '💰 Munafa' : '🔻 Ghata', Math.abs(n2(totals.net)),
+          ['➡️ Expenses', totals.expense, '#ff6b81', 'HSD + Toll + manual'],
+          [n2(totals.net) >= 0 ? '💰 Net margin' : '🔻 Net loss', Math.abs(n2(totals.net)),
             n2(totals.net) >= 0 ? '#2fe39b' : '#ff6b81', `${totals.lorries ?? 0} lorry`],
         ].map((t) => (
           <div key={t[0]} style={{ background: 'rgba(18,28,56,0.75)', padding: '15px 17px' }}>
@@ -306,10 +306,10 @@ export default function VehicleSettlement() {
       {/* ── lorry by lorry ───────────────────────────────────────────── */}
       <div className="glass-card" style={{ padding: '16px', overflowX: 'auto' }}>
         {loading ? (
-          <p style={{ color: '#ffb224', textAlign: 'center', padding: '26px' }}>Hisaab khul raha hai…</p>
+          <p style={{ color: '#ffb224', textAlign: 'center', padding: '26px' }}>Loading settlement…</p>
         ) : rows.length === 0 ? (
           <p style={{ color: '#5d7196', textAlign: 'center', padding: '26px', fontSize: '13px' }}>
-            Is cycle me koi COMPLETED trip nahi mila.
+            No COMPLETED trip in this cycle.
           </p>
         ) : (
           <>
@@ -322,7 +322,7 @@ export default function VehicleSettlement() {
                   <th style={{ ...th, textAlign: 'right' }}>HSD</th>
                   <th style={{ ...th, textAlign: 'right' }}>Toll</th>
                   <th style={{ ...th, textAlign: 'right' }}>Anya</th>
-                  <th style={{ ...th, textAlign: 'right', color: '#ff6b81' }}>Kul kharch</th>
+                  <th style={{ ...th, textAlign: 'right', color: '#ff6b81' }}>Total expenses</th>
                   <th style={{ ...th, textAlign: 'right' }}>Net</th>
                   <th style={th}>Halat</th>
                   <th style={th} />
@@ -336,7 +336,7 @@ export default function VehicleSettlement() {
                     <tr key={r.vehicle_key + r.period_from}
                         style={{ cursor: r.id ? 'pointer' : 'default' }}
                         onClick={() => r.id && setOpenId(r.id)}
-                        title={r.id ? 'Kholne ke liye click karein' : 'Pehle draft banayein'}>
+                        title={r.id ? 'Click to open' : 'Build the draft first'}>
                       <td style={{ ...td, fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
                         {r.vehicle_no}
                         <div style={{ fontSize: '10px', color: '#5d7196', fontWeight: 400,
@@ -360,15 +360,15 @@ export default function VehicleSettlement() {
                             them, so it is reported instead. */}
                         {r.stale && (
                           <div style={{ fontSize: '9.5px', color: '#ffb224', marginTop: '3px' }}
-                               title={`Ab ${r.live_trips} trip hain, draft me ${r.trips_count}`}>
-                            ⚠️ trip badle hain
+                               title={`Now ${r.live_trips} trips, draft has ${r.trips_count}`}>
+                            ⚠️ trips changed
                           </div>
                         )}
                       </td>
                       <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
                         <span style={{ color: r.id ? '#22d3ee' : '#3d548a', fontSize: '11.5px',
                                        fontWeight: 700 }}>
-                          {r.id ? 'Kholein →' : 'draft nahi'}
+                          {r.id ? 'Open →' : 'no draft'}
                         </span>
                       </td>
                     </tr>
@@ -412,7 +412,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
       setAdj(Array.isArray(j.settlement.adjustments) ? j.settlement.adjustments : []);
       setNotes(j.settlement.notes ?? '');
       setEdits({});
-    } catch (e) { setErr(e?.message ?? 'nahi khula'); }
+    } catch (e) { setErr(e?.message ?? 'Could not open'); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
@@ -445,8 +445,8 @@ function SettlementDrawer({ id, onClose, onChanged }) {
       setData((d) => ({ ...d, settlement: j.settlement }));
       setEdits({});
       onChanged?.();
-      alert('💾 Draft save ho gaya. Ledger me kuch nahi gaya — approval par jaayega.');
-    } catch (e) { setErr(e?.message ?? 'save nahi hua'); }
+      alert('💾 Draft saved. Nothing posted to the ledger — it posts on approval.');
+    } catch (e) { setErr(e?.message ?? 'Save failed'); }
     setBusy(false);
   };
 
@@ -455,29 +455,29 @@ function SettlementDrawer({ id, onClose, onChanged }) {
     const NL = String.fromCharCode(10);
     if (!window.confirm(
       `${s.vehicle_no} — ${s.cycle_label}` + NL
-      + `${net >= 0 ? 'Munafa' : 'Ghata'}: ${inr2(Math.abs(net))}` + NL + NL
+      + `${net >= 0 ? 'Net margin' : 'Net loss'}: ${inr2(Math.abs(net))}` + NL + NL
       + `Approve karke LOCK kar dein?` + NL
-      + `Ledger me sirf manual adjustment jaayega (${inr2(live.adjEx - live.adjIn)} net).` + NL
-      + `Freight aur HSD apne apne flow se jaate hain — dobara post nahi honge.`)) return;
+      + `Only manual adjustments post to the ledger (${inr2(live.adjEx - live.adjIn)} net).` + NL
+      + `Freight and HSD post through their own flows — they are not posted again.`)) return;
     setBusy(true); setErr('');
     try {
       const j = await apiJson(`${API}/${id}/approve`, { method: 'POST' });
-      alert(`✅ Approve ho gaya.` + NL + (j.note ?? ''));
+      alert(`✅ Approved.` + NL + (j.note ?? ''));
       await load(); onChanged?.();
     } catch (e) {
       setErr(e?.code === 'FORBIDDEN'
-        ? 'Approve sirf admin kar sakte hain.'
-        : (e?.message ?? 'approve nahi hua'));
+        ? 'Only an admin can approve.'
+        : (e?.message ?? 'Approval failed'));
     }
     setBusy(false);
   };
 
   const reopen = async () => {
-    if (!window.confirm('Lock kholein? Purana voucher waisa hi rahega.')) return;
+    if (!window.confirm('Reopen the lock? The original voucher stays as it is.')) return;
     setBusy(true);
     try { await apiJson(`${API}/${id}/reopen`, { method: 'POST' }); await load(); onChanged?.(); }
     catch (e) {
-      setErr(e?.code === 'FORBIDDEN' ? 'Reopen sirf admin kar sakte hain.' : (e?.message ?? 'nahi khula'));
+      setErr(e?.code === 'FORBIDDEN' ? 'Only an admin can reopen.' : (e?.message ?? 'Could not reopen'));
     }
     setBusy(false);
   };
@@ -485,15 +485,15 @@ function SettlementDrawer({ id, onClose, onChanged }) {
   const whatsapp = async () => {
     try {
       const j = await apiJson(`${API}/${id}/summary-text`);
-      const phone = window.prompt('Kis number par bhejein? (10 digit)', '');
+      const phone = window.prompt('Send to which number? (10 digits)', '');
       if (!phone) return;
       // sendWhatsApp never throws: it posts through the engine when one is
       // online and otherwise opens wa.me, and `via` says which happened.
       const r = await sendWhatsApp({ phone, message: j.text, role: 'OWNER' });
       alert(r?.via === 'server'
-        ? '🟢 Bhej diya.'
-        : '📱 WhatsApp khul gaya — wahan se bhej dijiye (engine offline hai).');
-    } catch (e) { alert(`❌ ${e?.message ?? 'nahi bana'}`); }
+        ? '🟢 Sent.'
+        : '📱 WhatsApp opened — send from there (the engine is offline).');
+    } catch (e) { alert(`❌ ${e?.message ?? 'Failed'}`); }
   };
 
   const printSheet = () => {
@@ -517,23 +517,23 @@ function SettlementDrawer({ id, onClose, onChanged }) {
         ${s.trips_count} trip · ${badgeOf(s.status).t}${s.approved_by ? ' by ' + s.approved_by : ''}</div>
       <h2>Kamai</h2><table>
         ${row('Billed (' + s.trips_count + ' trip)', s.billed_amount)}
-        ${n2(s.other_income) ? row('Anya aay', s.other_income) : ''}
+        ${n2(s.other_income) ? row('Other income', s.other_income) : ''}
         ${n2(s.adj_income) ? row('Manual adjustment', s.adj_income) : ''}
-        <tr class="tot"><td>Kul kamai</td><td class="r">${inr2(s.gross_income)}</td></tr>
+        <tr class="tot"><td>Total income</td><td class="r">${inr2(s.gross_income)}</td></tr>
       </table>
-      <h2>Kharch</h2><table>
+      <h2>Expenses</h2><table>
         ${row('HSD (diesel)', s.hsd)}${row('Toll', s.toll)}
         ${n2(s.tyre) ? row('Tyre', s.tyre) : ''}
         ${n2(s.maintenance) ? row('Maintenance', s.maintenance) : ''}
         ${n2(s.other_expense) ? row('Anya', s.other_expense) : ''}
         ${n2(s.adj_expense) ? row('Manual adjustment', s.adj_expense) : ''}
-        <tr class="tot"><td>Kul kharch</td><td class="r">${inr2(s.total_expense)}</td></tr>
+        <tr class="tot"><td>Total expenses</td><td class="r">${inr2(s.total_expense)}</td></tr>
       </table>
-      <div class="net">${n2(s.gross_income) - n2(s.total_expense) >= 0 ? 'Munafa' : 'Ghata'}:
+      <div class="net">${n2(s.gross_income) - n2(s.total_expense) >= 0 ? 'Net margin' : 'Net loss'}:
         ${inr2(Math.abs(n2(s.gross_income) - n2(s.total_expense)))}</div>
-      <div class="note">Kamai trip ke billed amount se li gayi hai. Ledger me is statement se
-        sirf manual adjustment post hota hai — freight aur HSD apne apne flow se jaate hain,
-        isliye dobara nahi ginte.</div>
+      <div class="note">Income is taken from the trips' billed amounts. From this statement only
+        manual adjustments post to the ledger — freight and HSD post through their own flows,
+        so they are not counted twice.</div>
       </body></html>`);
     w.document.close(); w.focus(); w.print();
   };
@@ -561,7 +561,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
         style={{ width: '100%', maxWidth: '1080px', padding: '20px', borderTop: '3px solid #22d3ee' }}>
 
         {!s ? (
-          <p style={{ color: '#9aadd4' }}>{err || 'khul raha hai…'}</p>
+          <p style={{ color: '#9aadd4' }}>{err || 'Opening…'}</p>
         ) : (
           <>
             {/* ── header + the action toolbar ────────────────────────── */}
@@ -601,7 +601,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
                       💾 Save
                     </button>
                     <button onClick={approve} disabled={busy}
-                      title="Sirf admin. Ledger me manual adjustment hi jaata hai."
+                      title="Admin only. Only manual adjustments post to the ledger."
                       style={{ background: 'rgba(47,227,155,0.15)', color: '#2fe39b',
                                border: '1px solid rgba(47,227,155,0.55)', borderRadius: '8px',
                                padding: '7px 13px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
@@ -650,14 +650,14 @@ function SettlementDrawer({ id, onClose, onChanged }) {
                 </div>
                 <div style={{ ...line, color: '#5d7196' }}>
                   <span style={{ fontSize: '12px' }}>
-                    Vasool hua <span style={{ fontSize: '10.5px' }}>(hisaab me nahi)</span>
+                    Received <span style={{ fontSize: '10.5px' }}>(not in the settlement)</span>
                   </span>
                   <span style={{ fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
                     {inr2(s.received_amount)}
                   </span>
                 </div>
                 <div style={line}>
-                  <span style={{ color: '#c4d1ea', fontSize: '13px' }}>Anya aay</span>
+                  <span style={{ color: '#c4d1ea', fontSize: '13px' }}>Other income</span>
                   {cell('other_income', '#2fe39b')}
                 </div>
                 {live?.adjIn > 0 && (
@@ -670,7 +670,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
                 )}
                 <div style={{ ...line, borderBottom: 'none', borderTop: '2px solid #27395f',
                               marginTop: '6px', paddingTop: '10px' }}>
-                  <b style={{ color: '#2fe39b', fontSize: '13px' }}>Kul kamai</b>
+                  <b style={{ color: '#2fe39b', fontSize: '13px' }}>Total income</b>
                   <b style={{ color: '#2fe39b', fontSize: '16px', fontVariantNumeric: 'tabular-nums' }}>
                     {inr2(live?.income)}
                   </b>
@@ -680,17 +680,17 @@ function SettlementDrawer({ id, onClose, onChanged }) {
               {/* RIGHT — what it cost */}
               <div style={{ ...panel, borderLeft: '3px solid #ff6b81' }}>
                 <h4 style={{ margin: '0 0 10px', color: '#ff6b81', fontSize: '13.5px' }}>
-                  ➡️ Kharch
+                  ➡️ Expenses
                 </h4>
                 {[['hsd', 'HSD (diesel)'], ['toll', 'Toll'], ['tyre', 'Tyre'],
-                  ['maintenance', 'Maintenance'], ['other_expense', 'Anya kharch']].map((f) => (
+                  ['maintenance', 'Maintenance'], ['other_expense', 'Other expenses']].map((f) => (
                   <div key={f[0]} style={line}>
                     <span style={{ color: '#c4d1ea', fontSize: '13px' }}>
                       {f[1]}
                       {/* Said out loud rather than shown as a plain zero: no
                           maintenance line exists in the whole register yet. */}
                       {f[0] === 'maintenance' && !n2(s.maintenance) && (
-                        <span style={{ color: '#5d7196', fontSize: '10.5px' }}> · data nahi hai</span>
+                        <span style={{ color: '#5d7196', fontSize: '10.5px' }}> · no data</span>
                       )}
                     </span>
                     {cell(f[0])}
@@ -706,7 +706,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
                 )}
                 <div style={{ ...line, borderBottom: 'none', borderTop: '2px solid #27395f',
                               marginTop: '6px', paddingTop: '10px' }}>
-                  <b style={{ color: '#ff6b81', fontSize: '13px' }}>Kul kharch</b>
+                  <b style={{ color: '#ff6b81', fontSize: '13px' }}>Total expenses</b>
                   <b style={{ color: '#ff6b81', fontSize: '16px', fontVariantNumeric: 'tabular-nums' }}>
                     {inr2(live?.expense)}
                   </b>
@@ -721,7 +721,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                           gap: '12px', flexWrap: 'wrap' }}>
               <span style={{ color: '#9aadd4', fontSize: '13px' }}>
-                {(live?.net ?? 0) >= 0 ? '💰 Is 15 din ka munafa' : '🔻 Is 15 din ka ghata'}
+                {(live?.net ?? 0) >= 0 ? '💰 Net margin for the fortnight' : '🔻 Net loss for the fortnight'}
               </span>
               <b style={{ fontSize: '27px', fontVariantNumeric: 'tabular-nums',
                           color: (live?.net ?? 0) >= 0 ? '#2fe39b' : '#ff6b81' }}>
@@ -735,7 +735,7 @@ function SettlementDrawer({ id, onClose, onChanged }) {
             <div style={{ marginTop: '12px' }}>
               <label style={{ fontSize: '11px', color: '#9aadd4' }}>Note</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} disabled={locked}
-                rows={2} placeholder="Kuch likhna ho to yahan…"
+                rows={2} placeholder="Notes…"
                 style={{ width: '100%', background: '#0a1024', border: '1px solid #27395f',
                          borderRadius: '8px', color: '#eef3ff', padding: '8px 10px',
                          fontSize: '12.5px', marginTop: '4px', resize: 'vertical' }} />
@@ -744,13 +744,13 @@ function SettlementDrawer({ id, onClose, onChanged }) {
             {/* ── the trips it is built from ────────────────────────── */}
             <h4 style={{ margin: '20px 0 8px', color: '#9aadd4', fontSize: '12.5px',
                          textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Is hisaab ke trip ({data.trips.length})
+              Trips in this settlement ({data.trips.length})
             </h4>
             <div style={{ overflowX: 'auto', border: '1px solid #27395f', borderRadius: '9px' }}>
               <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: '12px' }}>
                 <thead>
                   <tr>
-                    {['Trip', 'Tareekh', 'Customer', 'Billed', 'HSD', 'Toll', 'Kharch', 'Net'].map((h, i) => (
+                    {['Trip', 'Date', 'Customer', 'Billed', 'HSD', 'Toll', 'Expenses', 'Net'].map((h, i) => (
                       <th key={h} style={{ padding: '8px 10px', textAlign: i >= 3 ? 'right' : 'left',
                                            fontSize: '10px', textTransform: 'uppercase',
                                            letterSpacing: '0.07em', color: '#5d7196',
@@ -796,9 +796,9 @@ function SettlementDrawer({ id, onClose, onChanged }) {
             </div>
 
             <p style={{ color: '#5d7196', fontSize: '11px', marginTop: '12px', lineHeight: 1.6 }}>
-              Trip ke aankde yahan se badle nahi jaa sakte — agar trip galat hai to Trip
+              Trip figures cannot be changed here — if a trip is wrong, correct it in Trip
               Management me sudhaariye, warna yeh statement aur trip register alag-alag ho
-              jaayenge. Yahan sirf kharch ke bucket aur manual adjustment badalte hain.
+              flow through. Only the expense buckets and manual adjustments change here.
             </p>
           </>
         )}
@@ -827,7 +827,7 @@ function AdjustmentEditor({ adj, setAdj, locked }) {
                     flexWrap: 'wrap', alignItems: 'baseline', marginBottom: '9px' }}>
         <b style={{ color: '#c4b5fd', fontSize: '13px' }}>✏️ Manual adjustment</b>
         <span style={{ color: '#5d7196', fontSize: '11px' }}>
-          Sirf yahi ledger me jaata hai — baaki sab apne flow se already jaata hai
+          Only this posts to the ledger — everything else already posts through its own flow
         </span>
       </div>
 
@@ -839,14 +839,14 @@ function AdjustmentEditor({ adj, setAdj, locked }) {
                                   borderRadius: '7px', fontSize: '12.5px' }}>
               <span style={{ color: a.side === 'INCOME' ? '#2fe39b' : '#ff6b81', fontWeight: 700,
                              fontSize: '10.5px', minWidth: '52px' }}>
-                {a.side === 'INCOME' ? '+ AAY' : '− KHARCH'}
+                {a.side === 'INCOME' ? '+ INCOME' : '− EXPENSE'}
               </span>
               <span style={{ color: '#eef3ff', flex: 1 }}>{a.label}</span>
               <span style={{ color: '#c4d1ea', fontVariantNumeric: 'tabular-nums' }}>{inr2(a.amount)}</span>
               {!locked && (
                 <button onClick={() => setAdj(adj.filter((_, j) => j !== i))}
                   style={{ background: 'none', border: 'none', color: '#5d7196', cursor: 'pointer',
-                           fontSize: '14px', padding: '0 2px' }} title="Hataayein">×</button>
+                           fontSize: '14px', padding: '0 2px' }} title="Remove">×</button>
               )}
             </div>
           ))}
@@ -858,11 +858,11 @@ function AdjustmentEditor({ adj, setAdj, locked }) {
           <select value={side} onChange={(e) => setSide(e.target.value)}
             style={{ background: '#0a1024', border: '1px solid #3d548a', borderRadius: '6px',
                      color: '#eef3ff', padding: '6px 8px', fontSize: '12px' }}>
-            <option value="EXPENSE">− Kharch</option>
-            <option value="INCOME">+ Aay</option>
+            <option value="EXPENSE">− Expense</option>
+            <option value="INCOME">+ Income</option>
           </select>
           <input value={label} onChange={(e) => setLabel(e.target.value)}
-            placeholder="Kis cheez ka? (jaise: driver bonus, detention)"
+            placeholder="What for? (e.g. driver bonus, detention)"
             onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
             style={{ flex: 1, minWidth: '210px', background: '#0a1024', border: '1px solid #3d548a',
                      borderRadius: '6px', color: '#eef3ff', padding: '6px 9px', fontSize: '12.5px' }} />

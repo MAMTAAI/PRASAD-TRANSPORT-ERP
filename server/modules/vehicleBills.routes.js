@@ -132,25 +132,25 @@ function billText(b, lorries) {
   if (b.class_key === 'MARKET') {
     const loads = Array.isArray(b.lines) ? b.lines : [];
     const L = [
-      `*${b.owner_name}* — 15-din ka bill (market load)`,
+      `*${b.owner_name}* — 15-day bill (market loads)`,
       `${b.bill_no} · ${b.cycle_label} (${isoDate(b.period_from)} se ${isoDate(b.period_to)})`,
       `${b.trucks} truck · ${b.loads} load (POD verified)`,
       '',
     ];
     for (const l of loads) {
       L.push(`🚛 ${l.truck ?? 'truck'} · ${l.load_id} · ${l.origin ?? ''} → ${l.destination ?? ''} · POD ${l.pod_date ?? ''}`);
-      L.push(`   freight ${inr(l.partner_rate)} · advance ${inr(l.advance)} · baaki ${inr(num(l.partner_rate) - num(l.advance))}`);
+      L.push(`   freight ${inr(l.partner_rate)} · advance ${inr(l.advance)} · balance ${inr(num(l.partner_rate) - num(l.advance))}`);
     }
     L.push('');
-    L.push(`Kul freight: ${inr(b.partner_freight)}`);
-    L.push(`− Advance pehle diya: ${inr(b.advances_paid)}`);
-    L.push(`− TDS 194C${b.tds_pct !== null && b.tds_pct !== undefined ? ` ${num(b.tds_pct)}%` : ''}: ${b.tds === null ? 'rate darj nahi' : inr(b.tds)}`);
+    L.push(`Total freight: ${inr(b.partner_freight)}`);
+    L.push(`− Advance already paid: ${inr(b.advances_paid)}`);
+    L.push(`− TDS 194C${b.tds_pct !== null && b.tds_pct !== undefined ? ` ${num(b.tds_pct)}%` : ''}: ${b.tds === null ? 'rate not recorded' : inr(b.tds)}`);
     if (num(b.adj_income)) L.push(`+ Anya: ${inr(b.adj_income)}`);
-    if (num(b.adj_expense)) L.push(`− Kataauti: ${inr(b.adj_expense)}`);
+    if (num(b.adj_expense)) L.push(`− Deductions: ${inr(b.adj_expense)}`);
     L.push(`*Balance: ${b.payable === null ? 'rate ke baad' : inr(b.payable)}*`);
     L.push('');
-    L.push(b.pay_voucher_id ? `💸 Balance bhej diya — ${inr(b.paid_amount)} (${isoDate(b.paid_at)})`
-      : b.status === 'APPROVED' ? `✅ Approved — ${b.approved_by} · bhugtan baaki`
+    L.push(b.pay_voucher_id ? `💸 Balance paid — ${inr(b.paid_amount)} (${isoDate(b.paid_at)})`
+      : b.status === 'APPROVED' ? `✅ Approved — ${b.approved_by} · payment pending`
       : b.status === 'STAFF_REVIEWED' ? '📝 Office check kar raha hai'
       : '🤖 Draft');
     return L.join(NL);
@@ -164,31 +164,31 @@ function billText(b, lorries) {
   ];
   for (const v of lorries) {
     const kh = num(v.bill_expense);
-    L.push(`🚛 ${v.vehicle_no} — ${v.trips_count} trip · freight ${inr(v.billed_amount)} · kharch ${inr(kh)}`
+    L.push(`🚛 ${v.vehicle_no} — ${v.trips_count} trip · freight ${inr(v.billed_amount)} · expenses ${inr(kh)}`
       + (agency && v.commission_amount !== null ? ` · comm ${inr(v.commission_amount)}` : '')
-      + (v.needs_rate ? ' · ⚠️ rate nahi' : ''));
+      + (v.needs_rate ? ' · ⚠️ rate missing' : ''));
   }
   L.push('');
   L.push(`Freight: ${inr(b.freight)}`);
-  if (num(b.adj_income)) L.push(`+ Anya aay: ${inr(b.adj_income)}`);
+  if (num(b.adj_income)) L.push(`+ Other income: ${inr(b.adj_income)}`);
   L.push(`HSD ${inr(b.hsd)} · Toll ${inr(b.toll)} · Fooding ${inr(b.fooding)} · Fixed ${inr(b.fixed_allowance)}`);
   L.push(`Advance ${inr(b.advances)} · Doc ${inr(b.doc_expense)} · Anya ${inr(b.other_expense)}`);
-  if (num(b.adj_expense)) L.push(`+ Manual kharch: ${inr(b.adj_expense)}`);
-  L.push(`*Kul kharch: ${inr(b.deductions)}*`);
+  if (num(b.adj_expense)) L.push(`+ Manual deductions: ${inr(b.adj_expense)}`);
+  L.push(`*Total expenses: ${inr(b.deductions)}*`);
   if (agency) {
     L.push('');
-    L.push(`Commission: ${b.commission === null ? 'rate darj nahi' : inr(b.commission)}`);
+    L.push(`Commission: ${b.commission === null ? 'rate not recorded' : inr(b.commission)}`);
     L.push(`TDS 194C: ${b.tds === null ? '—' : inr(b.tds)}`);
-    L.push(`*Owner ko dena: ${b.payable === null ? 'rate ke baad' : inr(b.payable)}*`);
+    L.push(`*Payable to owner: ${b.payable === null ? 'after rate' : inr(b.payable)}*`);
   } else {
     const net = num(b.freight) + num(b.adj_income) - num(b.deductions);
     L.push('');
-    L.push(`*${net >= 0 ? 'Munafa' : 'Ghata'}: ${inr(Math.abs(net))}*`);
+    L.push(`*${net >= 0 ? 'Net margin' : 'Net loss'}: ${inr(Math.abs(net))}*`);
   }
   L.push('');
   L.push(b.status === 'APPROVED' ? `✅ Approved — ${b.approved_by}`
-    : b.status === 'STAFF_REVIEWED' ? '📝 Staff ne dekh liya, approval baaki'
-    : '🤖 AI draft — abhi kisi ne dekha nahi');
+    : b.status === 'STAFF_REVIEWED' ? '📝 Reviewed by staff, approval pending'
+    : '🤖 AI draft — not yet reviewed');
   return L.join(NL);
 }
 
@@ -379,7 +379,7 @@ export async function registerVehicleBillRoutes(app) {
     const bill = await billById(id);
     if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
     if (bill.locked_at) {
-      return reply.code(409).send({ error: 'LOCKED', detail: 'Yeh bill approve ho chuka hai. Pehle "Modify" kijiye.' });
+      return reply.code(409).send({ error: 'LOCKED', detail: 'This bill is approved. Use "Modify" first.' });
     }
     const who = actor(req);
 
@@ -523,8 +523,8 @@ export async function registerVehicleBillRoutes(app) {
       if (bill.class_key === 'MARKET') {
         return reply.code(409).send({
           error: 'NO_TDS_RATE',
-          detail: `${bill.owner_name} — TDS ka rate pata nahi: Fleet Partner master me "Individual ya Firm" chuniye `
-                + '(ya 194C(6) declaration tick kijiye), tab approve hoga.',
+          detail: `${bill.owner_name} — TDS rate unknown: choose "Individual or Firm" in the Fleet Partner master `
+                + '(or tick the 194C(6) declaration), then approve.',
         });
       }
       const { rows: missing } = await query(`
@@ -532,13 +532,13 @@ export async function registerVehicleBillRoutes(app) {
          WHERE owner_bill_id = $1::uuid AND fleet_class IN ('ATTACHED','MARKET') AND commission_amount IS NULL`, [id]);
       return reply.code(409).send({
         error: 'NO_COMMISSION_RATE',
-        detail: `${missing.map((m) => m.vehicle_no).join(', ')} — commission rate darj nahi hai; `
-              + 'Commission Master me 1 Apr 2026 se rate bhariye, tab approve hoga.',
+        detail: `${missing.map((m) => m.vehicle_no).join(', ')} — commission rate not recorded; `
+              + 'enter a rate effective 1 Apr 2026 in the Commission Master, then approve.',
         vehicles: missing.map((m) => m.vehicle_no),
       });
     }
     if (bill.class_key === 'MARKET' && !bill.company_id) {
-      return reply.code(409).send({ error: 'NO_COMPANY', detail: 'Is partner ke load par firm (company) darj nahi — Bazaar desk par settlement me company set kijiye.' });
+      return reply.code(409).send({ error: 'NO_COMPANY', detail: 'No firm (company) recorded on this partner\'s loads — set the company in the Bazaar desk settlement.' });
     }
 
     const journal = journalFor(bill);
@@ -552,12 +552,12 @@ export async function registerVehicleBillRoutes(app) {
       const narration = journal.market
         ? `15-din partner bill ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label}: `
           + `TDS 194C ${num(bill.tds_pct)}% on partner freight ${inr(journal.partner_freight)} = ${inr(journal.tds)}.`
-          + (n > 0 ? ` (revision ${n + 1}: antar posted)` : '')
+          + (n > 0 ? ` (revision ${n + 1}: difference posted)` : '')
         : journal.agency
         ? `15-din vehicle bill ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label}. `
           + `Freight ${inr(journal.freight)}, commission ${inr(journal.commission)}, TDS ${inr(journal.tds)}, `
-          + `kharch wapas ${inr(journal.recovered)}, owner ko ${inr(journal.payable)}.`
-          + (n > 0 ? ` (revision ${n + 1}: antar posted)` : '')
+          + `expenses recovered ${inr(journal.recovered)}, payable to owner ${inr(journal.payable)}.`
+          + (n > 0 ? ` (revision ${n + 1}: difference posted)` : '')
         : `15-din vehicle statement ${bill.bill_no} — ${bill.owner_name}, ${bill.cycle_label} `
           + '(manual adjustments only; freight and HSD post through their own flows)';
       try {
@@ -610,16 +610,16 @@ export async function registerVehicleBillRoutes(app) {
       posted: lines,
       note: !voucher
         ? (journal.market
-            ? 'TDS shunya — koi voucher nahi; bill approve aur lock ho gaya. Ab "💸 Balance bhejein" se bhugtan kijiye.'
-            : 'Post karne ko kuch nahi tha (koi antar / adjustment nahi) — bill approve aur lock ho gaya.')
+            ? 'TDS is nil — no voucher; the bill is approved and locked. Pay with "💸 Pay balance".'
+            : 'Nothing to post (no difference / adjustment) — the bill is approved and locked.')
         : journal.market
-          ? `TDS ${inr(journal.tds)} partner ke khaate se kat kar Market Fleet TDS Payable me gaya. `
-            + `Balance ${inr(journal.payable)} — ab "💸 Balance bhejein" dabaiye.`
+          ? `TDS ${inr(journal.tds)} deducted from the partner and posted to Market Fleet TDS Payable. `
+            + `Balance ${inr(journal.payable)} — now use "💸 Pay balance".`
         : journal.agency
-          ? `${fresh?.company_name ?? 'Company'} ki books me commission ${inr(journal.commission)} income gaya; `
+          ? `Commission ${inr(journal.commission)} posted as income in the books of ${fresh?.company_name ?? 'the company'}; `
             + `owner ${fresh.owner_name} ke khaate me ${inr(journal.payable)} credit; TDS ${inr(journal.tds)} kaata.`
-            + (n > 0 ? ' Sirf antar post hua — purana voucher waisa hi hai.' : '')
-          : `Ledger me sirf manual adjustment gaya (${inr(journal.adj_expense - journal.adj_income)} net).`,
+            + (n > 0 ? ' Only the difference was posted — the original voucher stands.' : '')
+          : `Only manual adjustments posted to the ledger (${inr(journal.adj_expense - journal.adj_income)} net).`,
     };
   });
 
@@ -628,7 +628,7 @@ export async function registerVehicleBillRoutes(app) {
     const id = String(req.params.id ?? '');
     if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
     const reason = String(req.body?.reason ?? '').trim();
-    if (reason.length < 4) return reply.code(400).send({ error: 'REASON_REQUIRED', detail: 'Modify ke liye kaaran likhna zaroori hai.' });
+    if (reason.length < 4) return reply.code(400).send({ error: 'REASON_REQUIRED', detail: 'A reason is required to modify.' });
     const who = actor(req);
     const out = await withTransaction(async (t) => {
       const { rows } = await t.query(`
@@ -648,7 +648,7 @@ export async function registerVehicleBillRoutes(app) {
     return {
       reopened: true,
       note: out.post_count > 0
-        ? 'Purana voucher waisa hi rehta hai — dobara approve par sirf antar ka naya voucher banega.'
+        ? 'The original voucher stands — re-approval posts only the difference as a new voucher.'
         : null,
     };
   });
@@ -682,14 +682,14 @@ export async function registerVehicleBillRoutes(app) {
     if (!UUID_RE.test(id)) return reply.code(400).send({ error: 'BAD_ID' });
     const bill = await billById(id);
     if (!bill) return reply.code(404).send({ error: 'NOT_FOUND' });
-    if (bill.class_key !== 'MARKET') return reply.code(400).send({ error: 'NOT_MARKET', detail: 'Sirf market (fleet partner) bill ka balance yahan se jaata hai.' });
-    if (!bill.locked_at) return reply.code(409).send({ error: 'NOT_APPROVED', detail: 'Pehle bill Approve kijiye, phir balance.' });
-    if (bill.pay_voucher_id) return reply.code(409).send({ error: 'ALREADY_PAID', detail: `Balance pehle hi bheja ja chuka hai (${inr(bill.paid_amount)}).` });
-    if (!bill.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: 'Bill par firm darj nahi.' });
+    if (bill.class_key !== 'MARKET') return reply.code(400).send({ error: 'NOT_MARKET', detail: 'Only a market (fleet partner) bill is paid from here.' });
+    if (!bill.locked_at) return reply.code(409).send({ error: 'NOT_APPROVED', detail: 'Approve the bill first, then pay the balance.' });
+    if (bill.pay_voucher_id) return reply.code(409).send({ error: 'ALREADY_PAID', detail: `The balance has already been paid (${inr(bill.paid_amount)}).` });
+    if (!bill.company_id) return reply.code(409).send({ error: 'NO_COMPANY', detail: 'No firm recorded on the bill.' });
     const account = String(req.body?.account ?? '').trim();
-    if (!account) return reply.code(400).send({ error: 'NO_ACCOUNT', detail: 'Kis bank / cash account se bhej rahe hain — naam dijiye.' });
+    if (!account) return reply.code(400).send({ error: 'NO_ACCOUNT', detail: 'Name the bank / cash account the payment is made from.' });
     const amount = r2(num(bill.payable));
-    if (!(amount > 0)) return reply.code(400).send({ error: 'NOTHING_TO_PAY', detail: `Balance ${inr(amount)} — bhejne ko kuch nahi.` });
+    if (!(amount > 0)) return reply.code(400).send({ error: 'NOTHING_TO_PAY', detail: `Balance ${inr(amount)} — nothing to pay.` });
     const entryDate = DATE_RE.test(String(req.body?.entry_date ?? '')) ? req.body.entry_date : new Date().toISOString().slice(0, 10);
     const who = actor(req);
 
@@ -738,8 +738,8 @@ export async function registerVehicleBillRoutes(app) {
     const { rows: [v] } = await query('SELECT mobile_no FROM vendors WHERE id = $1::uuid', [bill.vendor_id]);
     if (v?.mobile_no) {
       notifyWhatsApp(v.mobile_no,
-        `✅ ${bill.owner_name}: 15-din ka bill ${bill.bill_no} (${bill.cycle_label}) settle ho gaya — `
-        + `balance ${inr(amount)} bhej diya. ${bill.loads} load SETTLED. Dhanyavaad!`).catch(() => {});
+        `✅ ${bill.owner_name}: 15-day bill ${bill.bill_no} (${bill.cycle_label}) is settled — `
+        + `balance ${inr(amount)} paid. ${bill.loads} load(s) SETTLED. Thank you!`).catch(() => {});
     }
     return { paid: true, voucher_id: voucher.voucher_id, amount, loads_settled: ids.length, bill: await billById(id) };
   });

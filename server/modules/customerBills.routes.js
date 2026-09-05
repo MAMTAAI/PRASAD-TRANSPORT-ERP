@@ -23,6 +23,10 @@ import { query, withTransaction } from '../db/pool.js';
 import { requireAuth, requireAdminRole } from './auth.routes.js';
 import { send as sendMail } from '../lib/mailChannel.js';
 import { raiseCustomerBill, RaiseError, revenueJournal, billById } from '../lib/customerBillRaise.js';
+import multipart from '@fastify/multipart';
+import path from 'node:path';
+import fs from 'node:fs';
+import { runChild, PYTHON, TOOLS, REPO, tail as tailOf } from '../lib/adviceCollectJob.js';
 export { revenueJournal };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -45,7 +49,7 @@ function billText(b) {
   const NL = String.fromCharCode(10);
   const blocks = Array.isArray(b.lines) ? b.lines : [];
   const L = [
-    `*${b.customer_name}* — 15-din ka bill`,
+    `*${b.customer_name}* — 15-day bill`,
     `${b.bill_no} · ${b.cycle_label} (${isoDate(b.period_from)} se ${isoDate(b.period_to)}) · ${b.company_name ?? b.operating_company ?? ''}`,
     `${b.branches} branch · ${b.trips} trip · ${Number(b.loaded_qty || 0).toFixed(3)} KL`,
     '',
@@ -60,7 +64,7 @@ function billText(b) {
   L.push(`− TDS 194C${b.tds_pct !== null ? ` ${num(b.tds_pct)}%` : ''}: ${inr(b.tds)}`);
   if (b.gst_mode === 'RCM') L.push(`GST ${num(b.gst_pct)}% RCM (memo): ${inr(b.gst_memo)}`);
   L.push(`*Net receivable: ${inr(b.net_receivable)}*`);
-  L.push(`Vasool: ${inr(b.received)} · Baaki: ${inr(b.balance)}`);
+  L.push(`Received: ${inr(b.received)} · Balance: ${inr(b.balance)}`);
   if (num(b.missing_count)) L.push(`❌ Missing freight: ${b.missing_count} trip · ${inr(b.missing_amount)}`);
   if (num(b.pending_count)) L.push(`🕒 Pending: ${b.pending_count} trip · ${inr(b.pending_amount)}`);
   L.push('');
@@ -111,7 +115,7 @@ export async function registerCustomerBillRoutes(app) {
        ORDER BY gross DESC`);
     const { rows: cycles } = await query(`
       SELECT period_from, period_to, cycle_kind,
-             CASE WHEN cycle_kind = 'MONTH' THEN to_char(period_from, 'Mon YYYY') || ' · mahina'
+             CASE WHEN cycle_kind = 'MONTH' THEN to_char(period_from, 'Mon YYYY') || ' · Monthly'
                   ELSE fortnight_label(period_from) END AS cycle_label,
              count(*)::int AS bills,
              count(*) FILTER (WHERE status IN ('AI_DRAFT','STAFF_REVIEWED'))::int AS drafts,
@@ -472,7 +476,101 @@ export async function registerCustomerBillRoutes(app) {
              reopen_reason = $2, reopened_by = $3, reopened_at = now()
        WHERE id = $1::uuid AND locked_at IS NOT NULL RETURNING id, voucher_id`, [id, reason.slice(0, 500), actor(req)]);
     if (!rows.length) return reply.code(409).send({ error: 'NOT_LOCKED' });
-    return { reopened: true, note: rows[0].voucher_id ? 'Purana voucher waisa hi rehta hai — dobara raise par antar ka voucher banega.' : null };
+    return { reopened: true, note: rows[0].voucher_id ? 'The original voucher stands — re-raising posts only the difference.' : null };
+  });
+
+  // ═══ STAFF SETTLES A TRIP BY HAND (166) ═══════════════════════════════════
+  // Owner, 5-Sep: "staff bhi data ko trip-wise update kar sake". The customer's
+  // invoice number and the penalty live on the trip; a receipt the advice
+  // pipeline cannot see is recorded in customer_trip_settlements with who /
+  // when / reference, and overrides the advice for that trip only. An empty
+  // received amount removes the override and puts the advice back in charge.
+  app.patch('/:id/trips/:tripId', staff, async (req, reply) => {
+    const id = String(req.params.id ?? ''); const tripId = String(req.params.tripId ?? '');
+    if (!UUID_RE.test(id) || !UUID_RE.test(tripId)) return reply.code(400).send({ error: 'BAD_ID' });
+    const { rows: [t] } = await query('SELECT id, trip_code, customer_bill_id FROM trips WHERE id = $1::uuid', [tripId]);
+    if (!t) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'Trip not found' });
+    if (t.customer_bill_id !== id) return reply.code(409).send({ error: 'NOT_ON_BILL', detail: `Trip ${t.trip_code} is not on this bill` });
+    const b = req.body ?? {}; const who = actor(req);
+    const sets = []; const args = [tripId];
+    const put = (col, v) => { args.push(v); sets.push(`${col} = $${args.length}`); };
+    if ('iocl_bill_no' in b) put('iocl_bill_no', String(b.iocl_bill_no ?? '').trim() || null);
+    if ('shortage_penalty' in b && money(b.shortage_penalty) !== null) put('shortage_penalty', money(b.shortage_penalty));
+    if (sets.length) await query(`UPDATE trips SET ${sets.join(', ')}, updated_at = now() WHERE id = $1::uuid`, args);
+    let settlement = null;
+    if ('received' in b) {
+      const amt = money(b.received);
+      if (amt === null || amt <= 0) {
+        await query('DELETE FROM customer_trip_settlements WHERE trip_id = $1::uuid', [tripId]);
+      } else {
+        const { rows: [s] } = await query(`
+          INSERT INTO customer_trip_settlements (trip_id, received, settled_on, reference, note, updated_by, updated_at)
+          VALUES ($1::uuid, $2, $3::date, $4, $5, $6, now())
+          ON CONFLICT (trip_id) DO UPDATE SET received = EXCLUDED.received, settled_on = EXCLUDED.settled_on,
+                reference = EXCLUDED.reference, note = EXCLUDED.note, updated_by = EXCLUDED.updated_by, updated_at = now()
+          RETURNING *`,
+          [tripId, amt, DATE_RE.test(String(b.settled_on ?? '')) ? b.settled_on : null, String(b.reference ?? '').trim().slice(0, 120) || null, String(b.note ?? '').trim().slice(0, 500) || null, who]);
+        settlement = s;
+      }
+    }
+    await query('SELECT customer_bill_refresh($1::uuid)', [id]);
+    const { rows: [line] } = await query('SELECT trip_code, iocl_bill_no, penalty, received, flag, manual_ref FROM v_customer_trip_recon WHERE trip_id = $1::uuid', [tripId]);
+    return { updated: true, trip: line, settlement, bill: await billById(id) };
+  });
+
+  // ═══ THE CUSTOMER'S DOCUMENT, BY HAND ═════════════════════════════════════
+  // Owner, 5-Sep: "manual bill reconciliation — PDF scan kar ke update". The
+  // mailbox is the usual road; this is the hand-carried one. The PDF goes
+  // through the same parsers the sweep uses (iocl_bill_automation.py for a
+  // transportation bill, fetch/load/post for a payment advice), lands in the
+  // same tables, and every affected bill re-reads its trips. Nothing is
+  // guessed: a PDF the parser cannot read is reported, not filed.
+  await app.register(async (scope) => {
+    await scope.register(multipart, { limits: { fileSize: 25 * 1024 * 1024, files: 1 } });
+    scope.post('/documents/upload', staff, async (req, reply) => {
+      let part;
+      try { part = await req.file(); } catch (e) { return reply.code(400).send({ error: 'BAD_MULTIPART', detail: e.message }); }
+      if (!part) return reply.code(400).send({ error: 'NO_FILE', detail: 'Attach a PDF' });
+      const kind = String(part.fields?.kind?.value ?? 'BILL').toUpperCase() === 'ADVICE' ? 'ADVICE' : 'BILL';
+      const firm = String(part.fields?.firm?.value ?? 'prasad').toLowerCase() === 'jaiswal' ? 'jaiswal' : 'prasad';
+      const buf = await part.toBuffer();
+      if (!/^%PDF/.test(buf.subarray(0, 5).toString('latin1'))) return reply.code(400).send({ error: 'NOT_PDF', detail: 'Only a PDF can be read' });
+      const safe = String(part.filename ?? 'document.pdf').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+      const stamp = new Date().toISOString().slice(0, 10);
+      const dir = kind === 'ADVICE'
+        ? path.join(REPO, 'uploads', firm === 'jaiswal' ? 'iocl_advices_jaiswal' : 'iocl_advices')
+        : path.join(REPO, 'uploads', 'iocl_bills_manual', firm);
+      fs.mkdirSync(dir, { recursive: true });
+      const dest = path.join(dir, `${stamp}_manual_${safe}`);
+      fs.writeFileSync(dest, buf);
+      const who = actor(req);
+      const steps = [];
+      let ok = true;
+      if (kind === 'ADVICE') {
+        const r1 = await runChild(PYTHON, [path.join(TOOLS, 'fetch_advices.py'), '--no-fetch', '--mailbox', firm, '--window-from', '2026-04-01']);
+        steps.push({ step: 'parse', ok: r1.ok, tail: tailOf(r1.ok ? r1.stdout : (r1.stderr || r1.stdout), 8) }); ok = ok && r1.ok;
+        if (r1.ok) {
+          const r2 = await runChild(PYTHON, [path.join(TOOLS, 'load_advices.py'), '--apply']);
+          steps.push({ step: 'load', ok: r2.ok, tail: tailOf(r2.ok ? r2.stdout : (r2.stderr || r2.stdout), 6) }); ok = ok && r2.ok;
+          if (r2.ok) {
+            const r3 = await runChild(process.execPath, [path.join(REPO, 'scripts', 'post-advice-settlements.mjs'), '--live']);
+            steps.push({ step: 'post', ok: r3.ok, tail: tailOf(r3.stdout, 8) }); ok = ok && r3.ok;
+          }
+        }
+      } else {
+        // The bill: parse + match + write bill lines. No bank receipts are
+        // ever posted from a bill (the advice does that); trips are marked
+        // BILLED, never PAID, by the document alone.
+        const r1 = await runChild(PYTHON, [path.join(TOOLS, 'iocl_bill_automation.py'), '--live', '--no-fetch', '--no-vouchers', '--settlement-basis', 'billed',
+          '--bill-dir', dir, '--window-from', '2026-04-01', '--window-to', new Date().toISOString().slice(0, 10)]);
+        steps.push({ step: 'parse+match', ok: r1.ok, tail: tailOf(r1.ok ? r1.stdout : (r1.stderr || r1.stdout), 14) }); ok = ok && r1.ok;
+      }
+      const { rows } = await query(`SELECT customer_bill_refresh(id) FROM customer_bills WHERE status <> 'CANCELLED' AND period_from >= current_date - interval '240 days'`).catch(() => ({ rows: [] }));
+      const { autoRaiseCustomerBills } = await import('../lib/customerBillRaise.js');
+      const ar = await autoRaiseCustomerBills({ by: `desk:${who}` }).catch(() => ({ raised: 0 }));
+      const summary = `${kind === 'ADVICE' ? 'Payment advice' : 'Transportation bill'} "${part.filename}" filed for ${firm === 'jaiswal' ? 'Jaiswal Enterprise' : 'Prasad Transport'}: ${ok ? 'read and reconciled' : 'the parser reported a problem'}; ${rows.length} bill(s) re-read, ${ar.raised} raised automatically.`;
+      return { ok, kind, firm, saved: path.relative(REPO, dest), summary, steps, tail: steps.map((s) => `— ${s.step}: ${s.ok ? 'ok' : 'FAILED'}\n${s.tail}`).join('\n') };
+    });
   });
 
   app.get('/:id/summary-text', staff, async (req, reply) => {

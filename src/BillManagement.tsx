@@ -698,7 +698,7 @@ amount: the row's gross/total freight amount. Empty string / 0 if absent.`;
       {/* TABS */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid #27395f', flexWrap: 'wrap' }}>
         <button className={`tab-btn ${activeTab === 'CUSTOMER_BILLS' ? 'active' : ''}`} onClick={() => setActiveTab('CUSTOMER_BILLS')}>
-          🧾 15-DAY BILLS &amp; MILAAN
+          🧾 15-DAY BILLS &amp; RECONCILIATION
         </button>
         <button className={`tab-btn ${activeTab === 'UNBILLED_TRIPS' ? 'active' : ''}`} onClick={() => setActiveTab('UNBILLED_TRIPS')}>
           🚚 PENDING BILLING {filteredUnbilledTrips.length > 0 && <span className="badge" style={{ background: '#10b981', color: '#04241a', marginLeft: 6 }}>{filteredUnbilledTrips.length}</span>}
