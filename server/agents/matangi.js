@@ -49,7 +49,34 @@ async function fallbackNumber(key) {
  * string here is exactly how this agent came to look healthy while it had never
  * sent anything at all.
  */
-async function sendNotice(event, ctx, { template, text, tripId, to, fallbackKey, who, aggregate, aggregateId }) {
+/**
+ * A number WhatsApp cannot resolve is a PERMANENT failure, not a transient one.
+ * Retrying it five times and then marking the event DEAD achieves nothing
+ * except five more send attempts at a number that will never work — and our own
+ * stacked retries are what got this line rate-limited once before.
+ *
+ * Found live on 6-Sep-2026: the placeholder fallback 9999999999 produced
+ * "No LID for user" and 237 DEAD compliance events in a single hour, roughly
+ * 1,185 send attempts at a fake number.
+ */
+const PERMANENT_SEND_FAILURE = /no lid for user|not registered|invalid (phone|number|wid)|no account/i;
+
+/**
+ * A DIGEST must not be sent per event. compliance.expiry.warning fires on every
+ * sweep — 237 times in an hour on production — and before this agent actually
+ * sent anything that was invisible. Sending each one would have meant 237
+ * identical messages to the fleet manager. One a day is what a digest means.
+ */
+async function alreadySentToday(template, recipient) {
+  const { rows } = await query(
+    `SELECT 1 FROM notifications
+      WHERE template = $1 AND recipient = $2 AND status = 'SENT'
+        AND sent_at >= date_trunc('day', now())
+      LIMIT 1`, [template, recipient]);
+  return rows.length > 0;
+}
+
+async function sendNotice(event, ctx, { template, text, tripId, to, fallbackKey, who, aggregate, aggregateId, daily = false }) {
   let phone = last10(to);
   let viaFallback = false;
   if (phone.length !== 10) {
@@ -66,6 +93,10 @@ async function sendNotice(event, ctx, { template, text, tripId, to, fallbackKey,
        ON CONFLICT (event_id, recipient) WHERE event_id IS NOT NULL DO NOTHING`,
       [event.id, template, text, `no number for ${who} and no notify_contacts.${fallbackKey}`]).catch(() => {});
     return skipped(`no WhatsApp number for ${who}, and app_settings.notify_contacts.${fallbackKey} is not set`);
+  }
+
+  if (daily && await alreadySentToday(template, phone)) {
+    return skipped(`${template} already sent to ${phone} today — a digest goes once a day, not once per sweep`);
   }
 
   const claim = await query(
@@ -87,13 +118,21 @@ async function sendNotice(event, ctx, { template, text, tripId, to, fallbackKey,
     });
     return ok(`${template} sent to ${who} (${phone})${viaFallback ? ' via office fallback' : ''}`);
   } catch (e) {
-    await query(`UPDATE notifications SET status='FAILED', attempts=attempts+1, last_error=$2 WHERE id=$1`,
-      [nid, String(e.message).slice(0, 500)]).catch(() => {});
+    const permanent = PERMANENT_SEND_FAILURE.test(String(e.message ?? ''));
+    await query(
+      `UPDATE notifications SET status='FAILED', attempts=attempts+1, last_error=$2 WHERE id=$1`,
+      [nid, `${permanent ? 'PERMANENT: ' : ''}${String(e.message).slice(0, 480)}`]).catch(() => {});
     await ctx.emit('notification.failed', {
       aggregate, aggregateId,
-      payload: { channel: 'WHATSAPP', recipient: phone, template, error: e.code ?? 'SEND_FAILED', detail: e.message },
+      payload: { channel: 'WHATSAPP', recipient: phone, template, permanent, error: e.code ?? 'SEND_FAILED', detail: e.message },
       correlationId: event.correlation_id,
     }).catch(() => {});
+    // A number WhatsApp cannot resolve will not resolve on the fifth attempt
+    // either. Recorded as FAILED and reported, but NOT rethrown — rethrowing
+    // buys four more send attempts at a dead number and a DEAD event that says
+    // nothing new. Only a transient failure (engine offline, timeout) is worth
+    // the bus retrying.
+    if (permanent) return skipped(`${template}: ${phone} is not reachable on WhatsApp (${e.message}) — recorded, not retried`);
     throw e;
   }
 }
@@ -448,6 +487,10 @@ export default defineAgent({
           to: null, fallbackKey: 'fleet_manager',
           who: 'fleet manager',
           aggregate: 'fleet', aggregateId: event.aggregate_id,
+          // ONE A DAY. The sweep fires constantly — 237 times in an hour on
+          // production — and an expiry digest that arrives 237 times is not a
+          // digest, it is a reason to block the number.
+          daily: true,
         });
       }
 
