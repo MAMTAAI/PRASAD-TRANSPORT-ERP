@@ -323,12 +323,19 @@ export async function registerCashbookRoutes(app) {
   // edit it, so it gets its own endpoints rather than widening that one.
   const COMPANY_COLS = ['company_name', 'tagline', 'gstin', 'pan_no', 'tds_tan', 'email', 'phone',
     'address', 'city', 'state', 'pincode', 'bank_name', 'account_no', 'ifsc_code',
-    'logo_url', 'gst_pdf_url', 'pan_pdf_url', 'status'];
+    'logo_url', 'gst_pdf_url', 'pan_pdf_url', 'status',
+    // migration 181 — the registered office, pinned. Spelled the same way as on
+    // every other party table; see GEO_COLS in masters.routes.js.
+    'lat', 'lng', 'geofence_radius', 'geo_source'];
 
   // gstin/pan_no are citext; ::text on the way out so the SPA compares strings.
   const COMPANY_SELECT = `SELECT id, legacy_id, company_name, tagline, gstin::text AS gstin,
     pan_no::text AS pan_no, tds_tan, email, phone, address, city, state, pincode,
     bank_name, account_no, ifsc_code, logo_url, gst_pdf_url, pan_pdf_url,
+    -- 181. This SELECT names its columns rather than using *, so a new column
+    -- is invisible to the screen until it is listed HERE too — the geo columns
+    -- would have saved and then vanished on reload.
+    lat, lng, geofence_radius, geo_source, geo_updated_at,
     status::text AS status, created_at, updated_at FROM companies`;
 
   app.get('/companies', async (req, reply) => {

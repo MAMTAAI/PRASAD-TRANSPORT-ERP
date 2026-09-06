@@ -14,6 +14,8 @@ import { BILLING_TYPES, resolveRate } from './lib/freightEngine';
 import { fetchLanes } from './lib/masters/rateApi';
 
 import { API_BASE } from './lib/apiBase';
+import GeoField from './lib/geo/GeoField';
+import { readGeo, writeGeo } from './lib/geo/geoApi';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 
@@ -38,6 +40,13 @@ const toApi = (f: any, rateHistory: any[]) => ({
   billing_type: f.Billing_Type || 'PER_KL',
   rate_history: rateHistory,
   status: f.Status === 'Inactive' ? 'INACTIVE' : 'ACTIVE',
+  // 181 — A LANE IS PINNED AT BOTH ENDS. The allowance, the RTKM and the toll
+  // are all properties of the depot→consignee PAIR (see migration 178), never
+  // of the consignee alone — one consignee is served from several depots on
+  // very different terms. So the pair is what carries the coordinates, under
+  // the depot_/consignee_ prefixes the migration created.
+  ...writeGeo(readGeo(f, 'depot'), 'depot'),
+  ...writeGeo(readGeo(f, 'consignee'), 'consignee'),
 });
 
 // 🛠️ Fleet fuel-economy config (km per litre) by vehicle capacity, used to
@@ -95,7 +104,9 @@ export default function LocationRtkmMaster() {
     Status: 'Active',
     // 💰 SMART FREIGHT ENGINE: billing formula (oil companies simple Qty×Rate
     // use nahi kartin — IOCL me Qty × RTD × Rate/tonne-km hota hai)
-    Billing_Type: 'PER_KL'
+    Billing_Type: 'PER_KL',
+    depot_lat: null, depot_lng: null, depot_geofence_radius: 2000, depot_geo_source: null,
+    consignee_lat: null, consignee_lng: null, consignee_geofence_radius: 2000, consignee_geo_source: null,
   });
   // 🗓️ Quarterly date-effective rates: [{valid_from, valid_to, rate_value}] —
   // trip ki LOADING DATE jis quarter me girti hai, wahi rate billing me lagta hai.
@@ -245,8 +256,11 @@ export default function LocationRtkmMaster() {
       Fixed_HSD: r.Fixed_HSD || '',
       Fixed_Cash: r.Fixed_Cash || '',
       Status: r.Status || 'Active',
-      Billing_Type: r.Billing_Type || 'PER_KL'
-    });
+      Billing_Type: r.Billing_Type || 'PER_KL',
+      // Straight off the row: the API returns rtkm_master.* unchanged.
+      ...writeGeo(readGeo(r, 'depot'), 'depot'),
+      ...writeGeo(readGeo(r, 'consignee'), 'consignee'),
+    } as any);
     setRateHistory(Array.isArray(r.rate_history) ? r.rate_history.map(x => ({ ...x })) : []);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -361,6 +375,16 @@ export default function LocationRtkmMaster() {
               <datalist id="depot-list">
                 {uniqueDepots.map((d, i) => <option key={i} value={d as string} />)}
               </datalist>
+              {/* 📍 181 — the LOADING end of the lane. */}
+              <div style={{ marginTop: 10 }}>
+                <GeoField
+                  value={readGeo(formData, 'depot')}
+                  onChange={(geo:any)=>setFormData({ ...formData, ...writeGeo(geo, 'depot') } as any)}
+                  title={formData.Depot_Link || 'Depot'}
+                  label="📍 Depot pin & geofence"
+                  hint="Refinery / terminal gate where the lorry loads."
+                />
+              </div>
             </div>
 
             <div>
@@ -377,6 +401,18 @@ export default function LocationRtkmMaster() {
               <datalist id="consignee-list">
                 {uniqueConsignees.map((c, i) => <option key={i} value={c as string} />)}
               </datalist>
+              {/* 📍 181 — the UNLOADING end. Pinned separately from the depot
+                  because a lane is a PAIR: the same consignee is served from
+                  several depots and each pairing is its own row. */}
+              <div style={{ marginTop: 10 }}>
+                <GeoField
+                  value={readGeo(formData, 'consignee')}
+                  onChange={(geo:any)=>setFormData({ ...formData, ...writeGeo(geo, 'consignee') } as any)}
+                  title={formData.Consignee_Name || 'Consignee'}
+                  label="📍 Consignee pin & geofence"
+                  hint="AFS / depot shutter where the lorry unloads."
+                />
+              </div>
             </div>
           </div>
 

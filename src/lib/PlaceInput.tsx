@@ -34,6 +34,7 @@ export default function PlaceInput({
   local = [],          // [{ value, hint }] — this company's own routes/depots
   localLabel = 'Apni routes',
   onPickLocal,         // (value) => void — the auto-fill the datalist used to do
+  withCoords = false,  // resolve lat/lng too — see choose() below
 }) {
   const [suggestions, setSuggestions] = useState([]);
   const [open, setOpen] = useState(false);
@@ -118,9 +119,46 @@ export default function PlaceInput({
     onChange(s.description);
     setOpen(false);
     setSuggestions([]);
-    onResolved?.({ description: s.description, place_id: s.place_id });
-    // Token is spent. The next lookup starts a new billing session.
     const g = window.google;
+
+    // ── WHY withCoords EXISTS ────────────────────────────────────────────
+    // This component had the coordinates within reach the whole time and threw
+    // them away — a prediction carries a place_id, and one getDetails call
+    // turns that into a point. Every caller that wanted a location on a map
+    // was therefore geocoding the DESCRIPTION STRING again afterwards, paying
+    // twice and sometimes landing somewhere else, because "BONGAIGAON RC
+    // OFFICE (7R01)" does not geocode back to the place that suggested it.
+    //
+    // Off by default: the trip form and the bazaar want the NAME, and a
+    // details call they do not need is a charge they should not carry.
+    //
+    // THE SESSION TOKEN IS PASSED TO getDetails ON PURPOSE. That is what
+    // closes the autocomplete session — the keystrokes and this lookup are
+    // then billed as ONE, which is the whole reason the token exists. Calling
+    // getDetails without it silently reverts autocomplete to per-request
+    // billing while looking identical.
+    if (withCoords && g?.maps?.places?.PlacesService) {
+      const svc = new g.maps.places.PlacesService(document.createElement('div'));
+      svc.getDetails(
+        { placeId: s.place_id, fields: ['geometry', 'formatted_address'], sessionToken: tokenRef.current },
+        (d, status) => {
+          const ok = status === g.maps.places.PlacesServiceStatus.OK && d?.geometry?.location;
+          onResolved?.({
+            description: s.description,
+            place_id: s.place_id,
+            // Null rather than absent when the lookup fails, so a caller can
+            // tell "no coordinates" from "not asked for".
+            lat: ok ? d.geometry.location.lat() : null,
+            lng: ok ? d.geometry.location.lng() : null,
+            formatted: d?.formatted_address ?? null,
+          });
+        },
+      );
+    } else {
+      onResolved?.({ description: s.description, place_id: s.place_id });
+    }
+
+    // Token is spent. The next lookup starts a new billing session.
     if (g?.maps?.places?.AutocompleteSessionToken) {
       tokenRef.current = new g.maps.places.AutocompleteSessionToken();
     }

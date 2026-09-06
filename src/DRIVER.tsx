@@ -18,6 +18,8 @@ import { openDocument } from './lib/openDocument';
 import { extractDocument } from './lib/aiScanner';
 import { speak } from './lib/voice/tts';
 import { uploadMedia, slug } from './lib/uploadMedia';
+import GeoField from './lib/geo/GeoField';
+import { readGeo, writeGeo } from './lib/geo/geoApi';
 import { sendWhatsApp, waResultText } from './lib/waSend';
 
 import { API_BASE } from './lib/apiBase';
@@ -59,7 +61,10 @@ const toApi = (d: any) => {
   const COLS = ['name', 'mobile', 'alt_mobile', 'address', 'license_no', 'license_expiry',
     'hzd_cert_no', 'hzd_expiry', 'aadhar_no', 'pan_no', 'bank_name', 'account_no',
     'ifsc_code', 'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status',
-    'status', 'remarks', 'additional_docs'];
+    'status', 'remarks', 'additional_docs',
+    // 181 — the home village. Note the filter below keeps null (it only drops
+    // undefined and ''), so CLEARING a pin is sent through rather than ignored.
+    'lat', 'lng', 'geofence_radius', 'geo_source'];
   for (const c of COLS) if (d[c] !== undefined && d[c] !== '') out[c] = d[c];
   for (const [legacy, pg] of PHOTO_FIELDS) if (d[legacy]) out[pg] = d[legacy];
   // Empty date strings would fail the date cast; send null so the column clears.
@@ -130,6 +135,7 @@ export default function DriverMgmt() {
   
   const [driverData, setDriverData] = useState({
     name: '', mobile: '', profile_pic: '', address: '',
+    lat: null, lng: null, geofence_radius: 2000, geo_source: null,
     license_no: '', license_expiry: '', dl_photo: '',
     hzd_cert_no: '', hzd_expiry: '', hzd_photo: '',
     aadhar_no: '', aadhar_photo: '', pan_no: '', pan_photo: '',
@@ -614,7 +620,7 @@ export default function DriverMgmt() {
 
   const closeModal = () => {
     setIsModalOpen(false); setEditingId(null); setLocalPicPreview(null); setScannedAIData(null);
-    setDriverData({ name: '', mobile: '', profile_pic: '', address: '', license_no: '', license_expiry: '', dl_photo: '', hzd_cert_no: '', hzd_expiry: '', hzd_photo: '', aadhar_no: '', aadhar_photo: '', pan_no: '', pan_photo: '', bank_name: '', account_no: '', ifsc_code: '', bank_photo: '', guarantor_name: '', guarantor_mobile: '', join_date: new Date().toISOString().split('T')[0], status: 'ACTIVE', approval_status: 'PENDING', additional_docs: [] });
+    setDriverData({ name: '', mobile: '', profile_pic: '', address: '', license_no: '', license_expiry: '', dl_photo: '', hzd_cert_no: '', hzd_expiry: '', hzd_photo: '', aadhar_no: '', aadhar_photo: '', pan_no: '', pan_photo: '', bank_name: '', account_no: '', ifsc_code: '', bank_photo: '', guarantor_name: '', guarantor_mobile: '', join_date: new Date().toISOString().split('T')[0], status: 'ACTIVE', approval_status: 'PENDING', additional_docs: [], lat: null, lng: null, geofence_radius: 2000, geo_source: null });
   };
 
   const handleSaveTransaction = async () => {
@@ -1044,6 +1050,20 @@ export default function DriverMgmt() {
 
                 <div><label>Full Name *</label><input className="modern-input" value={driverData.name} onChange={e=>setDriverData({...driverData, name: e.target.value})} /></div>
                 <div><label>Mobile Number *</label><input className="modern-input" value={driverData.mobile} onChange={e=>setDriverData({...driverData, mobile: e.target.value})} /></div>
+                {/* 📍 181. The driver's home village. There is no address
+                    INPUT on this form and never was — the column existed and
+                    nothing wrote to it. A pin is the more useful half anyway:
+                    it verifies a KYC address and it routes a man home at the
+                    end of a run. */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <GeoField
+                    value={readGeo(driverData)}
+                    onChange={(geo:any)=>setDriverData({ ...driverData, ...writeGeo(geo) } as any)}
+                    title={driverData.name || 'Driver'}
+                    label="📍 Home village on map"
+                    hint="Ghar ka gaon — KYC verification aur ghar chhodne ke liye."
+                  />
+                </div>
                 
                 <div>
                   <label style={{ color: '#ffb224' }}>App Approval Status *</label>

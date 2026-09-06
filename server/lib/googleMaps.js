@@ -236,3 +236,52 @@ export async function geocode(address) {
   }
   return { ok: true, cached: false, ...payload };
 }
+
+// ── Reverse geocode ────────────────────────────────────────────────────────
+//
+// The other direction, added 6-Sep-2026 for the GeoPicker: a person drags a pin
+// onto a factory gate and the screen has to say what is there, so they can tell
+// they hit the right gate.
+//
+// THE CACHE KEY IS THE ROUNDED COORDINATE, NOT THE RAW ONE. A dragged pin
+// produces a new coordinate on every pixel of movement; keyed raw, the cache
+// would never hit and every nudge would be a billed request. Rounded to five
+// decimal places — about a metre — one gate is one cache entry no matter how
+// many times it is adjusted or how many people open the screen.
+//
+// A PLUS CODE IS A SUCCESS, NOT A FAILURE. Half these gates are on unnamed
+// roads; Google answers "9HH3+P6 Hill Block N.C" and that is the correct answer
+// to "what is here". Verified in the browser. The coordinate is the truth and
+// the address is a caption, so this deliberately does NOT apply the TOO_COARSE
+// guard that forward geocoding uses — there, a coarse answer means the wrong
+// place; here, the place is already decided.
+export async function reverseGeocode(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)
+      || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+    return { ok: false, reason: 'BAD_INPUT', detail: 'lat and lng must be a real coordinate' };
+  }
+  const key = `${la.toFixed(5)},${ln.toFixed(5)}`;
+
+  const hit = await readCache('REVGEO', key, '');
+  if (hit) return { ok: true, cached: true, ...hit.payload };
+
+  const res = await call('/geocode/json', { latlng: key, region: 'in' });
+  if (!res.ok) return res;
+
+  const g = res.data.results?.[0];
+  const payload = {
+    lat: la,
+    lng: ln,
+    // No result at all is normal over water or empty forest. The pin still
+    // stands; the caption is simply empty.
+    formatted: g?.formatted_address ?? null,
+    place_id: g?.place_id ?? null,
+    types: Array.isArray(g?.types) ? g.types : null,
+  };
+  // Cached even when Google had nothing to say, or every re-open of the same
+  // party re-asks the same unanswerable question and pays for it.
+  await writeCache('REVGEO', key, '', payload, null, null);
+  return { ok: true, cached: false, ...payload };
+}

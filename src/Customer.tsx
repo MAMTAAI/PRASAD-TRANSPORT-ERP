@@ -18,6 +18,8 @@
 import React, { useState, useEffect } from 'react';
 import { vGstin, vPan, vMobile, vPincode, gstinPanMatch, runChecks, vIfsc, vAccountNo } from './lib/validators';
 
+import GeoField from './lib/geo/GeoField';
+import { readGeo, writeGeo } from './lib/geo/geoApi';
 import { API_BASE } from './lib/apiBase';
 import { isAdmin } from './lib/rbac';
 const API = API_BASE;
@@ -42,7 +44,10 @@ const CUSTOMER_WRITABLE = ['customer_name', 'address', 'state', 'city', 'pincode
   // migration 134 — the bank account a KYC application brings in, and the one
   // a customer asks to change from its app. Without these three here the office
   // could receive an account it could never see or correct on the master.
-  'bank_name', 'account_no', 'ifsc_code'];
+  'bank_name', 'account_no', 'ifsc_code',
+  // migration 181 — the pin and its fence. Without these four here toApi()
+  // drops them and a location saved on the map vanishes on the next load.
+  'lat', 'lng', 'geofence_radius', 'geo_source'];
 const NUMERIC_COLS = ['opening_balance', 'credit_limit'];
 
 const fromApi = (d: any) => ({
@@ -103,7 +108,10 @@ export default function Customer() {
     detention_applicable: false, // ⏱️ oil companies: NO; AADHAR-style monthly clients: YES
     portal_access: false,
     portal_features: { live_tracking: true, ledger_invoices: true, place_orders: false, download_pods: true },
-    locations: [], consignees: [] 
+    locations: [], consignees: [],
+    // 181 — unpinned until somebody puts it on the map. 2 km is the owner's
+    // default and matches the column default, so the two can never disagree.
+    lat: null, lng: null, geofence_radius: 2000, geo_source: null,
   });
 
   const [formData, setFormData] = useState(getInitialFormData());
@@ -525,6 +533,22 @@ export default function Customer() {
                 {/* Split fields — the old combined input could never save pincode and corrupted state on every edit */}
                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>State</label><input className="modern-input" placeholder="State" value={formData.state} onChange={e=>setFormData({...formData, state: e.target.value})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>Pincode</label><input className="modern-input" placeholder="6-digit Pincode" inputMode="numeric" maxLength={6} value={formData.pincode} onChange={e=>setFormData({...formData, pincode: e.target.value.replace(/[^\d]/g, '')})} /></div>
+
+                {/* 📍 THE PIN (migration 181). Sits right under the postal
+                    address on purpose: an address is what the paperwork says
+                    and a pin is where the lorry actually goes, and the two are
+                    filled in the same breath. `span 2` because the summary line
+                    carries coordinates, the fence and the address. */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <GeoField
+                    value={readGeo(formData)}
+                    onChange={(geo:any)=>setFormData({ ...formData, ...writeGeo(geo) })}
+                    title={formData.customer_name || 'Customer'}
+                    addressHint={formData.address}
+                    label="📍 Location on map & geofence"
+                    hint="Corporate office. Where the lorry unloads is set per depot, in the Depots tab."
+                  />
+                </div>
                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>Contact Person</label><input className="modern-input" value={formData.contact_person} onChange={e=>setFormData({...formData, contact_person: e.target.value})} /></div>
                 <div><label style={{ fontSize:'11px', color:'#9aadd4' }}>Mobile No</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
 

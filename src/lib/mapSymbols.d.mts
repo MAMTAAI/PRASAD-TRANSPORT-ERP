@@ -44,6 +44,18 @@ export declare const INK: Record<
 export declare function loadingPin(): MapImageIcon;
 /** The unloading end — a warehouse/AFS glyph in a pink hub pin. */
 export declare function unloadingPin(): MapImageIcon;
+/** The site being PLACED — narrow and hollow so the gate under it stays
+ *  visible at the zoom where "which gate" is actually decided. `moving` lifts
+ *  it while a drag is in flight. */
+export declare function sitePin(moving?: boolean): MapImageIcon;
+
+/** google.maps.Circle options for a geofence, so every fence in the system is
+ *  the same ring. Not a Circle — the caller owns the lifecycle. */
+export declare function fenceStyle(colour?: string): {
+  strokeColor: string; strokeOpacity: number; strokeWeight: number;
+  fillColor: string; fillOpacity: number; clickable: boolean;
+};
+
 /** The lorry, drawn from above and rotated to `heading` (degrees, 0 = north). */
 export declare function truckIcon(heading?: number, scale?: number): MapImageIcon;
 /** The registration plate, passed to the Marker as its `label`. */

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { uploadMedia, slug } from './lib/uploadMedia';
 
 import { API_BASE } from './lib/apiBase';
+import GeoField from './lib/geo/GeoField';
+import { readGeo, writeGeo } from './lib/geo/geoApi';
 const API = API_BASE;
 const FIN = `${API}/api/v1/finance`;
 
@@ -34,6 +36,9 @@ export default function CompanyMgmt() {
   const [formData, setFormData] = useState({
     company_name: '', tagline: '', email: '', phone: '',
     address: '', city: '', state: '', pincode: '',
+    // 181 — the registered office. formData is POSTed wholesale, so these
+    // four ride along; the server's COMPANY_COLS decides what is accepted.
+    lat: null, lng: null, geofence_radius: 2000, geo_source: null,
     gstin: '', pan_no: '', tds_tan: '', 
     bank_name: '', account_no: '', ifsc_code: '',
     logo_url: '', gst_pdf_url: '', pan_pdf_url: ''
@@ -108,7 +113,7 @@ export default function CompanyMgmt() {
   };
 
   const resetForm = () => {
-    setFormData({ company_name: '', tagline: '', email: '', phone: '', address: '', city: '', state: '', pincode: '', gstin: '', pan_no: '', tds_tan: '', bank_name: '', account_no: '', ifsc_code: '', logo_url: '', gst_pdf_url: '', pan_pdf_url: '' });
+    setFormData({ company_name: '', tagline: '', email: '', phone: '', address: '', city: '', state: '', pincode: '', gstin: '', pan_no: '', tds_tan: '', bank_name: '', account_no: '', ifsc_code: '', logo_url: '', gst_pdf_url: '', pan_pdf_url: '', lat: null, lng: null, geofence_radius: 2000, geo_source: null });
     setShowForm(false); setEditingId(null); setFormTab('basic');
   };
 
@@ -209,6 +214,17 @@ export default function CompanyMgmt() {
                 <div style={{ gridColumn: 'span 2' }}>
                   <label style={{ fontSize: '12px', color: '#9aadd4' }}>Full Address (Appears on Invoice)</label>
                   <textarea className="modern-input" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} style={{ minHeight: '60px' }} />
+                </div>
+                {/* 📍 181. The registered office, pinned — the same address that
+                    goes on every invoice, now with a point behind it. */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <GeoField
+                    value={readGeo(formData)}
+                    onChange={(geo: any) => setFormData({ ...formData, ...writeGeo(geo) } as any)}
+                    title={formData.company_name || 'Company'}
+                    addressHint={formData.address}
+                    hint="Registered office."
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', color: '#9aadd4' }}>City</label>

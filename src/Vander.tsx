@@ -21,6 +21,8 @@
 import React, { useState, useEffect } from 'react';
 
 import { API_BASE } from './lib/apiBase';
+import GeoField from './lib/geo/GeoField';
+import { readGeo, writeGeo } from './lib/geo/geoApi';
 const API = API_BASE;
 const MASTERS = `${API}/api/v1/masters`;
 const FIN = `${API}/api/v1/finance`;
@@ -54,7 +56,9 @@ export default function Vander() {
   const [formData, setFormData] = useState({
     vendor_name: '', vendor_type: 'Fuel Pump', contact_person: '', mobile_no: '', 
     address: '', gst_no: '', bank_account: '', ifsc_code: '', 
-    opening_balance: '0', current_balance: '0', status: 'Active'
+    opening_balance: '0', current_balance: '0', status: 'Active',
+    // 181 — pumps, transporters and workshops all pin the same way.
+    lat: null, lng: null, geofence_radius: 2000, geo_source: null,
   });
 
   // Vendor Transaction Data (Bill/Payment)
@@ -97,6 +101,9 @@ export default function Vander() {
       bank_account: formData.bank_account,
       ifsc_code: formData.ifsc_code,
       status: toDbStatus(formData.status),
+      // 181 — this payload is built field by field rather than spread, so the
+      // pin has to be named here or it is silently dropped on every save.
+      ...writeGeo(readGeo(formData)),
     };
     try {
       if (editingId) {
@@ -170,7 +177,7 @@ export default function Vander() {
 
   const openVendorModal = (vendor: any = null) => {
     if (vendor) { setFormData({ ...vendor, status: vendor.status === 'INACTIVE' ? 'Inactive' : 'Active' }); setEditingId(vendor.id); }
-    else { setFormData({ vendor_name: '', vendor_type: 'Fuel Pump', contact_person: '', mobile_no: '', address: '', gst_no: '', bank_account: '', ifsc_code: '', opening_balance: '0', current_balance: '0', status: 'Active' }); setEditingId(null); }
+    else { setFormData({ vendor_name: '', vendor_type: 'Fuel Pump', contact_person: '', mobile_no: '', address: '', gst_no: '', bank_account: '', ifsc_code: '', opening_balance: '0', current_balance: '0', status: 'Active', lat: null, lng: null, geofence_radius: 2000, geo_source: null }); setEditingId(null); }
     setIsVendorModalOpen(true);
   };
 
@@ -335,6 +342,18 @@ export default function Vander() {
               <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>Mobile No (For WhatsApp) *</label><input className="modern-input" value={formData.mobile_no} onChange={e=>setFormData({...formData, mobile_no: e.target.value})} /></div>
               <div><label style={{ fontSize:'12px', color:'#9aadd4' }}>GST Number</label><input className="modern-input" value={formData.gst_no} onChange={e=>setFormData({...formData, gst_no: e.target.value})} /></div>
               <div style={{ gridColumn: 'span 2' }}><label style={{ fontSize:'12px', color:'#9aadd4' }}>Full Address</label><input className="modern-input" value={formData.address} onChange={e=>setFormData({...formData, address: e.target.value})} /></div>
+                {/* 📍 181. A pump's pin is what lets a diesel slip be checked
+                    against where the lorry actually was; a transporter's is
+                    what makes "who is near this load" answerable. */}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <GeoField
+                    value={readGeo(formData)}
+                    onChange={(geo:any)=>setFormData({ ...formData, ...writeGeo(geo) } as any)}
+                    title={formData.vendor_name || 'Vendor'}
+                    addressHint={formData.address}
+                    hint="Pump nozzle / workshop gate — not the town."
+                  />
+                </div>
               
               {/* Bank & Ledger Info */}
               <div style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.05)', padding: '15px', borderRadius: '10px', marginTop: '10px' }}>

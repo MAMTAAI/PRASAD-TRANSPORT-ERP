@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<title>GeoPicker — global map &amp; geofence, v1</title>
+<!--
+  ============================================================================
+  GeoPicker mock v1 — the ONE map+geofence control, shown on PC and on phone.
+
+  This is a MOCK for the owner to say yes/no to before any production code is
+  written. It runs the REAL Google Maps JS SDK with the REAL browser key, so
+  what you drag here is exactly what the ERP will do.
+
+  THE KEY IS NOT IN THIS FILE. The repo is public. Open this page with
+  ?key=AIza... once, or paste the key in the box — it is remembered in this
+  browser's localStorage afterwards.
+  ============================================================================
+-->
+<style>
+  :root{
+    --pt-primary:#22d3ee; --pt-primary-2:#4f7cf7; --pt-success:#2fe39b;
+    --pt-warning:#ffb224; --pt-danger:#ff6b81; --pt-ai:#a78bfa;
+    --pt-bg-0:#0a1024; --pt-bg-1:#121c38; --pt-bg-2:#18244a;
+    --pt-border:#27395f; --pt-border-hi:#3d548a;
+    --pt-text:#eef3ff; --pt-text-muted:#9aadd4; --pt-text-dim:#c4d1ea;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1200px 700px at 12% -10%, rgba(79,124,247,.16), transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, rgba(34,211,238,.10), transparent 55%),
+      var(--pt-bg-0);
+    color:var(--pt-text);
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    min-height:100vh; padding:22px 18px 60px;
+  }
+  h1{font-size:19px;margin:0 0 4px;letter-spacing:.2px}
+  .sub{color:var(--pt-text-muted);font-size:12.5px;margin:0 0 18px}
+  .wrap{max-width:1360px;margin:0 auto}
+
+  .keybar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+    background:rgba(24,36,74,.52);border:1px solid var(--pt-border);
+    border-radius:12px;padding:10px 12px;margin-bottom:18px}
+  .keybar input{flex:1;min-width:220px}
+  input,select{font:inherit}
+  .inp, .keybar input, .coord input, .search input{
+    background:rgba(10,16,36,.75);border:1px solid var(--pt-border);
+    color:var(--pt-text);border-radius:9px;padding:9px 11px;outline:none;width:100%}
+  .inp:focus,.keybar input:focus,.coord input:focus,.search input:focus{
+    border-color:var(--pt-primary);box-shadow:0 0 0 3px rgba(34,211,238,.14)}
+  .btn{border:1px solid var(--pt-border-hi);background:rgba(39,57,95,.45);
+    color:var(--pt-text);border-radius:9px;padding:9px 14px;cursor:pointer;
+    font-weight:600;font-size:12.5px;white-space:nowrap;min-height:40px}
+  .btn:hover{border-color:var(--pt-primary);background:rgba(34,211,238,.12)}
+  .btn.primary{background:linear-gradient(135deg,var(--pt-primary),var(--pt-primary-2));
+    border-color:transparent;color:#04121e}
+  .btn.ghost{background:transparent}
+  .btn.danger{border-color:rgba(255,107,129,.5);color:var(--pt-danger)}
+
+  /* ── the two panes ───────────────────────────────────────────────── */
+  .panes{display:grid;grid-template-columns:1fr 400px;gap:22px;align-items:start}
+  @media(max-width:1080px){.panes{grid-template-columns:1fr}}
+
+  .card{background:linear-gradient(168deg,rgba(46,66,118,.42) 0%,rgba(18,28,56,0) 58%),var(--pt-bg-1);
+    border:1px solid var(--pt-border);border-radius:16px;overflow:hidden}
+  .card > h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--pt-text-muted);margin:0;padding:14px 16px 12px;border-bottom:1px solid var(--pt-border)}
+  .card .body{padding:16px}
+
+  /* ── GeoField: the one row that goes into every master form ──────── */
+  .formdemo{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .formdemo .full{grid-column:1/-1}
+  .formdemo label{display:block;font-size:11px;color:var(--pt-text-muted);margin-bottom:5px}
+  .geofield{border:1px dashed var(--pt-border-hi);border-radius:11px;padding:11px 12px;
+    display:flex;gap:12px;align-items:center;background:rgba(34,211,238,.045)}
+  .geofield.set{border-style:solid;border-color:rgba(47,227,155,.42);background:rgba(47,227,155,.06)}
+  .geofield .ico{font-size:19px;line-height:1}
+  .geofield .txt{flex:1;min-width:0}
+  .geofield .t1{display:block;font-size:12.5px;font-weight:700}
+  .geofield .t2{display:block;font-size:11px;color:var(--pt-text-muted);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pill{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.06em;
+    padding:2px 7px;border-radius:99px;background:rgba(255,178,36,.15);color:var(--pt-warning)}
+  .pill.ok{background:rgba(47,227,155,.15);color:var(--pt-success)}
+
+  /* ── the picker ──────────────────────────────────────────────────── */
+  .search{position:relative;margin-bottom:10px}
+  .sugg{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:60;max-height:260px;
+    overflow:auto;border:1px solid var(--pt-border);border-radius:11px;
+    background:rgba(11,15,24,.97);backdrop-filter:blur(12px);
+    box-shadow:0 20px 50px rgba(0,0,0,.6)}
+  .sugg button{display:block;width:100%;text-align:left;background:none;border:0;
+    color:var(--pt-text-dim);padding:10px 12px;cursor:pointer;font:inherit;font-size:12.5px}
+  .sugg button:hover{background:rgba(34,211,238,.14);color:var(--pt-primary)}
+  .sugg .m{display:block;font-weight:700;color:var(--pt-text)}
+  .sugg .s{display:block;font-size:11px;color:var(--pt-text-muted)}
+  .sugg .hdr{padding:5px 12px;font-size:9.5px;font-weight:800;letter-spacing:.12em;
+    text-transform:uppercase;color:rgba(34,211,238,.6);background:rgba(34,211,238,.06);
+    border-bottom:1px solid rgba(255,255,255,.05)}
+
+  .maphost{position:relative;border-radius:13px;overflow:hidden;border:1px solid var(--pt-border);
+    background:#0a1024}
+  .maphost .map{width:100%;height:400px}
+  .mobile .maphost .map{height:300px}
+  .nokey{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:24px;color:var(--pt-text-muted);font-size:12.5px;
+    background:repeating-linear-gradient(45deg,#0d1430,#0d1430 12px,#101a3c 12px,#101a3c 24px)}
+
+  /* the fixed centre crosshair — the MOBILE way to place a pin */
+  .cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);
+    pointer-events:none;z-index:5;display:none;filter:drop-shadow(0 6px 10px rgba(0,0,0,.55))}
+  .mobile .cross{display:block}
+  .cross svg{display:block}
+  .crosshint{position:absolute;left:0;right:0;bottom:10px;z-index:6;text-align:center;
+    pointer-events:none;display:none}
+  .mobile .crosshint{display:block}
+  .crosshint span{background:rgba(10,16,36,.86);border:1px solid var(--pt-border);
+    border-radius:99px;padding:5px 12px;font-size:11px;color:var(--pt-text-dim)}
+
+  .locbtn{position:absolute;right:10px;bottom:10px;z-index:6}
+  .viewsw{position:absolute;left:10px;top:10px;z-index:6;display:flex;gap:6px;
+    background:rgba(10,16,36,.82);border:1px solid var(--pt-border);border-radius:99px;padding:4px}
+  .viewsw .chip{border:0;padding:5px 12px;min-height:30px}
+  .dragtip{position:absolute;left:0;right:0;bottom:10px;z-index:6;text-align:center;pointer-events:none}
+  .dragtip span{background:rgba(10,16,36,.86);border:1px solid var(--pt-border);
+    border-radius:99px;padding:5px 12px;font-size:11px;color:var(--pt-text-dim)}
+
+  .radius{margin-top:14px}
+  .radius .row{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+  .radius .lab{font-size:11px;color:var(--pt-text-muted);flex:1}
+  .radius .val{font-size:15px;font-weight:800;color:var(--pt-primary);font-variant-numeric:tabular-nums}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:34px;background:transparent}
+  input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:99px;
+    background:linear-gradient(90deg,var(--pt-primary),var(--pt-primary-2))}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;
+    border-radius:50%;background:#eef3ff;border:3px solid var(--pt-primary);margin-top:-10px;
+    box-shadow:0 3px 10px rgba(0,0,0,.5);cursor:pointer}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:2px}
+  .chip{border:1px solid var(--pt-border-hi);background:transparent;color:var(--pt-text-muted);
+    border-radius:99px;padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer;min-height:34px}
+  .chip.on{background:rgba(34,211,238,.16);border-color:var(--pt-primary);color:var(--pt-primary)}
+
+  .coord{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
+  .coord label{display:block;font-size:10.5px;color:var(--pt-text-muted);margin-bottom:4px}
+  .resolved{margin-top:11px;font-size:11.5px;color:var(--pt-text-dim);
+    background:rgba(10,16,36,.55);border:1px solid var(--pt-border);border-radius:9px;padding:9px 11px;
+    min-height:38px}
+  .resolved b{color:var(--pt-text)}
+
+  .foot{display:flex;gap:9px;margin-top:15px;flex-wrap:wrap}
+  .foot .spacer{flex:1}
+
+  /* ── phone frame ─────────────────────────────────────────────────── */
+  .phone{width:376px;margin:0 auto;border:11px solid #1b2545;border-radius:34px;
+    background:var(--pt-bg-0);box-shadow:0 26px 60px rgba(0,0,0,.6);overflow:hidden;
+    height:740px;position:relative;display:flex;flex-direction:column}
+  .phone .notch{height:26px;background:#1b2545;flex:none}
+  .phone .screen{flex:1;overflow:auto;position:relative}
+  .sheet{position:absolute;left:0;right:0;bottom:0;top:52px;background:var(--pt-bg-1);
+    border-radius:20px 20px 0 0;border-top:1px solid var(--pt-border);
+    box-shadow:0 -18px 44px rgba(0,0,0,.55);display:flex;flex-direction:column}
+  .sheet .grab{width:44px;height:5px;border-radius:99px;background:var(--pt-border-hi);
+    margin:9px auto 4px;flex:none}
+  .sheet .shead{padding:4px 15px 11px;border-bottom:1px solid var(--pt-border);flex:none;
+    display:flex;align-items:center;gap:10px}
+  .sheet .shead .h{font-size:14px;font-weight:800;flex:1}
+  .sheet .sbody{padding:13px 15px;overflow:auto;flex:1}
+  .sheet .sfoot{padding:11px 15px;border-top:1px solid var(--pt-border);flex:none;
+    display:flex;gap:9px;background:rgba(10,16,36,.5)}
+  .sheet .sfoot .btn{flex:1;justify-content:center;text-align:center}
+
+  .note{font-size:11.5px;color:var(--pt-text-muted);line-height:1.65;
+    border-left:2px solid var(--pt-ai);padding:2px 0 2px 11px;margin-top:14px}
+  .note b{color:var(--pt-ai)}
+  code{background:rgba(10,16,36,.7);border:1px solid var(--pt-border);border-radius:5px;
+    padding:1px 5px;font-size:11.5px;color:var(--pt-primary)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>GeoPicker — one map control for the whole ERP</h1>
+  <p class="sub">Left: how it looks in an office master form on the PC. Right: the same control on a driver/partner phone.
+     Both drive the identical component — the phone is not a second build.</p>
+
+  <div class="keybar">
+    <span style="font-size:12px;color:var(--pt-text-muted)">Google Maps browser key (kept in this browser only, never in the repo)</span>
+    <input id="keyin" type="password" placeholder="AIza…" autocomplete="off">
+    <button class="btn primary" id="keygo">Load the map</button>
+  </div>
+
+  <div class="panes">
+
+    <!-- ══════════════ PC ══════════════ -->
+    <div class="card">
+      <h2>PC — Party master form (Consignee / Fuel Pump / Transporter — same row)</h2>
+      <div class="body">
+
+        <div class="formdemo">
+          <div class="full"><label>Party name</label>
+            <input class="inp" value="IOCL BONGAIGAON REFINERY (7R01)"></div>
+          <div><label>GSTIN</label><input class="inp" value="18AAACI1681G1ZM"></div>
+          <div><label>Mobile</label><input class="inp" value="9435020101"></div>
+          <div class="full"><label>Address</label>
+            <input class="inp" value="Bongaigaon Refinery, Dhaligaon, Chirang, Assam 783385"></div>
+
+          <div class="full" style="margin-top:4px">
+            <label>Location on map &amp; geofence</label>
+            <div class="geofield" id="gf">
+              <span class="ico">📍</span>
+              <span class="txt">
+                <span class="t1" id="gf1">Not pinned yet</span>
+                <span class="t2" id="gf2">Pin the gate, not the town — the fence is measured from this point.</span>
+              </span>
+              <span class="pill" id="src" style="display:none">APPROX · SEARCH ONLY</span>
+              <span class="pill" id="gfp">UNPINNED</span>
+              <button class="btn" id="gfbtn">Set on map</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- picker, shown inline here for the mock; a modal in the real screen -->
+        <div style="margin-top:18px;border-top:1px solid var(--pt-border);padding-top:16px">
+          <div class="search">
+            <input id="q" placeholder="Search a place, address or landmark…" autocomplete="off">
+            <div class="sugg" id="sugg" style="display:none"></div>
+          </div>
+
+          <div class="maphost" id="host">
+            <div class="map" id="map"></div>
+            <div class="nokey" id="nokey">Paste the Google Maps browser key above and press <b style="color:#22d3ee">&nbsp;Load the map</b>.<br>
+              The pin, the drag and the 2 km fence are all live once it loads.</div>
+            <button class="btn locbtn" id="mylo">◎ My location</button>
+            <div class="viewsw">
+              <button class="chip on" data-view="map">Map</button>
+              <button class="chip" data-view="sat">Satellite</button>
+            </div>
+            <div class="dragtip"><span>Pin ko pakad kar theek gate par rakhein — camera nahi hilegi</span></div>
+          </div>
+
+          <div class="radius">
+            <div class="row">
+              <span class="lab">Geofence radius — a lorry inside this circle counts as “arrived”</span>
+              <span class="val" id="rv">2.0 km</span>
+            </div>
+            <input type="range" id="r" min="200" max="10000" step="100" value="2000">
+            <div class="chips">
+              <button class="chip" data-r="500">500 m</button>
+              <button class="chip" data-r="1000">1 km</button>
+              <button class="chip on" data-r="2000">2 km</button>
+              <button class="chip" data-r="5000">5 km</button>
+              <button class="chip" data-r="10000">10 km</button>
+            </div>
+          </div>
+
+          <div class="coord">
+            <div><label>Latitude</label><input id="la" value="" placeholder="26.4831234"></div>
+            <div><label>Longitude</label><input id="ln" value="" placeholder="90.5533210"></div>
+          </div>
+          <div class="resolved" id="res">No pin yet — search above, or click anywhere on the map.</div>
+
+          <div class="foot">
+            <button class="btn danger ghost" id="clr">Clear pin</button>
+            <span class="spacer"></span>
+            <button class="btn ghost">Cancel</button>
+            <button class="btn primary" id="save">Save location</button>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>Why a crosshair on the phone and a draggable pin on the PC.</b> Dragging a 30-px pin with a
+          thumb is the single most-missed target on a touch screen. Every mapping app people already use
+          — Uber, Swiggy, Ola — moves the <i>map</i> under a fixed centre crosshair instead. The PC keeps
+          the draggable pin because a mouse is precise. Same component, one prop.
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ PHONE ══════════════ -->
+    <div class="card">
+      <h2>Phone — same control, bottom sheet</h2>
+      <div class="body" style="padding:14px">
+        <div class="phone mobile">
+          <div class="notch"></div>
+          <div class="screen">
+            <div style="padding:12px 14px">
+              <div style="font-size:12px;color:var(--pt-text-muted)">Fleet Partner · Profile</div>
+              <div style="font-size:15px;font-weight:800;margin-top:2px">SK ROADLINES</div>
+            </div>
+            <div class="sheet">
+              <div class="grab"></div>
+              <div class="shead"><span class="h">Set location</span>
+                <button class="btn ghost" style="padding:6px 10px;min-height:32px">✕</button></div>
+              <div class="sbody">
+                <div class="search" style="margin-bottom:9px">
+                  <input id="mq" placeholder="Search place…" autocomplete="off">
+                  <div class="sugg" id="msugg" style="display:none"></div>
+                </div>
+                <div class="maphost">
+                  <div class="map" id="mmap"></div>
+                  <div class="nokey" id="mnokey" style="font-size:11.5px">Map loads once the key is set.</div>
+                  <div class="cross">
+                    <svg width="34" height="46" viewBox="0 0 34 46">
+                      <path d="M17 45c0 0-13-16.4-13-27A13 13 0 0 1 30 18c0 10.6-13 27-13 27z"
+                            fill="#22d3ee" stroke="#04121e" stroke-width="2"/>
+                      <circle cx="17" cy="18" r="5" fill="#04121e"/>
+                    </svg>
+                  </div>
+                  <div class="crosshint"><span>Map ko khiska kar pin set karein</span></div>
+                  <button class="btn locbtn" id="mmylo" style="padding:7px 11px;min-height:36px">◎</button>
+                </div>
+                <div class="radius" style="margin-top:12px">
+                  <div class="row"><span class="lab">Geofence</span><span class="val" id="mrv">2.0 km</span></div>
+                  <input type="range" id="mr" min="200" max="10000" step="100" value="2000">
+                  <div class="chips">
+                    <button class="chip" data-mr="1000">1 km</button>
+                    <button class="chip on" data-mr="2000">2 km</button>
+                    <button class="chip" data-mr="5000">5 km</button>
+                  </div>
+                </div>
+                <div class="resolved" id="mres" style="margin-top:10px">Pin abhi set nahi hua.</div>
+              </div>
+              <div class="sfoot">
+                <button class="btn ghost">Cancel</button>
+                <button class="btn primary">Save location</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>Touch rules baked in.</b> <code>gestureHandling:'greedy'</code> so one finger pans the map
+          instead of scrolling the page behind it; pinch-to-zoom native; every tappable thing is at least
+          34&nbsp;px tall; the radius is a slider and three chips, never a circle edge to drag.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────────────────
+   Mock wiring. The production component is React and reuses the ERP's
+   existing loadGoogleMaps() / PlaceInput / mapSymbols — this file is the
+   same behaviour in one page so it can be judged before it is built.
+   ────────────────────────────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+const DARK = [
+  {elementType:'geometry',stylers:[{color:'#0a1024'}]},
+  {elementType:'labels.text.stroke',stylers:[{color:'#0a1024'}]},
+  {elementType:'labels.text.fill',stylers:[{color:'#5d7196'}]},
+  {featureType:'administrative',elementType:'geometry',stylers:[{color:'#18244a'}]},
+  {featureType:'poi',stylers:[{visibility:'off'}]},
+  {featureType:'transit',stylers:[{visibility:'off'}]},
+  {featureType:'road',elementType:'geometry',stylers:[{color:'#18244a'}]},
+  {featureType:'road.highway',elementType:'geometry',stylers:[{color:'#27395f'}]},
+  {featureType:'road',elementType:'labels.text.fill',stylers:[{color:'#3d548a'}]},
+  {featureType:'water',elementType:'geometry',stylers:[{color:'#050b16'}]}
+];
+const HOME = {lat:26.4831, lng:90.5533};       // Bongaigaon — where the fleet actually is
+
+// ── WHY `src` IS TRACKED AND SAVED ────────────────────────────────────────
+// A Places result is the centroid of whatever Google thinks the place is. For
+// "Bongaigaon Refinery and Petro-chemic" that is the middle of a 6 km² complex,
+// not the gate a lorry queues at. So the search result is only ever a CAMERA
+// MOVE — it parks you overhead at building zoom. The coordinate that gets
+// saved is wherever the pin ends up, and `src` records which of the two it is:
+//
+//   SEARCH — never touched after the search. Treat as approximate.
+//   PIN    — a person put it there deliberately. This is the trustworthy one.
+//   GPS    — captured standing at the spot. The best of the three.
+//
+// Without this the two are indistinguishable in the database and nobody can
+// tell a surveyed gate from a guess at a town centre.
+const state = {lat:null, lng:null, r:2000, addr:'', src:null};
+const mstate = {lat:null, lng:null, src:null};
+
+// Building zoom. 13 shows a town; you cannot pick a shutter at 13. 18 is close
+// enough that the gate, the weighbridge and the parking bay are separate things
+// on the screen.
+const GATE_ZOOM = 18;
+
+// The site pin, drawn the same way mapSymbols.mjs draws every other symbol:
+// an inline SVG data: URI on a classic Marker.
+const sitePinIcon = (g) => ({
+  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="46" viewBox="0 0 34 46">
+       <path d="M17 45c0 0-13-16.4-13-27A13 13 0 0 1 30 18c0 10.6-13 27-13 27z"
+             fill="#22d3ee" stroke="#04121e" stroke-width="2"/>
+       <circle cx="17" cy="18" r="5" fill="#04121e"/></svg>`),
+  scaledSize: new g.maps.Size(34,46), anchor: new g.maps.Point(17,45)
+});
+
+let G=null, map=null, mmap=null, pin=null, ring=null, mring=null, mpin=null, ac=null, geo=null;
+
+/* ── key handling — never committed, remembered per browser ─────────────── */
+const KEY_LS='pt.mock.gmapskey';
+const urlKey=new URLSearchParams(location.search).get('key');
+if(urlKey) localStorage.setItem(KEY_LS,urlKey);
+const savedKey=localStorage.getItem(KEY_LS)||'';
+if(savedKey) $('keyin').value=savedKey;
+$('keygo').onclick=()=>{const k=$('keyin').value.trim();if(!k)return;localStorage.setItem(KEY_LS,k);boot(k);};
+if(savedKey) boot(savedKey);
+
+function boot(key){
+  if(window.google&&window.google.maps){init();return;}
+  const s=document.createElement('script');
+  // geometry + places, and NO loading=async — the same two decisions maps.ts makes.
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=geometry,places`;
+  s.onload=init;
+  s.onerror=()=>{$('nokey').innerHTML='Key refused. Check that this page\'s origin is on the key\'s HTTP-referrer allow-list.';};
+  document.head.appendChild(s);
+}
+
+function init(){
+  G=window.google;
+  $('nokey').style.display='none'; $('mnokey').style.display='none';
+
+  map=new G.maps.Map($('map'),{center:HOME,zoom:11,styles:DARK,disableDefaultUI:true,
+    zoomControl:true,gestureHandling:'greedy',backgroundColor:'#0a1024',clickableIcons:false,
+    tilt:0});
+  mmap=new G.maps.Map($('mmap'),{center:HOME,zoom:12,styles:DARK,disableDefaultUI:true,
+    gestureHandling:'greedy',backgroundColor:'#0a1024',clickableIcons:false,tilt:0});
+
+  // PC — click anywhere to place, then drag the pin to fine-tune.
+  map.addListener('click',(e)=>place(e.latLng.lat(),e.latLng.lng(),false,'PIN'));
+
+  // PHONE — the map moves under a fixed crosshair and the pin IS the centre.
+  // Committing on `idle` (not on a separate Confirm tap) is what makes this
+  // feel like Ola: you stop moving, the coordinate under the crosshair is the
+  // answer, and the fence has already redrawn around it.
+  mmap.addListener('center_changed',()=>{
+    const c=mmap.getCenter(); if(!c) return;
+    drawRing(mmap,{lat:c.lat(),lng:c.lng()},state.r,'m');   // fence follows live
+  });
+  mmap.addListener('idle',()=>{
+    const c=mmap.getCenter(); if(!c) return;
+    mstate.lat=c.lat(); mstate.lng=c.lng();
+    if(mstate.src!=='SEARCH') mstate.src='PIN';
+    drawRing(mmap,{lat:mstate.lat,lng:mstate.lng},state.r,'m');
+    paintMobile();
+    mstate.src='PIN';   // any further nudge is a manual placement
+  });
+  mmap.addListener('dragstart',()=>{ mstate.src='PIN'; });
+
+  ac=new G.maps.places.AutocompleteService();
+  geo=new G.maps.Geocoder();
+  wireSearch($('q'),$('sugg'),true);
+  wireSearch($('mq'),$('msugg'),false);
+  drawRing(mmap,HOME,state.r,'m');
+}
+
+/* ── the pin + the fence ──────────────────────────────────────────────────
+   `zoomIn` is only true for a search result or a GPS capture — the two cases
+   where the camera has to travel. A drag must NEVER move the camera: yanking
+   the zoom while a thumb is on the pin is how you lose the gate you had just
+   found. */
+function place(lat,lng,zoomIn,src){
+  state.lat=lat; state.lng=lng;
+  if(src) state.src=src;
+  $('la').value=lat.toFixed(7); $('ln').value=lng.toFixed(7);
+  if(!pin){
+    pin=new G.maps.Marker({map,position:{lat,lng},icon:sitePinIcon(G),draggable:true,
+      cursor:'grab',zIndex:99,
+      // The pin lifts and settles, so it is obvious it is a thing you may move.
+      animation:G.maps.Animation.DROP});
+    // The fence tracks the pin through the whole gesture, not just at the end —
+    // you are placing a CIRCLE, and you have to see where it lands as you move.
+    pin.addListener('drag',()=>{
+      const p=pin.getPosition();
+      drawRing(map,{lat:p.lat(),lng:p.lng()},state.r);
+      $('la').value=p.lat().toFixed(7); $('ln').value=p.lng().toFixed(7);
+    });
+    pin.addListener('dragend',()=>{
+      const p=pin.getPosition();
+      place(p.lat(),p.lng(),false,'PIN');   // a dragged pin is always manual
+    });
+  } else pin.setPosition({lat,lng});
+  drawRing(map,{lat,lng},state.r);
+  if(zoomIn){ map.panTo({lat,lng}); map.setZoom(GATE_ZOOM); }
+  reverse(lat,lng);
+  paintField();
+}
+
+function drawRing(m,center,radius,which){
+  const opts={strokeColor:'#22d3ee',strokeOpacity:.85,strokeWeight:2,
+    fillColor:'#22d3ee',fillOpacity:.10,center,radius,clickable:false};
+  if(which==='m'){ if(!mring) mring=new G.maps.Circle({...opts,map:m}); else mring.setOptions(opts); }
+  else { if(!ring) ring=new G.maps.Circle({...opts,map:m}); else ring.setOptions(opts); }
+}
+
+/* Reverse geocode — in the ERP this goes through the SERVER (/maps/geocode),
+   so the answer is cached once for the whole company instead of billed per
+   pin drop per user. */
+function reverse(lat,lng){
+  $('res').textContent='Resolving address…';
+  geo.geocode({location:{lat,lng},region:'in'},(r,st)=>{
+    state.addr = (st==='OK'&&r&&r[0]) ? r[0].formatted_address : '';
+    $('res').innerHTML = state.addr
+      ? `<b>${state.addr}</b><br><span style="color:var(--pt-text-muted)">${lat.toFixed(6)}, ${lng.toFixed(6)} · fence ${(state.r/1000).toFixed(1)} km</span>`
+      : `<b>${lat.toFixed(6)}, ${lng.toFixed(6)}</b> · no street address here — the pin is still valid.`;
+    paintField();
+  });
+}
+
+/* ── Places autocomplete, session-tokened exactly like PlaceInput ───────── */
+function wireSearch(input,box,isPc){
+  let token=new G.maps.places.AutocompleteSessionToken(), t=null;
+  input.addEventListener('input',()=>{
+    clearTimeout(t);
+    const v=input.value.trim();
+    if(v.length<3){box.style.display='none';return;}
+    t=setTimeout(()=>{
+      ac.getPlacePredictions({input:v,sessionToken:token,componentRestrictions:{country:'in'}},(res,st)=>{
+        if(st!=='OK'||!res){box.style.display='none';return;}
+        box.innerHTML='<div class="hdr">Google Maps</div>'+res.slice(0,5).map((p,i)=>
+          `<button data-i="${i}"><span class="m">${p.structured_formatting?.main_text??p.description}</span>
+           <span class="s">${p.structured_formatting?.secondary_text??''}</span></button>`).join('');
+        box.style.display='block';
+        box.querySelectorAll('button').forEach((b)=>b.onclick=()=>{
+          const p=res[+b.dataset.i];
+          input.value=p.description; box.style.display='none';
+          new G.maps.places.PlacesService(isPc?map:mmap).getDetails(
+            {placeId:p.place_id,fields:['geometry','formatted_address'],sessionToken:token},
+            (d,s2)=>{
+              token=new G.maps.places.AutocompleteSessionToken();   // token spent
+              if(s2!=='OK'||!d?.geometry) return;
+              const L=d.geometry.location;
+              // The search only FLIES THE CAMERA to building zoom. What gets
+              // saved is where the pin ends up after you have nudged it onto
+              // the actual gate — see the note on `src` at the top.
+              if(isPc) place(L.lat(),L.lng(),true,'SEARCH');
+              else { mstate.src='SEARCH'; mmap.panTo(L); mmap.setZoom(GATE_ZOOM); }
+            });
+        });
+      });
+    },250);
+  });
+  document.addEventListener('pointerdown',(e)=>{ if(!box.contains(e.target)&&e.target!==input) box.style.display='none';});
+}
+
+/* ── radius ─────────────────────────────────────────────────────────────── */
+function setR(v,fromMobile){
+  state.r=+v;
+  $('r').value=v; $('mr').value=v;
+  const km=(state.r/1000).toFixed(1)+' km';
+  $('rv').textContent=km; $('mrv').textContent=km;
+  // Only the RADIUS chips. The Map/Satellite chips share the class and would
+  // have their active state wiped every time the slider moved.
+  document.querySelectorAll('.chip[data-r],.chip[data-mr]').forEach((c)=>{
+    const cv=c.dataset.r||c.dataset.mr; c.classList.toggle('on',+cv===state.r);
+  });
+  if(ring) ring.setRadius(state.r);
+  if(mring) mring.setRadius(state.r);
+  paintField(); paintMobile();
+}
+$('r').oninput=(e)=>setR(e.target.value);
+$('mr').oninput=(e)=>setR(e.target.value,true);
+document.querySelectorAll('.chip[data-r],.chip[data-mr]')
+  .forEach((c)=>c.onclick=()=>setR(c.dataset.r||c.dataset.mr));
+
+/* ── manual coordinates — a surveyed point beats a dragged one ──────────── */
+['la','ln'].forEach((id)=>$(id).addEventListener('change',()=>{
+  const la=parseFloat($('la').value), ln=parseFloat($('ln').value);
+  if(Number.isFinite(la)&&Number.isFinite(ln)&&Math.abs(la)<=90&&Math.abs(ln)<=180) place(la,ln,true,'PIN');
+}));
+
+// Standing at the gate with the phone is the most accurate capture there is —
+// it needs no map reading at all. enableHighAccuracy asks for GPS rather than
+// the tower/wifi estimate, which is the difference between 8 m and 800 m.
+$('mylo').onclick=$('mmylo').onclick=()=>{
+  if(!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (p)=>{
+      place(p.coords.latitude,p.coords.longitude,true,'GPS');
+      mstate.lat=p.coords.latitude; mstate.lng=p.coords.longitude; mstate.src='GPS';
+      mmap.panTo({lat:mstate.lat,lng:mstate.lng}); mmap.setZoom(GATE_ZOOM); paintMobile();
+    },
+    ()=>alert('Location permission not given.'),{enableHighAccuracy:true,timeout:8000});
+};
+
+/* ── Map ⇄ Satellite. On a road map a refinery is a grey blob with no gate on
+   it. On satellite the gate, the weighbridge and the truck queue are all
+   visible, which is the only way "pin the exact gate" is a real instruction. */
+function setView(sat){
+  const t = sat ? G.maps.MapTypeId.HYBRID : G.maps.MapTypeId.ROADMAP;
+  map.setMapTypeId(t); mmap.setMapTypeId(t);
+  // Custom styling only applies to the road map; leaving it on over imagery
+  // tints the satellite tiles navy and makes them unreadable.
+  map.setOptions({styles: sat ? [] : DARK});
+  mmap.setOptions({styles: sat ? [] : DARK});
+  document.querySelectorAll('[data-view]').forEach((b)=>
+    b.classList.toggle('on', (b.dataset.view==='sat')===sat));
+}
+document.querySelectorAll('[data-view]').forEach((b)=>
+  b.onclick=()=>setView(b.dataset.view==='sat'));
+
+$('clr').onclick=()=>{
+  state.lat=state.lng=null; state.addr=''; state.src=null;
+  if(pin){pin.setMap(null);pin=null;} if(ring){ring.setMap(null);ring=null;}
+  $('la').value=''; $('ln').value='';
+  $('res').textContent='No pin yet — search above, or click anywhere on the map.';
+  paintField();
+};
+$('save').onclick=()=>{
+  if(state.lat==null) return alert('Pin nahi laga hai.');
+  alert('PATCH /api/v1/masters/customers/<id>\n\n{\n'
+    + `  lat:             ${state.lat.toFixed(7)},\n`
+    + `  lng:             ${state.lng.toFixed(7)},\n`
+    + `  geofence_radius: ${state.r},\n`
+    + `  geo_source:      "${state.src}"\n}`
+    + (state.src==='SEARCH'
+        ? '\n\n⚠  Still the Google Places centroid — nobody has moved it onto the gate.'
+        : '\n\n✔  Exact manual pinpoint. The fence is centred on THIS coordinate.'));
+};
+
+/* ── the mobile readout ─────────────────────────────────────────────────── */
+function paintMobile(){
+  if(mstate.lat==null){ $('mres').textContent='Pin abhi set nahi hua.'; return; }
+  const tag = mstate.src==='GPS' ? 'GPS par khada hokar liya'
+            : mstate.src==='PIN' ? 'Haath se rakha gaya — exact'
+            : 'Search ka natija — gate par khiska lein';
+  $('mres').innerHTML =
+    `<b>${mstate.lat.toFixed(6)}, ${mstate.lng.toFixed(6)}</b>`
+    + `<br><span style="color:var(--pt-text-muted)">fence ${(state.r/1000).toFixed(1)} km · ${tag}</span>`;
+}
+
+/* ── the GeoField row, the thing that actually goes in every form ───────── */
+function paintField(){
+  const set = state.lat!=null;
+  $('gf').classList.toggle('set',set);
+  $('gfp').className='pill'+(set?' ok':'');
+  $('gfp').textContent = set ? 'PINNED' : 'UNPINNED';
+  $('gf1').textContent = set
+    ? `${state.lat.toFixed(5)}, ${state.lng.toFixed(5)}  ·  ${(state.r/1000).toFixed(1)} km fence`
+    : 'Not pinned yet';
+  $('gf2').textContent = set
+    ? (state.addr || 'No street address at this point')
+    : 'Pin the gate, not the town — the fence is measured from this point.';
+  $('gfbtn').textContent = set ? 'Edit' : 'Set on map';
+
+  // The precision badge. A SEARCH pin is flagged amber on the form row itself,
+  // so an approximate location is visible without opening the map — otherwise
+  // "pinned" quietly means two different things and nobody can tell which.
+  const b=$('src');
+  if(!set){ b.style.display='none'; return; }
+  b.style.display='inline-block';
+  b.textContent = state.src==='GPS' ? 'GPS CAPTURE'
+                : state.src==='PIN' ? 'EXACT PINPOINT' : 'APPROX · SEARCH ONLY';
+  b.className = 'pill' + (state.src==='SEARCH' ? '' : ' ok');
+}
+paintField();
+paintMobile();
+</script>
+</body>
+</html>

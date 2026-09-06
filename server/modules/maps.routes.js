@@ -15,7 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { createHash } from 'node:crypto';
 import { query, isDegraded } from '../db/pool.js';
-import { getRoute, getDistanceMatrix, geocode, mapsConfigured } from '../lib/googleMaps.js';
+import { getRoute, getDistanceMatrix, geocode, reverseGeocode, mapsConfigured } from '../lib/googleMaps.js';
 // THE SAME FILE THE BROWSER USES. Not a copy of the rule — the rule. The
 // driver's phone gets its map from this endpoint and has no access to the app's
 // own code, so if the two ever drifted the office would see a route and the
@@ -157,6 +157,36 @@ export function registerMapsRoutes(app) {
     }
     return r;
   });
+
+  // ── WHAT IS AT THIS POINT? ────────────────────────────────────────────────
+  //
+  // The GeoPicker's other half. A person drags a pin onto a factory gate and
+  // this says what is there, so they can tell they hit the right one.
+  //
+  // Served from maps_cache keyed on the coordinate rounded to ~1 m, so nudging
+  // a pin is not a billed request per pixel. Fails soft like everything else
+  // here: a picker that cannot name the spot still saves the coordinate, which
+  // is the part that matters.
+  //
+  // This sits under /maps/, which apiGuard already opens to external sessions —
+  // so the vendor, customer and fleet-partner apps reach it with no change to
+  // the boundary. It returns nothing about any party, only a street name.
+  app.post(
+    '/maps/reverse-geocode',
+    { schema: { body: { type: 'object', required: ['lat', 'lng'], properties: {
+      lat: { type: 'number', minimum: -90, maximum: 90 },
+      lng: { type: 'number', minimum: -180, maximum: 180 },
+    } } } },
+    async (req, reply) => {
+      if (isDegraded()) return dbGate(reply);
+      const r = await reverseGeocode(req.body?.lat, req.body?.lng);
+      if (!r.ok) {
+        const code = r.reason === 'BAD_INPUT' ? 400 : r.reason === 'NO_SERVER_KEY' ? 503 : 502;
+        return reply.code(code).send({ error: r.reason, detail: r.detail });
+      }
+      return r;
+    }
+  );
 
   // ── ONE TRIP, EVERYTHING THE MAP NEEDS ────────────────────────────────────
   //

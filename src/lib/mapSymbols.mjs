@@ -154,6 +154,70 @@ const WAREHOUSE_GLYPH = `
 export const loadingPin = () => hub(INK.loading, '#0f9d6b', REFINERY_GLYPH);
 export const unloadingPin = () => hub(INK.unloading, '#b03a72', WAREHOUSE_GLYPH);
 
+// ── THE SITE PIN — the one you PLACE, not the one you read ─────────────────
+//
+// Every other symbol in this file marks something the system already knows.
+// This one marks something a PERSON is deciding, right now, with a thumb or a
+// mouse, and that changes two things about how it is drawn.
+//
+// IT IS DELIBERATELY TALLER AND THINNER than the hub pins. The whole job here
+// is "which of these two gates", and a 42-px-wide teardrop covers about 120 m
+// of ground at the zoom where that question is asked — it hides the answer. A
+// narrow pin with a hollow centre lets you see the gate underneath it.
+//
+// IT IS DRAWN IN THE PRIMARY, NOT IN A PLACE COLOUR. A site being pinned is
+// not yet a loading point or an unloading point; it is a party's address. Using
+// the green refinery pin here would say something the data does not know.
+//
+// `moving` is passed while a drag is in flight: the pin lifts, its shadow
+// spreads, and the coordinate under it is no longer settled. On a phone that
+// lift is most of what tells you the gesture was picked up at all.
+export const sitePin = (moving = false) => {
+  const lift = moving ? 5 : 0;
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="34" height="50" viewBox="0 0 34 50">
+  <defs>
+    <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${INK.truck}"/>
+      <stop offset="1" stop-color="#0e7f96"/>
+    </linearGradient>
+    <filter id="ss" x="-50%" y="-30%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="${1.4 + lift * 0.5}" stdDeviation="${1.5 + lift * 0.3}"
+                    flood-color="#04070f" flood-opacity=".6"/>
+    </filter>
+  </defs>
+  <ellipse cx="17" cy="46.5" rx="${5.5 + lift * 0.7}" ry="${2.1 + lift * 0.1}"
+           fill="#04070f" opacity="${moving ? 0.22 : 0.38}"/>
+  <g transform="translate(0,${-lift})">
+    <path filter="url(#ss)" fill="url(#sg)" stroke="#04070f" stroke-width="1.5"
+          d="M17 45 C 13.6 36.5 4 30.5 4 18.6 A 13 13 0 1 1 30 18.6 C 30 30.5 20.4 36.5 17 45 Z"/>
+    <circle cx="17" cy="18.2" r="5.4" fill="#0a1024" opacity=".95"/>
+    <circle cx="17" cy="18.2" r="2" fill="${INK.truck}"/>
+  </g>
+</svg>`;
+  return { url: svgUrl(svg), scaledSize: size(34, 50), anchor: point(17, 45 - lift) };
+};
+
+// ── THE FENCE ───────────────────────────────────────────────────────────────
+// google.maps.Circle options, so a geofence looks the same on the picker, the
+// live map and any screen that draws one later. Returned as a plain object
+// rather than a Circle so the caller owns the lifecycle — a Circle constructed
+// here would be leaked on every re-render.
+//
+// The fill is deliberately faint. At 2 km on a satellite view a 20%-opacity
+// disc hides the very gate you are trying to pin; the RING is what carries the
+// information, and the fill only says which side of it you are on.
+export const fenceStyle = (colour = INK.truck) => ({
+  strokeColor: colour,
+  strokeOpacity: 0.85,
+  strokeWeight: 2,
+  fillColor: colour,
+  fillOpacity: 0.09,
+  // A click on the fence must reach the MAP underneath — that click is how a
+  // pin gets moved, and a 2 km disc swallowing it makes the map feel dead.
+  clickable: false,
+});
+
 // ── THE LORRY ───────────────────────────────────────────────────────────────
 // Drawn from ABOVE, because that is the only view that can carry a heading. A
 // tanker, not a generic box: this fleet hauls petroleum, and the silhouette an

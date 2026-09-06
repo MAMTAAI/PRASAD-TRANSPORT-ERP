@@ -35,6 +35,25 @@ const JSONB_COLS = new Set(['additional_docs', 'consignees', 'locations', 'porta
   'extra_expenses', 'rate_history']);
 const enc = (col, v) => (JSONB_COLS.has(col) && v !== null && typeof v === 'object' ? JSON.stringify(v) : v);
 
+// ── THE GEO COLUMNS (migration 181) ────────────────────────────────────────
+//
+// Spelled identically on every pinnable table, so they are named ONCE here and
+// spread into each master's allow-list rather than retyped eleven times. A
+// twelfth table added next year gets `...GEO_COLS()` and is correct by default;
+// retyping is how one screen ends up saving `latitude` and never persisting.
+//
+// `prefix` covers the two tables whose rows have two ends — a lane has a depot
+// and a consignee, a bazaar load has a pickup and a drop.
+//
+// geo_updated_at is DELIBERATELY ABSENT. A trigger sets it, because a caller-
+// supplied timestamp is a browser clock: wrong on a phone with the wrong date,
+// and settable to anything by a portal session. "When was this pin surveyed"
+// is only worth storing if it is true.
+const GEO_COLS = (prefix = '') => {
+  const p = prefix ? `${prefix}_` : '';
+  return [`${p}lat`, `${p}lng`, `${p}geofence_radius`, `${p}geo_source`];
+};
+
 // A generic writable-column helper. Each master declares its own allow-list so a
 // client can never patch a column the screen has no business setting (balances,
 // audit stamps, foreign keys it does not own).
@@ -465,7 +484,10 @@ export async function registerMastersRoutes(app) {
     // PAN is the document most often missing (27 of 54 drivers on 2026-09-01).
     'aadhar_photo_url', 'pan_no', 'pan_photo_url', 'bank_name', 'account_no', 'ifsc_code', 'bank_photo_url',
     'guarantor_name', 'guarantor_mobile', 'join_date', 'approval_status', 'status', 'remarks',
-    'company_id', 'additional_docs'];
+    'company_id', 'additional_docs',
+    // migration 181 — the driver's home village, for KYC verification and for
+    // routing a man home at the end of a run
+    ...GEO_COLS()];
 
   app.get(
     '/drivers',
@@ -889,7 +911,10 @@ export async function registerMastersRoutes(app) {
     // a CUSTOMER session cannot reach /masters at all (apiGuard confines
     // external roles to /portal/*), and from the app a change to these three is
     // a bank_change_requests row the office approves, never an edit.
-    'bank_name', 'account_no', 'ifsc_code'];
+    'bank_name', 'account_no', 'ifsc_code',
+    // migration 181 — the pin and its fence. The office pins the corporate
+    // office here; where the LORRY goes is customer_branches, below.
+    ...GEO_COLS()];
 
   app.get(
     '/customers',
@@ -1168,7 +1193,9 @@ export async function registerMastersRoutes(app) {
     'owner_name', 'email', 'pan_no', 'payment_terms', 'portal_access',
     'subscription_plan', 'max_vehicle_limit', 'portal_features',
     // migration 162 — who the fleet partner is for TDS 194C
-    'entity_type', 'tds_declaration_194c'];
+    'entity_type', 'tds_declaration_194c',
+    // migration 181 — pumps, transporters and workshops all pin the same way
+    ...GEO_COLS()];
 
   app.get(
     '/vendors',
@@ -1328,7 +1355,11 @@ export async function registerMastersRoutes(app) {
     'consignee_name', 'vehicle_capacity', 'item_type', 'rtkm_distance', 'fixed_hsd_qty',
     'fixed_cash_amt', 'toll_amt', 'status',
     // migration 029 — the billing formula and its quarterly rate windows
-    'billing_type', 'rate_history'];
+    'billing_type', 'rate_history',
+    // migration 181 — a lane is pinned at BOTH ends. The allowance, the RTKM
+    // and the toll are properties of the depot→consignee pair (see 178), so
+    // the pair is what carries the coordinates.
+    ...GEO_COLS('depot'), ...GEO_COLS('consignee')];
 
   app.get('/lanes', async (req, reply) => {
     if (isDegraded()) return dbGate(reply);
