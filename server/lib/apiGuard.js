@@ -223,6 +223,22 @@ export const SERVICE_API = new Set([
   // POST /finance/vouchers, and the alternative — minting a human session for a
   // cron job — leaves a standing admin credential on disk instead.
   'POST /api/v1/ops/trips',
+  // The FASTag statement reader in email-parser.cjs, filing a provider's daily
+  // CSV/Excel as toll crossings. It runs unattended on this box and has no
+  // session to carry — the same shape, and the same reasoning, as the AC5
+  // importer above.
+  //
+  // THIS IS ALSO A MASS-INSERT ROUTE (20,000 rows) AND OPENING IT IS A REAL
+  // WIDENING. What makes it defensible is that the route refuses to double-post
+  // on its own: ext_txn_id is UNIQUE, the insert is ON CONFLICT DO NOTHING, and
+  // a five-minute vehicle+time+amount sweep catches a statement that arrives
+  // twice under different reference numbers. A caller with the secret can
+  // therefore add crossings but cannot inflate the ledger by replaying a file.
+  //
+  // Left OUT deliberately: it was omitted when the hook was written, and the
+  // POST answered 401 — which is exactly how the AC5 register sat frozen from
+  // 21-08 while the importer logged "inserted 0" and looked like a quiet day.
+  'POST /api/v1/toll/bulk-import',
 ]);
 
 const bearerOf = (req) => {

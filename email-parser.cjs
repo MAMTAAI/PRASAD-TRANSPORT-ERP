@@ -55,6 +55,17 @@ const pool = new Pool({
 require('pg').types.setTypeParser(1700, (v) => v);
 const q = (text, params) => pool.query(text, params);
 
+// ── FASTag statement reader ────────────────────────────────────────────────
+// The repo is "type": "module" and this file is .cjs, so the ESM library is
+// loaded with a dynamic import once and cached. Doing it lazily also means a
+// mailbox full of ordinary bills never pays for a module it does not use.
+const ERP_API = process.env.ERP_API_URL || process.env.WATCHDOG_API || 'http://127.0.0.1:3300';
+let _fastag = null;
+const fastag = async () => {
+  if (!_fastag) _fastag = await import('./server/lib/fastagStatement.js');
+  return _fastag;
+};
+
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 const CLAUDE_MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5';
 const ONCE = process.argv.includes('--once');
@@ -214,6 +225,49 @@ async function processAccount(acc) {
       try {
         const { content } = await client.download(String(uid));
         const mail = await simpleParser(content);
+        // ── FASTag STATEMENTS ────────────────────────────────────────────
+        // Owner, 6-Sep-2026: the providers without an API mail a daily/weekly
+        // CSV or Excel statement. Parsed here and handed to the toll importer;
+        // never scraped from a portal, because a scraper breaks silently the
+        // first time a bank moves a div and a toll ledger that stops filling
+        // itself without saying so is worse than one nobody automated.
+        //
+        // Nothing about ingestion is re-implemented: the importer already owns
+        // the ext_txn_id UNIQUE lock, ON CONFLICT DO NOTHING, the 5-minute
+        // vehicle+time+amount near-duplicate sweep, the ledger voucher and the
+        // trip matcher. A second path into toll_transactions would be a second
+        // way for one crossing to be counted twice.
+        for (const att of (mail.attachments || [])) {
+          const FT = await fastag();
+          if (!FT.looksLikeFastagStatement({
+            from: mail.from?.text || '', subject: mail.subject || '', filename: att.filename || '',
+          })) continue;
+          stats.fastag = (stats.fastag || 0) + 1;
+          try {
+            const st = FT.parseFastagStatement(att.content, att.filename || 'statement.csv', {
+              bank: (mail.from?.text || '').replace(/.*@/, '').split('.')[0] || null,
+              companyHint: acc.customer || null,
+            });
+            if (!st.rows.length) {
+              log(`  🛣  ${att.filename}: no usable toll rows${st.error ? ` (${st.error})` : ''}`);
+              continue;
+            }
+            const res = await fetch(`${ERP_API}/api/v1/toll/bulk-import`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.ERP_SERVICE_TOKEN || ''}` },
+              body: JSON.stringify({ rows: st.rows, commit: true, created_by: `email:${acc.email}` }),
+            });
+            const j = await res.json().catch(() => ({}));
+            if (!res.ok) { log(`  🛣  ${att.filename}: importer refused — ${j.error || res.status}`); continue; }
+            const s = j.summary || {};
+            log(`  🛣  ${att.filename}: ${st.rows.length} rows → posted ${s.posted ?? '?'}, already-ours ${s.skipped ?? '?'}, review ${s.review ?? '?'}`);
+          } catch (e) {
+            // A bad statement must not stop the bills in the same mailbox.
+            fullyParsed = false;
+            log(`  🛣  ${att.filename}: FAILED — ${e.message}`);
+          }
+        }
+
         const pdfs = (mail.attachments || []).filter(a => /pdf/i.test(a.contentType) || /\.pdf$/i.test(a.filename || ''));
         for (const att of pdfs) {
           stats.pdfs++;
