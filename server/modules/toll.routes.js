@@ -72,6 +72,96 @@ const buildUpdate = (table, allowed, body) => {
 };
 
 export async function registerTollRoutes(app) {
+  // ═══ THE UNMAPPED TOLLS DESK (migrations 179/180) ═════════════════════════
+  // Every crossing the matcher would not guess at. AMBIGUOUS means several
+  // trips could have claimed that instant; ORPHAN means none did — idle
+  // movement, or the only candidate sits outside the backfilled window.
+  //
+  // The owner resolves these by hand: "Never map blindly."
+  app.get(
+    '/unmapped',
+    { schema: { querystring: { type: 'object', properties: {
+      status: { type: ['string', 'null'] },
+      vehicle: { type: ['string', 'null'], maxLength: 32 },
+      limit: { type: 'integer', minimum: 1, maximum: 500, default: 200 },
+    } } } },
+    async (req) => {
+      if (isDegraded()) return { rows: [], totals: {} };
+      const status = ['AMBIGUOUS', 'ORPHAN', 'UNMAPPED'].includes(String(req.query.status ?? '').toUpperCase())
+        ? String(req.query.status).toUpperCase() : null;
+      const veh = req.query.vehicle ? String(req.query.vehicle) : null;
+      const { rows } = await query(
+        `SELECT * FROM v_toll_unmapped
+          WHERE ($1::text IS NULL OR map_status = $1)
+            AND ($2::text IS NULL OR reg_key(vehicle_no) = reg_key($2))
+          LIMIT $3`, [status, veh, req.query.limit ?? 200]);
+      const { rows: totals } = await query(
+        `SELECT map_status, count(*)::int n, sum(amount)::numeric(14,2) rupees
+           FROM v_toll_unmapped GROUP BY map_status ORDER BY 2 DESC`);
+      return { rows, totals };
+    });
+
+  /** The trips that could have claimed this crossing — the desk picks one. */
+  app.get('/unmapped/:id/candidates', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [tx] } = await query(
+      `SELECT id, vehicle_id, vehicle_no, txn_datetime, amount, plaza_name
+         FROM toll_transactions WHERE id = $1::uuid`, [req.params.id]);
+    if (!tx) return reply.code(404).send({ error: 'NOT_FOUND' });
+    // Widened to +/- 2 days around the crossing so the desk can see the near
+    // misses too — a trip closed the morning of the crossing is exactly the
+    // case a person needs to judge, and hiding it would force a guess.
+    const { rows } = await query(
+      `SELECT t.id, t.trip_code, t.status, t.loading_date, t.unloading_date,
+              t.loading_point, t.consignee_name, t.vehicle_no,
+              (t.status NOT IN ('COMPLETED','SETTLED','CANCELLED')) AS is_open,
+              ($2::timestamptz >= t.loading_date::timestamptz
+               AND $2::timestamptz < COALESCE((t.unloading_date + 1)::timestamptz, now())) AS covers_instant
+         FROM trips t
+        WHERE t.vehicle_id = $1::uuid
+          AND t.loading_date BETWEEN ($2::timestamptz - interval '15 days')::date
+                                 AND ($2::timestamptz + interval '2 days')::date
+        ORDER BY t.loading_date DESC LIMIT 25`,
+      [tx.vehicle_id, tx.txn_datetime]);
+    return { toll: tx, candidates: rows };
+  });
+
+  /** Attach a crossing to a trip by hand. Stamped MANUAL so it is never
+   *  confused with what the matcher decided, and the P0405 guard still refuses
+   *  a trip that ran a different lorry. */
+  app.post('/unmapped/:id/map', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const tripId = String(req.body?.trip_id ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(tripId)) return reply.code(400).send({ error: 'BAD_TRIP_ID' });
+    try {
+      const { rows: [out] } = await query(
+        `UPDATE toll_transactions
+            SET trip_id = $2::uuid, map_status = 'MANUAL', map_source = 'MANUAL',
+                map_candidates = 1, mapped_at = now()
+          WHERE id = $1::uuid AND trip_id IS NULL
+          RETURNING id, trip_id, map_status`, [req.params.id, tripId]);
+      if (!out) return reply.code(409).send({ error: 'ALREADY_MAPPED', detail: 'this toll already belongs to a trip' });
+      return { mapped: out };
+    } catch (e) {
+      // P0405 — the trip ran a different lorry. Report the guard's own words.
+      if (e.code === 'P0405') return reply.code(422).send({ error: 'TRIP_VEHICLE_MISMATCH', detail: e.message });
+      throw e;
+    }
+  });
+
+  /** Leave it off every trip, on purpose (idle movement, personal use). */
+  app.post('/unmapped/:id/dismiss', async (req, reply) => {
+    if (isDegraded()) return dbGate(reply);
+    const { rows: [out] } = await query(
+      `UPDATE toll_transactions
+          SET map_status = 'ORPHAN', map_source = 'MANUAL', mapped_at = now(),
+              remarks = COALESCE(remarks || ' | ', '') || $2
+        WHERE id = $1::uuid AND trip_id IS NULL RETURNING id`,
+      [req.params.id, String(req.body?.reason ?? 'confirmed idle movement').slice(0, 200)]);
+    if (!out) return reply.code(409).send({ error: 'ALREADY_MAPPED' });
+    return { dismissed: out.id };
+  });
+
   // ═══ TOLL TRANSACTIONS ════════════════════════════════════════════════════
   const TXN_COLS = ['ext_txn_id', 'txn_ref', 'vehicle_no', 'vehicle_id', 'trip_id', 'txn_datetime',
     'txn_date', 'amount', 'plaza_name', 'lat', 'lng', 'provider', 'invoice_no', 'invoice_date',

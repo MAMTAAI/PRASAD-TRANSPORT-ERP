@@ -55,6 +55,15 @@ const rememberClaimDefaults = (company: string, d: any) => {
 export default function TollFastagMgmt() {
   const [activeTab, setActiveTab] = useState('STATEMENT');
   const [transactions, setTransactions] = useState<any[]>([]);
+  // The crossings the matcher refused to guess at (migrations 179/180).
+  // AMBIGUOUS = several trips could have claimed that instant; ORPHAN = none
+  // did. Owner's rule: "Never map blindly" — a person decides these.
+  const [unmapped, setUnmapped] = useState<any[]>([]);
+  const [unmappedTotals, setUnmappedTotals] = useState<any[]>([]);
+  const [unmappedFilter, setUnmappedFilter] = useState('AMBIGUOUS');
+  const [candidatesFor, setCandidatesFor] = useState<any>(null);
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [busyToll, setBusyToll] = useState('');
   const [recharges, setRecharges] = useState<any[]>([]);
   const [trips, setTrips] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -147,7 +156,82 @@ export default function TollFastagMgmt() {
     fetchData();
     fetchAutoSync();
     fetchProviders();
+    fetchUnmapped();
   }, []);
+
+  // ── Two functions the AUTO-SYNC tab has always CALLED but nobody defined ──
+  // Both threw a ReferenceError the moment that tab rendered or its button was
+  // pressed. check:refs had them baselined, so they survived; found while
+  // adding the Unmapped tab and fixed here rather than re-baselined at their
+  // new line numbers.
+
+  /** "14:30" → "2:30 PM". The scan-time dropdown renders this for every slot. */
+  const hour12 = (hhmm: string) => {
+    const [h, m] = String(hhmm ?? '').split(':');
+    const H = Number(h);
+    if (!Number.isFinite(H)) return String(hhmm ?? '');
+    const suffix = H < 12 ? 'AM' : 'PM';
+    const h12 = H % 12 === 0 ? 12 : H % 12;
+    return `${h12}:${(m ?? '00').padStart(2, '0')} ${suffix}`;
+  };
+
+  /** Ask the box to run the 24h statement scan now instead of at its slot.
+   *  It sets the same flag the scheduler reads, so there is one trigger path. */
+  const forceSyncNow = async () => {
+    if (!window.confirm('Run the FASTag statement scan now?\n\nThe box picks it up on its next cycle.')) return;
+    await saveAutoSync({ force_sync_requested: true });
+    await fetchAutoSync();
+  };
+
+  const fetchUnmapped = async (status = unmappedFilter) => {
+    try {
+      const j = await fetchJson(`${TOLL_API}/unmapped?status=${encodeURIComponent(status)}&limit=300`);
+      setUnmapped(j.rows ?? []);
+      setUnmappedTotals(j.totals ?? []);
+    } catch { setUnmapped([]); setUnmappedTotals([]); }
+  };
+
+  /** Which trips could have claimed this crossing. Shown with the near misses
+   *  (+/- 2 days) because a trip that closed the morning of the crossing is
+   *  exactly the case a person needs to judge. */
+  const openCandidates = async (row: any) => {
+    setCandidatesFor(row); setCandidates([]);
+    try {
+      const j = await fetchJson(`${TOLL_API}/unmapped/${row.id}/candidates`);
+      setCandidates(j.candidates ?? []);
+    } catch (e: any) { alert(`Could not load trips: ${e.message}`); }
+  };
+
+  const mapToll = async (tollId: string, tripId: string, tripCode: string) => {
+    if (!window.confirm(`Attach this toll to ${tripCode}?\n\nIt will appear in that trip's P&L (Kharch).`)) return;
+    setBusyToll(tollId);
+    try {
+      await fetchJson(`${TOLL_API}/unmapped/${tollId}/map`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trip_id: tripId }),
+      });
+      setCandidatesFor(null);
+      await fetchUnmapped();
+    } catch (e: any) {
+      // TRIP_VEHICLE_MISMATCH is the P0405 guard: the trip ran a different
+      // lorry. Showing its own words is more useful than "failed".
+      alert(`❌ ${e.message}`);
+    } finally { setBusyToll(''); }
+  };
+
+  const dismissToll = async (tollId: string) => {
+    const reason = window.prompt('Leave this toll off every trip. Reason?', 'confirmed idle movement');
+    if (reason === null) return;
+    setBusyToll(tollId);
+    try {
+      await fetchJson(`${TOLL_API}/unmapped/${tollId}/dismiss`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      setCandidatesFor(null);
+      await fetchUnmapped();
+    } catch (e: any) { alert(`❌ ${e.message}`); } finally { setBusyToll(''); }
+  };
 
   const fetchProviders = async () => {
     try {
@@ -588,6 +672,7 @@ export default function TollFastagMgmt() {
         <button className={`pt-tab ${activeTab === 'CLAIMS' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('CLAIMS')}>🧾 IOCL TOLL CLAIMS {claims.length > 0 && <span className="pt-tab__count" style={{ background: '#f59e0b', color: '#121c38' }}>{claims.length}</span>}</button>
         <button className={`pt-tab ${activeTab === 'TRIP_ENTRY' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRIP_ENTRY')}>🛣️ MANUAL TOLL ENTRY</button>
         <button className={`pt-tab ${activeTab === 'TRANSACTIONS' ? 'is-active' : ''}`} onClick={() => setActiveTab('TRANSACTIONS')}>📋 ALL TOLL LOGS</button>
+        <button className={`pt-tab ${activeTab === 'UNMAPPED' ? 'is-active is-active--warning' : ''}`} onClick={() => setActiveTab('UNMAPPED')}>🔍 UNMAPPED TOLLS {unmapped.length > 0 && <span className="pt-tab__count" style={{ background: '#f59e0b', color: '#121c38' }}>{unmapped.length}</span>}</button>
         <button className={`pt-tab ${activeTab === 'RECHARGE' ? 'is-active' : ''}`} onClick={() => setActiveTab('RECHARGE')}>💳 WALLET RECHARGES</button>
         <button className={`pt-tab ${activeTab === 'PROVIDERS' ? 'is-active is-active--success' : ''}`} onClick={() => setActiveTab('PROVIDERS')}>🔌 API PROVIDERS {providers.filter(p => p.active).length > 0 && <span className="pt-tab__count" style={{ background: '#22c55e', color: '#121c38' }}>{providers.filter(p => p.active).length}</span>}</button>
         <button className={`pt-tab ${activeTab === 'REPORTS' ? 'is-active' : ''}`} onClick={() => setActiveTab('REPORTS')}>📊 REPORTS</button>
@@ -1060,6 +1145,128 @@ export default function TollFastagMgmt() {
       )}
 
       {/* 📋 TOLL TRANSACTIONS LOG TAB */}
+      {activeTab === 'UNMAPPED' && (
+        <div className="pt-card" style={{ padding: '18px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '14px' }}>
+            <h3 style={{ margin: 0, color: '#eef2fd' }}>🔍 Unmapped Tolls</h3>
+            <span style={{ fontSize: '12.5px', color: '#9aadd4' }}>
+              Crossings the matcher would not guess at. <b>AMBIGUOUS</b> = more than one trip could have claimed that moment. <b>ORPHAN</b> = none did.
+            </span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              {['AMBIGUOUS', 'ORPHAN'].map((s) => (
+                <button key={s} onClick={() => { setUnmappedFilter(s); fetchUnmapped(s); }}
+                  className="pt-tab" style={{
+                    fontSize: '12px', padding: '5px 12px', borderRadius: '999px',
+                    border: `1px solid ${unmappedFilter === s ? '#f59e0b' : '#27395f'}`,
+                    color: unmappedFilter === s ? '#f59e0b' : '#9aadd4', background: 'transparent', cursor: 'pointer',
+                  }}>{s}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '14px' }}>
+            {unmappedTotals.map((t: any) => (
+              <div key={t.map_status} style={{ background: '#121c38', border: '1px solid #27395f', borderRadius: '10px', padding: '10px 14px' }}>
+                <div style={{ fontSize: '10px', letterSpacing: '.12em', textTransform: 'uppercase', color: '#5d7196' }}>{t.map_status}</div>
+                <div style={{ fontSize: '18px', fontWeight: 800, color: t.map_status === 'AMBIGUOUS' ? '#f59e0b' : '#9aadd4' }}>
+                  {t.n} · ₹{Number(t.rupees || 0).toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid #27395f', borderRadius: '10px' }}>
+            <table className="pt-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12.5px' }}>
+              <thead><tr>
+                <th>When</th><th>Vehicle</th><th>Plaza</th>
+                <th style={{ textAlign: 'right' }}>Amount</th><th>Why unmapped</th><th></th>
+              </tr></thead>
+              <tbody>
+                {unmapped.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: '22px', textAlign: 'center', color: '#5d7196' }}>
+                    Nothing waiting in {unmappedFilter}. 🎉
+                  </td></tr>
+                )}
+                {unmapped.map((r: any) => (
+                  <tr key={r.id}>
+                    <td>{r.txn_datetime ? new Date(r.txn_datetime).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</td>
+                    <td style={{ fontFamily: 'monospace', color: '#eef2fd' }}>
+                      {r.vehicle_no}
+                      {r.vehicle_unknown && <div style={{ fontSize: '10px', color: '#ff6b81' }}>not in fleet master</div>}
+                    </td>
+                    <td style={{ color: '#c4d1ea' }}>{r.plaza_name || '—'}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#eef2fd', fontWeight: 700 }}>
+                      ₹{Number(r.amount || 0).toLocaleString('en-IN')}
+                    </td>
+                    <td>
+                      <span style={{
+                        fontSize: '10px', fontWeight: 800, borderRadius: '999px', padding: '2px 9px',
+                        border: `1px solid ${r.map_status === 'AMBIGUOUS' ? '#f59e0b' : '#5d7196'}`,
+                        color: r.map_status === 'AMBIGUOUS' ? '#f59e0b' : '#9aadd4',
+                      }}>{r.map_status}</span>
+                      {r.map_candidates > 1 && (
+                        <div style={{ fontSize: '10.5px', color: '#9aadd4', marginTop: '3px' }}>
+                          {r.map_candidates} trips could claim it
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button onClick={() => openCandidates(r)} disabled={busyToll === r.id}
+                        style={{ background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 700, fontSize: '12px', marginRight: '6px' }}>
+                        Choose trip
+                      </button>
+                      <button onClick={() => dismissToll(r.id)} disabled={busyToll === r.id}
+                        style={{ background: 'transparent', color: '#9aadd4', border: '1px solid #27395f', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontSize: '12px' }}>
+                        Not a trip
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {candidatesFor && (
+            <div onClick={(e) => { if (e.target === e.currentTarget) setCandidatesFor(null); }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(4,8,20,.72)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+              <div style={{ background: '#121c38', border: '1px solid #27395f', borderRadius: '12px', padding: '18px 20px', width: 'min(760px, 96vw)', maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <div style={{ fontSize: '10px', letterSpacing: '.14em', textTransform: 'uppercase', color: '#5d7196' }}>Attach toll to a trip</div>
+                    <div style={{ fontSize: '17px', fontWeight: 800, color: '#eef2fd' }}>
+                      ₹{Number(candidatesFor.amount || 0).toLocaleString('en-IN')} · {candidatesFor.vehicle_no}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#9aadd4' }}>
+                      {candidatesFor.plaza_name || '—'} · {candidatesFor.txn_datetime ? new Date(candidatesFor.txn_datetime).toLocaleString('en-IN') : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => setCandidatesFor(null)} style={{ marginLeft: 'auto', background: 'transparent', color: '#ff6b81', border: '1px solid #ff6b81', borderRadius: '6px', padding: '5px 11px', cursor: 'pointer' }}>✕</button>
+                </div>
+                {candidates.length === 0 && <div style={{ color: '#9aadd4', padding: '16px 0' }}>No trip for this lorry within ±15 days. It is probably idle movement — use “Not a trip”.</div>}
+                {candidates.map((t: any) => (
+                  <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: '1px solid #1b2a4e' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: 'monospace', color: '#eef2fd', fontWeight: 700 }}>
+                        {t.trip_code}
+                        <span style={{ marginLeft: '8px', fontSize: '10px', fontWeight: 800, color: t.is_open ? '#2fe39b' : '#9aadd4' }}>{t.status}</span>
+                        {t.covers_instant && <span style={{ marginLeft: '8px', fontSize: '10px', color: '#22d3ee' }}>✓ covers this moment</span>}
+                      </div>
+                      <div style={{ fontSize: '11.5px', color: '#9aadd4' }}>
+                        {t.loading_point} ➔ {t.consignee_name} · {t.loading_date}{t.unloading_date ? ` → ${t.unloading_date}` : ' → running'}
+                      </div>
+                    </div>
+                    <button onClick={() => mapToll(candidatesFor.id, t.id, t.trip_code)} disabled={busyToll === candidatesFor.id}
+                      style={{ background: t.covers_instant ? '#2fe39b' : '#8b5cf6', color: t.covers_instant ? '#0a1024' : '#fff', border: 'none', borderRadius: '6px', padding: '7px 14px', cursor: 'pointer', fontWeight: 800, fontSize: '12px' }}>
+                      Attach
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'TRANSACTIONS' && (
         <div className="glass-card" style={{ padding: '20px', overflowX: 'auto' }}>
           {loading ? <p style={{ color: '#22d3ee', textAlign: 'center', padding: '20px' }}>Syncing Database...</p> : (

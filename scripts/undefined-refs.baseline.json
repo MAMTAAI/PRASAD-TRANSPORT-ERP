@@ -19,9 +19,6 @@
     "src\\MonthlyBilling.tsx:676:263  'errs' is not defined.",
     "src\\MonthlyBilling.tsx:676:287  'errs' is not defined.",
     "src\\MonthlyBilling.tsx:676:61  'jOk' is not defined.",
-    "src\\MonthlyBilling.tsx:676:99  'guardPath' is not defined.",
-    "src\\TollFastagMgmt.tsx:620:50  'hour12' is not defined.",
-    "src\\TollFastagMgmt.tsx:626:73  'hour12' is not defined.",
-    "src\\TollFastagMgmt.tsx:647:178  'forceSyncNow' is not defined."
+    "src\\MonthlyBilling.tsx:676:99  'guardPath' is not defined."
   ]
 }
