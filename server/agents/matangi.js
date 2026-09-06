@@ -186,10 +186,24 @@ export default defineAgent({
         }
 
         const rupees = (v) => '₹' + Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        // Engine oil posts as its own slip (fuel_entries holds one product per
-        // row), so the message has to name the right product.
-        const isOil = String(p.fuel_type ?? '').toUpperCase() === 'MOBIL';
-        const product = isOil ? 'MOBIL / ENGINE OIL' : (p.fuel_type && p.fuel_type !== 'FIXED' && p.fuel_type !== 'ADVANCE' ? p.fuel_type : 'DIESEL');
+        // ONE STOP, ONE MESSAGE. The route emits a single event per visit
+        // carrying every product issued, so diesel and engine oil taken
+        // together arrive as one slip instead of two.
+        const nameOf = (ft) => (String(ft ?? '').toUpperCase() === 'MOBIL'
+          ? 'MOBIL / ENGINE OIL'
+          : (ft && ft !== 'FIXED' && ft !== 'ADVANCE' ? ft : 'DIESEL'));
+        const items = (Array.isArray(p.items) && p.items.length)
+          ? p.items
+          : [{ fuel_type: p.fuel_type, liters: p.liters, rate: p.rate, amount: p.amount }];
+        const itemLines = items.map((it) => {
+          const oil = String(it.fuel_type ?? '').toUpperCase() === 'MOBIL';
+          const qty = `${Number(it.liters ?? 0)} L`;
+          // Rate and value appear ONLY once the pump's bill has priced it.
+          return Number(it.rate) > 0
+            ? `${oil ? '🛢' : '💧'} *${nameOf(it.fuel_type)}:* ${qty} @ ${rupees(it.rate)}/L = ${rupees(it.amount)}`
+            : `${oil ? '🛢' : '💧'} *${nameOf(it.fuel_type)}:* ${qty}`;
+        });
+        const anyPriced = items.some((it) => Number(it.rate) > 0);
         const text = [
           '*⛽ FUEL SLIP — PRASAD TRANSPORT*',
           '',
@@ -202,14 +216,8 @@ export default defineAgent({
           `👤 *Driver:* ${p.driver_name ?? '—'}`,
           p.route_name ? `📍 *Route:* ${p.route_name}` : null,
           '',
-          // Rate and value appear ONLY when the pump's bill has given us a rate.
-          // Until then the slip authorises a quantity — printing "@ Rs 0.00/L"
-          // would tell the pump the fuel is free, and printing a guessed rate
-          // hands a third party a figure to bill us from.
-          Number(p.rate) > 0
-            ? `${isOil ? '🛢' : '💧'} *${product}:* ${Number(p.liters ?? 0)} L @ ${rupees(p.rate)}/L`
-            : `${isOil ? '🛢' : '💧'} *${product}:* ${Number(p.liters ?? 0)} L`,
-          Number(p.rate) > 0 ? `💰 *Value:* ${rupees(p.amount)}` : '💰 *Value:* as per your bill',
+          ...itemLines,
+          anyPriced ? null : '💰 *Value:* as per your bill',
           Number(p.cash_given_to_pump) > 0 ? `💵 *Cash Advance:* ${rupees(p.cash_given_to_pump)}` : null,
           `📅 *Date:* ${p.entry_date ?? ''}`,
           '',
@@ -257,11 +265,13 @@ export default defineAgent({
               vendor_name: p.vendor_name, vehicle_no: p.vehicle_no,
               driver_name: p.driver_name, route_name: p.route_name,
               trip_code: p.trip_code, cash_given_to_pump: p.cash_given_to_pump,
-              items: [{
-                label: p.fuel_type === 'MOBIL' ? 'MOBIL / ENGINE OIL' : 'HSD (DIESEL)',
-                qty: Number(p.liters ?? 0), unit: 'L',
-                rate: Number(p.rate ?? 0), amount: Number(p.amount ?? 0),
-              }],
+              // Every product from this stop on ONE sheet — the pump files one
+              // slip for one visit, as it writes one entry in its own book.
+              items: items.map((it) => ({
+                label: nameOf(it.fuel_type) === 'DIESEL' ? 'HSD (DIESEL)' : nameOf(it.fuel_type),
+                qty: Number(it.liters ?? 0), unit: 'L',
+                rate: Number(it.rate ?? 0), amount: Number(it.amount ?? 0),
+              })),
             },
             company: firm,
           });

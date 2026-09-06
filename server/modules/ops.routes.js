@@ -1094,15 +1094,37 @@ export async function registerOpsRoutes(app) {
           // amount sat in the books as the expense until the bill arrived.
           // NULL is the honest value; queues.routes.js fills rate and amount
           // from the pump's own bill on BILLED_VERIFIED.
-          type: 'object', required: ['vendor_id', 'liters'], additionalProperties: false,
+          // ONE STOP, ONE SLIP. `items` carries everything issued at this pump
+          // in one visit — diesel and engine oil — so the pump receives ONE
+          // PDF and ONE WhatsApp message instead of one per product. Each item
+          // still becomes its own fuel_entries row (that table holds one
+          // product per row, and folding oil litres into diesel would corrupt
+          // CHHINNAMASTA's mileage check), but they are written in ONE
+          // transaction and announced by ONE event.
+          //
+          // The single-item shape below still works: older callers, the driver
+          // app and anything already integrated keep posting `liters`/`rate`.
+          type: 'object', required: ['vendor_id'], additionalProperties: false,
           properties: {
             vendor_id: { type: 'string', format: 'uuid' },
             memo_no: { type: ['string', 'null'], maxLength: 60 },
             entry_date: { type: ['string', 'null'], format: 'date' },
             fuel_type: { type: ['string', 'null'], maxLength: 20 },
-            liters: { type: 'number', exclusiveMinimum: 0 },
+            liters: { type: ['number', 'null'], exclusiveMinimum: 0 },
             rate: { type: ['number', 'null'], exclusiveMinimum: 0 },
             amount: { type: ['number', 'null'], minimum: 0 },
+            items: {
+              type: 'array', maxItems: 6,
+              items: {
+                type: 'object', required: ['liters'], additionalProperties: false,
+                properties: {
+                  fuel_type: { type: ['string', 'null'], maxLength: 20 },
+                  liters: { type: 'number', exclusiveMinimum: 0 },
+                  rate: { type: ['number', 'null'], exclusiveMinimum: 0 },
+                  amount: { type: ['number', 'null'], minimum: 0 },
+                },
+              },
+            },
             cash_given_to_pump: { type: 'number', minimum: 0, default: 0 },
             pump_mobile: { type: ['string', 'null'], maxLength: 20 },
           },
@@ -1125,16 +1147,26 @@ export async function registerOpsRoutes(app) {
       // Only meaningful when a rate was supplied. Without one there is no
       // amount to check and none is stored: the slip authorises LITRES, and the
       // money is whatever the pump's bill later says it was.
-      const hasRate = b.rate != null && Number(b.rate) > 0;
-      let amount = null;
-      if (hasRate) {
-        const expected = r2(b.liters * b.rate);
-        amount = b.amount != null ? r2(b.amount) : expected;
-        const tolerance = Number(process.env.FUEL_ROUNDING_TOLERANCE ?? '1');
-        if (Math.abs(amount - expected) > tolerance) {
+      // One stop may issue several products. Normalise both shapes to a list so
+      // the rest of this route has exactly one thing to handle.
+      const legs = (Array.isArray(b.items) && b.items.length)
+        ? b.items.map((i) => ({ fuel_type: i.fuel_type ?? 'DIESEL', liters: i.liters, rate: i.rate, amount: i.amount }))
+        : (b.liters != null
+          ? [{ fuel_type: b.fuel_type ?? 'DIESEL', liters: b.liters, rate: b.rate, amount: b.amount }]
+          : []);
+      if (!legs.length && !(money(b.cash_given_to_pump) > 0)) {
+        return reply.code(400).send({ error: 'NOTHING_ISSUED', detail: 'give litres on at least one item, or a cash amount' });
+      }
+
+      const tolerance = Number(process.env.FUEL_ROUNDING_TOLERANCE ?? '1');
+      for (const leg of legs) {
+        if (leg.rate == null || !(Number(leg.rate) > 0)) { leg.amount = null; continue; }
+        const expected = r2(leg.liters * leg.rate);
+        leg.amount = leg.amount != null ? r2(leg.amount) : expected;
+        if (Math.abs(leg.amount - expected) > tolerance) {
           return reply.code(422).send({
             error: 'SLIP_ARITHMETIC',
-            detail: `slip says ₹${amount.toFixed(2)} but ${b.liters} L × ₹${b.rate} = ₹${expected.toFixed(2)}`,
+            detail: `${leg.fuel_type}: slip says ₹${leg.amount.toFixed(2)} but ${leg.liters} L × ₹${leg.rate} = ₹${expected.toFixed(2)}`,
           });
         }
       }
@@ -1155,17 +1187,34 @@ export async function registerOpsRoutes(app) {
       const cash = money(b.cash_given_to_pump);
 
       const out = await withTransaction(async (t) => {
-        const { rows: [slip] } = await t.query(
-          `INSERT INTO fuel_entries
-             (entry_date, vehicle_id, vehicle_no, trip_id, route_name, driver_name,
-              vendor_id, vendor_name, memo_no, fuel_type, liters, rate, amount,
-              cash_given_to_pump, pump_mobile, bill_status)
-           VALUES ($1::date,$2::uuid,$3,$4::uuid,$5,$6,$7::uuid,$8,$9,$10,$11,$12,$13,$14,$15,'PENDING')
-           RETURNING *`,
-          [date, trip.vehicle_id, trip.vehicle_no, req.params.id,
-           `${trip.loading_point ?? ''} - ${trip.consignee_name ?? ''}`.trim(), trip.driver_name,
-           b.vendor_id, vendor.vendor_name, b.memo_no ?? null, b.fuel_type ?? 'DIESEL',
-           b.liters, b.rate, amount, cash, b.pump_mobile ?? null]);
+        const rows = [];
+        for (const [i, leg] of legs.entries()) {
+          // The cash rides on the FIRST leg only, so a stop's cash is counted
+          // once no matter how many products were issued.
+          const legCash = i === 0 ? cash : 0;
+          // One memo covers the stop; the pump writes one entry. The (vendor,
+          // memo) duplicate guard is per row, so extra legs carry a suffix.
+          const legMemo = b.memo_no ? (legs.length > 1 ? `${b.memo_no}-${String(leg.fuel_type ?? 'ITEM').toUpperCase().slice(0, 8)}` : b.memo_no) : null;
+          const { rows: [slip] } = await t.query(
+            `INSERT INTO fuel_entries
+               (entry_date, vehicle_id, vehicle_no, trip_id, route_name, driver_name,
+                vendor_id, vendor_name, memo_no, fuel_type, liters, rate, amount,
+                cash_given_to_pump, pump_mobile, bill_status)
+             VALUES ($1::date,$2::uuid,$3,$4::uuid,$5,$6,$7::uuid,$8,$9,$10,$11,$12,$13,$14,$15,'PENDING')
+             RETURNING *`,
+            [date, trip.vehicle_id, trip.vehicle_no, req.params.id,
+              `${trip.loading_point ?? ''} - ${trip.consignee_name ?? ''}`.trim(), trip.driver_name,
+              b.vendor_id, vendor.vendor_name, legMemo, leg.fuel_type ?? 'DIESEL',
+              leg.liters, leg.rate ?? null, leg.amount, legCash, b.pump_mobile ?? null]);
+          rows.push(slip);
+        }
+
+        // Only DIESEL-family litres count toward the trip's HSD allowance —
+        // engine oil is not fuel and must never eat the lane's HSD balance.
+        const hsdLitres = legs
+          .filter((l) => String(l.fuel_type ?? '').toUpperCase() !== 'MOBIL')
+          .reduce((s, l) => s + Number(l.liters ?? 0), 0);
+        const goods = legs.reduce((s, l) => s + Number(l.amount ?? 0), 0);
 
         // COALESCE on the amount: a slip issued without a rate has no value
         // yet, and `total_expense + NULL` would blank the whole column. The
@@ -1176,7 +1225,7 @@ export async function registerOpsRoutes(app) {
                             pump_cash_advance = COALESCE(pump_cash_advance,0) + $3,
                             total_expense = COALESCE(total_expense,0) + COALESCE($4::numeric,0) + $3,
                             updated_at = now()
-            WHERE id = $1::uuid`, [req.params.id, b.liters, cash, amount]);
+            WHERE id = $1::uuid`, [req.params.id, hsdLitres, cash, goods]);
 
         // Cash handed over at the pump is money the driver received, so it lands
         // in the driver's subsidiary account too — otherwise it is invisible on
@@ -1189,24 +1238,39 @@ export async function registerOpsRoutes(app) {
             [trip.driver_id, trip.driver_name, req.params.id, date, cash,
              `Trip ${trip.trip_code} cash from ${vendor.vendor_name}`]);
         }
-        return slip;
+        return rows;
       });
 
-      // The payload carries EVERYTHING the pump's slip message needs, because a
-      // subscriber that has to re-query for the memo number and the mobile is a
-      // subscriber that silently sends a slip with "N/A" on it when the join
-      // misses. TARA reads liters/amount/vendor for the ledger; MATANGI reads
-      // the rest to write the message.
+      const head = out[0] ?? null;
+
+      // ONE EVENT PER STOP, carrying every item. Emitting per row sent the pump
+      // a separate message for diesel and for engine oil taken in the same
+      // visit; the owner asked for one slip and one message, and one event is
+      // how that becomes true for every consumer at once.
+      //
+      // The payload carries EVERYTHING the message needs, because a subscriber
+      // that has to re-query is a subscriber that silently sends "N/A" when the
+      // join misses. TARA reads the items for the ledger; MATANGI writes the
+      // message and renders the PDF from the same list.
       await emit('fuel.slip.recorded', {
-        aggregate: 'fuel_entry', aggregateId: out.id,
+        aggregate: 'fuel_entry', aggregateId: head?.id ?? null,
         payload: {
-          slip_id: out.id, memo_no: out.memo_no,
-          liters: b.liters, rate: b.rate, amount, fuel_type: out.fuel_type,
+          slip_id: head?.id ?? null,
+          memo_no: b.memo_no ?? head?.memo_no ?? null,
+          slip_ids: out.map((r) => r.id),
+          items: out.map((r) => ({
+            fuel_type: r.fuel_type, liters: Number(r.liters ?? 0),
+            rate: r.rate == null ? null : Number(r.rate),
+            amount: r.amount == null ? null : Number(r.amount),
+          })),
+          // Kept flat for TARA and anything reading the older shape.
+          liters: Number(head?.liters ?? 0), rate: head?.rate == null ? null : Number(head.rate),
+          amount: head?.amount == null ? null : Number(head.amount), fuel_type: head?.fuel_type,
           cash_given_to_pump: cash,
           vendor_id: b.vendor_id, vendor_name: vendor.vendor_name,
-          pump_mobile: out.pump_mobile,
+          pump_mobile: head?.pump_mobile ?? b.pump_mobile ?? null,
           vehicle_no: trip.vehicle_no, driver_name: trip.driver_name,
-          route_name: out.route_name, entry_date: date,
+          route_name: head?.route_name, entry_date: date,
           trip_id: req.params.id, trip_code: trip.trip_code,
         },
         emittedBy: 'AGENT_01',
@@ -1214,7 +1278,7 @@ export async function registerOpsRoutes(app) {
       await drain().catch(() => {});
 
       reply.code(201);
-      return { created: true, fuel_entry: out, driver_advance: cash > 0 ? cash : null };
+      return { created: true, fuel_entry: head, fuel_entries: out, driver_advance: cash > 0 ? cash : null };
     }
   );
 

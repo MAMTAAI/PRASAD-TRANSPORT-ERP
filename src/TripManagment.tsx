@@ -859,50 +859,43 @@ export default function TripManagment() {
         const cashAmt = round2(parseFloat(pump.cash_advance || '0') || 0);
         if (!qty && !mobilQty && !cashAmt) continue;
 
-        // ENGINE OIL POSTS AS ITS OWN SLIP. fuel_entries holds one product per
-        // row, and adding oil litres to diesel litres would break the mileage
-        // check. The cash rides on the diesel slip (or the mobil slip when
-        // there is no diesel) so it is counted exactly once against the trip.
-        const legs = [];
-        if (qty > 0) legs.push({ label: 'HSD', fuel_type: pump.fuel_type, liters: qty, rate, cash: cashAmt });
-        if (mobilQty > 0) legs.push({ label: 'MOBIL', fuel_type: 'MOBIL', liters: mobilQty, rate: mobilRate, cash: qty > 0 ? 0 : cashAmt });
-        if (!legs.length && cashAmt > 0) legs.push({ label: 'CASH', fuel_type: 'ADVANCE', liters: null, rate: 0, cash: cashAmt });
+        // ONE CALL PER PUMP, carrying every product issued at that stop. The
+        // server writes a fuel_entries row per item in ONE transaction and
+        // emits ONE event, so the pump gets one PDF and one WhatsApp message
+        // for a visit where the driver took both diesel and engine oil.
+        // (Rows stay per-product because fuel_entries holds one product each,
+        // and folding oil litres into diesel would corrupt the mileage check.)
+        const items: any[] = [];
+        if (qty > 0) items.push({ fuel_type: pump.fuel_type, liters: qty, ...(rate > 0 ? { rate, amount: round2(qty * rate) } : {}) });
+        if (mobilQty > 0) items.push({ fuel_type: 'MOBIL', liters: mobilQty, ...(mobilRate > 0 ? { rate: mobilRate, amount: round2(mobilQty * mobilRate) } : {}) });
 
-        for (const leg of legs) {
         try {
           const out = await fetchJson(`${OPS}/trips/${activeTrip.id}/fuel-slip`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               vendor_id: pump.vendor_id,
-              // One memo number covers the stop; the pump writes one entry. The
-              // server's duplicate-memo guard is per (vendor, memo), so the
-              // second leg carries a suffix rather than being refused.
-              memo_no: memoData.memo_no ? (legs.length > 1 ? `${memoData.memo_no}-${leg.label}` : memoData.memo_no) : null,
+              memo_no: memoData.memo_no || null,
               entry_date: memoData.date,
-              fuel_type: leg.fuel_type,
-              liters: leg.liters ?? 0.001,
-              // Omitted entirely when unknown — the slip authorises a quantity
-              // and the pump's bill sets the price.
-              ...(leg.rate > 0 ? { rate: leg.rate, amount: round2((leg.liters ?? 0) * leg.rate) } : {}),
-              cash_given_to_pump: leg.cash,
+              ...(items.length ? { items } : {}),
+              cash_given_to_pump: cashAmt,
               pump_mobile: pump.mobile || null,
             }),
           });
           // Shaped for sendFuelMemoWhatsApp, which reads the slip it is handed.
+          const head = out.fuel_entry ?? {};
           savedSlips.push({
-            ...out.fuel_entry,
-            date: out.fuel_entry.entry_date,
+            ...head,
+            date: head.entry_date,
             trip_id: activeTrip.trip_code,
             route_name: `${activeTrip.loading_point ?? '?'} To ${activeTrip.consignee_name ?? '?'}`,
             pump_mobile: pump.mobile,
             vendor_name: pump.vendor_name,
           });
         } catch (e: any) {
-          // Each leg is posted on its own, so one bad row cannot discard the
+          // Each pump is posted on its own, so one bad row cannot discard the
           // others — the server's guards are reported per pump instead.
-          const hint = { SLIP_ARITHMETIC: 'amount does not match litres × rate', DUPLICATE_MEMO: 'this memo is already recorded for that pump' }[e.code];
-          failures.push(`${pump.vendor_name || 'pump'}${legs.length > 1 ? ` (${leg.label})` : ''}: ${hint ?? e.message}`);
-        }
+          const hint = { SLIP_ARITHMETIC: 'amount does not match litres × rate', DUPLICATE_MEMO: 'this memo is already recorded for that pump', NOTHING_ISSUED: 'no litres and no cash on this row' }[e.code];
+          failures.push(`${pump.vendor_name || 'pump'}: ${hint ?? e.message}`);
         }
       }
       // Fixed targets are trip fields, not slip fields.
