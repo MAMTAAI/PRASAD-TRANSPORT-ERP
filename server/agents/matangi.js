@@ -1,7 +1,8 @@
 // server/agents/matangi.js
 // AGENT 09 — MATANGI · CRM & Driver WhatsApp AI Assistant
 import { defineAgent, ok, skipped, blocked, failed } from './base.js';
-import { queryOne } from '../db/pool.js';
+import { queryOne, query } from '../db/pool.js';
+import { sendViaEngine } from '../lib/waSend.js';
 
 /**
  * Speaks to the outside world, which makes it the only agent whose mistakes are
@@ -30,6 +31,12 @@ export default defineAgent({
     'proposes and notifies; it never approves money and never posts to the ledger.',
 
   subscribes: [
+    // The pump's fuel slip. ops.routes.js has emitted this since the slip route
+    // was written, and until 6-Sep-2026 only TARA (ledger) and BHUVANESHWARI
+    // (documents) listened — so the event fired correctly and NOBODY told the
+    // pump. The slip reached the pump only when a person remembered to press
+    // the button in Trip Management.
+    'fuel.slip.recorded',
     'trip.completed',
     'trip.settled',
     'invoice.generated',
@@ -78,6 +85,99 @@ export default defineAgent({
 
   async handle(event, ctx) {
     switch (event.event_type) {
+      // ── THE PUMP'S FUEL SLIP ────────────────────────────────────────────
+      // Sent here rather than from the route because the bus is what makes it
+      // survivable: the event is a committed row before anyone reacts, the
+      // delivery is retried five times, and a message that still cannot be
+      // delivered becomes a DEAD event somebody can see — instead of a browser
+      // alert() nobody was watching.
+      //
+      // "Zero failure" is not something WhatsApp can promise: the engine can be
+      // unpaired, the 1.9 GB box can be out of memory, the number can be wrong.
+      // What is guaranteed is that a slip is never silently dropped — every
+      // attempt lands in `notifications`, and a failure throws so the bus
+      // retries and then surfaces it.
+      case 'fuel.slip.recorded': {
+        const p = event.payload ?? {};
+        const mobile = String(p.pump_mobile ?? '').replace(/\D/g, '').slice(-10);
+        if (mobile.length !== 10) {
+          // Not a failure of delivery — there is nothing to deliver to. Say so
+          // loudly enough that the pump master gets fixed, but do not retry a
+          // number that will not become valid on its own.
+          return skipped(`no usable WhatsApp number on pump ${p.vendor_name ?? p.vendor_id} — slip ${p.memo_no ?? p.slip_id} not sent`);
+        }
+
+        const rupees = (v) => '₹' + Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const text = [
+          '*⛽ FUEL SLIP — PRASAD TRANSPORT*',
+          '',
+          `Dear ${p.vendor_name ?? 'Pump'},`,
+          '',
+          // The slip number is the first thing the pump reconciles against its
+          // own book at fortnight end. It was missing from the manual message.
+          `🧾 *Slip No:* ${p.memo_no ?? String(p.slip_id ?? '').slice(0, 8)}`,
+          `🚛 *Vehicle:* ${p.vehicle_no ?? '—'}`,
+          `👤 *Driver:* ${p.driver_name ?? '—'}`,
+          p.route_name ? `📍 *Route:* ${p.route_name}` : null,
+          '',
+          `💧 *${p.fuel_type ?? 'DIESEL'}:* ${Number(p.liters ?? 0)} L @ ${rupees(p.rate)}/L`,
+          `💰 *Fuel Value:* ${rupees(p.amount)}`,
+          `💵 *Cash Advance:* ${rupees(p.cash_given_to_pump)}`,
+          `📅 *Date:* ${p.entry_date ?? ''}`,
+          '',
+          'Please issue against this slip only. Reply here if anything does not match.',
+        ].filter(Boolean).join('\n');
+
+        // Idempotence, on the index built for it in migration 006 and never
+        // used until now. Two details this has to get right:
+        //   · the index is PARTIAL (WHERE event_id IS NOT NULL), so ON CONFLICT
+        //     must repeat that predicate or PostgreSQL refuses the statement
+        //     outright with "no unique or exclusion constraint matching";
+        //   · DO NOTHING would be wrong. The bus retries a failed delivery, and
+        //     a retry must find its row and send again — only an already SENT
+        //     slip is skipped. DO NOTHING would turn every retry into a no-op
+        //     and quietly guarantee the pump never hears from us.
+        const claim = await query(
+          `INSERT INTO notifications (event_id, channel, recipient, template, body, status)
+           VALUES ($1, 'WHATSAPP', $2, 'FUEL_SLIP', $3, 'QUEUED')
+           ON CONFLICT (event_id, recipient) WHERE event_id IS NOT NULL
+             DO UPDATE SET body = EXCLUDED.body
+           RETURNING id, status`,
+          [event.id, mobile, text]);
+        const nid = claim.rows[0].id;
+        if (claim.rows[0].status === 'SENT') {
+          return skipped(`slip ${p.memo_no ?? p.slip_id} already sent to ${mobile}`);
+        }
+
+        try {
+          await sendViaEngine({
+            phone: mobile, text, user: null,
+            tripId: p.trip_id ?? null, role: 'PUMP',
+          });
+          await query(
+            `UPDATE notifications SET status='SENT', sent_at=now(), attempts=attempts+1 WHERE id=$1`, [nid]);
+          await ctx.emit('notification.sent', {
+            aggregate: 'fuel_entry', aggregateId: p.slip_id ?? event.aggregate_id,
+            payload: { channel: 'WHATSAPP', recipient: mobile, template: 'FUEL_SLIP', memo_no: p.memo_no },
+            correlationId: event.correlation_id,
+          });
+          return ok(`fuel slip ${p.memo_no ?? ''} sent to ${p.vendor_name} (${mobile})`);
+        } catch (e) {
+          // Record the attempt, then RETHROW. Swallowing here would make the
+          // event DONE with nothing delivered — which is precisely how this
+          // whole path came to look healthy while no pump ever heard from us.
+          await query(
+            `UPDATE notifications SET status='FAILED', attempts=attempts+1, last_error=$2 WHERE id=$1`,
+            [nid, String(e.message).slice(0, 500)]).catch(() => {});
+          await ctx.emit('notification.failed', {
+            aggregate: 'fuel_entry', aggregateId: p.slip_id ?? event.aggregate_id,
+            payload: { channel: 'WHATSAPP', recipient: mobile, template: 'FUEL_SLIP', error: e.code ?? 'SEND_FAILED', detail: e.message },
+            correlationId: event.correlation_id,
+          }).catch(() => {});
+          throw e;
+        }
+      }
+
       case 'driver.advance.requested': {
         const { driver_id, amount, trip_id } = event.payload ?? {};
         if (!driver_id || !amount) return failed('advance request needs driver_id and amount');

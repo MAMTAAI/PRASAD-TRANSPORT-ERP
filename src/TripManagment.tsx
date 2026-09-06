@@ -901,9 +901,32 @@ export default function TripManagment() {
     setSavingMemo(false);
   };
 
+  // RE-SEND. Since 6-Sep-2026 the slip goes to the pump automatically the moment
+  // it is recorded — MATANGI sends it off `fuel.slip.recorded`, retried by the
+  // bus and logged in `notifications`. This button exists for the case where the
+  // pump says it never arrived.
+  //
+  // The text is kept identical to the server's copy in server/agents/matangi.js
+  // ON PURPOSE: a re-send that reads differently from the original is how a pump
+  // ends up reconciling two slips against one delivery. The two versions of this
+  // message had already drifted — this one carried the cash advance but no slip
+  // number, while FuelMgmt.tsx carried the number but neither cash nor value.
   const sendFuelMemoWhatsApp = async (slip: any) => {
     if (!slip.pump_mobile) return alert("⚠️ Mobile not found for this Pump!");
-    const message = `*⛽ FUEL MEMO ALERT* \n\nDear ${slip.vendor_name},\n\n🚛 *Vehicle No:* ${slip.vehicle_no}\n👤 *Driver:* ${slip.driver_name || 'N/A'}\n📍 *Route:* ${slip.route_name}\n\n💧 *Quantity:* ${slip.liters} Liters (${slip.fuel_type})\n💵 *Cash Adv:* ₹${slip.cash_given_to_pump || 0}\n📅 *Date:* ${slip.date}`;
+    const inr = (v: any) => '₹' + Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const message = [
+      '*⛽ FUEL SLIP — PRASAD TRANSPORT*', '',
+      `Dear ${slip.vendor_name},`, '',
+      `🧾 *Slip No:* ${slip.memo_no || String(slip.id ?? '').slice(0, 8)}`,
+      `🚛 *Vehicle:* ${slip.vehicle_no || '—'}`,
+      `👤 *Driver:* ${slip.driver_name || '—'}`,
+      slip.route_name ? `📍 *Route:* ${slip.route_name}` : null, '',
+      `💧 *${slip.fuel_type || 'DIESEL'}:* ${Number(slip.liters ?? 0)} L @ ${inr(slip.rate)}/L`,
+      `💰 *Fuel Value:* ${inr(slip.amount)}`,
+      `💵 *Cash Advance:* ${inr(slip.cash_given_to_pump)}`,
+      `📅 *Date:* ${slip.date || slip.entry_date || ''}`, '',
+      'Please issue against this slip only. Reply here if anything does not match.',
+    ].filter(Boolean).join('\n');
     // 💬 Dual-mode: PRASAD PRO auto-send (footprint logged) → wa.me deep link fallback
     const r = await sendWhatsApp({ phone: slip.pump_mobile, message, tripId: slip.trip_id });
     alert(waResultText(r));

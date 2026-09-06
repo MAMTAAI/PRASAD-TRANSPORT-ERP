@@ -743,7 +743,23 @@ Sum all row amounts into total_amount. Empty/0 if absent.`;
       alert("⚠️ Mobile number not found for this Petrol Pump!");
       return;
     }
-    const message = `*⛽ FUEL MEMO ALERT* \n\nDear ${slip.vendor_name},\n\nPlease provide fuel to our vehicle based on the following approved memo:\n\n🚛 *Vehicle No:* ${slip.vehicle_no}\n👤 *Driver:* ${slip.driver_name || 'N/A'}\n📍 *Route:* ${slip.route_name || 'N/A'}\n\n💧 *Quantity Approved:* ${slip.liters} Liters (${slip.fuel_type})\n📝 *Memo No:* ${slip.memo_no}\n📅 *Date:* ${slip.date}\n\nKindly process the fueling and add it to our billing cycle.\n\nRegards,\n*Prasad Transport ERP*`;
+    // Same canonical text as server/agents/matangi.js and TripManagment.tsx —
+    // this is a RE-SEND of a slip the server already delivered automatically,
+    // so it must read identically or the pump reconciles one delivery twice.
+    const inr = (v: any) => '₹' + Number(v ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const message = [
+      '*⛽ FUEL SLIP — PRASAD TRANSPORT*', '',
+      `Dear ${slip.vendor_name},`, '',
+      `🧾 *Slip No:* ${slip.memo_no || String(slip.id ?? '').slice(0, 8)}`,
+      `🚛 *Vehicle:* ${slip.vehicle_no || '—'}`,
+      `👤 *Driver:* ${slip.driver_name || '—'}`,
+      slip.route_name ? `📍 *Route:* ${slip.route_name}` : null, '',
+      `💧 *${slip.fuel_type || 'DIESEL'}:* ${Number(slip.liters ?? 0)} L @ ${inr(slip.rate)}/L`,
+      `💰 *Fuel Value:* ${inr(slip.amount)}`,
+      `💵 *Cash Advance:* ${inr(slip.cash_given_to_pump)}`,
+      `📅 *Date:* ${slip.date || slip.entry_date || ''}`, '',
+      'Please issue against this slip only. Reply here if anything does not match.',
+    ].filter(Boolean).join('\n');
     // 💬 Dual-mode: PRASAD PRO auto-send (footprint) → phone WhatsApp fallback
     import('./lib/waSend').then(({ sendWhatsApp, waResultText }) =>
       sendWhatsApp({ phone: slip.pump_mobile, message, tripId: slip.trip_id }).then(r => alert(waResultText(r))));

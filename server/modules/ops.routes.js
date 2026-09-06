@@ -1144,11 +1144,22 @@ export async function registerOpsRoutes(app) {
         return slip;
       });
 
+      // The payload carries EVERYTHING the pump's slip message needs, because a
+      // subscriber that has to re-query for the memo number and the mobile is a
+      // subscriber that silently sends a slip with "N/A" on it when the join
+      // misses. TARA reads liters/amount/vendor for the ledger; MATANGI reads
+      // the rest to write the message.
       await emit('fuel.slip.recorded', {
         aggregate: 'fuel_entry', aggregateId: out.id,
         payload: {
-          liters: b.liters, rate: b.rate, amount, vendor_id: b.vendor_id,
-          vendor_name: vendor.vendor_name, vehicle_no: trip.vehicle_no, trip_code: trip.trip_code,
+          slip_id: out.id, memo_no: out.memo_no,
+          liters: b.liters, rate: b.rate, amount, fuel_type: out.fuel_type,
+          cash_given_to_pump: cash,
+          vendor_id: b.vendor_id, vendor_name: vendor.vendor_name,
+          pump_mobile: out.pump_mobile,
+          vehicle_no: trip.vehicle_no, driver_name: trip.driver_name,
+          route_name: out.route_name, entry_date: date,
+          trip_id: req.params.id, trip_code: trip.trip_code,
         },
         emittedBy: 'AGENT_01',
       }).catch(() => {});
