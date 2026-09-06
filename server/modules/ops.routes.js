@@ -733,6 +733,37 @@ export async function registerOpsRoutes(app) {
       const prefix = /jaiswal/i.test(prefixSource) ? 'JE'
         : /gautam/i.test(prefixSource) ? 'GP' : 'PT';
 
+      // ── THE LANE ALLOWANCE, RESOLVED ONCE AND STORED (migration 178) ──────
+      // Until now nothing derived these: the trip stored only what the browser
+      // sent, and the screen filled the gap with a client-side guess that
+      // matched on CONSIGNEE ALONE. That is not a lane — the same consignee is
+      // served from several depots, and "LPG BP NORTH GUWAHATI (7B03)" runs
+      // lanes from 30 L to 690 L. Worse, driverLedger.js (driver app,
+      // settlement) reads trips.fixed_hsd with no fallback, so the office and
+      // the settlement saw different numbers for one trip.
+      //
+      // Resolved here, from the full lane key, and written onto the trip so
+      // every consumer reads the same value. lane_allowance() returns nothing
+      // when the lane is unknown or ambiguous, and the target then stays NULL —
+      // a blank the desk can fill beats an allowance nobody can defend.
+      if (b.fixed_hsd == null || b.fixed_cash == null || b.rtkm == null) {
+        try {
+          const { rows: [lane] } = await query(
+            `SELECT * FROM lane_allowance($1, $2, $3, $4, $5)`,
+            [b.customer_name ?? null, b.consignee_name ?? null,
+              b.loading_point ?? null, b.vehicle_capacity ?? null, b.item_type ?? null]);
+          if (lane) {
+            if (b.fixed_hsd == null && lane.fixed_hsd_qty != null) b.fixed_hsd = Number(lane.fixed_hsd_qty);
+            if (b.fixed_cash == null && lane.fixed_cash_amt != null) b.fixed_cash = Number(lane.fixed_cash_amt);
+            if (b.rtkm == null && lane.rtkm_distance != null) b.rtkm = Number(lane.rtkm_distance);
+            if (b.toll_amt == null && lane.toll_amt != null) b.toll_amt = Number(lane.toll_amt);
+          }
+        } catch (e) {
+          // A lane we cannot resolve must never stop a truck being dispatched.
+          req.log?.warn?.(`[trip] lane allowance lookup failed: ${e.message}`);
+        }
+      }
+
       try {
         const created = await withTransaction(async (t) => {
           await t.query('LOCK TABLE trips IN SHARE ROW EXCLUSIVE MODE');
@@ -1057,14 +1088,20 @@ export async function registerOpsRoutes(app) {
       schema: {
         params: { type: 'object', required: ['id'], properties: { id: { type: 'string', format: 'uuid' } } },
         body: {
-          type: 'object', required: ['vendor_id', 'liters', 'rate'], additionalProperties: false,
+          // `rate` is NO LONGER REQUIRED (owner, 6-Sep-2026): the pump's rate
+          // changes constantly and nobody knows it when the slip is issued.
+          // Demanding it here meant the desk typed a guess, and that guessed
+          // amount sat in the books as the expense until the bill arrived.
+          // NULL is the honest value; queues.routes.js fills rate and amount
+          // from the pump's own bill on BILLED_VERIFIED.
+          type: 'object', required: ['vendor_id', 'liters'], additionalProperties: false,
           properties: {
             vendor_id: { type: 'string', format: 'uuid' },
             memo_no: { type: ['string', 'null'], maxLength: 60 },
             entry_date: { type: ['string', 'null'], format: 'date' },
             fuel_type: { type: ['string', 'null'], maxLength: 20 },
             liters: { type: 'number', exclusiveMinimum: 0 },
-            rate: { type: 'number', exclusiveMinimum: 0 },
+            rate: { type: ['number', 'null'], exclusiveMinimum: 0 },
             amount: { type: ['number', 'null'], minimum: 0 },
             cash_given_to_pump: { type: 'number', minimum: 0, default: 0 },
             pump_mobile: { type: ['string', 'null'], maxLength: 20 },
@@ -1085,14 +1122,21 @@ export async function registerOpsRoutes(app) {
       if (!vendor) return reply.code(400).send({ error: 'NO_VENDOR', detail: 'unknown pump/vendor' });
 
       // Guard 1 — the slip's own arithmetic (CHHINNAMASTA's tolerance).
-      const expected = r2(b.liters * b.rate);
-      const amount = b.amount != null ? r2(b.amount) : expected;
-      const tolerance = Number(process.env.FUEL_ROUNDING_TOLERANCE ?? '1');
-      if (Math.abs(amount - expected) > tolerance) {
-        return reply.code(422).send({
-          error: 'SLIP_ARITHMETIC',
-          detail: `slip says ₹${amount.toFixed(2)} but ${b.liters} L × ₹${b.rate} = ₹${expected.toFixed(2)}`,
-        });
+      // Only meaningful when a rate was supplied. Without one there is no
+      // amount to check and none is stored: the slip authorises LITRES, and the
+      // money is whatever the pump's bill later says it was.
+      const hasRate = b.rate != null && Number(b.rate) > 0;
+      let amount = null;
+      if (hasRate) {
+        const expected = r2(b.liters * b.rate);
+        amount = b.amount != null ? r2(b.amount) : expected;
+        const tolerance = Number(process.env.FUEL_ROUNDING_TOLERANCE ?? '1');
+        if (Math.abs(amount - expected) > tolerance) {
+          return reply.code(422).send({
+            error: 'SLIP_ARITHMETIC',
+            detail: `slip says ₹${amount.toFixed(2)} but ${b.liters} L × ₹${b.rate} = ₹${expected.toFixed(2)}`,
+          });
+        }
       }
       // Guard 2 — the same memo submitted twice by two people.
       if (b.memo_no) {
@@ -1123,10 +1167,14 @@ export async function registerOpsRoutes(app) {
            b.vendor_id, vendor.vendor_name, b.memo_no ?? null, b.fuel_type ?? 'DIESEL',
            b.liters, b.rate, amount, cash, b.pump_mobile ?? null]);
 
+        // COALESCE on the amount: a slip issued without a rate has no value
+        // yet, and `total_expense + NULL` would blank the whole column. The
+        // litres and the cash are known and still accumulate — which is what
+        // the HSD/cash balance on the trip board is counting.
         await t.query(
           `UPDATE trips SET hsd_issued = COALESCE(hsd_issued,0) + $2,
                             pump_cash_advance = COALESCE(pump_cash_advance,0) + $3,
-                            total_expense = COALESCE(total_expense,0) + $4 + $3,
+                            total_expense = COALESCE(total_expense,0) + COALESCE($4::numeric,0) + $3,
                             updated_at = now()
             WHERE id = $1::uuid`, [req.params.id, b.liters, cash, amount]);
 

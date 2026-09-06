@@ -1918,13 +1918,25 @@ export default function TripManagment() {
             <tbody>
               {activeTrips.length === 0 ? <tr><td colSpan={6} style={{padding: '20px', textAlign: 'center', color: '#5d7196'}}>No matching active trips found.</td></tr> : 
                activeTrips.map(t => {
-                const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
-                
-                let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
-                if(hTarget === 0) hTarget = parseFloat(getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) || 0;
-                
-                let cTarget = parseFloat(getVal(t, ['fixedcash', 'fixedcashamt'])) || 0;
-                if(cTarget === 0) cTarget = parseFloat(getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
+                // TARGETS COME FROM THE TRIP, AND ONLY FROM THE TRIP.
+                //
+                // This used to fall back to findRoute(consignee_name) — the
+                // FIRST route-master row with a similar consignee. That is not
+                // a lane. The allowance belongs to the DEPOT->CONSIGNEE pair,
+                // and "LPG BP NORTH GUWAHATI (7B03)" alone spans six lanes from
+                // six depots, 30 L to 690 L. The guess could authorise 690 L on
+                // a 30 L lane, and it disagreed with driverLedger.js — which
+                // feeds the driver app and the settlement and has never had a
+                // fallback. Two numbers for one trip.
+                //
+                // Since migration 178 the server resolves the lane once, from
+                // the full key, and stores it on the trip. A blank here now
+                // means the lane is genuinely unresolved (unknown or
+                // ambiguous), and the desk sets it on the fuel memo.
+                const hTargetRaw = getVal(t, ['fixedhsd', 'fixedhsdqty']);
+                const cTargetRaw = getVal(t, ['fixedcash', 'fixedcashamt']);
+                const hTarget = parseFloat(hTargetRaw) || 0;
+                const cTarget = parseFloat(cTargetRaw) || 0;
 
                 const paidCash = parseFloat(t.office_cash_paid||0) + parseFloat(t.bank_paid||0) + parseFloat(t.pump_cash_advance||0);
                 const hsdIssued = parseFloat(t.hsd_issued||0);
@@ -1950,8 +1962,30 @@ export default function TripManagment() {
                      {t.loading_point || t.Loading_Point} ➔ {t.consignee_name || t.Consignee_Name}<RtkmBadge t={t} />
                      <LastTollBadge tripId={t.id} />
                   </td>
-                  <td style={{...styles.td, color: '#2fe39b'}}><b>{hsdIssued}</b> / {hTarget} L<br/>Bal: {hTarget - hsdIssued} L</td>
-                  <td style={{...styles.td, color: '#ffb224'}}><b>₹{paidCash}</b> / ₹{cTarget}<br/>Bal: ₹{cTarget - paidCash}</td>
+                  {/* No target = say so. "0 / 0 L · Bal: 0 L" read as a lane
+                      that allows nothing, which is why this looked broken. */}
+                  <td style={{...styles.td, color: '#2fe39b'}}>
+                    {hTarget > 0 ? (<>
+                      <b>{hsdIssued}</b> / {hTarget} L<br/>
+                      <span style={{ color: (hTarget - hsdIssued) < 0 ? '#ff6b81' : '#2fe39b' }}>
+                        Bal: {+(hTarget - hsdIssued).toFixed(3)} L{(hTarget - hsdIssued) < 0 ? ' ⚠ over' : ''}
+                      </span>
+                    </>) : (<>
+                      <b>{hsdIssued} L</b> issued<br/>
+                      <span style={{ color: '#5d7196', fontSize: '11px' }}>no lane target — set it on ⛽ Fuel</span>
+                    </>)}
+                  </td>
+                  <td style={{...styles.td, color: '#ffb224'}}>
+                    {cTarget > 0 ? (<>
+                      <b>₹{paidCash}</b> / ₹{cTarget}<br/>
+                      <span style={{ color: (cTarget - paidCash) < 0 ? '#ff6b81' : '#ffb224' }}>
+                        Bal: ₹{+(cTarget - paidCash).toFixed(2)}{(cTarget - paidCash) < 0 ? ' ⚠ over' : ''}
+                      </span>
+                    </>) : (<>
+                      <b>₹{paidCash}</b> paid<br/>
+                      <span style={{ color: '#5d7196', fontSize: '11px' }}>no lane target — set it on ⛽ Fuel</span>
+                    </>)}
+                  </td>
                   <td style={{...styles.td, textAlign: 'center'}}><button onClick={() => { setActiveTrip(t); setTrackMode('ROUTE'); setShowTrackModal(true); }} style={{...styles.btn, background: '#18244a', color: '#22d3ee', border: '1px solid #22d3ee'}}>📍 Map</button></td>
                   <td style={{...styles.td, textAlign: 'center'}}>
                     <button onClick={() => openPaymentModal(t)} style={{...styles.btn, background: '#8b5cf6', marginRight: '5px', marginBottom:'5px'}}>💸 Pay</button>
