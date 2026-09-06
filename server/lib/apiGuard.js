@@ -266,14 +266,22 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
       // it would silently stop WhatsApp messages being recorded — data loss
       // nobody notices for days. Left open in that case, and index.js says so
       // at every boot until somebody sets the variable.
-      if (!serviceEnforced) return;
+      // MARK THE CALLER BEFORE EVERY SUCCESSFUL RETURN. This branch admits the
+      // machine without calling requireAuth, so req.user stays undefined — and
+      // the quarantine fence reads exactly that to decide who is external.
+      // Unmarked, an authenticated SERVICE call was filed as role PUBLIC and
+      // refused: /crm/chats stopped recording WhatsApp, and POST /ops/trips —
+      // the unattended AC5 importer this set was widened for — was fenced out
+      // of the register again, this time as 403 rather than the 401 described
+      // above. See stagingContextHook in server/lib/staging.js.
+      if (!serviceEnforced) { req.isServiceCaller = true; return; }
       const presented = bearerOf(req);
       if (presented) {
         // Timing-safe: a plain === on a secret leaks its prefix to anyone
         // willing to measure. Same reasoning as requireAdminOrService.
         const a = Buffer.from(presented);
         const b = Buffer.from(serviceToken);
-        if (a.length === b.length && timingSafeEqual(a, b)) return;
+        if (a.length === b.length && timingSafeEqual(a, b)) { req.isServiceCaller = true; return; }
       }
       // A machine that got the token wrong is not a person who can log in, so
       // it is refused here rather than falling through to a session check.

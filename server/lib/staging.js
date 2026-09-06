@@ -117,13 +117,21 @@ export function assertExternalWrite(sql) {
 export function stagingContextHook(req, reply, done) {
   const role = String(req.user?.role ?? '').toUpperCase();
   const path = String(req.url ?? '').split('?')[0];
-  const external = !req.user || EXTERNAL_ROLES.has(role) || req.user?.scope === 'TRACK_ONLY';
+  // The SERVICE caller is admitted by apiGuard's own branch, which never calls
+  // requireAuth and so leaves req.user undefined. It is a machine holding the
+  // shared secret from .env.api, not an outsider, and the header of this file
+  // has always claimed it is untouched by the fence — `!req.user` alone made
+  // that claim false and quietly refused the WhatsApp engine and the AC5
+  // importer their own tables. apiGuard sets the flag only on its two
+  // SUCCESSFUL returns, so a wrong token is still a plain 401 upstream.
+  const service = req.isServiceCaller === true;
+  const external = (!req.user && !service) || EXTERNAL_ROLES.has(role) || req.user?.scope === 'TRACK_ONLY';
   // Own-credential routes (OTP codes, sessions, own password) are confined by
   // apiGuard's exact-route list and write auth tables by design.
   const exempt = path.startsWith('/api/v1/auth/');
   requestContext.run({
     external: external && !exempt,
-    role: role || 'PUBLIC',
+    role: role || (service ? 'SERVICE' : 'PUBLIC'),
     method: req.method,
     path,
     sub: req.user?.sub ?? null,

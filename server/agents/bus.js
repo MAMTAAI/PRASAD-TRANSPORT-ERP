@@ -19,6 +19,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { EventEmitter } from 'node:events';
 import { createDedicatedClient, query, isDegraded, DbUnavailableError } from '../db/pool.js';
+import { asSystem } from '../lib/staging.js';
 
 const CHANNEL = 'prasad_agent_events';
 
@@ -126,7 +127,23 @@ export async function drain() {
       for (const event of rows) {
         // Dispatch is awaited so agent_events state transitions stay ordered
         // per batch; the registry decides which agents run and in what order.
-        await dispatch(event);
+        //
+        // asSystem() is load-bearing, not decoration. ~30 route handlers call
+        // drain() from inside their own request, and AsyncLocalStorage
+        // propagates into everything they await — so without this the agent
+        // inherits the CALLER's quarantine context. TARA posting a trip ledger
+        // after a driver's upload was therefore judged "a PUBLIC session
+        // writing ledger_entries", refused 403 STAGING_ONLY, retried 5x and
+        // marked DEAD: 210 invoice.parsed events were destroyed that way
+        // between 03-09 and 06-09-2026, and nothing surfaced it.
+        //
+        // staging.js always intended agents to sit outside the fence ("the
+        // agent loops that run outside any HTTP request are untouched"). This
+        // keeps that true when the loop happens to run INSIDE a request. The
+        // fence still refuses the ROUTE's own core writes, which is its job —
+        // an agent deciding to post a ledger is the system acting, not the
+        // outsider who happened to trigger it.
+        await asSystem(() => dispatch(event));
         handled++;
       }
       if (rows.length < BATCH) break;
