@@ -11,12 +11,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { API, apiJson, n2, inr, inr2, dmy, C, btn, chip, th, td, tdR, sel, panel, wrap, Pill, SSTAT, MODEL, BASIS, fail, ask, PayDialog, PayConfigForm } from './payrollShared';
 import MonthEndPanel from './MonthEndPanel';
+import PayoutDrawer from './PayoutDrawer';
 
 export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect, children }) {
   const [ov, setOv] = useState(null);
   const [desk, setDesk] = useState(null);
   const [tab, setTab] = useState('INSTANT');
   const [pay, setPay] = useState(null);
+  // The multi-company payout drawer (migration 177). Deliberately a SEPARATE
+  // action from the settlement "Pay" above: that one closes a specific trip
+  // settlement and posts its own voucher, so routing it through the payout
+  // engine as well would post the same money twice. This one covers the
+  // payments that had no home — advances, vendor/pump/partner payouts, and
+  // anything paid by one firm on another's behalf.
+  const [payout, setPayout] = useState(null);
   const [busy, setBusy] = useState('');
   const loadOv = useCallback(async () => { try { setOv(await apiJson(`${API}/overview`)); } catch (e) { setOv({ error: e.message }); } }, []);
   const loadDesk = useCallback(async () => { if (!selectedId) { setDesk(null); return; } try { setDesk(await apiJson(`${API}/drivers/${selectedId}/desk`)); } catch (e) { setDesk({ error: e.message }); } }, [selectedId]);
@@ -45,6 +53,14 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={selectedId ?? ''} onChange={(e) => onSelect(e.target.value)} style={{ ...sel, minWidth: '260px' }}><option value="">— choose a driver —</option>{drivers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.pay_model ? ` · ${x.pay_model === 'TRIP' ? 'trip basis' : 'monthly'}` : ' · no model'}</option>)}</select>
         <button onClick={audit} disabled={busy === 'audit'} style={btn('ai', busy !== 'audit')}>🔎 Deep audit (settle all open trips)</button>
+        <button
+          onClick={() => setPayout({
+            kind: 'DRIVER', id: selectedId, name: d?.name ?? '',
+            owing: d?.pay_company_id ?? firmRows[0]?.company_id ?? '',
+          })}
+          disabled={!selectedId}
+          style={btn('solid', !!selectedId)}
+        >💸 Multi-company payout</button>
         {(ov?.unconfigured ?? []).length > 0 && <span style={{ fontSize: '11.5px', color: C.crit }}>⚠ {ov.unconfigured.length} active drivers have no compensation model — {ov.unconfigured.slice(0, 4).map((u) => u.name).join(', ')}{ov.unconfigured.length > 4 ? '…' : ''}</span>}
       </div>
 
@@ -111,6 +127,17 @@ export default function DriverPayrollDesk({ drivers, firms, selectedId, onSelect
             )}
           </div>
         </div>
+      )}
+      {payout && (
+        <PayoutDrawer
+          beneficiaryKind={payout.kind}
+          beneficiaryId={payout.id}
+          beneficiaryName={payout.name}
+          owingCompanyId={payout.owing}
+          title="Advance or ad-hoc payment — trip settlements are paid from the Pay button on the row."
+          onClose={() => setPayout(null)}
+          onDone={refresh}
+        />
       )}
       {pay && <PayDialog firm={pay.company_id} title={`${pay.trip_code} · ${pay.driver_name}${pay.vehicle_ownership === 'ATTACHED' ? ` · ⚠ Attached vehicle: payment will be debited to owner ${pay.owner_name}` : ''}`} amount={pay.net_payable} onClose={() => setPay(null)} onPay={async (account, day) => { await apiJson(`${API}/trip-settlements/${pay.id}/pay`, { method: 'POST', body: JSON.stringify({ account, paid_on: day }) }); await refresh(); }} />}
     </div>

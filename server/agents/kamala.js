@@ -18,12 +18,23 @@ export const LOCK_NS = { TRIP: 1, LEDGER: 2, VEHICLE: 3, DRIVER: 4, INVOICE: 5, 
  * and releases automatically when the transaction ends — no orphaned lock if
  * the process dies mid-write, which a lock *table* could not promise.
  */
-export async function withAggregateLock(ns, id, fn) {
-  return withTransaction(async (tx) => {
-    // hashtextextended gives a stable bigint from a uuid; the namespace keeps
-    // aggregates separated.
+export async function withAggregateLock(ns, id, fn, tx = null) {
+  // Pass `tx` (a client already inside withTransaction) to join the caller's
+  // transaction instead of opening a second one — the same escape hatch emit()
+  // offers for the transactional outbox, and for the same reason. A voucher and
+  // the row that says it was paid have to share one fate: posting in its own
+  // transaction meant a crash in between left the ledger holding a payment the
+  // settlement did not know about. The advisory lock is xact-scoped either way,
+  // so joining the caller's transaction still releases it on commit or rollback.
+  if (tx) {
     await tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2::text))', [ns, id]);
     return fn(tx);
+  }
+  return withTransaction(async (t) => {
+    // hashtextextended gives a stable bigint from a uuid; the namespace keeps
+    // aggregates separated.
+    await t.query('SELECT pg_advisory_xact_lock($1, hashtext($2::text))', [ns, id]);
+    return fn(t);
   });
 }
 

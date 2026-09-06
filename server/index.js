@@ -80,6 +80,7 @@ import { registerBankReconRoutes } from './modules/bankRecon.routes.js';
 import { registerTdsRoutes } from './modules/tds.routes.js';
 import { registerGstRoutes } from './modules/gst.routes.js';
 import { registerPayrollRoutes } from './modules/payroll.routes.js';
+import { registerPayoutRoutes } from './modules/payouts.routes.js';
 import { registerKycRoutes } from './modules/kyc.routes.js';
 import { registerOcrRoutes } from './modules/ocr.routes.js';
 import { registerCommissionTermsRoutes } from './modules/commissionTerms.routes.js';
@@ -303,6 +304,11 @@ await app.register(registerBankReconRoutes,        { prefix: '/api/v1/bank-recon
 await app.register(registerTdsRoutes,              { prefix: '/api/v1/tds' });
 await app.register(registerGstRoutes,              { prefix: '/api/v1/gst' });
 await app.register(registerPayrollRoutes,          { prefix: '/api/v1/payroll' });
+// The multi-company payout desk (migration 177). Staff-only by preHandler and
+// core-table by design, so the quarantine fence keeps every external role out
+// without an allow-list entry. No provider is wired: an IMPS/NEFT instruction
+// parks at PENDING_BANK for a person to complete and enter the UTR.
+await app.register(registerPayoutRoutes,           { prefix: '/api/v1/payouts' });
 await app.register(registerKycRoutes,              { prefix: '/api/v1/kyc' });
 await app.register(registerOcrRoutes,              { prefix: '/api/v1/ocr' });
 // Trips advice -> loading -> unloading -> settlement (KALI's modules).

@@ -195,16 +195,27 @@ export async function registerPayrollRoutes(app) {
       const s = await loadSettlement(ref_id); if (!s) return reply.code(404).send({ error: 'NOT_FOUND' });
       if (s.status !== 'POSTED') return reply.code(409).send({ error: 'NOT_POSTED', detail: `settlement is ${s.status}` });
       if (!(Number(s.net_payable) > 0)) return reply.code(422).send({ error: 'NOTHING_TO_PAY' });
+      // ONE transaction for the voucher AND the rows that record it as paid.
+      // These used to be two: postVoucher committed on its own, and a failure in
+      // the follow-up left the ledger holding a payment no settlement claimed.
+      // postVoucher now takes `tx` (migration 177 work) and joins this one.
       let v;
       try {
-        v = await postVoucher({ type: 'PAYMENT', company_id: s.company_id, account, party_ledger: `Driver Payable: ${s.driver_name}`, party_group: PAYABLE_GROUP, amount: r2(s.net_payable), entry_date: day,
-          source_type: 'DRIVER_TRIP_PAY', ref_no: `${s.settlement_no}-PAY`, narration: `Trip pay ${s.trip_code} paid to ${s.driver_name} from ${account}`, created_by: actor(req) });
-      } catch (e) { if (e.code !== 'DUPLICATE_REF') return reply.code(422).send({ error: e.code === 'OVERDRAFT' ? 'OVERDRAFT' : 'PAY_FAILED', detail: e.message }); }
-      await withTransaction(async (t) => {
-        await t.query(`UPDATE driver_trip_settlements SET status = 'PAID', payment_voucher_id = coalesce($2::uuid, payment_voucher_id), paid_via = $3, paid_on = $4::date, paid_by = $5, updated_at = now() WHERE id = $1::uuid`, [s.id, v?.voucher_id ?? null, account, day, actor(req)]);
-        await t.query(`INSERT INTO driver_transactions (driver_id, driver_name, trip_id, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::uuid, $4::date, 'FINAL_PAYMENT', $5, $6, $7)`,
-          [s.driver_id, s.driver_name, s.trip_id, day, r2(s.net_payable), account, `[${s.settlement_no}] trip pay paid`]);
-      });
+        await withTransaction(async (t) => {
+          v = await postVoucher({ tx: t, type: 'PAYMENT', company_id: s.company_id, account, party_ledger: `Driver Payable: ${s.driver_name}`, party_group: PAYABLE_GROUP, amount: r2(s.net_payable), entry_date: day,
+            source_type: 'DRIVER_TRIP_PAY', ref_no: `${s.settlement_no}-PAY`, narration: `Trip pay ${s.trip_code} paid to ${s.driver_name} from ${account}`, created_by: actor(req) });
+          await t.query(`UPDATE driver_trip_settlements SET status = 'PAID', payment_voucher_id = coalesce($2::uuid, payment_voucher_id), paid_via = $3, paid_on = $4::date, paid_by = $5, updated_at = now() WHERE id = $1::uuid`, [s.id, v?.voucher_id ?? null, account, day, actor(req)]);
+          await t.query(`INSERT INTO driver_transactions (driver_id, driver_name, trip_id, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::uuid, $4::date, 'FINAL_PAYMENT', $5, $6, $7)`,
+            [s.driver_id, s.driver_name, s.trip_id, day, r2(s.net_payable), account, `[${s.settlement_no}] trip pay paid`]);
+        });
+      } catch (e) {
+        // A re-run of an already-posted payment still has to mark it paid, so
+        // DUPLICATE_REF replays the status half without the voucher half.
+        if (e.code !== 'DUPLICATE_REF') return reply.code(422).send({ error: e.code === 'OVERDRAFT' ? 'OVERDRAFT' : 'PAY_FAILED', detail: e.message });
+        await withTransaction(async (t) => {
+          await t.query(`UPDATE driver_trip_settlements SET status = 'PAID', paid_via = $2, paid_on = $3::date, paid_by = $4, updated_at = now() WHERE id = $1::uuid AND status <> 'PAID'`, [s.id, account, day, actor(req)]);
+        });
+      }
       return { paid: true, settlement: await loadSettlement(s.id), voucher: v ?? null };
     }
     const { rows: [l] } = await query(`SELECT l.*, r.company_id, r.run_no, r.period FROM payroll_lines l JOIN payroll_runs r ON r.id = l.run_id WHERE l.id = $1::uuid`, [ref_id]);
@@ -212,18 +223,40 @@ export async function registerPayrollRoutes(app) {
     if (l.status !== 'POSTED') return reply.code(409).send({ error: 'NOT_POSTED', detail: `line is ${l.status}` });
     if (!(Number(l.net_payable) > 0)) return reply.code(422).send({ error: 'NOTHING_TO_PAY' });
     const party = payableLedgerOf(l.person_kind, l.person_name);
+    // Same single-transaction rule as the trip branch above: the voucher and the
+    // "PAID" rows commit together or not at all.
     let v;
+    let posted = true;
     try {
-      v = await postVoucher({ type: 'PAYMENT', company_id: l.company_id, account, party_ledger: party, party_group: PAYABLE_GROUP, amount: r2(l.net_payable), entry_date: day,
-        source_type: 'PAYROLL', ref_no: `${l.run_no}/${l.person_name}-PAY`, narration: `${l.period} ${l.person_kind === 'PARTNER' ? 'remuneration' : 'salary'} paid to ${l.person_name} from ${account}`, created_by: actor(req) });
-    } catch (e) { if (e.code !== 'DUPLICATE_REF') return reply.code(422).send({ error: e.code === 'OVERDRAFT' ? 'OVERDRAFT' : 'PAY_FAILED', detail: e.message }); }
-    await withTransaction(async (t) => {
-      await t.query(`UPDATE payroll_lines SET status = 'PAID', payment_voucher_id = coalesce($2::uuid, payment_voucher_id), paid_via = $3, paid_on = $4::date, paid_by = $5, updated_at = now() WHERE id = $1::uuid`, [l.id, v?.voucher_id ?? null, account, day, actor(req)]);
-      if (l.person_kind === 'DRIVER') await t.query(`INSERT INTO driver_transactions (driver_id, driver_name, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::date, 'FINAL_PAYMENT', $4, $5, $6)`, [l.person_id, l.person_name, day, r2(l.net_payable), account, `[${l.run_no}] ${l.period} salary paid`]);
-      else await t.query(`INSERT INTO staff_transactions (staff_id, txn_date, txn_type, amount, mode, remarks, voucher_id, ref, created_by) VALUES ($1::uuid, $2::date, 'PAYMENT_GIVEN', $3, $4, $5, $6::uuid, $7, $8)`, [l.person_id, day, r2(l.net_payable), account, `${l.period} ${l.person_kind === 'PARTNER' ? 'remuneration' : 'salary'} paid`, v?.voucher_id ?? null, l.run_no, actor(req)]);
-      await t.query(`UPDATE payroll_runs r SET status = CASE WHEN NOT EXISTS (SELECT 1 FROM payroll_lines x WHERE x.run_id = r.id AND x.status = 'POSTED') THEN 'PAID' ELSE r.status END, updated_at = now() WHERE r.id = $1::uuid`, [l.run_id]);
-    });
+      await withTransaction(async (t) => {
+        v = await postVoucher({ tx: t, type: 'PAYMENT', company_id: l.company_id, account, party_ledger: party, party_group: PAYABLE_GROUP, amount: r2(l.net_payable), entry_date: day,
+          source_type: 'PAYROLL', ref_no: `${l.run_no}/${l.person_name}-PAY`, narration: `${l.period} ${l.person_kind === 'PARTNER' ? 'remuneration' : 'salary'} paid to ${l.person_name} from ${account}`, created_by: actor(req) });
+        await payMarkPaid(t, l, v, account, day, actor(req));
+      });
+    } catch (e) {
+      if (e.code !== 'DUPLICATE_REF') return reply.code(422).send({ error: e.code === 'OVERDRAFT' ? 'OVERDRAFT' : 'PAY_FAILED', detail: e.message });
+      posted = false;
+    }
+    // DUPLICATE_REF means the voucher was already posted by an earlier attempt.
+    // Mark the line paid, but only if it is not already — re-running this blind
+    // (which the pre-177 code did) inserted a second driver/staff khata row for
+    // one payment, so a replay quietly doubled the person's recorded receipts.
+    if (!posted) {
+      await withTransaction(async (t) => {
+        const { rows: [cur] } = await t.query(`SELECT status FROM payroll_lines WHERE id = $1::uuid FOR UPDATE`, [l.id]);
+        if (cur?.status !== 'PAID') await payMarkPaid(t, l, null, account, day, actor(req));
+      });
+    }
     return { paid: true, line: (await query(`SELECT * FROM payroll_lines WHERE id = $1::uuid`, [l.id])).rows[0], voucher: v ?? null };
+  };
+
+  /** The "this line is paid" writes, so the normal path and the DUPLICATE_REF
+   *  replay cannot drift apart. */
+  const payMarkPaid = async (t, l, v, account, day, by) => {
+    await t.query(`UPDATE payroll_lines SET status = 'PAID', payment_voucher_id = coalesce($2::uuid, payment_voucher_id), paid_via = $3, paid_on = $4::date, paid_by = $5, updated_at = now() WHERE id = $1::uuid`, [l.id, v?.voucher_id ?? null, account, day, by]);
+    if (l.person_kind === 'DRIVER') await t.query(`INSERT INTO driver_transactions (driver_id, driver_name, txn_date, txn_type, amount, mode, remarks) VALUES ($1::uuid, $2, $3::date, 'FINAL_PAYMENT', $4, $5, $6)`, [l.person_id, l.person_name, day, r2(l.net_payable), account, `[${l.run_no}] ${l.period} salary paid`]);
+    else await t.query(`INSERT INTO staff_transactions (staff_id, txn_date, txn_type, amount, mode, remarks, voucher_id, ref, created_by) VALUES ($1::uuid, $2::date, 'PAYMENT_GIVEN', $3, $4, $5, $6::uuid, $7, $8)`, [l.person_id, day, r2(l.net_payable), account, `${l.period} ${l.person_kind === 'PARTNER' ? 'remuneration' : 'salary'} paid`, v?.voucher_id ?? null, l.run_no, by]);
+    await t.query(`UPDATE payroll_runs r SET status = CASE WHEN NOT EXISTS (SELECT 1 FROM payroll_lines x WHERE x.run_id = r.id AND x.status = 'POSTED') THEN 'PAID' ELSE r.status END, updated_at = now() WHERE r.id = $1::uuid`, [l.run_id]);
   };
   app.post('/trip-settlements/:id/pay', admin, async (req, reply) => payOne(req, reply, { source: 'TRIP', ref_id: req.params.id, account: req.body?.account, paid_on: req.body?.paid_on }));
   app.post('/disbursal/pay', admin, async (req, reply) => payOne(req, reply, { source: req.body?.source === 'TRIP' ? 'TRIP' : 'MONTHLY', ref_id: req.body?.ref_id, account: req.body?.account, paid_on: req.body?.paid_on }));

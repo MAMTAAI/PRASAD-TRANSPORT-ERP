@@ -441,6 +441,11 @@ export async function postVoucher(v) {
         { code: 'BAD_TDS' });
   }
 
+  // `v.tx` joins the caller's transaction instead of opening a second one, so a
+  // voucher and the row that records it as paid commit or roll back together.
+  // Without it postVoucher committed on its own and a failure in the caller's
+  // follow-up left money in the ledger that no settlement claimed. Same opt-in
+  // shape as emit({ tx }); omit it and behaviour is exactly as before.
   return withAggregateLock(LOCK_NS.LEDGER, v.account, async (tx) => {
     // GUARD 1 — duplicate reference. One cheque/UTR posts once, ever.
     if (v.ref_no) {
@@ -545,7 +550,7 @@ export async function postVoucher(v) {
       throw err;
     }
     return { posted: true, voucher_id: voucherId, lines, narration };
-  }).catch((err) => {
+  }, v.tx ?? null).catch((err) => {
     if (err.code === 'DRY_RUN') return { posted: false, dry_run: true, ...err.result };
     throw err;
   });
@@ -647,7 +652,7 @@ async function postJournal(v) {
       throw err;
     }
     return { posted: true, voucher_id: voucherId, lines: clean, narration };
-  }).catch((err) => {
+  }, v.tx ?? null).catch((err) => {
     if (err.code === 'DRY_RUN') return { posted: false, dry_run: true, ...err.result };
     throw err;
   });
