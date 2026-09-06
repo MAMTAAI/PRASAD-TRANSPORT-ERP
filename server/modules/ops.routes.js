@@ -1126,7 +1126,10 @@ export async function registerOpsRoutes(app) {
               },
             },
             cash_given_to_pump: { type: 'number', minimum: 0, default: 0 },
-            pump_mobile: { type: ['string', 'null'], maxLength: 20 },
+            // 64, not 20: a pump may be addressed by a WhatsApp GROUP, and a
+            // group JID (120363012345678901@g.us) is 23 characters. The old
+            // cap would have refused every group with a validation error.
+            pump_mobile: { type: ['string', 'null'], maxLength: 64 },
           },
         },
       },

@@ -1102,10 +1102,33 @@ async function doSend({ number, message, userId, sentByUserId, sentByUserName, t
     if (!s || !s.connected) s = getSession(COMPANY_SESSION);
     if (!s || !s.connected) throw new Error('WhatsApp engine OFFLINE — Link WhatsApp tab se QR scan karein.');
 
-    let formatted = String(number || '').replace(/\D/g, '');
-    if (formatted.length === 10) formatted = `91${formatted}`;
-    if (formatted.length < 11) throw new Error('Invalid phone number');
-    const chatId = `${formatted}@c.us`;
+    // ── GROUP OR PERSON ──────────────────────────────────────────────────
+    // Owner, 6-Sep-2026: pump staff changes constantly, so a pump's slip must
+    // be able to go to a WhatsApp GROUP rather than one man's handset.
+    //
+    // A group is addressed by its JID — 120363xxxxxxxxxxxx@g.us — and the old
+    // line below stripped every non-digit, turning that into a nonexistent
+    // personal contact (…@c.us) that either failed or, worse, messaged a
+    // stranger whose number happened to match. A destination that ALREADY
+    // carries a JID suffix is therefore used verbatim; only a bare number gets
+    // the 91 prefix and @c.us.
+    const raw = String(number || '').trim();
+    let chatId;
+    let formatted;
+    if (/@g\.us$/i.test(raw) || /@c\.us$/i.test(raw)) {
+        chatId = raw;
+        formatted = raw.replace(/\D/g, '');
+    } else if (/^\d{15,}$/.test(raw.replace(/\D/g, '')) && /^\d+$/.test(raw.replace(/\D/g, '')) && raw.replace(/\D/g, '').length >= 15) {
+        // A bare group id pasted without its suffix. Personal numbers are never
+        // this long (91 + 10 = 12), so the length is a safe discriminator.
+        chatId = `${raw.replace(/\D/g, '')}@g.us`;
+        formatted = raw.replace(/\D/g, '');
+    } else {
+        formatted = raw.replace(/\D/g, '');
+        if (formatted.length === 10) formatted = `91${formatted}`;
+        if (formatted.length < 11) throw new Error('Invalid phone number');
+        chatId = `${formatted}@c.us`;
+    }
     const sent = await s.client.sendMessage(chatId, message);
     s.lastActivity = Date.now();
     const senderName = sentByUserName || userId || 'Unknown';

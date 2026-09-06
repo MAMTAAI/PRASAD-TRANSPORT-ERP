@@ -177,8 +177,15 @@ export default defineAgent({
       // retries and then surfaces it.
       case 'fuel.slip.recorded': {
         const p = event.payload ?? {};
-        const mobile = String(p.pump_mobile ?? '').replace(/\D/g, '').slice(-10);
-        if (mobile.length !== 10) {
+        // A pump may be addressed by a WhatsApp GROUP rather than one man's
+        // handset (owner, 6-Sep-2026: pump staff changes constantly). A group
+        // JID — 120363…@g.us — must reach the engine intact; stripping it to
+        // ten digits would either fail or message an unrelated stranger whose
+        // number happened to match those digits.
+        const rawTo = String(p.pump_mobile ?? '').trim();
+        const isGroup = /@g\.us$/i.test(rawTo) || /^\d{15,}$/.test(rawTo.replace(/\D/g, ''));
+        const mobile = isGroup ? rawTo : rawTo.replace(/\D/g, '').slice(-10);
+        if (!isGroup && mobile.length !== 10) {
           // Not a failure of delivery — there is nothing to deliver to. Say so
           // loudly enough that the pump master gets fixed, but do not retry a
           // number that will not become valid on its own.

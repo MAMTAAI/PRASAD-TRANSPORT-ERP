@@ -138,15 +138,33 @@ export async function registerTollImportRoutes(app) {
           continue;
         }
 
-        // ── 3. which trip was this truck running that day ────────────────────
-        const trip = await query(
-          `SELECT id, trip_code FROM trips
-            WHERE vehicle_id = $1::uuid
-              AND $2::date BETWEEN loading_date AND COALESCE(unloading_date, loading_date + 15)
-            ORDER BY loading_date DESC LIMIT 1`,
-          [vehicle.id, String(r.txn_datetime).slice(0, 10)]);
-        const tripId = trip.rows[0]?.id ?? null;
-        if (!tripId) flags.push('STANDALONE_NO_TRIP');
+        // ── 3. which trip was this truck running at that MOMENT ──────────────
+        // Migration 179. The previous query matched on DATE, let an OPEN trip
+        // claim `loading_date + 15`, and took `ORDER BY loading_date DESC LIMIT
+        // 1` — silently picking the newest when two trips overlapped. 74 rows
+        // on production match more than one trip that way, and each was a coin
+        // flip that could book a crossing to the wrong lorry's P&L.
+        //
+        // toll_match_trip() answers only when EXACTLY ONE trip covers that
+        // instant, and reports how many candidates there were otherwise. The
+        // owner's rule: never map blindly — an ambiguous crossing goes to the
+        // desk, and a crossing whose only match is a CLOSED trip stays off it,
+        // because a finalised P&L must not be rewritten later.
+        const m = await query(
+          `SELECT r.trip_id, r.candidates,
+                  t.trip_code,
+                  (t.status IS NOT NULL AND t.status NOT IN ('COMPLETED','SETTLED','CANCELLED')) AS trip_open
+             FROM toll_match_trip($1::uuid, $2::timestamptz) r
+             LEFT JOIN trips t ON t.id = r.trip_id`,
+          [vehicle.id, r.txn_datetime]);
+        const hit = m.rows[0] ?? { trip_id: null, candidates: 0 };
+        const mappable = hit.candidates === 1 && hit.trip_open === true;
+        const tripId = mappable ? hit.trip_id : null;
+        const mapStatus = hit.candidates > 1 ? 'AMBIGUOUS'
+          : hit.candidates === 0 ? 'ORPHAN'
+            : mappable ? 'MAPPED' : 'ORPHAN';
+        if (mapStatus === 'AMBIGUOUS') flags.push(`AMBIGUOUS_${hit.candidates}_TRIPS`);
+        else if (!tripId) flags.push('STANDALONE_NO_TRIP');
 
         const wallet = WALLETS[r.company_hint];
         if (!wallet) { park('NO_WALLET_FOR_COMPANY'); continue; }
@@ -158,7 +176,8 @@ export async function registerTollImportRoutes(app) {
 
         const rec = {
           ext_txn_id: r.ext_txn_id, vehicle: vehicle.vehicle_no, vehicle_id: vehicle.id,
-          trip_id: tripId, trip_code: trip.rows[0]?.trip_code ?? null,
+          trip_id: tripId, trip_code: mappable ? (hit.trip_code ?? null) : null,
+          map_status: mapStatus, map_candidates: hit.candidates,
           txn_datetime: r.txn_datetime, amount: Number(r.amount), plaza: r.plaza_name,
           wallet, flags, mode: attached ? 'ATTACHED' : 'OWNED',
         };
@@ -198,14 +217,14 @@ export async function registerTollImportRoutes(app) {
             `INSERT INTO toll_transactions
                (ext_txn_id, txn_ref, vehicle_id, vehicle_no, trip_id, txn_datetime, txn_date,
                 amount, plaza_name, provider, tag_id, is_billable, billing_type, claim_status,
-                company, remarks)
+                company, remarks, map_status, map_candidates, mapped_at)
              VALUES ($1,$2,$3::uuid,$4,$5::uuid,$6::timestamptz,$6::date,$7::numeric,$8,$9,$10,
-                     false,'Company Cost (Statement Import)','UNCLAIMED',$11,$12)
+                     false,'Company Cost (Statement Import)','UNCLAIMED',$11,$12,$13,$14,now())
              ON CONFLICT (ext_txn_id) WHERE ext_txn_id IS NOT NULL DO NOTHING
              RETURNING id`,
             [r.ext_txn_id ?? null, r.txn_ref ?? null, vehicle.id, vehicle.vehicle_no, tripId,
              r.txn_datetime, r.amount, r.plaza_name ?? null, r.bank ?? null, r.tag_id ?? null,
-             r.company_hint ?? null, r.source_file ?? null]);
+             r.company_hint ?? null, r.source_file ?? null, mapStatus, hit.candidates]);
 
           posted.push({ ...rec, toll_txn_id: ins.rows[0]?.id ?? null, voucher_id: voucher?.voucher_id ?? null });
         } catch (e) {
