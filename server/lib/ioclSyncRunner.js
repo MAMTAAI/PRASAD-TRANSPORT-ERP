@@ -25,7 +25,20 @@ const SCRIPT = path.join(REPO, 'tools', 'iocl_recon', 'iocl_ac5_loading.py');
 // was reading. Resolve it instead of assuming, and prefer an explicit
 // PYTHON_BIN (the deploy points it at a venv, since PEP 668 makes system pip
 // installs refuse on this release).
+// THE VENV COMES BEFORE THE SYSTEM INTERPRETER. The parsers need pdfplumber,
+// which on the box lives ONLY in <repo>/.venv (PEP 668 refuses system pip). pm2
+// sets PYTHON_BIN; a run started any other way — a shell, a one-off script, an
+// audit — fell straight through to python3 and died with "No module named
+// 'pdfplumber'" after downloading nothing. adviceCollectJob.js has resolved the
+// venv itself since 5-Sep-2026; this file did not, so the same command worked
+// through one entry point and failed through the other. Verified on production
+// 6-Sep-2026.
+const VENV_PY = ['.venv/bin/python', '.venv/Scripts/python.exe']
+  .map((rel) => path.join(REPO, rel))
+  .find((abs) => fs.existsSync(abs));
+
 const PYTHON = process.env.PYTHON_BIN
+  || VENV_PY
   || ['python3', 'python'].find((bin) => {
     try {
       return spawnSync(bin, ['--version'], { stdio: 'ignore' }).status === 0;
@@ -47,6 +60,11 @@ let running = null;   // { startedAt, window, trigger }
 // mailbox actually being read" and not only "is something running right now".
 // The second question is the one that went unasked for a week.
 let lastRun = null;
+
+// The earliest date this system may import. FY 2026-27 starts 1-Apr-2026 and the
+// books hold that year only; anything older belongs to the previous year's set.
+// Overridable by env for a deliberate, considered backfill — never in passing.
+const SYNC_MIN_DATE = (process.env.IOCL_SYNC_MIN_DATE || '2026-04-01').trim();
 
 export function syncState() {
   return {
@@ -95,7 +113,23 @@ export async function runIoclSync({ from, to, apply = true, noFetch = false, tri
   // 60 days back by default: comfortably wider than IOCL's billing rhythm, and
   // re-reading a settled period is free -- every row in it is already a
   // duplicate and gets skipped.
-  const windowFrom = from || isoDay(new Date(now.getTime() - 60 * 24 * 3600 * 1000));
+  const requestedFrom = from || isoDay(new Date(now.getTime() - 60 * 24 * 3600 * 1000));
+
+  // ── THE FLOOR (owner, 6-Sep-2026: "1-04-2026 se hi data laana hai") ───────
+  //
+  // The books hold financial year 2026-27 only. Nothing before 1-Apr-2026 may
+  // be imported, and this is the one place that can enforce it — the caller
+  // chooses the window, and on 6-Sep-2026 a caller (me) chose 2026-03-01 to
+  // hunt for a backlog and pulled in 12 March payment advices. Undoing that
+  // needed 12 reversing vouchers, because ledger_entries is append-only.
+  //
+  // Clamped, not rejected: an audit asking for a wider window still gets the
+  // legal part of it rather than an error, and the clamp is logged so the
+  // narrowing is never silent.
+  const windowFrom = requestedFrom < SYNC_MIN_DATE ? SYNC_MIN_DATE : requestedFrom;
+  if (windowFrom !== requestedFrom) {
+    logLine({ event: 'window_clamped', trigger, requested_from: requestedFrom, clamped_to: windowFrom, floor: SYNC_MIN_DATE });
+  }
 
   const args = [SCRIPT, '--window-from', windowFrom, '--window-to', windowTo, '--stage', stage];
   if (apply) args.push('--apply');
