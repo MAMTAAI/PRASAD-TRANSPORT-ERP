@@ -209,7 +209,12 @@ export default function TripManagment() {
   
   const [memoData, setMemoData] = useState({ date: new Date().toISOString().split('T')[0], fixed_hsd: '', fixed_cash: '', hsd_issued: 0, cash_issued: 0, memo_no: '', driver_mobile: '' });
   
-  const [pumps, setPumps] = useState([{ id: 1, vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }]);
+  // mobil_qty / mobil_rate: a driver takes diesel and engine oil in one stop and
+  // the pump writes one entry, so the row carries both. They post as a SECOND
+  // slip with fuel_type MOBIL — fuel_entries holds one product per row, and
+  // folding oil into the diesel litres would corrupt the mileage anomaly check
+  // (CHHINNAMASTA divides RTKM by litres).
+  const [pumps, setPumps] = useState([{ id: 1, vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '', mobil_qty: '', mobil_rate: '' }]);
   const [generatedMemos, setGeneratedMemos] = useState<any[]>([]); 
   const [unloadData, setUnloadData] = useState({ unloading_date: new Date().toISOString().split('T')[0], loaded_qty: '', unloaded_qty: '', shortage_qty: '', penalty_rate: '', shortage_penalty: '', unloading_location: '', remarks: '' });
 
@@ -831,36 +836,55 @@ export default function TripManagment() {
 
   const handleSaveFuelMemo = async () => {
     if (!activeTrip || savingMemo) return;
-    const hasValidPump = pumps.some((p) => p.vendor_id && p.qty);
-    if (!hasValidPump) return alert("⚠️ Select a petrol pump and enter litres.");
+    const hasValidPump = pumps.some((p) => p.vendor_id && (p.qty || p.mobil_qty || p.cash_advance));
+    if (!hasValidPump) return alert("⚠️ Select a petrol pump and enter litres, mobil or cash.");
     if (!memoData.date) return alert('⚠️ Pick the transaction / issue date.');
-    // Without a rate the diesel value saves as ₹0 and the HSD cost silently
-    // vanishes from settlement, so the rate is mandatory.
-    if (pumps.find((p) => p.vendor_id && p.qty && !(parseFloat(p.rate) > 0))) {
-      return alert('⚠️ Enter the rate (₹/litre) on every pump row.');
-    }
+    // THE RATE IS NO LONGER MANDATORY (owner, 6-Sep-2026). The pump's rate
+    // changes constantly and is not known when the slip is issued; demanding it
+    // here forced the desk to type a guess, and that guess became the booked
+    // expense until the bill arrived. The slip now authorises a QUANTITY, and
+    // queues.routes.js fills rate and amount from the pump's own bill on
+    // BILLED_VERIFIED. Leave it blank and the slip prints "as per bill".
 
     setSavingMemo(true);
     try {
       const savedSlips = [];
       const failures = [];
       for (const pump of pumps) {
-        if (!pump.vendor_id || !pump.qty) continue;
-        const qty = parseFloat(pump.qty);
-        const rate = parseFloat(pump.rate);
+        if (!pump.vendor_id) continue;
+        const qty = parseFloat(pump.qty || '0') || 0;
+        const rate = parseFloat(pump.rate || '0') || 0;
+        const mobilQty = parseFloat(pump.mobil_qty || '0') || 0;
+        const mobilRate = parseFloat(pump.mobil_rate || '0') || 0;
         const cashAmt = round2(parseFloat(pump.cash_advance || '0') || 0);
+        if (!qty && !mobilQty && !cashAmt) continue;
+
+        // ENGINE OIL POSTS AS ITS OWN SLIP. fuel_entries holds one product per
+        // row, and adding oil litres to diesel litres would break the mileage
+        // check. The cash rides on the diesel slip (or the mobil slip when
+        // there is no diesel) so it is counted exactly once against the trip.
+        const legs = [];
+        if (qty > 0) legs.push({ label: 'HSD', fuel_type: pump.fuel_type, liters: qty, rate, cash: cashAmt });
+        if (mobilQty > 0) legs.push({ label: 'MOBIL', fuel_type: 'MOBIL', liters: mobilQty, rate: mobilRate, cash: qty > 0 ? 0 : cashAmt });
+        if (!legs.length && cashAmt > 0) legs.push({ label: 'CASH', fuel_type: 'ADVANCE', liters: null, rate: 0, cash: cashAmt });
+
+        for (const leg of legs) {
         try {
           const out = await fetchJson(`${OPS}/trips/${activeTrip.id}/fuel-slip`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               vendor_id: pump.vendor_id,
-              memo_no: memoData.memo_no || null,
+              // One memo number covers the stop; the pump writes one entry. The
+              // server's duplicate-memo guard is per (vendor, memo), so the
+              // second leg carries a suffix rather than being refused.
+              memo_no: memoData.memo_no ? (legs.length > 1 ? `${memoData.memo_no}-${leg.label}` : memoData.memo_no) : null,
               entry_date: memoData.date,
-              fuel_type: pump.fuel_type,
-              liters: qty,
-              rate,
-              amount: round2(qty * rate),
-              cash_given_to_pump: cashAmt,
+              fuel_type: leg.fuel_type,
+              liters: leg.liters ?? 0.001,
+              // Omitted entirely when unknown — the slip authorises a quantity
+              // and the pump's bill sets the price.
+              ...(leg.rate > 0 ? { rate: leg.rate, amount: round2((leg.liters ?? 0) * leg.rate) } : {}),
+              cash_given_to_pump: leg.cash,
               pump_mobile: pump.mobile || null,
             }),
           });
@@ -874,10 +898,11 @@ export default function TripManagment() {
             vendor_name: pump.vendor_name,
           });
         } catch (e: any) {
-          // Each slip is posted on its own, so one bad row cannot discard the
+          // Each leg is posted on its own, so one bad row cannot discard the
           // others — the server's guards are reported per pump instead.
           const hint = { SLIP_ARITHMETIC: 'amount does not match litres × rate', DUPLICATE_MEMO: 'this memo is already recorded for that pump' }[e.code];
-          failures.push(`${pump.vendor_name || 'pump'}: ${hint ?? e.message}`);
+          failures.push(`${pump.vendor_name || 'pump'}${legs.length > 1 ? ` (${leg.label})` : ''}: ${hint ?? e.message}`);
+        }
         }
       }
       // Fixed targets are trip fields, not slip fields.
@@ -1662,13 +1687,35 @@ export default function TripManagment() {
                     <select style={{...styles.input, flex: 1.5, minWidth: 'min(100%, 180px)'}} value={pump.vendor_id} onChange={e=>handlePumpChange(pump.id, 'vendor_id', e.target.value)}><option value="">-- Petrol Pump --</option>{fuelVendors.map(v => <option key={v.id} value={v.id}>{v.vendor_name}</option>)}</select>
                     <select style={{...styles.input, flex: 1, minWidth: '110px'}} value={pump.fuel_type} onChange={e=>handlePumpChange(pump.id, 'fuel_type', e.target.value)}><option value="FIXED">Fixed</option><option value="ADVANCE">Advance</option></select>
                     <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Liters (New)" value={pump.qty} onChange={e=>handlePumpChange(pump.id, 'qty', e.target.value)} />
-                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px', borderColor: pump.qty && !(parseFloat(pump.rate) > 0) ? '#ff6b81' : undefined}} placeholder="Rate ₹/L" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
-                    <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}><span style={{fontSize:'10px', color:'#9aadd4', display:'block'}}>Amount</span><b style={{color:'#ffb224'}}>₹{pump.amount || '0.00'}</b></div>
+                    {/* Rate is OPTIONAL since 6-Sep-2026 — the pump's rate is
+                        not known when the slip is issued, and it is filled from
+                        the pump's own bill later. Blank is the honest value. */}
+                    <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Rate ₹/L (optional)" value={pump.rate} onChange={e=>handlePumpChange(pump.id, 'rate', e.target.value)} />
+                    <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}>
+                      <span style={{fontSize:'10px', color:'#9aadd4', display:'block'}}>Amount</span>
+                      {parseFloat(pump.rate) > 0
+                        ? <b style={{color:'#ffb224'}}>₹{pump.amount || '0.00'}</b>
+                        : <b style={{color:'#5d7196', fontSize:'11px'}}>as per bill</b>}
+                    </div>
                     <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Cash (New)" value={pump.cash_advance} onChange={e=>handlePumpChange(pump.id, 'cash_advance', e.target.value)} />
+                    {/* Engine oil taken at the same stop. Posts as its own slip
+                        (fuel_type MOBIL) so oil litres never enter the diesel
+                        mileage check. */}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flex: '1 1 100%', paddingTop: '10px', marginTop: '4px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
+                      <span style={{ fontSize: '11px', color: '#a78bfa', fontWeight: 'bold', minWidth: '86px' }}>🛢 MOBIL / OIL</span>
+                      <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Mobil Ltr" value={pump.mobil_qty} onChange={e=>handlePumpChange(pump.id, 'mobil_qty', e.target.value)} />
+                      <input type="number" inputMode="decimal" style={{...styles.input, flex: 1, minWidth: '95px'}} placeholder="Rate ₹/L (optional)" value={pump.mobil_rate} onChange={e=>handlePumpChange(pump.id, 'mobil_rate', e.target.value)} />
+                      <div style={{flex: 1, minWidth: '90px', textAlign: 'center'}}>
+                        <span style={{fontSize:'10px', color:'#9aadd4', display:'block'}}>Mobil Amount</span>
+                        {parseFloat(pump.mobil_rate) > 0
+                          ? <b style={{color:'#a78bfa'}}>₹{((parseFloat(pump.mobil_qty)||0) * (parseFloat(pump.mobil_rate)||0)).toFixed(2)}</b>
+                          : <b style={{color:'#5d7196', fontSize:'11px'}}>as per bill</b>}
+                      </div>
+                    </div>
                   </div>
                 ))}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-                  <button onClick={() => setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '' }])} style={{ background: 'transparent', color: '#22d3ee', border: '1px dashed #22d3ee', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>+ Add Pump</button>
+                  <button onClick={() => setPumps([...pumps, { id: Date.now(), vendor_id: '', vendor_name: '', fuel_type: 'FIXED', qty: '', rate: '', amount: '', cash_advance: '', mobile: '', mobil_qty: '', mobil_rate: '' }])} style={{ background: 'transparent', color: '#22d3ee', border: '1px dashed #22d3ee', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer' }}>+ Add Pump</button>
                   <button onClick={handleSaveFuelMemo} disabled={savingMemo} style={{ padding: '12px 30px', background: savingMemo ? '#5d7196' : '#f59e0b', color: '#fff', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>{savingMemo ? '⌛ Saving...' : '🚀 Save & Generate WA Slip'}</button>
                 </div>
               </>
