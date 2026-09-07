@@ -11,6 +11,7 @@
 // An unallocated swipe is NOT an error. It is work, and this is the work list.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CreditCard, Fuel, Receipt, Truck, Split, Ban, Search, X, Filter,
   AlertTriangle, CheckCircle2, Loader2, Undo2, Wand2, ChevronRight, Building2, Download,
@@ -228,8 +229,15 @@ function AllocateDrawer({ txnId, onClose, onDone }) {
     </button>
   );
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/70 backdrop-blur-sm">
+// PORTALLED, and it has to be. `position: fixed` resolves against the viewport
+// only while no ancestor is a containing block, and Master Control's shell
+// header, its mobile nav and every GlassPanel carry `backdrop-filter: blur()` —
+// which makes them exactly that. Rendered in place, `inset: 0` resolves against
+// whichever blurred box sits above it, and the drawer lands inside the content
+// column instead of over the window. That is the fault that made the Dispatch
+// Console open as a 67px strip on 7-Sep-2026; these two had the same shape.
+  return createPortal(
+    <div className="fixed inset-0 z-[9000] flex justify-end bg-slate-950/70 backdrop-blur-sm">
       <div className="h-full w-full max-w-2xl overflow-y-auto border-l border-slate-700 bg-[#0d1530] shadow-2xl">
 
         <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-700 bg-[#0d1530]/95 px-5 py-4 backdrop-blur">
@@ -708,7 +716,8 @@ function AllocateDrawer({ txnId, onClose, onDone }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

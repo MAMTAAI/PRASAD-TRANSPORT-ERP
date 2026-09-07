@@ -16,8 +16,27 @@
 // include it.
 // ============================================================================
 import React, { useEffect, useMemo, useState } from 'react';
-import { Building2, GitBranch, Truck, X } from 'lucide-react';
+import { GitBranch, Truck, X } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
+
+/** "M/S PRASAD TRANSPORT" is the master's name and far too long for a tab.
+ *  Shortened for the tab only — every match still uses the company id. */
+function shortCo(name) {
+  const n = String(name || '').replace(/^M\/S\s+/i, '').trim();
+  if (/PRASAD TRANSPORT/i.test(n)) return 'Prasad Transport';
+  if (/JAISWAL/i.test(n)) return 'Jaiswal Ent';
+  if (/GAUTAM/i.test(n)) return 'Gautam Prasad';
+  return n;
+}
+
+/** One colour per firm, fixed, so a firm looks the same on every screen it
+ *  appears on — the register's Sheet View tabs use the same three. */
+const TAB_TONE = {
+  'Prasad Transport': { on: 'bg-cyan-400 border-cyan-400 text-slate-950', off: 'text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/10' },
+  'Jaiswal Ent': { on: 'bg-violet-400 border-violet-400 text-slate-950', off: 'text-violet-300 border-violet-500/40 hover:bg-violet-500/10' },
+  'Gautam Prasad': { on: 'bg-amber-400 border-amber-400 text-slate-950', off: 'text-amber-300 border-amber-500/40 hover:bg-amber-500/10' },
+};
+const TAB_NEUTRAL = { on: 'bg-slate-200 border-slate-200 text-slate-950', off: 'text-slate-300 border-slate-600/60 hover:bg-white/5' };
 
 export default function FilterBar({ filters, set, clear, active }) {
   const [opts, setOpts] = useState({ companies: [], branches: [], owners: [], fleet_types: [] });
@@ -45,22 +64,70 @@ export default function FilterBar({ filters, set, clear, active }) {
 
   const companyName = opts.companies.find((c) => c.id === filters.companyId)?.company_name;
 
+  // Every ACTIVE narrowing, as a removable chip. The company is deliberately
+  // NOT one of them — it is the tab strip above, and a chip that duplicates a
+  // tab teaches the eye to ignore chips.
+  const narrowing = useMemo(() => {
+    const out = [];
+    if (filters.companyId) {
+      out.push({ key: 'company', label: 'Firm', value: shortCo(companyName ?? '') || 'firm',
+        clear: () => set({ companyId: '' }) });
+    }
+    const br = branches.find((b) => b.id === filters.branchId);
+    if (filters.branchId) {
+      out.push({ key: 'branch', label: 'Branch', value: br?.branch_name ?? 'branch', clear: () => set({ branchId: '' }) });
+    }
+    if (filters.fleet) {
+      out.push({ key: 'fleet', label: 'Fleet', value: filters.fleet === 'OWNED' ? 'company fleet' : 'attached fleet',
+        clear: () => set({ fleet: '' }) });
+    }
+    if (filters.owner) {
+      out.push({ key: 'owner', label: 'Owner', value: filters.owner, clear: () => set({ owner: '' }) });
+    }
+    if (filters.from || filters.to) {
+      out.push({ key: 'period', label: 'Period', value: `${filters.from || 'start'} → ${filters.to || 'today'}`,
+        clear: () => set({ from: '', to: '' }) });
+    }
+    return out;
+  }, [filters, companyName, branches, set]);
+
   return (
     <div className="no-print sticky top-0 z-40 -mx-1 mb-4 px-1">
       <div className="rounded-2xl border border-slate-700/70 bg-[#0a1024]/95 backdrop-blur-md px-3 py-2.5
                       shadow-[0_6px_24px_rgba(0,0,0,0.45)]">
+
+        {/* ── ONE TAB PER FIRM (owner, 7-Sep-2026) ─────────────────────────
+            The company was already selectable — in a dropdown, third control
+            from the left, reading "All Companies (Group)". A dropdown states
+            the current value and hides the alternatives, so switching firm was
+            a thing you had to know was possible. Every screen under this bar
+            is read firm-first, so the firm is now the first thing on it.
+
+            The tabs SET the same filters.companyId the dropdown did, so every
+            dashboard, the P&L, the cash book and the owner statement follow
+            without any of them changing: the scope is global and lives in
+            filterStore, not here. */}
+        <div role="tablist" aria-label="Operating company"
+             className="mb-2 flex items-center gap-1.5 flex-wrap border-b border-slate-800/80 pb-2">
+          {[{ id: '', company_name: 'Saari firm (Group)' }, ...opts.companies].map((c) => {
+            const on = filters.companyId === c.id;
+            const tone = TAB_TONE[shortCo(c.company_name)] ?? TAB_NEUTRAL;
+            return (
+              <button key={c.id || 'ALL'} role="tab" aria-selected={on}
+                onClick={() => set({ companyId: c.id })}
+                title={c.id ? c.company_name : 'All three transport entities together'}
+                className={`rounded-lg border px-3 py-1.5 text-[11.5px] font-black transition-colors
+                            ${on ? tone.on : `bg-transparent ${tone.off}`}`}>
+                {c.id ? shortCo(c.company_name) : 'Saari firm'}
+              </button>
+            );
+          })}
+          {!opts.companies.length && (
+            <span className="text-[10px] text-slate-600">firm list load ho rahi hai…</span>
+          )}
+        </div>
+
         <div className="flex items-center gap-2 flex-wrap">
-
-          <Select
-            icon={Building2}
-            title="Operating company"
-            value={filters.companyId}
-            onChange={(v) => set({ companyId: v })}
-            placeholder="All Companies (Group)"
-            options={opts.companies.map((c) => ({ value: c.id, label: c.company_name }))}
-          />
-
-          <Chevron />
 
           <Select
             icon={GitBranch}
@@ -120,20 +187,34 @@ export default function FilterBar({ filters, set, clear, active }) {
           )}
         </div>
 
-        {/* What is actually applied, spelled out. A row of dropdowns is easy to
-            misread at a glance; this line is not. */}
-        <div className="mt-1.5 flex items-center gap-2 flex-wrap text-[10px]">
+        {/* ── WHAT IS NARROWING THIS VIEW, AND HOW TO UNDO IT ──────────────
+            This was one sentence of grey text, and on 7-Sep it read
+            "M/S GAUTAM PRASAD · all branches · all fleet · PRASAD TRANSPORT".
+            The last three words are a VEHICLE OWNER, left over from an earlier
+            click and carried across a company switch by sessionStorage — and
+            no lorry owned by Prasad Transport has ever run for Gautam Prasad,
+            so the Finance Hub answered zero rupees on every tile. The figures
+            were right; the question was not, and nothing on the screen looked
+            like the reason.
+
+            So each narrowing is now its own chip with its own ×. A filter you
+            can see and remove in one click cannot silently empty a dashboard
+            for a week. */}
+        <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[10px]">
           <span className="text-slate-600 font-bold uppercase tracking-wider">Showing</span>
-          <span className={active ? 'text-cyan-300 font-bold' : 'text-slate-500'}>
-            {!active ? 'the whole group — all companies, all branches, all fleet'
-              : [
-                companyName ?? 'All companies',
-                branches.find((b) => b.id === filters.branchId)?.branch_name ?? 'all branches',
-                filters.fleet ? (filters.fleet === 'OWNED' ? 'company fleet' : 'attached fleet') : 'all fleet',
-                filters.owner || null,
-                (filters.from || filters.to) ? `${filters.from || 'start'} → ${filters.to || 'today'}` : null,
-              ].filter(Boolean).join(' · ')}
-          </span>
+          {!active && <span className="text-slate-500">the whole group — all companies, all branches, all fleet</span>}
+          {narrowing.map((n) => (
+            <span key={n.key}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-500/40 bg-amber-500/10
+                         px-1.5 py-0.5 font-bold text-amber-200">
+              <span className="text-amber-500/70 uppercase tracking-wider text-[8.5px]">{n.label}</span>
+              {n.value}
+              <button onClick={n.clear} aria-label={`Remove ${n.label} filter`} title="Hata dein"
+                className="grid h-3.5 w-3.5 place-items-center rounded-sm text-amber-300/70 hover:bg-amber-400/20 hover:text-amber-100">
+                <X size={9} />
+              </button>
+            </span>
+          ))}
           {err && <span className="text-amber-400">· filter list unavailable ({err})</span>}
         </div>
       </div>

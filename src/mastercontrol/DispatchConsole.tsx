@@ -20,11 +20,29 @@
 //     while the console is open — the dashboard's embed is untouched.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Search, Send, Loader2, FileText, Link2, Truck, Package, ReceiptText,
   Paperclip, ChevronRight, RefreshCw, User, Image as ImageIcon,
 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
+
+// ── THIS OVERLAY MUST BE PORTALLED ──────────────────────────────────────────
+// `position: fixed` resolves against the viewport ONLY while no ancestor is a
+// containing block. Master Control's shell header, its mobile nav and every
+// GlassPanel carry `backdrop-filter: blur()`, and an element with one becomes
+// the containing block for its fixed descendants. Rendered in place, `inset: 0`
+// therefore resolves against whichever filtered box happens to be above it —
+// which on 7-Sep-2026 put the Dispatch Console's 340px thread pane mostly off
+// the left edge of the screen, leaving a 67px strip of timestamps beside a
+// black rectangle, with the sidebar and top nav still showing through. The
+// screen looked broken because it WAS: the dialog was laid out against a box
+// that is not the window.
+//
+// Every other dialog in this app is already portalled for exactly this reason
+// (the contact picker in OperationsDashboard says so in its own comment); these
+// were the ones that were not.
+
 
 const authed = async (path, opts = {}) => {
   const token = localStorage.getItem('prasad_token');
@@ -181,7 +199,7 @@ export default function DispatchConsole({ onClose }) {
 
   let lastDay = '';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9000] flex bg-[#04070d]" role="dialog" aria-modal="true">
 
       {/* ── LEFT: contexts + threads ─────────────────────────────────────── */}
@@ -381,7 +399,8 @@ export default function DispatchConsole({ onClose }) {
       {linkFor && (
         <LinkPicker message={linkFor} onClose={() => setLinkFor(null)} onPick={applyLink} />
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

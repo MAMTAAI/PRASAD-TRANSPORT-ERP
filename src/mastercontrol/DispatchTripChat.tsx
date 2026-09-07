@@ -779,7 +779,12 @@ export default function DispatchTripChat({ trips, offline, onExpand, onNewContac
                 open the camera rather than the gallery on a phone. */}
             {attachOpen && (
               <>
-                <div className="fixed inset-0 z-20" onClick={() => setAttachOpen(false)} />
+                {/* Click-outside catcher. `fixed` here is confined to the
+                    panel by the GlassPanel's backdrop-filter, so it only ever
+                    covered the panel itself and clicking anywhere else on the
+                    dashboard left the menu open. `absolute` over the panel is
+                    what it was always meant to be and needs no portal. */}
+                <div className="absolute inset-0 z-20" onClick={() => setAttachOpen(false)} />
                 <div className="absolute bottom-12 left-2.5 z-30 w-44 rounded-xl border border-slate-700/70 bg-slate-950/95 backdrop-blur-md p-1 shadow-2xl">
                   <AttachItem icon={FileText} label="Document" hint="PDF ya scan"
                               onClick={() => docRef.current?.click()} />

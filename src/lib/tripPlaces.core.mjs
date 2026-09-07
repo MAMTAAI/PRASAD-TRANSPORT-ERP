@@ -69,6 +69,21 @@ export const DEPOT_BY_CODE = {
 const BARE_CODE = /^[0-9][A-Z][0-9]{2}$/i;
 /** The consignee form the register stores: "ZC7A01 -Agartala AFS 7A01". */
 const ZC_PREFIX = /^ZC[0-9A-Z]{4}\s*-?\s*/i;
+/**
+ * THE OTHER CONSIGNEE PREFIX, and the one that drew a line across India.
+ *
+ * The AC5 invoices name a consignee as "347352  BIDANGSHREE  SERVICE  STATION"
+ * — a five-to-eight digit SAP customer code, then the name. Handed to Google
+ * whole, the digits read as a postal hint and the geocoder answered with a
+ * place 1,740 km from a lane the register itself measures at 242 km round
+ * trip. The Live Fleet Tracking map then drew that: a lane from Bongaigaon to
+ * somewhere near Varanasi, on the screen dispatch uses to judge whether a
+ * lorry is off route.
+ *
+ * Dropped for the QUERY only, exactly as the ZC code is. The label keeps the
+ * stored text, because the office knows the consignee by that number.
+ */
+const SAP_CODE_PREFIX = /^[0-9]{5,8}\s+(?=\D)/;
 /** A trailing "(7T04)" on an already-named depot. */
 const TRAILING_CODE = /\s*\(\s*[0-9][A-Z][0-9]{2}\s*\)?\s*$/i;
 
@@ -99,7 +114,7 @@ export function placeOf(raw) {
   // "ZC7A01 -Agartala AFS 7A01" -> "Agartala AFS 7A01". The ZC code is an SAP
   // consignee id and geocodes to nothing; dropping it is what lets the rest of
   // the string be found.
-  let cleaned = s.replace(ZC_PREFIX, '').trim();
+  let cleaned = s.replace(ZC_PREFIX, '').replace(SAP_CODE_PREFIX, '').trim();
 
   // THE CODE IN BRACKETS OUTRANKS THE PROSE IN FRONT OF IT.
   //

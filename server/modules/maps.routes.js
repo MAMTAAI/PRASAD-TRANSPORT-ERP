@@ -210,7 +210,7 @@ export function registerMapsRoutes(app) {
     const { rows: t } = await query(`
       SELECT id, trip_code, vehicle_no, status, driver_name,
              loading_point, COALESCE(unloading_location, consignee_name) AS destination,
-             loading_date
+             loading_date, rtkm
         FROM trips WHERE id = $1::uuid`, [req.params.tripId]);
     if (!t[0]) return reply.code(404).send({ error: 'NOT_FOUND', detail: 'no such trip' });
     const trip = t[0];
@@ -256,11 +256,42 @@ export function registerMapsRoutes(app) {
        WHERE trip_id = $1::uuid AND plaza_name IS NOT NULL
        ORDER BY COALESCE(txn_datetime, txn_date::timestamptz) ASC`, [req.params.tripId]);
 
+    // ── THE REGISTER GETS A VOTE ON THE GEOCODER ─────────────────────────
+    // A consignee name is typed by a person and geocoded by a machine that will
+    // always answer something. On 7-Sep it answered 1,740 km for PT00753 —
+    // Bongaigaon to Bidangshree — a lane the register itself records as 242.4
+    // rtkm, and the map drew the line. A wrong lane is worse than no lane on a
+    // screen used to judge whether a lorry has strayed, because it makes an
+    // on-route truck look lost.
+    //
+    // trips.rtkm is ROUND-trip on oil-company work and one-way on market work,
+    // so the honest comparison is generous in both directions: refuse only when
+    // Google's one-way road distance is more than three times the register's
+    // figure, or less than a quarter of it. Anything inside that band is drawn.
+    // rtkm NULL means the register has no opinion and the route stands —
+    // Number(null) is 0, and a 0 here would refuse every lane we cannot check.
+    const laneCheck = () => {
+      const km = route.ok && route.distance_m != null ? +(route.distance_m / 1000).toFixed(1) : null;
+      const rtkm = trip.rtkm == null ? null : Number(trip.rtkm);
+      if (!route.ok) return { draw: false, km, rtkm, error: route.reason, detail: route.detail };
+      if (km == null || rtkm == null || !(rtkm > 0)) return { draw: true, km, rtkm };
+      if (km > rtkm * 3 || km < rtkm * 0.25) {
+        return {
+          draw: false, km, rtkm,
+          error: 'DISTANCE_DISPUTED',
+          detail: `the map placed this lane at ${km} km, the register records ${rtkm} rtkm — one of the two place names was read wrong, so the route is not drawn`,
+        };
+      }
+      return { draw: true, km, rtkm };
+    };
+    const lane = laneCheck();
+
     return {
       trip: {
         id: trip.id, trip_code: trip.trip_code, vehicle_no: trip.vehicle_no,
         status: trip.status, driver_name: trip.driver_name,
         loading_point: trip.loading_point, destination: trip.destination,
+        rtkm: trip.rtkm == null ? null : Number(trip.rtkm),
       },
       // `label` stays what the register holds — the office knows these depots by
       // their codes and a screen that silently renames them is a screen nobody
@@ -271,11 +302,12 @@ export function registerMapsRoutes(app) {
       unplaceable: (from.unresolved || to.unresolved || !from.query || !to.query)
         ? { origin: !from.query ? from.label : null, destination: !to.query ? to.label : null }
         : null,
-      route: route.ok
-        ? { polyline: route.polyline, distance_km: route.distance_m == null ? null : +(route.distance_m / 1000).toFixed(1),
+      route: lane.draw
+        ? { polyline: route.polyline, distance_km: lane.km,
             duration_min: route.duration_s == null ? null : Math.round(route.duration_s / 60),
             summary: route.summary, bounds: route.bounds, cached: !!route.cached }
-        : { polyline: null, error: route.reason, detail: route.detail },
+        : { polyline: null, error: lane.error, detail: lane.detail,
+            distance_km: lane.km, register_rtkm: lane.rtkm },
       // Real fixes only. Null means nobody knows where the lorry is, and the
       // screen must say that rather than draw a plausible dot.
       truck: ping[0] ? {

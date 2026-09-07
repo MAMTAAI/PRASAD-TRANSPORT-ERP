@@ -17,6 +17,7 @@
 // format=csv. Exporting only the 100 on screen is how somebody reconciles a
 // page against a total of 3,883 and concludes the books are wrong.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Download, ExternalLink, AlertTriangle, Loader2, Table2 } from 'lucide-react';
 import { API_BASE } from '../lib/apiBase';
 import { inrFull } from './useDashboardData';
@@ -122,7 +123,14 @@ export default function DrillDownViewer({ metric, expected = null, filterQs = ''
   const columns = data?.columns ?? [];
   const linkable = !!data?.link;
 
-  return (
+// PORTALLED, and it has to be. `position: fixed` resolves against the viewport
+// only while no ancestor is a containing block, and Master Control's shell
+// header, its mobile nav and every GlassPanel carry `backdrop-filter: blur()` —
+// which makes them exactly that. Rendered in place, `inset: 0` resolves against
+// whichever blurred box sits above it, and the drawer lands inside the content
+// column instead of over the window. That is the fault that made the Dispatch
+// Console open as a 67px strip on 7-Sep-2026; these two had the same shape.
+  return createPortal(
     <div className="fixed inset-0 z-[9000] flex justify-end" role="dialog" aria-modal="true">
       <button
         aria-label="Close drill-down"
@@ -273,6 +281,7 @@ export default function DrillDownViewer({ metric, expected = null, filterQs = ''
             : 'Export sends the complete set, not this page.'}
         </footer>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
