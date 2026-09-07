@@ -44,6 +44,18 @@ const inr = (n: any) => num(n).toLocaleString('en-IN', { maximumFractionDigits: 
 const clean = (v: any) => String(v ?? '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** One page button. Current page is filled, an unreachable one is dimmed
+ *  rather than hidden, so the control keeps its shape at both ends. */
+const pgBtn = (current: boolean, disabled: boolean): React.CSSProperties => ({
+  minWidth: 34, height: 32, padding: '0 10px', borderRadius: 8,
+  cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
+  background: current ? '#22d3ee' : '#121c38',
+  border: `1px solid ${current ? '#22d3ee' : '#27395f'}`,
+  color: current ? '#0a1024' : '#9aadd4',
+  opacity: disabled ? 0.32 : 1,
+});
+
 const PRODUCTS = ['HSD', 'MS', 'MS + HSD (Part Load)', 'ATF', 'LPG Bulk', 'LPG Cylinder', 'Iron/Steel', 'Cement/Coal', 'FMCG', 'Other'];
 
 export default function LodingDetals() {
@@ -83,6 +95,23 @@ export default function LodingDetals() {
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
   const [routeSearchValue, setRouteSearchValue] = useState('');
+
+  // ── SHEET VIEW PAGING (owner, 7-Sep-2026) ─────────────────────────────────
+  // The register drew all 437 approved trips into one table at 12 px with 15 px
+  // of padding per cell, so three rows filled the screen and nobody scrolled to
+  // row 400. Ten to a page was the ask; the selector is there because a fortnight
+  // review wants fifty and a phone wants ten, and the choice is remembered per
+  // browser so the desk sets it once.
+  const PAGE_SIZES = [10, 25, 50];
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const n = Number(localStorage.getItem('pt.register.pageSize'));
+    return PAGE_SIZES.includes(n) ? n : 10;
+  });
+  useEffect(() => { localStorage.setItem('pt.register.pageSize', String(pageSize)); }, [pageSize]);
+  // Any change to WHAT is listed puts you back at the top of it. Landing on
+  // page 31 of a firm that has four trips is how a filter looks broken.
+  useEffect(() => { setPage(1); }, [companyFilter, searchQuery, pageSize]);
 
   const [f, setF] = useState<any>({
     trip_code: '', customer_name: '', customer_id: '', loading_date: today(), challan_no: '',
@@ -585,18 +614,99 @@ export default function LodingDetals() {
   const pendingManualTrips = useMemo(
     () => trips.filter((t) => !t.office_approved_loading && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'), [trips]);
 
-  const filteredRegister = useMemo(() => {
+  // ── THE REGISTER, IN THREE STEPS ──────────────────────────────────────────
+  // Search first and company second, deliberately: the tab counts have to be
+  // counts of what the SEARCH found, or they contradict the table under them.
+  // Search "5104" and the Prasad tab must say how many 5104 trips Prasad has,
+  // not how many trips Prasad has.
+  const searchedRegister = useMemo(() => {
     let rows = trips.filter((t) => t.office_approved_loading);
-    if (companyFilter) {
-      rows = rows.filter((t) => String(t.operating_company ?? '').toUpperCase() === companyFilter.toUpperCase());
-    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       rows = rows.filter((t) => [t.vehicle_no, t.challan_no, t.trip_code, t.customer_name, t.consignee_name, t.driver_name]
         .some((v) => String(v ?? '').toLowerCase().includes(q)));
     }
     return rows.sort((a, b) => String(b.loading_date ?? '').localeCompare(String(a.loading_date ?? '')));
-  }, [trips, companyFilter, searchQuery]);
+  }, [trips, searchQuery]);
+
+  const filteredRegister = useMemo(() => (companyFilter
+    ? searchedRegister.filter((t) => String(t.operating_company ?? '').toUpperCase() === companyFilter.toUpperCase())
+    : searchedRegister), [searchedRegister, companyFilter]);
+
+  // ── COMPANY TABS ──────────────────────────────────────────────────────────
+  // Built from the company master, not from the rows: a firm with no loading in
+  // the register still gets a tab reading 0. A firm that vanishes when it is
+  // idle reads as "this firm does not exist", which is a different and wrong
+  // statement — and it is the one the old dropdown made, because the dropdown
+  // showed no counts at all.
+  //
+  // '(unassigned)' is added only when such rows exist. trips.operating_company
+  // is nullable and 1,000+ historical rows predate the FK, so silently dropping
+  // them from every tab would make the tab counts disagree with the header.
+  const companyTabs = useMemo(() => {
+    const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+    const tally = (name: string) => {
+      const rows = name
+        ? searchedRegister.filter((t) => norm(t.operating_company) === norm(name))
+        : searchedRegister;
+      return {
+        trips: rows.length,
+        qty: rows.reduce((sum, t) => sum + num(t.loaded_qty), 0),
+        auto: rows.filter((t) => t.iocl_invoice_no).length,
+      };
+    };
+    const named = masters.companies.map((c: any) => ({ key: c.company_name, label: c.company_name, ...tally(c.company_name) }));
+    const knownKeys = new Set(masters.companies.map((c: any) => norm(c.company_name)));
+    const orphans = searchedRegister.filter((t) => !knownKeys.has(norm(t.operating_company)));
+    if (orphans.length) {
+      named.push({
+        key: '(unassigned)', label: 'Bina firm ke',
+        trips: orphans.length,
+        qty: orphans.reduce((sum, t) => sum + num(t.loaded_qty), 0),
+        auto: orphans.filter((t) => t.iocl_invoice_no).length,
+      });
+    }
+    return [{ key: '', label: 'Saari firm', ...tally('') }, ...named];
+  }, [searchedRegister, masters.companies]);
+
+  const activeTally = useMemo(
+    () => companyTabs.find((c) => c.key === companyFilter) ?? companyTabs[0],
+    [companyTabs, companyFilter]);
+
+  // ── THE PAGE ──────────────────────────────────────────────────────────────
+  const pageCount = Math.max(1, Math.ceil(filteredRegister.length / pageSize));
+  // Deleting the last row of the last page must not strand the table on a page
+  // that no longer exists. Clamped on read rather than in an effect, so the
+  // render that follows the delete already shows the right page.
+  const safePage = Math.min(page, pageCount);
+  const pageFrom = (safePage - 1) * pageSize;
+  const pagedRegister = useMemo(
+    () => filteredRegister.slice(pageFrom, pageFrom + pageSize),
+    [filteredRegister, pageFrom, pageSize]);
+
+  /** 1 … 4 5 [6] 7 8 … 44 — never more than nine buttons, however long the register. */
+  const pageButtons = useMemo(() => {
+    const out: (number | '…')[] = [];
+    for (let i = 1; i <= pageCount; i++) {
+      if (i === 1 || i === pageCount || Math.abs(i - safePage) <= 1) out.push(i);
+      else if (Math.abs(i - safePage) === 2) out.push('…');
+    }
+    return out;
+  }, [pageCount, safePage]);
+
+  /** M/S PRASAD TRANSPORT is too wide for a 12 px cell that also holds a route.
+   *  Shortened for display only — matching always uses the full name. */
+  const shortCo = (name: any) => {
+    const n = String(name ?? '').replace(/^M\/S\s+/i, '').trim();
+    if (/PRASAD TRANSPORT/i.test(n)) return 'Prasad';
+    if (/JAISWAL/i.test(n)) return 'Jaiswal';
+    if (/GAUTAM/i.test(n)) return 'Gautam';
+    return n || '—';
+  };
+  const CO_TONE: Record<string, string> = {
+    Prasad: '#22d3ee', Jaiswal: '#a78bfa', Gautam: '#ffb224',
+  };
+  const coTone = (name: any) => CO_TONE[shortCo(name)] ?? '#9aadd4';
 
   const vehicleMatches = useMemo(() => {
     const q = clean(vehSearch);
@@ -606,6 +716,16 @@ export default function LodingDetals() {
   const inputStyle = { width: '100%', padding: '12px', background: '#121c38', border: '1px solid #3d548a', color: '#fff', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box' as const, outline: 'none', colorScheme: 'dark' as const };
   const autoFillStyle = { ...inputStyle, background: 'rgba(34, 211, 238,0.05)', border: '1px dashed #22d3ee', color: '#9aadd4' };
   const lowConf = (field: string) => scanLowConf.includes(field) ? { borderColor: '#ffb224', background: 'rgba(255, 178, 36,0.08)' } : {};
+
+  // Register cells. 15 px of padding on a 12 px font gave a 46 px row, and with
+  // twelve of them the table was taller than the screen at three rows — which is
+  // how a register of 437 trips managed to look like a register of three.
+  // No position:sticky. The nearest scrolling ancestor is the PAGE, not this
+  // container, so a sticky header on a 50-row page pins itself under the app
+  // shell and floats over the screen. Ten rows to a page is what makes it
+  // unnecessary — the header never leaves the viewport.
+  const TH: React.CSSProperties = { padding: '9px 11px', fontSize: 9.5, letterSpacing: '.09em' };
+  const TD: React.CSSProperties = { padding: '8px 11px' };
 
   return (
     <div style={{ color: 'white', fontFamily: "'Inter', sans-serif", paddingBottom: '50px' }}>
@@ -870,56 +990,128 @@ export default function LodingDetals() {
       {/* 📋 SHEET VIEW */}
       {activeTab === 'REGISTER' && (
         <div style={{ background: '#18244a', borderRadius: '15px', padding: '20px', border: '1px solid #27395f' }}>
-          <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-            <input type="text" placeholder="🔍 Search vehicle, challan, trip code, party…" value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)} style={{ ...inputStyle, flex: 2, minWidth: 220, borderColor: '#22d3ee' }} />
-            <select value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}
-              style={{ ...inputStyle, flex: 1, minWidth: 180, borderColor: '#ffb224', color: '#ffb224' }}>
-              <option value="">🏢 All Companies</option>
-              {masters.companies.map((c: any) => <option key={c.id} value={c.company_name}>{c.company_name}</option>)}
-            </select>
+          <input type="text" placeholder="🔍 Search vehicle, challan, trip code, party…" value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 14, borderColor: '#22d3ee' }} />
+
+          {/* ── ONE TAB PER FIRM ────────────────────────────────────────────
+              The dropdown it replaces could filter but could not COMPARE: to
+              learn that Gautam had 38 loadings you had to select Gautam and
+              read the table. The count belongs on the control. */}
+          <div role="tablist" aria-label="Operating company"
+            style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14, paddingBottom: 11, borderBottom: '1px solid #27395f' }}>
+            {companyTabs.map((c) => {
+              const on = companyFilter === c.key;
+              const tone = c.key ? coTone(c.key) : '#c4d1ea';
+              return (
+                <button key={c.key || 'ALL'} role="tab" aria-selected={on}
+                  onClick={() => setCompanyFilter(c.key)}
+                  title={`${c.trips} trip · ${inr(c.qty)} KL · ${c.auto} auto, ${c.trips - c.auto} manual`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7, padding: '8px 14px', borderRadius: 9,
+                    cursor: 'pointer', fontSize: 12.5, fontWeight: on ? 800 : 700,
+                    background: on ? tone : 'transparent',
+                    border: `1px solid ${on ? tone : '#27395f'}`,
+                    color: on ? '#0a1024' : '#9aadd4',
+                  }}>
+                  {c.key ? shortCo(c.key) : c.label}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: '1px 6px', borderRadius: 5,
+                    background: on ? 'rgba(10,16,36,0.22)' : 'rgba(255,255,255,0.07)',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>{c.trips}</span>
+                </button>
+              );
+            })}
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
+          {/* The selected firm's own totals. Reads the same tally object the
+              tab does, so the strip and the tab can never disagree. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(132px,1fr))', gap: 10, marginBottom: 16 }}>
+            {[
+              { k: companyFilter ? companyFilter : 'Saari firm', v: activeTally.trips, c: '#22d3ee' },
+              { k: 'Total loaded (KL)', v: inr(activeTally.qty), c: '#2fe39b' },
+              { k: 'Auto — mail se', v: activeTally.auto, c: '#ffb224' },
+              { k: 'Manual — staff', v: activeTally.trips - activeTally.auto, c: '#38bdf8' },
+            ].map((st) => (
+              <div key={st.k} style={{ background: '#121c38', border: '1px solid #27395f', borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#5d7196', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{st.k}</div>
+                <div style={{ fontSize: 19, fontWeight: 700, marginTop: 3, color: st.c, fontVariantNumeric: 'tabular-nums' }}>{st.v}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ overflowX: 'auto', border: '1px solid #27395f', borderRadius: 10 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', whiteSpace: 'nowrap' }}>
               <thead style={{ background: '#121c38', color: '#ffb224', fontSize: '11px', textTransform: 'uppercase' }}>
                 <tr>
-                  <th style={{ padding: '15px' }}>LR / Trip</th>
-                  <th style={{ padding: '15px', color: '#ffb224' }}>Company</th>
-                  <th style={{ padding: '15px', color: '#22d3ee' }}>Customer / Party</th>
-                  <th style={{ padding: '15px' }}>Loading Date</th>
-                  <th style={{ padding: '15px' }}>Challan</th>
-                  <th style={{ padding: '15px' }}>From ➔ To</th>
-                  <th style={{ padding: '15px', color: '#22d3ee' }}>Vehicle</th>
-                  <th style={{ padding: '15px' }}>Product</th>
-                  <th style={{ padding: '15px', color: '#2fe39b' }}>Loaded Qty</th>
-                  <th style={{ padding: '15px' }}>Driver</th>
-                  <th style={{ padding: '15px' }}>Status</th>
-                  <th style={{ padding: '15px', textAlign: 'center' }}>Actions</th>
+                  <th style={TH}>LR / Trip</th>
+                  <th style={{ ...TH, color: '#ffb224' }}>Company</th>
+                  <th style={{ ...TH, color: '#22d3ee' }}>Customer / Party</th>
+                  <th style={TH}>Loading Date</th>
+                  <th style={TH}>Challan</th>
+                  <th style={TH}>From ➔ To</th>
+                  <th style={{ ...TH, color: '#22d3ee' }}>Vehicle</th>
+                  <th style={TH}>Product</th>
+                  <th style={{ ...TH, color: '#2fe39b' }}>Loaded Qty</th>
+                  <th style={TH}>Driver</th>
+                  {/* WHICH DOOR THE ROW CAME THROUGH. The same rule the
+                      dashboard uses (dashboard.routes.js): an IOCL invoice
+                      number means the AC5 mailbox sync wrote the row, its
+                      absence means a person did. The register has never shown
+                      that difference, so a fortnight the sync spent dead looked
+                      exactly like a fortnight the desk spent typing. */}
+                  <th style={TH}>Entry</th>
+                  <th style={TH}>Status</th>
+                  <th style={{ ...TH, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#22d3ee' }}>Loading from PostgreSQL…</td></tr>
+                  <tr><td colSpan={14} style={{ padding: 25, textAlign: 'center', color: '#22d3ee' }}>Loading from PostgreSQL…</td></tr>
                 ) : filteredRegister.length === 0 ? (
-                  <tr><td colSpan={12} style={{ padding: 25, textAlign: 'center', color: '#5d7196' }}>No loaded trips for these filters.</td></tr>
-                ) : filteredRegister.map((t) => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid #27395f', color: '#c4d1ea', fontSize: '12px' }}>
-                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.trip_code}</td>
-                    <td style={{ padding: '12px 15px', color: '#ffb224' }}>{t.operating_company ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.customer_name ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.loading_date ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.challan_no ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}</td>
-                    <td style={{ padding: '12px 15px', color: '#22d3ee', fontWeight: 'bold' }}>{t.vehicle_no}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.product_type ?? '—'}</td>
-                    <td style={{ padding: '12px 15px', color: '#2fe39b', fontWeight: 'bold' }}>{t.loaded_qty ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>{t.driver_name ?? '—'}</td>
-                    <td style={{ padding: '12px 15px' }}>
+                  <tr><td colSpan={14} style={{ padding: 25, textAlign: 'center', color: '#5d7196' }}>
+                    {companyFilter
+                      ? `${shortCo(companyFilter)} ka is filter par koi loaded trip nahi.`
+                      : 'No loaded trips for these filters.'}
+                  </td></tr>
+                ) : pagedRegister.map((t, i) => (
+                  <tr key={t.id} style={{ borderTop: '1px solid #27395f', color: '#c4d1ea', fontSize: '12px', background: i % 2 ? 'rgba(255,255,255,0.018)' : 'transparent' }}>
+                    <td style={{ ...TD, color: '#22d3ee', fontWeight: 'bold' }}>{t.trip_code}</td>
+                    <td style={TD}>
+                      <span style={{ display: 'inline-block', padding: '1.5px 7px', borderRadius: 5, fontSize: 10, fontWeight: 700,
+                        color: coTone(t.operating_company),
+                        border: '1px solid ' + coTone(t.operating_company) + '66',
+                        background: coTone(t.operating_company) + '1a' }}
+                        title={t.operating_company ?? 'firm nahi likhi'}>
+                        {shortCo(t.operating_company)}
+                      </span>
+                    </td>
+                    <td style={TD}>{t.customer_name ?? '—'}</td>
+                    <td style={{ ...TD, fontVariantNumeric: 'tabular-nums' }}>{t.loading_date ?? '—'}</td>
+                    <td style={{ ...TD, fontVariantNumeric: 'tabular-nums' }}>{t.challan_no ?? '—'}</td>
+                    <td style={{ ...TD, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      title={(t.loading_point ?? '?') + ' ➔ ' + (t.consignee_name ?? '?')}>
+                      {t.loading_point ?? '?'} ➔ {t.consignee_name ?? '?'}
+                    </td>
+                    <td style={{ ...TD, color: '#38bdf8', fontWeight: 'bold' }}>{t.vehicle_no}</td>
+                    <td style={TD}>{t.product_type ?? '—'}</td>
+                    <td style={{ ...TD, color: '#2fe39b', fontWeight: 'bold', fontVariantNumeric: 'tabular-nums' }}>{t.loaded_qty ?? '—'}</td>
+                    <td style={TD}>{t.driver_name ?? '—'}</td>
+                    <td style={TD}>
+                      <span title={t.iocl_invoice_no ? 'IOCL invoice ' + t.iocl_invoice_no + ' — mail sync ne bhari' : 'Staff ne khud bhari'}
+                        style={{ display: 'inline-block', padding: '1.5px 7px', borderRadius: 5, fontSize: 10, fontWeight: 700,
+                          color: t.iocl_invoice_no ? '#2fe39b' : '#38bdf8',
+                          border: '1px solid ' + (t.iocl_invoice_no ? 'rgba(47,227,155,.4)' : 'rgba(56,189,248,.4)'),
+                          background: t.iocl_invoice_no ? 'rgba(47,227,155,.1)' : 'rgba(56,189,248,.1)' }}>
+                        {t.iocl_invoice_no ? '🤖 Auto' : '🙍 Manual'}
+                      </span>
+                    </td>
+                    <td style={TD}>
                       <span className={`pt-pill ${t.status === 'COMPLETED' ? 'pt-pill--completed' : t.status === 'CANCELLED' ? '' : 'pt-pill--loading'}`}>{t.status}</span>
                       {t.bill_no && <div style={{ fontSize: 10, color: '#2fe39b', marginTop: 3 }}>🧾 {t.bill_no}</div>}
                     </td>
-                    <td style={{ padding: '12px 15px', textAlign: 'center' }}>
+                    <td style={{ ...TD, textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
                         <button onClick={() => handleEditTrip(t)} title="Edit" style={{ background: 'rgba(34, 211, 238,.12)', border: '1px solid #22d3ee', color: '#22d3ee', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>✏️</button>
                         <button onClick={() => generateAndSavePDF(t)} title="4-copy LR print" style={{ background: 'rgba(255, 178, 36,.12)', border: '1px solid #ffb224', color: '#ffb224', borderRadius: 6, padding: '6px 9px', cursor: 'pointer', fontSize: 12 }}>🖨️</button>
@@ -931,6 +1123,39 @@ export default function LodingDetals() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* ── TEN AT A TIME ──────────────────────────────────────────────
+              Paged in the browser, not the server: /ops/trips already returns
+              the register in one call (the tab counts and the totals strip both
+              need the whole set), so asking the API again per page would be a
+              round trip to display rows the page is already holding. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', marginTop: 14 }}>
+            <div style={{ fontSize: 12, color: '#9aadd4' }}>
+              {filteredRegister.length === 0 ? 'Kuch nahi mila.' : (
+                <>Showing <b style={{ color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+                  {pageFrom + 1}–{Math.min(pageFrom + pageSize, filteredRegister.length)}
+                </b> of <b style={{ color: '#fff', fontVariantNumeric: 'tabular-nums' }}>{filteredRegister.length}</b>
+                  {companyFilter ? ` · ${shortCo(companyFilter)}` : ''}</>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={() => setPage(safePage - 1)} disabled={safePage <= 1} style={pgBtn(false, safePage <= 1)}>‹</button>
+              {pageButtons.map((b, i) => (b === '…'
+                ? <span key={`gap${i}`} style={{ color: '#5d7196' }}>…</span>
+                : <button key={b} onClick={() => setPage(b as number)} aria-current={b === safePage ? 'page' : undefined}
+                    style={pgBtn(b === safePage, false)}>{b}</button>))}
+              <button onClick={() => setPage(safePage + 1)} disabled={safePage >= pageCount} style={pgBtn(false, safePage >= pageCount)}>›</button>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#5d7196' }}>
+              Rows per page
+              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}
+                style={{ background: '#121c38', border: '1px solid #27395f', color: '#c4d1ea', borderRadius: 7, padding: '6px 9px', fontSize: 12, colorScheme: 'dark' }}>
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
           </div>
         </div>
       )}

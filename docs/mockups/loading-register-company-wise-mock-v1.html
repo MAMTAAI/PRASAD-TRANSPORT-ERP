@@ -1,0 +1,449 @@
+<title>Loading Register Company Split</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+  /* Single dark world on purpose: this is a mock of the ERP shell, which is
+     dark-only. Every colour is painted explicitly so the page holds on any
+     host ground. Palette is lifted from the running app, not invented. */
+  :root{
+    --ground:#0a1024; --panel:#18244a; --panel-2:#121c38; --line:#27395f;
+    --ink:#e6edfb; --ink-2:#c4d1ea; --mute:#9aadd4; --mute-2:#5d7196;
+    --cyan:#22d3ee; --amber:#ffb224; --green:#2fe39b; --sky:#38bdf8;
+    --violet:#a78bfa; --teal:#2dd4bf; --red:#ff6b81;
+    --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+    --sans:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);margin:0;
+       padding:28px 20px 70px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto}
+
+  /* ── page head ─────────────────────────────────────────────────────────── */
+  .kicker{font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);margin:0 0 8px}
+  h1{font-size:clamp(24px,3.4vw,34px);line-height:1.15;margin:0 0 10px;text-wrap:balance;font-weight:900;letter-spacing:-.02em}
+  .lede{color:var(--mute);font-size:14.5px;max-width:66ch;margin:0}
+  .status{display:inline-flex;align-items:center;gap:7px;margin-top:16px;padding:6px 13px;border-radius:20px;
+          border:1px solid rgba(255,178,36,.45);background:rgba(255,178,36,.09);color:var(--amber);
+          font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+  .status .dot{width:7px;height:7px;border-radius:50%;background:var(--amber)}
+
+  /* ── artboard framing ──────────────────────────────────────────────────── */
+  .board{margin-top:38px}
+  .board-cap{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .board-n{font-family:var(--mono);font-size:11px;font-weight:700;color:var(--ground);
+           background:var(--cyan);border-radius:5px;padding:2px 7px}
+  .board-cap h2{font-size:18px;margin:0;font-weight:800;letter-spacing:-.01em}
+  .board-cap .where{font-size:11.5px;color:var(--mute-2);font-family:var(--mono)}
+  .board-note{color:var(--mute);font-size:13px;margin:0 0 14px;max-width:78ch}
+  .screen{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:20px;overflow:hidden}
+
+  /* ── sheet view: company tabs ──────────────────────────────────────────── */
+  .toolbar{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .search{flex:2;min-width:220px;padding:11px 13px;background:var(--panel-2);
+          border:1px solid var(--cyan);border-radius:8px;color:var(--mute-2);font-size:13px;font-family:var(--sans)}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:11px}
+  .tab{display:flex;align-items:center;gap:7px;padding:8px 14px;border-radius:9px;cursor:pointer;
+       background:transparent;border:1px solid var(--line);color:var(--mute);
+       font-size:12.5px;font-weight:700;font-family:var(--sans);transition:background .13s,border-color .13s,color .13s}
+  .tab:hover{background:rgba(255,255,255,.04)}
+  .tab:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .tab .n{font-family:var(--mono);font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px;
+          background:rgba(255,255,255,.07);color:inherit}
+  .tab[aria-selected="true"]{color:var(--ground);font-weight:800}
+  .tab[data-co="all"][aria-selected="true"]{background:var(--ink-2);border-color:var(--ink-2)}
+  .tab[data-co="prasad"][aria-selected="true"]{background:var(--cyan);border-color:var(--cyan)}
+  .tab[data-co="gautam"][aria-selected="true"]{background:var(--amber);border-color:var(--amber)}
+  .tab[data-co="jaiswal"][aria-selected="true"]{background:var(--violet);border-color:var(--violet)}
+  .tab[aria-selected="true"] .n{background:rgba(10,16,36,.22)}
+
+  /* company summary strip */
+  .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .stat .k{font-size:9.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mute-2)}
+  .stat .v{font-family:var(--mono);font-size:19px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+  .stat.c-cyan .v{color:var(--cyan)} .stat.c-green .v{color:var(--green)}
+  .stat.c-sky .v{color:var(--sky)} .stat.c-amber .v{color:var(--amber)}
+
+  /* ── the table ─────────────────────────────────────────────────────────── */
+  .tscroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+  table{width:100%;border-collapse:collapse;text-align:left;white-space:nowrap;font-size:12px}
+  thead th{background:var(--panel-2);color:var(--amber);font-size:9.5px;font-weight:700;
+           letter-spacing:.09em;text-transform:uppercase;padding:9px 11px;position:sticky;top:0}
+  tbody td{padding:8px 11px;border-top:1px solid var(--line);color:var(--ink-2);vertical-align:middle}
+  tbody tr:nth-child(even){background:rgba(255,255,255,.018)}
+  tbody tr:hover{background:rgba(34,211,238,.055)}
+  .lr{font-family:var(--mono);font-weight:700;color:var(--cyan)}
+  .veh{font-family:var(--mono);font-weight:700;color:var(--sky)}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .qty{font-family:var(--mono);font-weight:700;color:var(--green);font-variant-numeric:tabular-nums}
+  .route{max-width:290px;overflow:hidden;text-overflow:ellipsis}
+  .co{display:inline-block;padding:1.5px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1px solid}
+  .co.prasad{color:var(--cyan);border-color:rgba(34,211,238,.4);background:rgba(34,211,238,.1)}
+  .co.gautam{color:var(--amber);border-color:rgba(255,178,36,.4);background:rgba(255,178,36,.1)}
+  .co.jaiswal{color:var(--violet);border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.1)}
+  .src{display:inline-flex;align-items:center;gap:4px;padding:1.5px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1px solid}
+  .src.auto{color:var(--green);border-color:rgba(47,227,155,.4);background:rgba(47,227,155,.1)}
+  .src.manual{color:var(--sky);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.1)}
+
+  /* ── pagination ────────────────────────────────────────────────────────── */
+  .pager{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:14px}
+  .pager .count{font-size:12px;color:var(--mute)}
+  .pager .count b{color:var(--ink);font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .pgroup{display:flex;align-items:center;gap:6px}
+  .pbtn{min-width:34px;height:32px;padding:0 10px;border-radius:8px;cursor:pointer;font-family:var(--mono);
+        font-size:12px;font-weight:700;background:var(--panel-2);border:1px solid var(--line);color:var(--mute)}
+  .pbtn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+  .pbtn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .pbtn[aria-current="page"]{background:var(--cyan);border-color:var(--cyan);color:var(--ground)}
+  .pbtn:disabled{opacity:.32;cursor:not-allowed}
+  .psize{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--mute-2)}
+  .psize select{background:var(--panel-2);border:1px solid var(--line);color:var(--ink-2);
+                border-radius:7px;padding:6px 9px;font-family:var(--mono);font-size:12px}
+
+  /* ── loading activity panel ────────────────────────────────────────────── */
+  .glass{background:rgba(24,36,74,.72);border:1px solid rgba(34,211,238,.25);border-radius:14px;
+         max-width:470px;overflow:hidden}
+  .ghead{display:flex;align-items:center;justify-content:space-between;gap:8px;
+         padding:10px 12px;border-bottom:1px solid rgba(39,57,95,.8)}
+  .ghead h3{margin:0;font-size:12.5px;font-weight:800;color:var(--cyan);letter-spacing:.01em}
+  .ghead .day{font-size:9.5px;font-weight:700;color:var(--mute-2);font-family:var(--mono)}
+  .ac4box{margin:9px 10px 0;border:1px solid rgba(45,212,191,.3);background:rgba(45,212,191,.07);
+          border-radius:9px;padding:7px 9px}
+  .ac4box .t{font-size:9px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--teal)}
+  .ac4row{display:flex;align-items:center;gap:6px;font-size:10px;margin-top:3px;color:var(--ink-2)}
+  .ac4row .v{font-family:var(--mono);font-weight:700}
+  .ac4row .to{color:var(--mute-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ac4row .tm{margin-left:auto;font-family:var(--mono);color:var(--mute-2);font-size:9.5px}
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;padding:9px 10px 0}
+  .tile{border-radius:9px;padding:7px 9px;border:1px solid}
+  .tile .l{font-size:8.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}
+  .tile .v{font-family:var(--mono);font-size:17px;font-weight:700;line-height:1.1;margin-top:2px;font-variant-numeric:tabular-nums}
+  .tile .s{font-size:9px;font-family:var(--mono);opacity:.72}
+  .tile.t-ac4{border-color:rgba(45,212,191,.3);background:rgba(45,212,191,.1);color:var(--teal)}
+  .tile.t-ac5{border-color:rgba(47,227,155,.3);background:rgba(47,227,155,.1);color:var(--green)}
+  .tile.t-man{border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.1);color:var(--sky)}
+
+  /* the new matrix */
+  .matrix{margin:9px 10px 0;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .matrix table{font-size:10.5px;white-space:nowrap}
+  .matrix thead th{background:rgba(18,28,56,.9);color:var(--mute-2);font-size:8.5px;padding:5px 8px;letter-spacing:.1em}
+  .matrix tbody td{padding:5px 8px;border-top:1px solid rgba(39,57,95,.7)}
+  .matrix tbody tr:nth-child(even){background:transparent}
+  .matrix .z{color:var(--mute-2)}
+  .matrix tfoot td{padding:5px 8px;border-top:1px solid var(--line);background:rgba(18,28,56,.7);
+                   font-weight:700;color:var(--ink-2)}
+  .segbar{display:flex;height:4px;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.07);min-width:52px}
+  .segbar i{display:block;height:100%}
+  .filt{display:flex;gap:5px;padding:9px 10px 0}
+  .fbtn{padding:3px 9px;border-radius:6px;font-size:9.5px;font-weight:700;cursor:pointer;
+        background:transparent;border:1px solid var(--line);color:var(--mute);font-family:var(--sans)}
+  .fbtn:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+  .fbtn[aria-pressed="true"]{background:rgba(34,211,238,.14);border-color:rgba(34,211,238,.5);color:var(--cyan)}
+  .glist{padding:7px 8px 10px;display:flex;flex-direction:column;gap:3px;max-height:170px;overflow-y:auto}
+  .grow{display:flex;align-items:flex-start;gap:7px;padding:4px 6px;border-radius:8px;border:1px solid transparent}
+  .grow:hover{background:rgba(255,255,255,.045);border-color:rgba(39,57,95,.7)}
+  .gicon{width:19px;height:19px;border-radius:6px;display:grid;place-items:center;font-size:10px;
+         border:1px solid;flex-shrink:0;margin-top:1px}
+  .gicon.auto{color:var(--green);border-color:rgba(47,227,155,.4);background:rgba(47,227,155,.1)}
+  .gicon.manual{color:var(--sky);border-color:rgba(56,189,248,.4);background:rgba(56,189,248,.1)}
+  .grow .code{font-size:10.5px;font-weight:700;color:var(--ink-2);font-family:var(--mono)}
+  .grow .sub{font-size:9.5px;color:var(--mute-2)}
+  .empty{padding:14px 10px;font-size:10.5px;color:var(--mute-2)}
+
+  /* ── annotations ───────────────────────────────────────────────────────── */
+  .notes{margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:11px}
+  .note{border-left:2px solid var(--cyan);padding:2px 0 2px 12px}
+  .note h4{margin:0 0 3px;font-size:12px;font-weight:800;color:var(--ink)}
+  .note p{margin:0;font-size:12px;color:var(--mute);line-height:1.55}
+  .note.w{border-left-color:var(--amber)}
+
+  .ask{margin-top:42px;border:1px solid rgba(255,178,36,.4);background:rgba(255,178,36,.06);
+       border-radius:13px;padding:20px 22px}
+  .ask h3{margin:0 0 9px;font-size:15px;color:var(--amber);font-weight:800}
+  .ask ol{margin:0;padding-left:20px;color:var(--ink-2);font-size:13.5px}
+  .ask li{margin-bottom:7px}
+  .ask li b{color:var(--ink)}
+  .fine{margin-top:26px;font-size:11.5px;color:var(--mute-2);border-top:1px solid var(--line);padding-top:14px}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <p class="kicker">Prasad ERP · design mock v1 · 7 Sept 2026</p>
+  <h1>Loading register, company ke hisaab se</h1>
+  <p class="lede">Do screen badalne hain: <b>Loading Details → Sheet View</b> mein 10-10 ki page-wise
+    list aur teeno firm alag-alag, aur <b>Master Control → Today's Loading Activity</b> mein
+    company-wise plus auto (mail se) vs manual (staff ne bhari) ka saaf hisaab.
+    Neeche wale tabs aur page buttons chal rahe hain — click karke dekhiye.</p>
+  <div class="status"><span class="dot"></span> Abhi sirf design — code nahi likha, aapke YES ka intezaar</div>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <section class="board">
+    <div class="board-cap">
+      <span class="board-n">1</span>
+      <h2>Sheet View — 10 rows per page, firm ke alag tabs</h2>
+      <span class="where">Loading Details → 📋 SHEET VIEW</span>
+    </div>
+    <p class="board-note">Purana: 437 rows ek hi lambi list mein, sirf ek "All Companies" dropdown.
+      Naya: upar firm ke tabs (count ke saath), us firm ka apna summary, phir 10 rows,
+      phir page numbers. Row ki height aadhi — ek screen mein poore 10 dikhte hain.</p>
+
+    <div class="screen">
+      <div class="toolbar">
+        <div class="search">🔍 Search vehicle, challan, trip code, party…</div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Operating company">
+        <button class="tab" data-co="all"     role="tab" aria-selected="true">All firms <span class="n">437</span></button>
+        <button class="tab" data-co="prasad"  role="tab" aria-selected="false">M/S Prasad Transport <span class="n">312</span></button>
+        <button class="tab" data-co="gautam"  role="tab" aria-selected="false">M/S Gautam Prasad <span class="n">38</span></button>
+        <button class="tab" data-co="jaiswal" role="tab" aria-selected="false">M/S Jaiswal Enterprise <span class="n">87</span></button>
+      </div>
+
+      <div class="strip" id="strip"></div>
+
+      <div class="tscroll">
+        <table>
+          <thead>
+            <tr>
+              <th>LR / Trip</th><th>Company</th><th>Customer / Party</th><th>Loading date</th>
+              <th>Challan</th><th>From ➔ To</th><th>Vehicle</th><th>Product</th>
+              <th>Qty KL</th><th>Entry</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <div class="count" id="pcount"></div>
+        <div class="pgroup" id="pgroup"></div>
+        <label class="psize">Rows per page
+          <select id="psize"><option>10</option><option>25</option><option>50</option></select>
+        </label>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note"><h4>Tab hi filter hai</h4>
+        <p>Dropdown hata diya. Tab par count likha hai, to bina kholay pata chalta hai kis firm ka kitna kaam hai.</p></div>
+      <div class="note"><h4>Summary us firm ka</h4>
+        <p>Trips, total KL, auto vs manual — jo tab chuna hai sirf uska. Tab badalte hi page 1 par wapas.</p></div>
+      <div class="note"><h4>Page number yaad rehta hai</h4>
+        <p>Search ya tab badalne par page 1. Edit/print/WhatsApp ke baad wahi page — list upar nahi kudegi.</p></div>
+      <div class="note w"><h4>Entry column naya hai</h4>
+        <p>Har row batayegi mail se aayi (AUTO) ya staff ne bhari (MANUAL). Abhi register mein ye farak dikhta hi nahi.</p></div>
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════════════════════════════════ -->
+  <section class="board">
+    <div class="board-cap">
+      <span class="board-n">2</span>
+      <h2>Today's Loading Activity — company × auto/manual</h2>
+      <span class="where">Master Control v5.0 → dashboard panel</span>
+    </div>
+    <p class="board-note">Purana: teen tile (AC4 / AC5 / Manual) aur neeche chhoti si "Prasad 3" chip —
+      kis firm ka kitna auto aur kitna manual, ye sirf chip par mouse le jaane se dikhta tha.
+      Naya: ek chhoti table jisme har firm ki AC4, auto AC5, manual aur KL ek nazar mein.</p>
+
+    <div class="glass">
+      <div class="ghead">
+        <h3>📦 Today's Loading Activity</h3>
+        <span class="day">7 Sept · 7 DIN</span>
+      </div>
+
+      <div class="ac4box">
+        <div class="t">Aaj load hui — AC4 · 3 gaadi · 36.0 KL</div>
+        <div class="ac4row"><span class="v">AS 26AC 0403</span><span style="color:var(--teal)">12.0 KL MS + HSD</span><span class="to">→ MAJGAON KISAN SEVA KENDRA</span><span class="tm">10:35</span><span class="co prasad">Prasad</span></div>
+        <div class="ac4row"><span class="v">AS 26AC 0402</span><span style="color:var(--teal)">12.0 KL MS + HSD</span><span class="to">→ MADHU BAISHYA SERVICE STATION</span><span class="tm">09:22</span><span class="co prasad">Prasad</span></div>
+        <div class="ac4row"><span class="v">AS 26AC 0401</span><span style="color:var(--teal)">12.0 KL MS + HSD</span><span class="to">→ SHARMA'S FILLING CENTRE</span><span class="tm">08:26</span><span class="co prasad">Prasad</span></div>
+      </div>
+
+      <div class="tiles">
+        <div class="tile t-ac4"><div class="l">Loading — AC4</div><div class="v">3</div><div class="s">36.0 KL</div></div>
+        <div class="tile t-ac5"><div class="l">Auto — AC5 mail</div><div class="v">2</div><div class="s">48.0 KL</div></div>
+        <div class="tile t-man"><div class="l">Manual — staff</div><div class="v">1</div><div class="s">12.0 KL</div></div>
+      </div>
+
+      <!-- THE NEW BIT -->
+      <div class="matrix">
+        <table>
+          <thead><tr><th>Firm</th><th>AC4</th><th>Auto</th><th>Manual</th><th>KL</th><th>Split</th></tr></thead>
+          <tbody>
+            <tr><td><span class="co prasad">Prasad</span></td><td class="num">3</td><td class="num" style="color:var(--green)">1</td><td class="num" style="color:var(--sky)">1</td><td class="num">36.0</td>
+                <td><span class="segbar"><i style="width:50%;background:var(--green)"></i><i style="width:50%;background:var(--sky)"></i></span></td></tr>
+            <tr><td><span class="co jaiswal">Jaiswal</span></td><td class="num z">0</td><td class="num" style="color:var(--green)">1</td><td class="num z">0</td><td class="num">24.0</td>
+                <td><span class="segbar"><i style="width:100%;background:var(--green)"></i></span></td></tr>
+            <tr><td><span class="co gautam">Gautam</span></td><td class="num z">0</td><td class="num z">0</td><td class="num z">0</td><td class="num z">0.0</td>
+                <td><span class="segbar"></span></td></tr>
+          </tbody>
+          <tfoot><tr><td>Total</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">60.0</td><td></td></tr></tfoot>
+        </table>
+      </div>
+
+      <div class="filt" role="group" aria-label="Entry source">
+        <button class="fbtn" data-f="all"    aria-pressed="true">Sab (3)</button>
+        <button class="fbtn" data-f="auto"   aria-pressed="false">🤖 Auto (2)</button>
+        <button class="fbtn" data-f="manual" aria-pressed="false">🙍 Manual (1)</button>
+      </div>
+
+      <div class="glist" id="glist"></div>
+    </div>
+
+    <div class="notes">
+      <div class="note"><h4>Teesri firm ab khali bhi dikhegi</h4>
+        <p>Gautam ka 0 dikhana zaroori hai — chip wale design mein 0 wali firm gayab ho jaati thi, aur
+          gayab hona "kaam nahi hua" jaisa nahi, "hai hi nahi" jaisa lagta tha.</p></div>
+      <div class="note"><h4>Auto / Manual ka button</h4>
+        <p>Neeche ki list ko chhaan kar sirf manual entries dekh sakte hain — kis staff ne kya bhara, wahi list.</p></div>
+      <div class="note w"><h4>Server nahi badlega</h4>
+        <p>Ye dono cheezein jo data server pehle se bhej raha hai usi se banti hain. Naya API, nayi migration — kuch nahi.</p></div>
+    </div>
+  </section>
+
+  <div class="ask">
+    <h3>Bhejne se pehle 3 baatein tay kar lein</h3>
+    <ol>
+      <li><b>Tabs ya dropdown?</b> Maine tabs rakhe hain (count dikhta hai). Agar aap purana dropdown hi
+        chahte hain to bata dein — dono ek saath rakhne se toolbar bhar jayega.</li>
+      <li><b>10 rows default</b> — aapne yahi kaha. 25/50 ka option saath mein de raha hoon;
+        bolein to sirf 10 rakh dunga.</li>
+      <li><b>Firm ka order</b>: abhi Prasad → Gautam → Jaiswal (aapne isi kram mein likha).
+        Ya sabse zyada kaam wali firm pehle?</li>
+    </ol>
+  </div>
+
+  <p class="fine">Table ke row asli LR series (PT00689 / PT00686 / PT00685, AS 26AC 04xx) se banaye gaye
+    hain taaki design sach lage — ye figures illustration hain, live register ka data nahi.
+    Company counts 437 / 312 / 38 / 87 bhi example hain; asli count screen khulte hi live database se aayega.
+    Panel ke AC4 row 7 Sept ke asli screenshot se hain.</p>
+</div>
+
+<script>
+  // ── Sheet View: rows, tabs, pagination ──────────────────────────────────
+  // 24 sample rows across the three firms. Built from the register's own LR
+  // series and lane names so the mock reads like the real screen; the numbers
+  // are illustrative and the page says so.
+  const P = 'prasad', G = 'gautam', J = 'jaiswal';
+  const CO = { prasad:['M/S PRASAD TRANSPORT','Prasad'], gautam:['M/S GAUTAM PRASAD','Gautam'], jaiswal:['M/S JAISWAL ENTERPRISE','Jaiswal'] };
+  const ROWS = [
+    [P,'PT00689','INDIAN OIL CORPORATION LTD','2026-07-20','193648009','IOC CELL PETRONAS, HALDIA ➔ LPG BP NORTH GUWAHATI (7B03)','AS 26C 5104','LPG Bulk',18.0,'auto','IN_TRANSIT'],
+    [P,'PT00686','INDIAN OIL CORPORATION LTD','2026-07-18','7008890076','BONGAIGAON RC OFFICE (7R01) ➔ 159788 SHREE BAJRANG PETROLEUM','AS 26AC 0402','MS + HSD (Part Load)',12.0,'auto','COMPLETED'],
+    [P,'PT00685','INDIAN OIL CORPORATION LTD','2026-07-18','7008883725','BONGAIGAON RC OFFICE (7R01) ➔ 209067 ACHILA AUTO AGENCY','AS 26AC 0403','MS + HSD (Part Load)',12.0,'auto','COMPLETED'],
+    [J,'JE00116','INDIAN OIL CORPORATION LTD','2026-07-18','7008881190','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','NL 01AD 0828','HSD',23.0,'auto','IN_TRANSIT'],
+    [J,'JE00115','INDIAN OIL CORPORATION LTD','2026-07-17','7008879044','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','AS 19C 8668','HSD',24.0,'auto','IN_TRANSIT'],
+    [P,'PT00684','INDIAN OIL CORPORATION LTD','2026-07-17','7008874311','BONGAIGAON RC OFFICE (7R01) ➔ SHARMA’S FILLING CENTRE','AS 26AC 0401','MS + HSD (Part Load)',12.0,'manual','COMPLETED'],
+    [G,'GP00038','INDIAN OIL CORPORATION LTD','2026-07-17','7008870255','BONGAIGAON RC OFFICE (7R01) ➔ MADHU BAISHYA SERVICE STATION','AS 26C 9802','HSD',20.0,'manual','COMPLETED'],
+    [P,'PT00683','INDIAN OIL CORPORATION LTD','2026-07-16','7008866102','IOC CELL PETRONAS, HALDIA ➔ LPG BP NORTH GUWAHATI (7B03)','AS 26C 5107','LPG Bulk',18.0,'auto','COMPLETED'],
+    [J,'JE00114','INDIAN OIL CORPORATION LTD','2026-07-16','7008863770','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','NL 01AA 3674','HSD',23.0,'auto','COMPLETED'],
+    [P,'PT00682','INDIAN OIL CORPORATION LTD','2026-07-15','7008859431','BONGAIGAON RC OFFICE (7R01) ➔ MAJGAON KISAN SEVA KENDRA','AS 26AC 0402','MS + HSD (Part Load)',12.0,'manual','COMPLETED'],
+    [P,'PT00681','INDIAN OIL CORPORATION LTD','2026-07-15','7008855018','BONGAIGAON RC OFFICE (7R01) ➔ 209067 ACHILA AUTO AGENCY','AS 26AC 0403','HSD',12.0,'auto','COMPLETED'],
+    [G,'GP00037','INDIAN OIL CORPORATION LTD','2026-07-14','7008851774','BONGAIGAON RC OFFICE (7R01) ➔ SHREE BAJRANG PETROLEUM','AS 26C 9802','HSD',20.0,'auto','COMPLETED'],
+    [J,'JE00113','INDIAN OIL CORPORATION LTD','2026-07-14','7008848209','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','AS 19C 8666','HSD',24.0,'auto','COMPLETED'],
+    [P,'PT00680','INDIAN OIL CORPORATION LTD','2026-07-13','7008844551','IOC CELL PETRONAS, HALDIA ➔ LPG BP NORTH GUWAHATI (7B03)','AS 26C 5104','LPG Bulk',18.0,'auto','COMPLETED'],
+    [P,'PT00679','INDIAN OIL CORPORATION LTD','2026-07-13','7008840987','BONGAIGAON RC OFFICE (7R01) ➔ MADHU BAISHYA SERVICE STATION','AS 26AC 0401','MS + HSD (Part Load)',12.0,'manual','COMPLETED'],
+    [J,'JE00112','INDIAN OIL CORPORATION LTD','2026-07-12','7008837114','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','NL 01AD 0828','HSD',23.0,'auto','COMPLETED'],
+    [P,'PT00678','INDIAN OIL CORPORATION LTD','2026-07-12','7008833620','BONGAIGAON RC OFFICE (7R01) ➔ SHARMA’S FILLING CENTRE','AS 26AC 0402','HSD',12.0,'auto','COMPLETED'],
+    [G,'GP00036','INDIAN OIL CORPORATION LTD','2026-07-11','7008829903','BONGAIGAON RC OFFICE (7R01) ➔ MAJGAON KISAN SEVA KENDRA','AS 26C 9802','HSD',20.0,'manual','COMPLETED'],
+    [P,'PT00677','INDIAN OIL CORPORATION LTD','2026-07-11','7008826188','IOC CELL PETRONAS, HALDIA ➔ LPG BP NORTH GUWAHATI (7B03)','AS 26C 5107','LPG Bulk',18.0,'auto','COMPLETED'],
+    [J,'JE00111','INDIAN OIL CORPORATION LTD','2026-07-10','7008822470','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','AS 19C 8668','HSD',24.0,'auto','COMPLETED'],
+    [P,'PT00676','INDIAN OIL CORPORATION LTD','2026-07-10','7008818755','BONGAIGAON RC OFFICE (7R01) ➔ 159788 SHREE BAJRANG PETROLEUM','AS 26AC 0403','MS + HSD (Part Load)',12.0,'auto','COMPLETED'],
+    [P,'PT00675','INDIAN OIL CORPORATION LTD','2026-07-09','7008815022','BONGAIGAON RC OFFICE (7R01) ➔ ACHILA AUTO AGENCY','AS 26AC 0401','HSD',12.0,'manual','COMPLETED'],
+    [G,'GP00035','INDIAN OIL CORPORATION LTD','2026-07-09','7008811340','BONGAIGAON RC OFFICE (7R01) ➔ MADHU BAISHYA SERVICE STATION','AS 26C 9802','HSD',20.0,'auto','COMPLETED'],
+    [J,'JE00110','INDIAN OIL CORPORATION LTD','2026-07-08','7008807611','RAIL FED POL STORAGE DEPOT IMPHAL ➔ EBMS','NL 01AA 3674','HSD',23.0,'auto','COMPLETED'],
+  ];
+
+  let co = 'all', page = 1, size = 10;
+  const tbody = document.getElementById('tbody');
+  const strip = document.getElementById('strip');
+  const pcount = document.getElementById('pcount');
+  const pgroup = document.getElementById('pgroup');
+
+  const view = () => co === 'all' ? ROWS : ROWS.filter(r => r[0] === co);
+
+  function render() {
+    const rows = view();
+    const pages = Math.max(1, Math.ceil(rows.length / size));
+    if (page > pages) page = pages;
+    const from = (page - 1) * size;
+    const slice = rows.slice(from, from + size);
+
+    const kl = rows.reduce((s, r) => s + r[8], 0);
+    const auto = rows.filter(r => r[9] === 'auto').length;
+    strip.innerHTML = `
+      <div class="stat c-cyan"><div class="k">${co === 'all' ? 'All firms' : CO[co][0]}</div><div class="v">${rows.length}</div></div>
+      <div class="stat c-green"><div class="k">Total loaded</div><div class="v">${kl.toFixed(1)}</div></div>
+      <div class="stat c-amber"><div class="k">Auto — mail</div><div class="v">${auto}</div></div>
+      <div class="stat c-sky"><div class="k">Manual — staff</div><div class="v">${rows.length - auto}</div></div>`;
+
+    tbody.innerHTML = slice.map(r => `
+      <tr>
+        <td class="lr">${r[1]}</td>
+        <td><span class="co ${r[0]}">${CO[r[0]][1]}</span></td>
+        <td>${r[2]}</td>
+        <td class="num">${r[3]}</td>
+        <td class="num">${r[4]}</td>
+        <td class="route" title="${r[5]}">${r[5]}</td>
+        <td class="veh">${r[6]}</td>
+        <td>${r[7]}</td>
+        <td class="qty">${r[8].toFixed(1)}</td>
+        <td><span class="src ${r[9]}">${r[9] === 'auto' ? '🤖 Auto' : '🙍 Manual'}</span></td>
+        <td style="color:${r[10] === 'COMPLETED' ? 'var(--green)' : 'var(--amber)'}">${r[10]}</td>
+      </tr>`).join('');
+
+    pcount.innerHTML = rows.length
+      ? `Showing <b>${from + 1}–${Math.min(from + size, rows.length)}</b> of <b>${rows.length}</b>`
+      : 'Is firm ka koi loaded trip nahi.';
+
+    let btns = `<button class="pbtn" ${page === 1 ? 'disabled' : ''} data-go="${page - 1}">‹</button>`;
+    for (let i = 1; i <= pages; i++) {
+      if (i === 1 || i === pages || Math.abs(i - page) <= 1) {
+        btns += `<button class="pbtn" data-go="${i}" ${i === page ? 'aria-current="page"' : ''}>${i}</button>`;
+      } else if (Math.abs(i - page) === 2) {
+        btns += `<span style="color:var(--mute-2);font-family:var(--mono)">…</span>`;
+      }
+    }
+    btns += `<button class="pbtn" ${page === pages ? 'disabled' : ''} data-go="${page + 1}">›</button>`;
+    pgroup.innerHTML = btns;
+  }
+
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.setAttribute('aria-selected', String(x === t)));
+    co = t.dataset.co; page = 1; render();
+  }));
+  pgroup.addEventListener('click', e => {
+    const b = e.target.closest('[data-go]'); if (!b || b.disabled) return;
+    page = Number(b.dataset.go); render();
+  });
+  document.getElementById('psize').addEventListener('change', e => {
+    size = Number(e.target.value); page = 1; render();
+  });
+
+  // ── Loading Activity: the auto / manual filter ──────────────────────────
+  const FEED = [
+    { src:'auto',   code:'JE00116', co:'jaiswal', sub:'NL 01AD 0828 · HSD · 23.0 KL', tag:'7008881190' },
+    { src:'auto',   code:'PT00689', co:'prasad',  sub:'AS 26C 5104 · LPG Bulk · 18.0 KL', tag:'193648009' },
+    { src:'manual', code:'PT00684', co:'prasad',  sub:'AS 26AC 0401 · MS + HSD · 12.0 KL', tag:'' },
+  ];
+  const glist = document.getElementById('glist');
+  function feed(f) {
+    const rows = f === 'all' ? FEED : FEED.filter(r => r.src === f);
+    glist.innerHTML = rows.length ? rows.map(r => `
+      <div class="grow">
+        <span class="gicon ${r.src}" title="${r.src === 'auto' ? 'Email se apne aap aayi' : 'Staff ne khud bhari'}">${r.src === 'auto' ? '🤖' : '🙍'}</span>
+        <div style="min-width:0;flex:1">
+          <div style="display:flex;align-items:center;gap:5px">
+            <span class="code">${r.code}</span><span class="co ${r.co}">${CO[r.co][1]}</span>
+          </div>
+          <div class="sub">${r.sub}</div>
+        </div>
+        ${r.tag ? `<span style="font-size:9px;color:var(--mute-2);font-family:var(--mono)">${r.tag}</span>` : ''}
+      </div>`).join('')
+      : `<p class="empty">Is din koi ${f === 'auto' ? 'auto' : 'manual'} entry nahi hui.</p>`;
+  }
+  document.querySelectorAll('.fbtn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.fbtn').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    feed(b.dataset.f);
+  }));
+
+  render(); feed('all');
+</script>

@@ -65,6 +65,11 @@ const kl = (n) => `${Number(n || 0).toFixed(1)} KL`;
 export default function LoadingActivity({ activity, offline }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState('days');
+  // ALL | EMAIL | MANUAL over the row list below. The owner's question on
+  // 7-Sep was "manual update ka detail kya hai" — the badge on each row already
+  // answered it one row at a time, but on a day with thirty auto imports the
+  // two manual ones are not findable by eye.
+  const [srcFilter, setSrcFilter] = useState('ALL');
   const a = activity ?? null;
   // THE WEEK DIALOG IS ON THE LOADING-DATE AXIS, and the panel behind it is on
   // the entry-date one. That is deliberate, not an inconsistency: the panel
@@ -73,6 +78,7 @@ export default function LoadingActivity({ activity, offline }) {
   // differed by a whole screen — a week's loadings were all recovered in one
   // morning, so every row carried the same created_at and the old chart drew
   // six empty days over a week that had eleven trips in it.
+  const rows = a?.rows ?? [];
   const weekDays = a?.last7_loading ?? [];
   const weekFrom = a?.load_week_from ?? null;
   const weekTo = a?.load_week_to ?? null;
@@ -85,7 +91,6 @@ export default function LoadingActivity({ activity, offline }) {
     (acc[t.loading_date] ||= []).push(t);
     return acc;
   }, {});
-  const rows = a?.rows ?? [];
   const stale = !!a && !a.is_today && !!a.day;
   const gap = stale ? daysBetween(a.day) : 0;
   // THE MAILBOX BANNER OUTRANKS THE STALE-DATE ONE, because it is the CAUSE of
@@ -129,6 +134,50 @@ export default function LoadingActivity({ activity, offline }) {
   const ac4Day = a?.ac4?.day ?? [];
   const ac4Qty = ac4Day.reduce((s, l) => s + Number(l.qty_kl || 0), 0);
   const ac4Error = a?.ac4?.error ?? null;
+
+  // ── COMPANY x SOURCE, THE WHOLE PANEL IN SIX ROWS ────────────────────────
+  // Every number here was already in the payload — by_company has carried
+  // email_count and manual_count since this panel was written — and every one
+  // of them was hidden inside a chip's `title`, which is to say hidden. A
+  // tooltip is not a report: it shows one firm at a time, needs a mouse, and
+  // cannot be compared against the firm beside it. The owner asked for the
+  // comparison, and the comparison is the table.
+  //
+  // A FIRM THAT DID NOTHING TODAY STILL GETS A ROW, on one condition: it did
+  // something in the last seven days. Dropping an idle firm entirely — the old
+  // chip behaviour — reads as "that firm does not exist here", which is a
+  // different claim from "that firm loaded nothing today" and the wrong one.
+  // A firm silent for a whole week has genuinely nothing to report and is left
+  // out rather than padding the table with permanent zeroes.
+  const companyMatrix = (() => {
+    if (!a) return [];
+    // Named seats, not `rows` — the panel already has a rows array and a Map
+    // wearing the same name two lines from it is how the wrong one gets read.
+    const seats = new Map();
+    const seat = (name) => {
+      const key = String(name || '(unassigned)');
+      if (!seats.has(key)) seats.set(key, { company: key, ac4: 0, auto: 0, manual: 0, qty: 0 });
+      return seats.get(key);
+    };
+    for (const c of a.by_company ?? []) {
+      const r = seat(c.company);
+      r.auto = c.email_count ?? 0;
+      r.manual = c.manual_count ?? 0;
+      r.qty = Number(c.qty || 0);
+    }
+    for (const l of ac4Day) seat(l.company).ac4 += 1;
+    // Present this week, absent today: seated at zero rather than dropped.
+    for (const c of a.by_company_week ?? []) seat(c.company);
+    return [...seats.values()].sort((x, y) =>
+      (y.ac4 + y.auto + y.manual) - (x.ac4 + x.auto + x.manual)
+      || x.company.localeCompare(y.company));
+  })();
+  const matrixTotal = companyMatrix.reduce((t, r) => ({
+    ac4: t.ac4 + r.ac4, auto: t.auto + r.auto, manual: t.manual + r.manual, qty: t.qty + r.qty,
+  }), { ac4: 0, auto: 0, manual: 0, qty: 0 });
+
+  const autoRows = rows.filter((r) => r.source === 'EMAIL').length;
+  const shownRows = srcFilter === 'ALL' ? rows : rows.filter((r) => r.source === srcFilter);
 
   return (
     <GlassPanel className="flex flex-col overflow-hidden max-h-[340px] border-cyan-500/25 shadow-[0_0_30px_rgba(34,211,238,0.06)]">
@@ -285,7 +334,7 @@ export default function LoadingActivity({ activity, offline }) {
         </div>
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1.5">
           <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-emerald-300">
-            <Bot size={11} /> Trip — AC5
+            <Bot size={11} /> Auto — AC5 mail
           </div>
           <div className="mt-0.5 text-[17px] font-black leading-none text-emerald-200">
             {a ? a.email_count : '--'}
@@ -294,7 +343,7 @@ export default function LoadingActivity({ activity, offline }) {
         </div>
         <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1.5">
           <div className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-sky-300">
-            <UserRound size={11} /> Manual — Staff
+            <UserRound size={11} /> Manual — staff
           </div>
           <div className="mt-0.5 text-[17px] font-black leading-none text-sky-200">
             {a ? a.manual_count : '--'}
@@ -303,21 +352,83 @@ export default function LoadingActivity({ activity, offline }) {
         </div>
       </div>
 
-      {/* Company chips. Only companies that actually have rows on this day are
-          drawn — three empty chips would say "no work" three times over. */}
-      {!!a?.by_company?.length && (
-        <div className="flex flex-wrap items-center gap-1 px-2.5 pt-1.5 shrink-0">
-          {a.by_company.map((c) => {
-            const short = shortCompany(c.company);
-            return (
-              <span key={c.company}
-                title={`${c.company} · ${c.email_count} auto · ${c.manual_count} manual`}
-                className={`rounded-md border px-1.5 py-0.5 text-[9.5px] font-bold ${COMPANY_TONE[short] || NEUTRAL_TONE}`}>
-                {short} <span className="font-black">{c.trips}</span>
-                <span className="ml-1 font-normal opacity-70">{kl(c.qty)}</span>
-              </span>
-            );
-          })}
+      {/* ── FIRM BY FIRM, DOOR BY DOOR ───────────────────────────────────
+          What the chips used to say, laid out so the firms can be read against
+          each other. The bar is the auto/manual split of the same row's trips —
+          the one comparison the numbers alone make you do in your head. */}
+      {!!companyMatrix.length && (
+        <div className="mx-2.5 mt-1.5 shrink-0 overflow-hidden rounded-lg border border-slate-700/60">
+          <table className="w-full text-[10.5px] tabular-nums">
+            <thead>
+              <tr className="bg-slate-900/60 text-[8.5px] uppercase tracking-[0.1em] text-slate-500">
+                <th className="px-2 py-1 text-left font-bold">Firm</th>
+                <th className="px-2 py-1 text-right font-bold">AC4</th>
+                <th className="px-2 py-1 text-right font-bold">Auto</th>
+                <th className="px-2 py-1 text-right font-bold">Manual</th>
+                <th className="px-2 py-1 text-right font-bold">KL</th>
+                <th className="px-2 py-1 text-left font-bold">Split</th>
+              </tr>
+            </thead>
+            <tbody>
+              {companyMatrix.map((r) => {
+                const short = shortCompany(r.company);
+                const trips = r.auto + r.manual;
+                return (
+                  <tr key={r.company} className="border-t border-slate-700/50">
+                    <td className="px-2 py-1">
+                      <span className={`rounded border px-1 py-px text-[9px] font-bold ${COMPANY_TONE[short] || NEUTRAL_TONE}`}>{short}</span>
+                    </td>
+                    <td className={`px-2 py-1 text-right ${r.ac4 ? 'text-teal-300' : 'text-slate-600'}`}>{r.ac4}</td>
+                    <td className={`px-2 py-1 text-right ${r.auto ? 'text-emerald-300' : 'text-slate-600'}`}>{r.auto}</td>
+                    <td className={`px-2 py-1 text-right ${r.manual ? 'text-sky-300' : 'text-slate-600'}`}>{r.manual}</td>
+                    <td className={`px-2 py-1 text-right ${r.qty ? 'text-slate-200' : 'text-slate-600'}`}>{r.qty.toFixed(1)}</td>
+                    <td className="px-2 py-1">
+                      <span className="flex h-1 w-[52px] overflow-hidden rounded-sm bg-white/10"
+                        title={trips ? `${r.auto} auto · ${r.manual} manual` : 'aaj koi trip nahi'}>
+                        {trips > 0 && <>
+                          <i className="block h-full bg-emerald-400" style={{ width: `${(r.auto / trips) * 100}%` }} />
+                          <i className="block h-full bg-sky-400" style={{ width: `${(r.manual / trips) * 100}%` }} />
+                        </>}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {companyMatrix.length > 1 && (
+              <tfoot>
+                <tr className="border-t border-slate-600/70 bg-slate-900/50 font-bold text-slate-300">
+                  <td className="px-2 py-1">Total</td>
+                  <td className="px-2 py-1 text-right">{matrixTotal.ac4}</td>
+                  <td className="px-2 py-1 text-right">{matrixTotal.auto}</td>
+                  <td className="px-2 py-1 text-right">{matrixTotal.manual}</td>
+                  <td className="px-2 py-1 text-right">{matrixTotal.qty.toFixed(1)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      {/* The list below answers "kaunsi entry" and this answers "kis tarah ki".
+          Counts sit on the buttons so a filter that would empty the list says so
+          before it is pressed. */}
+      {!!rows.length && (
+        <div className="flex gap-1.5 px-2.5 pt-1.5 shrink-0">
+          {[
+            { k: 'ALL', label: `Sab ${rows.length}` },
+            { k: 'EMAIL', label: `🤖 Auto ${autoRows}` },
+            { k: 'MANUAL', label: `🙍 Manual ${rows.length - autoRows}` },
+          ].map((b) => (
+            <button key={b.k} onClick={() => setSrcFilter(b.k)} aria-pressed={srcFilter === b.k}
+              className={`rounded-md border px-2 py-0.5 text-[9.5px] font-bold transition-colors ${
+                srcFilter === b.k
+                  ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-300'
+                  : 'border-slate-700/60 text-slate-400 hover:bg-white/5'}`}>
+              {b.label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -333,7 +444,11 @@ export default function LoadingActivity({ activity, offline }) {
           <p className="px-1 py-3 text-[11px] leading-relaxed text-slate-500">
             Register mein abhi tak ek bhi loading entry nahi hai.
           </p>
-        ) : rows.map((r) => {
+        ) : shownRows.length === 0 ? (
+          <p className="px-1 py-3 text-[11px] leading-relaxed text-slate-500">
+            Is din koi {srcFilter === 'EMAIL' ? 'auto (mail se)' : 'manual (staff ki)'} entry nahi hui.
+          </p>
+        ) : shownRows.map((r) => {
           const auto = r.source === 'EMAIL';
           const short = shortCompany(r.company);
           return (
