@@ -435,6 +435,13 @@ export default function LodingDetals() {
         TRIP_BILLED: 'This trip is already on a bill — its figures are frozen.',
         CONSTRAINT: 'A value was rejected by the database.',
         DUPLICATE: 'That challan or advice number already exists.',
+        // Name the session out loud. This screen answered a bare "HTTP 401" for
+        // every manual entry while the guard held POST /ops/trips open to the
+        // AC5 importer alone, and "Entry not saved" gave the desk nothing to
+        // act on — the reads on the same page were still working.
+        UNAUTHENTICATED: 'Your session was not accepted. Sign out and sign in again, then re-enter this trip.',
+        OUTSIDE_ROLE_SCOPE: 'This account cannot create loading entries — sign in with a staff account.',
+        UNKNOWN_COMPANY: 'That operating company is not in the company master.',
       }[e.code];
       alert(`❌ ${hint ?? 'Entry not saved.'}\n\n${e.message}`);
     }

@@ -7,7 +7,7 @@
 // firm's books are readable by the internet, and the failure mode is silent —
 // a route that is accidentally public looks exactly like a route that works.
 // ─────────────────────────────────────────────────────────────────────────────
-import { makeApiGuard, PUBLIC_API, SERVICE_API } from './apiGuard.js';
+import { makeApiGuard, PUBLIC_API, SERVICE_API, SERVICE_OR_SESSION_API } from './apiGuard.js';
 
 const SECRET = 'x'.repeat(48);
 
@@ -126,6 +126,28 @@ for (const entry of SERVICE_API) {
 check('GET /api/v1/masters/drivers (unconfigured)',
   await run(guardNoSecret, req('GET', '/api/v1/masters/drivers')), 401);
 
+// ── MACHINE **OR** PERSON ────────────────────────────────────────────────────
+// The regression this set was carved out for: POST /ops/trips sat in
+// SERVICE_API, that branch runs above requireAuth, and so the Loading Register's
+// SAVE LOADING ENTRY & DISPATCH answered 401 to a staff session whose every GET
+// on the same screen returned 200. The assertion that matters is the middle one
+// — a bearer that is NOT the secret must reach the session check, not a 401.
+console.log('\nSERVICE-OR-SESSION ROUTES — the machine and the desk both get in');
+for (const entry of SERVICE_OR_SESSION_API) {
+  const [method, path] = entry.split(' ');
+  check(`${entry} (no credential at all)`, await run(guard, req(method, path)), 401);
+  check(`${entry} (service secret)`,
+    await run(guard, req(method, path, { authorization: `Bearer ${SECRET}` })), 'allowed');
+  check(`${entry} (staff session, not the secret)`,
+    await run(guard, req(method, path, { authorization: 'Bearer ' + 'y'.repeat(48) })), 'allowed');
+  // Same length as a session token but not a session: still refused, by
+  // requireAuth rather than by the service branch.
+  check(`${entry} (unconfigured secret)`, await run(guardNoSecret, req(method, path)), 'allowed');
+  // A route may not be in both sets — the hook checks machineOnly first, and a
+  // duplicate would silently keep the terminal 401 this set exists to remove.
+  check(`${entry} is not also machine-only`, SERVICE_API.has(entry), false);
+}
+
 // ── TRACK_ONLY ───────────────────────────────────────────────────────────────
 // The scope handed out by POST /auth/driver/track, which anyone able to read a
 // number off the side of a truck can obtain. Its reach is the single most
@@ -143,11 +165,12 @@ check('POST /api/v1/tracking/ping is allowed',
   await run(trackGuard, asDriver('POST', '/api/v1/tracking/ping')), 'allowed');
 
 // Everything a stranger in a lorry park must NOT be able to reach. The assertion
-// is REFUSED, not a particular code: POST /ops/trips is a SERVICE_API route, so
-// a caller holding a session bearer instead of the service secret is turned away
-// at 401 before the scope check is ever reached. Refused is refused; pinning the
-// number here would make this test fail the next time a route joins that list,
-// which is not a change in what a driver can do.
+// is REFUSED, not a particular code. POST /ops/trips is a SERVICE_OR_SESSION_API
+// route: a caller holding a session bearer instead of the service secret now
+// falls through to the scope check and is turned away there with 403, where
+// before it was turned away at 401 by the service branch. Refused is refused;
+// pinning the number here would make this test fail the next time a route moves
+// between those lists, which is not a change in what a driver can do.
 const refused = (r) => (r === 'allowed' ? 'allowed' : 'refused');
 for (const [m, p] of [
   ['GET',  '/api/v1/masters/drivers'],

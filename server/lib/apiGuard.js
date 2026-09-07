@@ -202,27 +202,10 @@ function externalMayReach(role, method, path, route) {
 /** Machine callers. Not people, no session — they carry the service secret. */
 export const SERVICE_API = new Set([
   'POST /api/v1/crm/chats',
-  'POST /api/v1/crm/logs',
   // The WhatsApp engine parking an inbound photo/PDF in the vault before it
   // logs the chat row that references it. Same caller, same secret, and the
   // route itself re-checks type and size.
   'POST /api/v1/crm/media',
-  // The AC5 importer, filing IOCL dispatch invoices as loading entries. It runs
-  // unattended from cron via ioclSyncRunner and has no session to carry.
-  //
-  // The register stopped advancing on 21-08 because every insert it attempted
-  // answered 401, and the importer counted that into a local list which never
-  // reached RESULT_JSON — so the tick logged "ok, inserted 0", which reads
-  // exactly like a quiet day. The dead Gmail token arrived on top of it three
-  // days later and got the blame for both. Re-authorising alone would have
-  // turned the dashboard green and left the register frozen at 21-08.
-  //
-  // THIS IS A MASS-INSERT ROUTE AND OPENING IT IS A REAL WIDENING. It is the
-  // narrowest door that works: the secret exists only in .env.api on the box,
-  // it is the same door the unattended IOCL reconciler already uses for
-  // POST /finance/vouchers, and the alternative — minting a human session for a
-  // cron job — leaves a standing admin credential on disk instead.
-  'POST /api/v1/ops/trips',
   // The FASTag statement reader in email-parser.cjs, filing a provider's daily
   // CSV/Excel as toll crossings. It runs unattended on this box and has no
   // session to carry — the same shape, and the same reasoning, as the AC5
@@ -239,6 +222,58 @@ export const SERVICE_API = new Set([
   // POST answered 401 — which is exactly how the AC5 register sat frozen from
   // 21-08 while the importer logged "inserted 0" and looked like a quiet day.
   'POST /api/v1/toll/bulk-import',
+]);
+
+/**
+ * MACHINE **OR** PERSON. A caller holding the service secret passes straight
+ * through; anyone else falls through to the ordinary session check below.
+ *
+ * WHY THIS SET HAD TO EXIST. SERVICE_API is terminal by design — a machine that
+ * got the token wrong is not a person who can log in, so it is refused there
+ * rather than being handed a second chance at a session. That is right for a
+ * route only the engine or a cron job ever calls. It is WRONG for a route a
+ * person also uses, because the branch runs BEFORE requireAuth: a signed-in
+ * member of staff presents a session bearer, it does not equal the secret, and
+ * the guard answers 401 — to a session that is perfectly valid.
+ *
+ * That is exactly what happened to POST /ops/trips. It was added to SERVICE_API
+ * for the unattended AC5 importer, and in doing so it took the Loading Register
+ * with it: DIRECT ENTRY → SAVE LOADING ENTRY & DISPATCH answered
+ * 401 UNAUTHENTICATED for every person at the desk, in two milliseconds, while
+ * every GET on the same screen returned 200 from the same session. The screen
+ * reported "Entry not saved — HTTP 401" and no loading could be entered by hand
+ * at all. POST /crm/logs had the same shape and the same fault; there the
+ * browser call sits inside a try/catch, so the audit log simply stopped
+ * recording and nobody saw a thing.
+ *
+ * A route belongs here when BOTH an unattended caller and a screen use it.
+ * Nothing is widened: the session path is the same requireAuth, TRACK_ONLY and
+ * EXTERNAL_ROLES checks every other route goes through, so a driver or a portal
+ * token is still refused — now with 403 OUTSIDE_ROLE_SCOPE, which is what it
+ * always meant.
+ */
+export const SERVICE_OR_SESSION_API = new Set([
+  // The AC5 importer, filing IOCL dispatch invoices as loading entries. It runs
+  // unattended from cron via ioclSyncRunner and has no session to carry.
+  //
+  // The register stopped advancing on 21-08 because every insert it attempted
+  // answered 401, and the importer counted that into a local list which never
+  // reached RESULT_JSON — so the tick logged "ok, inserted 0", which reads
+  // exactly like a quiet day. The dead Gmail token arrived on top of it three
+  // days later and got the blame for both. Re-authorising alone would have
+  // turned the dashboard green and left the register frozen at 21-08.
+  //
+  // THIS IS A MASS-INSERT ROUTE AND OPENING IT IS A REAL WIDENING. It is the
+  // narrowest door that works: the secret exists only in .env.api on the box,
+  // it is the same door the unattended IOCL reconciler already uses for
+  // POST /finance/vouchers, and the alternative — minting a human session for a
+  // cron job — leaves a standing admin credential on disk instead.
+  'POST /api/v1/ops/trips',
+  // WhatsappDashboard.tsx writes its own audit line from the browser
+  // (POST /crm/logs) and the engine writes the same rows unattended. The
+  // browser call is fire-and-forget inside a try/catch, which is why this one
+  // was invisible: the guard refused it and the screen never said so.
+  'POST /api/v1/crm/logs',
 ]);
 
 const bearerOf = (req) => {
@@ -276,7 +311,9 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
     // URL is a read grant, never a write one.
     if (req.method === 'GET' && PUBLIC_API_PREFIXES.some((p) => path.startsWith(p))) return;
 
-    if (SERVICE_API.has(route)) {
+    const machineOnly = SERVICE_API.has(route);
+    const machineOrPerson = SERVICE_OR_SESSION_API.has(route);
+    if (machineOnly || machineOrPerson) {
       // WRONG-LOUD RATHER THAN WRONG-QUIET, the call apiBase.ts also makes.
       // With no secret configured the engine cannot present one, and enforcing
       // it would silently stop WhatsApp messages being recorded — data loss
@@ -301,7 +338,15 @@ export function makeApiGuard({ requireAuth, serviceToken }) {
       }
       // A machine that got the token wrong is not a person who can log in, so
       // it is refused here rather than falling through to a session check.
-      return reply.code(401).send({ error: 'UNAUTHENTICATED' });
+      //
+      // UNLESS A PERSON USES THIS ROUTE TOO. On a SERVICE_OR_SESSION_API route
+      // the caller that did not present the secret is far more likely to be a
+      // member of staff at a screen than a misconfigured cron job, and refusing
+      // it here — above requireAuth — turns a valid session into 401 and takes
+      // the screen out of service. Fall through instead: the session check, the
+      // TRACK_ONLY scope and the external-role fence all still run below, so
+      // this admits nobody who could not already reach an ordinary staff route.
+      if (machineOnly) return reply.code(401).send({ error: 'UNAUTHENTICATED' });
     }
 
     // Everything else: a real, unrevoked session. requireAuth re-reads the
