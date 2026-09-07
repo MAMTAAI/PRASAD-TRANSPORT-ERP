@@ -8,13 +8,19 @@ import { useIsMobile } from './hooks/useIsMobile';
 
 // 📊 Compact target-vs-used meter for trip cards (HSD / Cash)
 function TripMeter({ label, used, target, unit, color }) {
-  const pct = target > 0 ? Math.min(100, Math.round((used / target) * 100)) : 0;
-  const over = target > 0 && used > target;
+  // A target of ZERO is a real target — most short IOCL lanes allow no cash at
+  // all — and anything drawn against it is over. Only null/undefined means the
+  // lane was never set. `target > 0` treated the two as one, so a driver who
+  // took cash on a no-cash lane showed a calm empty bar.
+  const known = target !== null && target !== undefined && Number.isFinite(Number(target));
+  const t = known ? Number(target) : null;
+  const pct = known && t > 0 ? Math.min(100, Math.round((used / t) * 100)) : (known && used > 0 ? 100 : 0);
+  const over = known && used > t;
   return (
     <div style={{ flex: 1, minWidth: '130px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
         <span style={{ color: '#9aadd4', fontWeight: 'bold' }}>{label}</span>
-        <span style={{ color: over ? '#ff6b81' : color, fontWeight: 'bold' }}>{unit === '₹' ? `₹${used.toLocaleString('en-IN')}/${target ? '₹' + target.toLocaleString('en-IN') : '—'}` : `${used}/${target || '—'} ${unit}`}</span>
+        <span style={{ color: over ? '#ff6b81' : color, fontWeight: 'bold' }}>{unit === '₹' ? `₹${used.toLocaleString('en-IN')}/${known ? '₹' + t.toLocaleString('en-IN') : '—'}` : `${used}/${known ? t : '—'} ${unit}`}{over ? ' ⚠' : ''}</span>
       </div>
       <div style={{ height: '6px', borderRadius: '3px', background: '#18244a', overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', borderRadius: '3px', background: over ? '#ef4444' : color, transition: 'width .3s' }} />
@@ -78,9 +84,35 @@ const getVal = (obj, keysArr) => {
   for(const k of keysArr) {
       const target = k.toLowerCase().replace(/[^a-z0-9]/g, '');
       const found = objKeys.find(ok => ok.toLowerCase().replace(/[^a-z0-9]/g, '') === target);
-      if(found && obj[found]) return obj[found];
+      // PRESENT, not TRUTHY. `obj[found]` was the test, so a field holding 0 —
+      // or the number 0 for a lane whose cash allowance really is zero — was
+      // treated as missing and the next key in the list was tried instead.
+      if(found && obj[found] !== null && obj[found] !== undefined && obj[found] !== '') return obj[found];
   }
   return '';
+};
+
+/**
+ * A lane target as a NUMBER OR NULL — never 0-for-missing.
+ *
+ * THE BUG THIS EXISTS TO KILL. Every reading of fixed_hsd / fixed_cash was
+ * `parseFloat(...) || 0`, and every renderer then asked `target > 0`. Zero is
+ * falsy in JavaScript, so a lane whose cash allowance is genuinely ₹0 — which
+ * is most short IOCL lanes, and what the RTKM master actually holds for them —
+ * came out identical to a lane nobody has set. On 7-Sep the owner watched the
+ * HSD column fill in (250 L) while the cash column beside it still read "no
+ * lane target", for trips whose cash target had just been written as 0.00.
+ *
+ * null means "nobody has told us". 0 means "the answer is nothing", and a
+ * driver who took ₹200 against it is ₹200 over, which the desk must see.
+ */
+const laneTarget = (...sources) => {
+  for (const v of sources) {
+    if (v === null || v === undefined || v === '') continue;
+    const n = parseFloat(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
 };
 
 // ── 🛣️ FASTag "last passed toll" helpers ────────────────────────────────
@@ -789,11 +821,12 @@ export default function TripManagment() {
     setActiveTrip(trip);
     const masterRoute = findRoute(trip.consignee_name || trip.Consignee_Name);
     
-    let hsdTarget = parseFloat(getVal(trip, ['fixedhsd', 'fixedhsdqty'])) || 0;
-    if (hsdTarget === 0) hsdTarget = parseFloat(getVal(masterRoute, ['fixedhsdqty', 'fixedhsd', 'hsd'])) || 0;
-
-    let cashTarget = parseFloat(getVal(trip, ['fixedcash', 'fixedcashamt'])) || 0;
-    if (cashTarget === 0) cashTarget = parseFloat(getVal(masterRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
+    // The trip's own target wins even when it is zero; the master is the
+    // fallback only when the trip has none at all.
+    const hsdTarget = laneTarget(getVal(trip, ['fixedhsd', 'fixedhsdqty']),
+                                 getVal(masterRoute, ['fixedhsdqty', 'fixedhsd', 'hsd'])) ?? 0;
+    const cashTarget = laneTarget(getVal(trip, ['fixedcash', 'fixedcashamt']),
+                                  getVal(masterRoute, ['fixedcashamt', 'fixedcash', 'cash'])) ?? 0;
 
     const drvInfo = drivers.find(d => checkMatch(d.name || d.driver_name, trip.driver_name || trip.Driver_Name));
     const driverMob = getVal(drvInfo, ['mobileno', 'mobile', 'contact', 'phone']) || trip.driver_mobil_no || trip.Driver_Mobil_No || 'N/A';
@@ -1118,7 +1151,8 @@ export default function TripManagment() {
   let payModalCashIssued = 0;
   if(activeTrip) {
       const mRoute = findRoute(activeTrip.consignee_name || activeTrip.Consignee_Name);
-      payModalCashTarget = parseFloat(getVal(activeTrip, ['fixedcash', 'fixedcashamt'])) || parseFloat(getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
+      payModalCashTarget = laneTarget(getVal(activeTrip, ['fixedcash', 'fixedcashamt']),
+                                      getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) ?? 0;
       payModalCashIssued = parseFloat(activeTrip.office_cash_paid||0) + parseFloat(activeTrip.bank_paid||0) + parseFloat(activeTrip.pump_cash_advance||0);
   }
   const payModalCashBal = payModalCashTarget - payModalCashIssued;
@@ -1910,10 +1944,10 @@ export default function TripManagment() {
           {activeTrips.length === 0 ? <div style={{ padding: '30px', textAlign: 'center', color: '#5d7196' }}>No matching active trips found.</div> :
            pgActiveTrips.slice.map(t => {
             const mRoute = findRoute(t.consignee_name || t.Consignee_Name);
-            let hTarget = parseFloat(getVal(t, ['fixedhsd', 'fixedhsdqty'])) || 0;
-            if (hTarget === 0) hTarget = parseFloat(getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) || 0;
-            let cTarget = parseFloat(getVal(t, ['fixedcash', 'fixedcashamt'])) || 0;
-            if (cTarget === 0) cTarget = parseFloat(getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) || 0;
+            const hTarget = laneTarget(getVal(t, ['fixedhsd', 'fixedhsdqty']),
+                                       getVal(mRoute, ['fixedhsdqty', 'fixedhsd', 'hsd', 'fuel'])) ?? 0;
+            const cTarget = laneTarget(getVal(t, ['fixedcash', 'fixedcashamt']),
+                                       getVal(mRoute, ['fixedcashamt', 'fixedcash', 'cash'])) ?? 0;
             const paidCash = parseFloat(t.office_cash_paid||0) + parseFloat(t.bank_paid||0) + parseFloat(t.pump_cash_advance||0);
             const hsdIssued = parseFloat(t.hsd_issued||0);
             const pill = tripStatusPill(t.trip_status);
@@ -1973,10 +2007,9 @@ export default function TripManagment() {
                 // the full key, and stores it on the trip. A blank here now
                 // means the lane is genuinely unresolved (unknown or
                 // ambiguous), and the desk sets it on the fuel memo.
-                const hTargetRaw = getVal(t, ['fixedhsd', 'fixedhsdqty']);
-                const cTargetRaw = getVal(t, ['fixedcash', 'fixedcashamt']);
-                const hTarget = parseFloat(hTargetRaw) || 0;
-                const cTarget = parseFloat(cTargetRaw) || 0;
+                // null = nobody has set this lane. 0 = the lane allows nothing.
+                const hTarget = laneTarget(getVal(t, ['fixedhsd', 'fixedhsdqty']));
+                const cTarget = laneTarget(getVal(t, ['fixedcash', 'fixedcashamt']));
 
                 const paidCash = parseFloat(t.office_cash_paid||0) + parseFloat(t.bank_paid||0) + parseFloat(t.pump_cash_advance||0);
                 const hsdIssued = parseFloat(t.hsd_issued||0);
@@ -2005,7 +2038,7 @@ export default function TripManagment() {
                   {/* No target = say so. "0 / 0 L · Bal: 0 L" read as a lane
                       that allows nothing, which is why this looked broken. */}
                   <td style={{...styles.td, color: '#2fe39b'}}>
-                    {hTarget > 0 ? (<>
+                    {hTarget !== null ? (<>
                       <b>{hsdIssued}</b> / {hTarget} L<br/>
                       <span style={{ color: (hTarget - hsdIssued) < 0 ? '#ff6b81' : '#2fe39b' }}>
                         Bal: {+(hTarget - hsdIssued).toFixed(3)} L{(hTarget - hsdIssued) < 0 ? ' ⚠ over' : ''}
@@ -2016,7 +2049,7 @@ export default function TripManagment() {
                     </>)}
                   </td>
                   <td style={{...styles.td, color: '#ffb224'}}>
-                    {cTarget > 0 ? (<>
+                    {cTarget !== null ? (<>
                       <b>₹{paidCash}</b> / ₹{cTarget}<br/>
                       <span style={{ color: (cTarget - paidCash) < 0 ? '#ff6b81' : '#ffb224' }}>
                         Bal: ₹{+(cTarget - paidCash).toFixed(2)}{(cTarget - paidCash) < 0 ? ' ⚠ over' : ''}
